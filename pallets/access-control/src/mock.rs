@@ -87,11 +87,23 @@ pub fn new_test_ext_with_roles() -> sp_io::TestExternalities {
     let mut ext: sp_io::TestExternalities = t.into();
     ext.execute_with(|| {
         pallet_access_control::UserRoles::<Test>::insert(ADMIN, pallet_access_control::Role::Admin);
-        pallet_access_control::UserRoles::<Test>::insert(DOCTOR, pallet_access_control::Role::Doctor);
+        pallet_access_control::UserRoles::<Test>::insert(
+            DOCTOR,
+            pallet_access_control::Role::Doctor,
+        );
         pallet_access_control::UserRoles::<Test>::insert(NURSE, pallet_access_control::Role::Nurse);
-        pallet_access_control::UserRoles::<Test>::insert(LAB_TECH, pallet_access_control::Role::LabTechnician);
-        pallet_access_control::UserRoles::<Test>::insert(PHARMACIST, pallet_access_control::Role::Pharmacist);
-        pallet_access_control::UserRoles::<Test>::insert(PATIENT, pallet_access_control::Role::Patient);
+        pallet_access_control::UserRoles::<Test>::insert(
+            LAB_TECH,
+            pallet_access_control::Role::LabTechnician,
+        );
+        pallet_access_control::UserRoles::<Test>::insert(
+            PHARMACIST,
+            pallet_access_control::Role::Pharmacist,
+        );
+        pallet_access_control::UserRoles::<Test>::insert(
+            PATIENT,
+            pallet_access_control::Role::Patient,
+        );
     });
     ext
 }
