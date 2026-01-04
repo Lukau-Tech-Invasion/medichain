@@ -26,7 +26,7 @@ interface AuthState {
   error: string | null;
   
   // Actions
-  login: (userId: string) => Promise<void>;
+  login: (userId: string) => Promise<boolean>;
   logout: () => void;
   setUser: (user: User) => void;
   clearError: () => void;
@@ -94,6 +94,8 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
             error: null,
           });
+          
+          return true;
         } catch (error) {
           set({
             user: null,
@@ -101,6 +103,8 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
             error: error instanceof Error ? error.message : 'Login failed',
           });
+          
+          return false;
         }
       },
 

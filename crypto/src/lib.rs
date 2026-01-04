@@ -175,7 +175,7 @@ impl EncryptionKey {
 // =============================================================================
 
 /// Encrypted data container
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EncryptedData {
     /// Nonce used for encryption
     pub nonce: [u8; NONCE_SIZE],

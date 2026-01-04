@@ -26,8 +26,8 @@ use uuid::Uuid;
 mod ipfs;
 mod nfc_simulator;
 
-use ipfs::{EncryptedMetadata, IpfsClient, IpfsError, MedicalRecordReference, UploadResult};
-use nfc_simulator::{CardRegistry, NFCCard, NationalIdType, QRCodeData, TapResult};
+use ipfs::{EncryptedMetadata, IpfsClient, IpfsError, MedicalRecordReference};
+use nfc_simulator::{CardRegistry, NFCCard, NationalIdType, QRCodeData};
 
 // ============================================================================
 // Data Types
@@ -499,54 +499,183 @@ impl AppState {
     }
 
     /// Seed demo data for hackathon presentation
+    /// Includes 12 diverse African patients with various medical conditions
     fn seed_demo_data(&mut self) {
-        // Demo patient: John Doe
-        let patient_id = "PAT-001-DEMO".to_string();
-        let nfc_tag_id = "NFC-DEMO-001".to_string();
+        // ====================================================================
+        // SAMPLE PATIENTS - 12 diverse African patients
+        // ====================================================================
+        
+        let sample_patients = vec![
+            // Patient 1: Nigeria - Diabetes & Hypertension
+            ("PAT-001-DEMO", "Adebayo Okonkwo", "1985-06-15", "NIN-12345678901",
+             BloodType::OPositive,
+             vec!["Penicillin", "Sulfa drugs"],
+             vec!["Metformin 500mg - twice daily", "Lisinopril 10mg - once daily"],
+             vec!["Type 2 Diabetes", "Hypertension"],
+             ("Chioma Okonkwo", "+234-801-234-5678", "Spouse"),
+             true, false),
+            
+            // Patient 2: Ghana - Sickle Cell
+            ("PAT-002-DEMO", "Kwame Asante", "1992-03-22", "GHA-987654321012",
+             BloodType::APositive,
+             vec!["Aspirin", "NSAIDs"],
+             vec!["Hydroxyurea 500mg - daily", "Folic acid 5mg - daily"],
+             vec!["Sickle Cell Disease"],
+             ("Akosua Asante", "+233-24-123-4567", "Mother"),
+             false, false),
+            
+            // Patient 3: Ethiopia - HIV on ARV
+            ("PAT-003-DEMO", "Tigist Haile", "1988-11-08", "ETH-FAYDA-5566778899",
+             BloodType::BPositive,
+             vec!["Nevirapine"],
+             vec!["Tenofovir/Lamivudine/Dolutegravir - daily"],
+             vec!["HIV (on ARV - undetectable viral load)"],
+             ("Yonas Haile", "+251-91-234-5678", "Brother"),
+             true, false),
+            
+            // Patient 4: Kenya - Asthma & Allergies
+            ("PAT-004-DEMO", "Wanjiku Kamau", "1995-07-30", "KEN-HUDUMA-1122334455",
+             BloodType::ABPositive,
+             vec!["Peanuts", "Shellfish", "Bee stings"],
+             vec!["Salbutamol inhaler - as needed", "Fluticasone inhaler - twice daily", "EpiPen - emergency"],
+             vec!["Severe Asthma", "Anaphylaxis risk"],
+             ("James Kamau", "+254-722-123-456", "Father"),
+             false, false),
+            
+            // Patient 5: South Africa - Heart Condition
+            ("PAT-005-DEMO", "Thabo Ndlovu", "1970-02-14", "ZAF-SMART-6677889900",
+             BloodType::ONegative,
+             vec!["Statins"],
+             vec!["Warfarin 5mg - daily", "Bisoprolol 5mg - daily", "Aspirin 81mg - daily"],
+             vec!["Atrial Fibrillation", "Previous MI (2023)", "CHF - NYHA Class II"],
+             ("Nomvula Ndlovu", "+27-82-345-6789", "Wife"),
+             false, true), // DNR status
+            
+            // Patient 6: Rwanda - Epilepsy
+            ("PAT-006-DEMO", "Umutoni Uwimana", "2000-09-12", "RWA-NID-2233445566",
+             BloodType::APositive,
+             vec![],
+             vec!["Valproate 500mg - twice daily", "Levetiracetam 500mg - twice daily"],
+             vec!["Epilepsy - Grand Mal seizures"],
+             ("Jean-Pierre Uwimana", "+250-78-123-4567", "Father"),
+             true, false),
+            
+            // Patient 7: Tanzania - Pregnancy
+            ("PAT-007-DEMO", "Rehema Mwanga", "1993-04-25", "TZA-NIDA-7788990011",
+             BloodType::BNegative,
+             vec!["Latex"],
+             vec!["Prenatal vitamins - daily", "Iron supplement - daily"],
+             vec!["Pregnancy - 28 weeks", "Rh-negative (Anti-D given)"],
+             ("Hassan Mwanga", "+255-754-321-987", "Husband"),
+             false, false),
+            
+            // Patient 8: Uganda - Malaria history
+            ("PAT-008-DEMO", "Nakato Ssempijja", "1998-12-03", "UGA-NIN-3344556677",
+             BloodType::ABNegative,
+             vec!["Chloroquine"],
+             vec!["Doxycycline 100mg - malaria prophylaxis when traveling"],
+             vec!["Recurrent Malaria (G6PD deficiency)", "Mild Anemia"],
+             ("Joseph Ssempijja", "+256-772-456-789", "Husband"),
+             true, false),
+            
+            // Patient 9: Senegal - Mental Health
+            ("PAT-009-DEMO", "Fatou Diallo", "1982-08-17", "SEN-CNI-9900112233",
+             BloodType::OPositive,
+             vec!["SSRIs - causes severe reaction"],
+             vec!["Mirtazapine 30mg - at bedtime", "Quetiapine 50mg - as needed"],
+             vec!["Major Depressive Disorder", "Generalized Anxiety"],
+             ("Amadou Diallo", "+221-77-123-4567", "Brother"),
+             false, false),
+            
+            // Patient 10: Cameroon - Kidney Disease
+            ("PAT-010-DEMO", "Jean-Baptiste Nkomo", "1975-01-28", "CMR-CNI-4455667788",
+             BloodType::BPositive,
+             vec!["Contrast dye", "ACE inhibitors"],
+             vec!["Calcium carbonate - with meals", "Erythropoietin - weekly injection"],
+             vec!["Chronic Kidney Disease Stage 4", "Hypertension", "Anemia"],
+             ("Marie Nkomo", "+237-677-890-123", "Wife"),
+             true, true), // DNR status
+            
+            // Patient 11: Morocco - Diabetes Type 1
+            ("PAT-011-DEMO", "Yasmine El Amrani", "2005-05-20", "MAR-CNIE-1234509876",
+             BloodType::ANegative,
+             vec!["None known"],
+             vec!["Insulin Lantus 20u - bedtime", "Insulin Novorapid - with meals"],
+             vec!["Type 1 Diabetes", "Celiac Disease"],
+             ("Fatima El Amrani", "+212-661-234-567", "Mother"),
+             true, false),
+            
+            // Patient 12: Egypt - Multiple conditions (elderly)
+            ("PAT-012-DEMO", "Ahmed Hassan Ibrahim", "1948-10-05", "EGY-NID-5678901234",
+             BloodType::OPositive,
+             vec!["Penicillin", "Morphine", "Codeine"],
+             vec!["Amlodipine 10mg - daily", "Metformin 1000mg - twice daily", 
+                  "Atorvastatin 40mg - at bedtime", "Omeprazole 20mg - daily",
+                  "Donepezil 10mg - daily"],
+             vec!["Type 2 Diabetes", "Hypertension", "Hyperlipidemia", 
+                  "GERD", "Mild Dementia", "Osteoarthritis"],
+             ("Sara Ibrahim", "+20-100-234-5678", "Daughter"),
+             false, true), // DNR status
+        ];
+        
+        // Insert all patients
+        for (i, (pat_id, name, dob, nat_id, blood, allergies, meds, conditions, contact, donor, dnr)) in sample_patients.iter().enumerate() {
+            let patient_id = pat_id.to_string();
+            let nfc_tag_id = format!("NFC-DEMO-{:03}", i + 1);
+            
+            let emergency_info = EmergencyInfo {
+                patient_id: patient_id.clone(),
+                blood_type: blood.clone(),
+                allergies: allergies.iter().map(|s| s.to_string()).collect(),
+                current_medications: meds.iter().map(|s| s.to_string()).collect(),
+                chronic_conditions: conditions.iter().map(|s| s.to_string()).collect(),
+                emergency_contacts: vec![EmergencyContact {
+                    name: contact.0.to_string(),
+                    phone: contact.1.to_string(),
+                    relationship: contact.2.to_string(),
+                }],
+                organ_donor: *donor,
+                dnr_status: *dnr,
+                last_updated: Utc::now(),
+            };
 
-        let emergency_info = EmergencyInfo {
-            patient_id: patient_id.clone(),
-            blood_type: BloodType::OPositive,
-            allergies: vec!["Penicillin".to_string(), "Sulfa drugs".to_string()],
-            current_medications: vec![
-                "Metformin 500mg - twice daily".to_string(),
-                "Lisinopril 10mg - once daily".to_string(),
-            ],
-            chronic_conditions: vec!["Type 2 Diabetes".to_string(), "Hypertension".to_string()],
-            emergency_contacts: vec![EmergencyContact {
-                name: "Jane Doe".to_string(),
-                phone: "+234-801-234-5678".to_string(),
-                relationship: "Spouse".to_string(),
-            }],
-            organ_donor: true,
-            dnr_status: false,
-            last_updated: Utc::now(),
-        };
+            let patient = PatientProfile {
+                patient_id: patient_id.clone(),
+                full_name: name.to_string(),
+                date_of_birth: dob.to_string(),
+                national_id: nat_id.to_string(),
+                emergency_info,
+                created_at: Utc::now(),
+                last_updated: Utc::now(),
+            };
 
-        let patient = PatientProfile {
-            patient_id: patient_id.clone(),
-            full_name: "John Doe".to_string(),
-            date_of_birth: "1985-06-15".to_string(),
-            national_id: "NIN-12345678901".to_string(),
-            emergency_info,
-            created_at: Utc::now(),
-            last_updated: Utc::now(),
-        };
+            // Generate NFC tag hash
+            let hash = generate_nfc_hash(&patient_id, &nfc_tag_id);
+            let nfc_tag = NfcTagData {
+                tag_id: nfc_tag_id.clone(),
+                patient_id: patient_id.clone(),
+                hash,
+                created_at: Utc::now(),
+            };
 
-        // Generate NFC tag hash
-        let hash = generate_nfc_hash(&patient_id, &nfc_tag_id);
-        let nfc_tag = NfcTagData {
-            tag_id: nfc_tag_id.clone(),
-            patient_id: patient_id.clone(),
-            hash,
-            created_at: Utc::now(),
-        };
+            // Insert patient data
+            self.patients.write().unwrap().insert(patient_id.clone(), patient);
+            self.nfc_tags.write().unwrap().insert(nfc_tag_id, nfc_tag);
+            
+            // Create user account for patient
+            let patient_user = User {
+                user_id: patient_id.clone(),
+                username: name.to_lowercase().replace(' ', "."),
+                role: Role::Patient,
+                created_at: Utc::now(),
+                created_by: Some("DOC-001".to_string()),
+            };
+            self.users.write().unwrap().insert(patient_id, patient_user);
+        }
 
-        // Insert demo data
-        self.patients.write().unwrap().insert(patient_id, patient);
-        self.nfc_tags.write().unwrap().insert(nfc_tag_id, nfc_tag);
-
-        // Seed demo users with various roles
+        // ====================================================================
+        // HEALTHCARE STAFF USERS
+        // ====================================================================
         let demo_users = vec![
             User {
                 user_id: "ADMIN-001".to_string(),
@@ -557,31 +686,45 @@ impl AppState {
             },
             User {
                 user_id: "DOC-001".to_string(),
-                username: "dr.smith".to_string(),
+                username: "dr.adeola".to_string(),
+                role: Role::Doctor,
+                created_at: Utc::now(),
+                created_by: Some("ADMIN-001".to_string()),
+            },
+            User {
+                user_id: "DOC-002".to_string(),
+                username: "dr.mensah".to_string(),
                 role: Role::Doctor,
                 created_at: Utc::now(),
                 created_by: Some("ADMIN-001".to_string()),
             },
             User {
                 user_id: "NURSE-001".to_string(),
-                username: "nurse.johnson".to_string(),
+                username: "nurse.amina".to_string(),
+                role: Role::Nurse,
+                created_at: Utc::now(),
+                created_by: Some("ADMIN-001".to_string()),
+            },
+            User {
+                user_id: "NURSE-002".to_string(),
+                username: "nurse.tendai".to_string(),
                 role: Role::Nurse,
                 created_at: Utc::now(),
                 created_by: Some("ADMIN-001".to_string()),
             },
             User {
                 user_id: "LAB-001".to_string(),
-                username: "lab.tech".to_string(),
+                username: "lab.kofi".to_string(),
                 role: Role::LabTechnician,
                 created_at: Utc::now(),
                 created_by: Some("ADMIN-001".to_string()),
             },
             User {
-                user_id: "PAT-001-DEMO".to_string(),
-                username: "john.doe".to_string(),
-                role: Role::Patient,
+                user_id: "PHARM-001".to_string(),
+                username: "pharm.nadia".to_string(),
+                role: Role::Pharmacist,
                 created_at: Utc::now(),
-                created_by: Some("DOC-001".to_string()),
+                created_by: Some("ADMIN-001".to_string()),
             },
         ];
 
@@ -590,6 +733,96 @@ impl AppState {
                 .write()
                 .unwrap()
                 .insert(user.user_id.clone(), user);
+        }
+        
+        // ====================================================================
+        // SAMPLE LAB RESULTS (pending approval)
+        // ====================================================================
+        let sample_lab_submissions = vec![
+            LabResultSubmission {
+                id: "LAB-DEMO-001".to_string(),
+                patient_id: "PAT-001-DEMO".to_string(),
+                patient_name: "Adebayo Okonkwo".to_string(),
+                test_name: "Complete Blood Count (CBC)".to_string(),
+                test_category: "Hematology".to_string(),
+                results: vec![
+                    LabTestResult { parameter: "Hemoglobin".to_string(), value: "14.2".to_string(), unit: "g/dL".to_string(), reference_range: "13.5-17.5".to_string(), flag: None },
+                    LabTestResult { parameter: "WBC Count".to_string(), value: "7.5".to_string(), unit: "x10^9/L".to_string(), reference_range: "4.5-11.0".to_string(), flag: None },
+                    LabTestResult { parameter: "Platelet Count".to_string(), value: "245".to_string(), unit: "x10^9/L".to_string(), reference_range: "150-400".to_string(), flag: None },
+                ],
+                notes: Some("Routine check - all values within normal range".to_string()),
+                submitted_by: "LAB-001".to_string(),
+                submitted_at: Utc::now(),
+                status: LabResultStatus::Pending,
+                reviewed_by: None,
+                reviewed_at: None,
+                rejection_reason: None,
+                content_hash: None,
+                metadata_hash: None,
+            },
+            LabResultSubmission {
+                id: "LAB-DEMO-002".to_string(),
+                patient_id: "PAT-001-DEMO".to_string(),
+                patient_name: "Adebayo Okonkwo".to_string(),
+                test_name: "HbA1c (Glycated Hemoglobin)".to_string(),
+                test_category: "Chemistry".to_string(),
+                results: vec![
+                    LabTestResult { parameter: "HbA1c".to_string(), value: "7.2".to_string(), unit: "%".to_string(), reference_range: "<5.7".to_string(), flag: Some("HIGH".to_string()) },
+                ],
+                notes: Some("Slightly elevated - patient is diabetic, discuss with doctor".to_string()),
+                submitted_by: "LAB-001".to_string(),
+                submitted_at: Utc::now(),
+                status: LabResultStatus::Pending,
+                reviewed_by: None,
+                reviewed_at: None,
+                rejection_reason: None,
+                content_hash: None,
+                metadata_hash: None,
+            },
+            LabResultSubmission {
+                id: "LAB-DEMO-003".to_string(),
+                patient_id: "PAT-003-DEMO".to_string(),
+                patient_name: "Tigist Haile".to_string(),
+                test_name: "HIV Viral Load".to_string(),
+                test_category: "Virology".to_string(),
+                results: vec![
+                    LabTestResult { parameter: "HIV-1 RNA".to_string(), value: "<20".to_string(), unit: "copies/mL".to_string(), reference_range: "<20 (undetectable)".to_string(), flag: None },
+                ],
+                notes: Some("Viral load undetectable - ARV therapy effective".to_string()),
+                submitted_by: "LAB-001".to_string(),
+                submitted_at: Utc::now(),
+                status: LabResultStatus::Approved,
+                reviewed_by: Some("DOC-001".to_string()),
+                reviewed_at: Some(Utc::now()),
+                rejection_reason: None,
+                content_hash: Some("Qm-approved-demo".to_string()),
+                metadata_hash: Some("Qm-meta-demo".to_string()),
+            },
+            LabResultSubmission {
+                id: "LAB-DEMO-004".to_string(),
+                patient_id: "PAT-010-DEMO".to_string(),
+                patient_name: "Jean-Baptiste Nkomo".to_string(),
+                test_name: "Kidney Function Panel".to_string(),
+                test_category: "Chemistry".to_string(),
+                results: vec![
+                    LabTestResult { parameter: "Creatinine".to_string(), value: "4.2".to_string(), unit: "mg/dL".to_string(), reference_range: "0.7-1.3".to_string(), flag: Some("HIGH".to_string()) },
+                    LabTestResult { parameter: "BUN".to_string(), value: "45".to_string(), unit: "mg/dL".to_string(), reference_range: "7-20".to_string(), flag: Some("HIGH".to_string()) },
+                    LabTestResult { parameter: "eGFR".to_string(), value: "18".to_string(), unit: "mL/min/1.73m²".to_string(), reference_range: ">90".to_string(), flag: Some("CRITICAL".to_string()) },
+                ],
+                notes: Some("CKD Stage 4 - eGFR declining, nephrology consult recommended".to_string()),
+                submitted_by: "LAB-001".to_string(),
+                submitted_at: Utc::now(),
+                status: LabResultStatus::Pending,
+                reviewed_by: None,
+                reviewed_at: None,
+                rejection_reason: None,
+                content_hash: None,
+                metadata_hash: None,
+            },
+        ];
+        
+        for submission in sample_lab_submissions {
+            self.lab_submissions.write().unwrap().insert(submission.id.clone(), submission);
         }
     }
 }

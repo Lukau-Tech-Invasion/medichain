@@ -29,6 +29,7 @@ pub struct IpfsClient {
 /// Response from IPFS add operation
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[allow(dead_code)]
 pub struct IpfsAddResponse {
     /// Content identifier (hash)
     pub hash: String,
@@ -192,7 +193,7 @@ impl IpfsClient {
         let original_size = content.len();
 
         // Encrypt the content
-        let encrypted_content = encrypt(content, encryption_key)?;
+        let encrypted_content = encrypt(encryption_key, content)?;
         let encrypted_size = encrypted_content.ciphertext.len();
 
         // Serialize encrypted data for storage
@@ -207,7 +208,7 @@ impl IpfsClient {
         // Encrypt and upload metadata
         let metadata_json =
             serde_json::to_vec(&metadata).map_err(|e| IpfsError::IoError(e.to_string()))?;
-        let encrypted_metadata = encrypt(&metadata_json, encryption_key)?;
+        let encrypted_metadata = encrypt(encryption_key, &metadata_json)?;
         let metadata_bytes = serde_json::to_vec(&encrypted_metadata)
             .map_err(|e| IpfsError::IoError(e.to_string()))?;
 
@@ -245,7 +246,7 @@ impl IpfsClient {
         let encrypted_metadata: medichain_crypto::EncryptedData =
             serde_json::from_slice(&metadata_bytes)
                 .map_err(|e| IpfsError::ParseError(e.to_string()))?;
-        let metadata_json = decrypt(&encrypted_metadata, encryption_key)?;
+        let metadata_json = decrypt(encryption_key, &encrypted_metadata)?;
         let metadata: EncryptedMetadata = serde_json::from_slice(&metadata_json)
             .map_err(|e| IpfsError::ParseError(e.to_string()))?;
 
@@ -254,7 +255,7 @@ impl IpfsClient {
         let encrypted_content: medichain_crypto::EncryptedData =
             serde_json::from_slice(&content_bytes)
                 .map_err(|e| IpfsError::ParseError(e.to_string()))?;
-        let content = decrypt(&encrypted_content, encryption_key)?;
+        let content = decrypt(encryption_key, &encrypted_content)?;
 
         Ok(DownloadResult { content, metadata })
     }

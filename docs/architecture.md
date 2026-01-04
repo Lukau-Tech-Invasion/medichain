@@ -172,7 +172,7 @@ Substrate node implementation with:
 Cryptographic utilities:
 - Hash functions (SHA-256, Blake2)
 - Digital signatures (Ed25519)
-- Encryption (AES-256-GCM)
+- Encryption (ChaCha20-Poly1305)
 - Key derivation (Argon2)
 
 ---
@@ -250,7 +250,7 @@ Provider → API → Emergency Access Request → Time-Limited Grant
 |---------|-----------|----------|
 | Hashing | SHA-256 / Blake2 | 256 bits |
 | Signing | Ed25519 | 256 bits |
-| Encryption | AES-256-GCM | 256 bits |
+| Encryption | ChaCha20-Poly1305 | 256 bits |
 | Key Derivation | Argon2id | Variable |
 
 ---
