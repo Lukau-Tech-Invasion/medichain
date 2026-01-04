@@ -1,0 +1,123 @@
+# MediChain CI Workflow
+# Runs on every push and pull request to main branch
+
+name: MediChain CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================================================
+  # Rust Backend (Substrate pallets, API, crypto, node)
+  # ============================================================================
+  rust:
+    name: Rust CI
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy (linting)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test --all-features
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Security audit
+        run: cargo audit
+
+  # ============================================================================
+  # TypeScript/React Client Apps (doctor-portal, patient-app)
+  # ============================================================================
+  client:
+    name: Client CI
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: client
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared library
+        run: npm run build --workspace=shared
+
+      - name: Build doctor portal
+        run: npm run build --workspace=doctor-portal
+
+      - name: Build patient app
+        run: npm run build --workspace=patient-app
+
+      - name: Run linting
+        run: npm run lint --workspaces --if-present
+
+  # ============================================================================
+  # WebAssembly Crypto Module
+  # ============================================================================
+  wasm:
+    name: WASM Crypto CI
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build WASM module
+        working-directory: client/wasm-crypto
+        run: wasm-pack build --target web
+
+      - name: Run WASM tests
+        working-directory: client/wasm-crypto
+        run: wasm-pack test --node
