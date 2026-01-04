@@ -133,7 +133,7 @@ function LabResultsPage() {
       setSubmissions(prev => 
         prev.map(s => 
           s.id === submissionId 
-            ? { ...s, status: 'approved' as const, reviewed_by: user?.user_id, reviewed_at: new Date().toISOString() }
+            ? { ...s, status: 'approved' as const, reviewed_by: user?.userId, reviewed_at: new Date().toISOString() }
             : s
         )
       );
@@ -160,7 +160,7 @@ function LabResultsPage() {
             ? { 
                 ...s, 
                 status: 'rejected' as const, 
-                reviewed_by: user?.user_id, 
+                reviewed_by: user?.userId, 
                 reviewed_at: new Date().toISOString(),
                 rejection_reason: rejectionReason,
               }
