@@ -1,0 +1,25 @@
+{
+  "name": "medichain-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MediChain Client Applications",
+  "workspaces": [
+    "shared",
+    "doctor-portal",
+    "patient-app"
+  ],
+  "scripts": {
+    "dev:doctor": "npm run dev --workspace=doctor-portal",
+    "dev:patient": "npm run dev --workspace=patient-app",
+    "dev:all": "npm run dev:doctor & npm run dev:patient",
+    "build:shared": "npm run build --workspace=shared",
+    "build:doctor": "npm run build --workspace=doctor-portal",
+    "build:patient": "npm run build --workspace=patient-app",
+    "build:all": "npm run build:shared && npm run build:doctor && npm run build:patient",
+    "install:all": "npm install"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

@@ -1,0 +1,44 @@
+[package]
+name = "medichain-api"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "MediChain REST API Server - Emergency medical records access"
+
+[[bin]]
+name = "medichain-api"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+actix-web = "4.9"
+actix-cors = "0.7"
+actix-rt = "2.10"
+
+# Async runtime
+tokio = { version = "1.42", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
+log = "0.4"
+env_logger = "0.11"
+
+# Cryptography for NFC simulation
+sha3 = "0.10"
+hex = "0.4"
+
+# QR Code generation
+qrcode = "0.14"
+image = "0.25"
+base64 = "0.22"
+
+# IPFS client
+reqwest = { version = "0.12", features = ["json", "multipart"] }
+
+# Crypto module
+medichain-crypto = { path = "../crypto" }

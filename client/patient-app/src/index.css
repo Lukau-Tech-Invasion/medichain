@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+:root {
+  --color-primary: #007AFF;
+  --color-success: #34C759;
+  --color-emergency: #FF3B30;
+  --color-health: #22c55e;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  @apply bg-neutral-50 text-neutral-900;
+}
+
+/* Dark mode base */
+.dark body {
+  @apply bg-neutral-900 text-neutral-100;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-neutral-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-neutral-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-neutral-400;
+}
+
+.dark ::-webkit-scrollbar-track {
+  @apply bg-neutral-800;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-neutral-600;
+}
+
+/* Patient card styling */
+@layer components {
+  .patient-card {
+    @apply bg-white rounded-xl shadow-card p-6 transition-all duration-200;
+  }
+
+  .patient-card:hover {
+    @apply shadow-card-hover transform -translate-y-0.5;
+  }
+
+  .dark .patient-card {
+    @apply bg-neutral-800;
+  }
+
+  /* Health status indicator */
+  .health-indicator {
+    @apply w-3 h-3 rounded-full bg-health animate-health-pulse;
+  }
+
+  /* QR code container */
+  .qr-container {
+    @apply bg-white p-4 rounded-xl shadow-lg inline-block;
+  }
+
+  /* Action button - patient focused */
+  .action-btn {
+    @apply flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all duration-200;
+  }
+
+  .action-btn-primary {
+    @apply action-btn bg-primary-500 text-white hover:bg-primary-600 active:scale-98;
+  }
+
+  .action-btn-success {
+    @apply action-btn bg-success-400 text-white hover:bg-success-500 active:scale-98;
+  }
+
+  .action-btn-outline {
+    @apply action-btn border-2 border-neutral-200 text-neutral-700 hover:bg-neutral-50;
+  }
+
+  /* Info card */
+  .info-card {
+    @apply bg-info-light border border-info/20 rounded-xl p-4;
+  }
+
+  /* Warning card */
+  .warning-card {
+    @apply bg-emergency-50 border border-emergency-400/20 rounded-xl p-4;
+  }
+
+  /* Navigation link - patient app style */
+  .nav-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-neutral-600 hover:bg-neutral-100 transition-colors;
+  }
+
+  .nav-link.active {
+    @apply bg-primary-50 text-primary-500 font-medium;
+  }
+
+  .dark .nav-link {
+    @apply text-neutral-400 hover:bg-neutral-800;
+  }
+
+  .dark .nav-link.active {
+    @apply bg-primary-900/30 text-primary-400;
+  }
+}
+
+/* Utility classes */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .active\:scale-98:active {
+    transform: scale(0.98);
+  }
+
+  /* Safe area padding for mobile */
+  .safe-area-inset {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Loading skeleton animation */
+.skeleton {
+  @apply bg-neutral-200 animate-pulse rounded;
+}
+
+.dark .skeleton {
+  @apply bg-neutral-700;
+}
+
+/* Focus styles for accessibility */
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-primary-500;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+}

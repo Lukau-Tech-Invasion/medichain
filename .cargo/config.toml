@@ -1,0 +1,6 @@
+[build]
+rustflags = [
+    "-W", "warnings",
+    "-W", "unconditional_recursion",
+    "-W", "rust-2021-compatibility"
+]

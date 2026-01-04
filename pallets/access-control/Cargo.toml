@@ -1,0 +1,32 @@
+[package]
+name = "pallet-access-control"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-std = { workspace = true }
+parity-scale-codec = { workspace = true }
+scale-info = { workspace = true }
+
+[dev-dependencies]
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"frame-support/std",
+	"frame-system/std",
+	"sp-std/std",
+	"parity-scale-codec/std",
+	"scale-info/std",
+]
+
+
+[lib]
+name = "pallet_access_control"
+path = "src/lib.rs"
+crate-type = ["lib"]

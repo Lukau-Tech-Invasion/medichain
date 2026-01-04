@@ -1,0 +1,49 @@
+[package]
+name = "medichain-wasm-crypto"
+version = "0.1.0"
+edition = "2021"
+authors = ["Trustware <dev@trustware.io>"]
+description = "MediChain WebAssembly cryptographic module for browser-based encryption"
+license = "MIT"
+repository = "https://github.com/trustware/medichain"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+wasm-bindgen = "0.2.93"
+js-sys = "0.3.70"
+web-sys = { version = "0.3.70", features = ["console"] }
+
+# Crypto primitives
+chacha20poly1305 = "0.10.1"
+sha2 = "0.10.8"
+rand = { version = "0.8.5", features = ["getrandom"] }
+getrandom = { version = "0.2.12", features = ["js"] }
+
+# QR code generation
+qrcode = "0.14.1"
+image = { version = "0.25.1", default-features = false, features = ["png"] }
+base64 = "0.22.1"
+
+# Error handling
+thiserror = "1.0.56"
+
+# Optional: better panic messages in browser console
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+# Serialization
+serde = { version = "1.0.196", features = ["derive"] }
+serde_json = "1.0.113"
+serde-wasm-bindgen = "0.6.3"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.43"
+
+[profile.release]
+# Optimize for size (important for WASM)
+opt-level = "s"
+lto = true

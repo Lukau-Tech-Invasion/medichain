@@ -1,0 +1,11 @@
+[package]
+name = "medichain-node"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Add Substrate and node dependencies here
+
+[[bin]]
+name = "medichain-node"
+path = "src/main.rs"

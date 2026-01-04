@@ -1,0 +1,51 @@
+[package]
+name = "medichain-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "MediChain blockchain runtime - Emergency medical records system"
+
+[lib]
+name = "medichain_runtime"
+path = "src/lib.rs"
+
+[dependencies]
+# Substrate core dependencies
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-runtime = { workspace = true }
+sp-core = { workspace = true }
+parity-scale-codec = { workspace = true }
+scale-info = { workspace = true }
+
+# Substrate pallets
+pallet-timestamp = { version = "37.0.0", default-features = false }
+pallet-balances = { version = "39.0.0", default-features = false }
+pallet-transaction-payment = { version = "38.0.0", default-features = false }
+
+# MediChain custom pallets
+pallet-patient-identity = { path = "../pallets/patient-identity", default-features = false }
+pallet-medical-records = { path = "../pallets/medical-records", default-features = false }
+pallet-access-control = { path = "../pallets/access-control", default-features = false }
+
+[dev-dependencies]
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "sp-core/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "pallet-timestamp/std",
+    "pallet-balances/std",
+    "pallet-transaction-payment/std",
+    "pallet-patient-identity/std",
+    "pallet-medical-records/std",
+    "pallet-access-control/std",
+]
