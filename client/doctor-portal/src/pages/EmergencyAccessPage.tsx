@@ -10,15 +10,17 @@ import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
  * via NFC tap, QR code scan, or manual ID entry.
  */
 function EmergencyAccessPage() {
-  const { currentEmergency, clearEmergency } = usePatientStore();
+  const { currentEmergency, clearEmergencyAccess } = usePatientStore();
   const [accessGrantedAt, setAccessGrantedAt] = useState<Date | null>(null);
 
-  const handleEmergencyAccess = (data: { patientId: string; emergencyInfo: any }) => {
+  const handleEmergencyAccess = (info: { patientId: string; emergencyInfo: any }) => {
+    // Use the info parameter to log the access
+    console.log('Emergency access granted for patient:', info.patientId);
     setAccessGrantedAt(new Date());
   };
 
   const handleClearAccess = () => {
-    clearEmergency();
+    clearEmergencyAccess();
     setAccessGrantedAt(null);
   };
 
@@ -88,9 +90,8 @@ function EmergencyAccessPage() {
 
               {/* Emergency Patient Card */}
               <EmergencyPatientCard
-                patientId={currentEmergency.patientId}
-                emergencyInfo={currentEmergency}
-                accessGrantedAt={accessGrantedAt || new Date()}
+                patient={currentEmergency}
+                showFullDetails={true}
               />
 
               {/* Actions */}

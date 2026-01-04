@@ -155,7 +155,7 @@ function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-gray-500">
                   <Clock size={14} />
-                  <span>{new Date(patient.lastAccessed).toLocaleDateString()}</span>
+                  <span>{patient.lastAccessed ? new Date(patient.lastAccessed).toLocaleDateString() : 'N/A'}</span>
                 </div>
               </Link>
             ))}

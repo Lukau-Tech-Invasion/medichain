@@ -18,7 +18,7 @@ interface Patient {
 function PatientSearchPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const { searchResults, setSearchResults, addRecentPatient } = usePatientStore();
+  const { searchResults, setSearchResults, addToRecentPatients } = usePatientStore();
 
   // Mock patient data for demo
   const mockPatients: Patient[] = [
@@ -72,19 +72,48 @@ function PatientSearchPage() {
         p.nationalHealthId.toLowerCase().includes(searchQuery.toLowerCase())
     );
     
-    setSearchResults(results);
+    // Convert Patient to EmergencyInfo format for store
+    const emergencyInfoResults = results.map(p => ({
+      patientId: p.patientId,
+      fullName: p.fullName,
+      bloodType: p.bloodType,
+      allergies: [],
+      currentMedications: [],
+      chronicConditions: [],
+      emergencyContacts: [],
+      organDonor: false,
+      dnrStatus: false,
+      lastUpdated: p.lastVisit || new Date().toISOString(),
+      lastAccessed: new Date().toISOString(),
+    }));
+    
+    setSearchResults(emergencyInfoResults);
     setIsSearching(false);
   };
 
   const handlePatientClick = (patient: Patient) => {
-    addRecentPatient({
+    // Convert Patient to EmergencyInfo format for store
+    const emergencyInfo = {
       patientId: patient.patientId,
       fullName: patient.fullName,
+      bloodType: patient.bloodType,
+      allergies: [] as string[],
+      currentMedications: [] as string[],
+      chronicConditions: [] as string[],
+      emergencyContacts: [] as { name: string; phone: string; relationship: string }[],
+      organDonor: false,
+      dnrStatus: false,
+      lastUpdated: patient.lastVisit ?? new Date().toISOString(),
       lastAccessed: new Date().toISOString(),
-    });
+    };
+    addToRecentPatients(emergencyInfo);
   };
 
-  const displayPatients = searchResults.length > 0 ? searchResults : mockPatients;
+  // Show search results as Patient[] or default mockPatients
+  // Note: searchResults is EmergencyInfo[] but we need Patient[] for display
+  const displayPatients: Patient[] = mockPatients.filter(p => 
+    searchResults.length === 0 || searchResults.some(r => r.patientId === p.patientId)
+  );
 
   return (
     <div className="p-8">

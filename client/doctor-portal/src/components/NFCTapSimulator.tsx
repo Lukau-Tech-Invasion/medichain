@@ -9,10 +9,17 @@ import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'luci
 type TapState = 'idle' | 'waiting' | 'success' | 'error';
 
 /**
+ * Props for NFCTapSimulator component
+ */
+interface NFCTapSimulatorProps {
+  onEmergencyAccess?: (data: { patientId: string; emergencyInfo: any }) => void;
+}
+
+/**
  * NFC Tap Simulator component
  * Simulates NFC card tap for emergency medical record access
  */
-function NFCTapSimulator() {
+function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { setEmergencyAccess } = usePatientStore();
@@ -58,20 +65,24 @@ function NFCTapSimulator() {
       }
 
       // Store emergency info
-      setEmergencyAccess(
-        {
-          patientId: data.emergency_info.patient_id,
-          bloodType: data.emergency_info.blood_type,
-          allergies: data.emergency_info.allergies,
-          currentMedications: data.emergency_info.current_medications,
-          chronicConditions: data.emergency_info.chronic_conditions,
-          emergencyContacts: data.emergency_info.emergency_contacts,
-          organDonor: data.emergency_info.organ_donor,
-          dnrStatus: data.emergency_info.dnr_status,
-          lastUpdated: data.emergency_info.last_updated,
-        },
-        data.access_id
-      );
+      const emergencyInfo = {
+        patientId: data.emergency_info.patient_id,
+        bloodType: data.emergency_info.blood_type,
+        allergies: data.emergency_info.allergies,
+        currentMedications: data.emergency_info.current_medications,
+        chronicConditions: data.emergency_info.chronic_conditions,
+        emergencyContacts: data.emergency_info.emergency_contacts,
+        organDonor: data.emergency_info.organ_donor,
+        dnrStatus: data.emergency_info.dnr_status,
+        lastUpdated: data.emergency_info.last_updated,
+      };
+      
+      setEmergencyAccess(emergencyInfo, data.access_id);
+
+      // Call optional callback for parent component
+      if (onEmergencyAccess) {
+        onEmergencyAccess({ patientId: emergencyInfo.patientId, emergencyInfo });
+      }
 
       setTapState('success');
 
@@ -83,7 +94,7 @@ function NFCTapSimulator() {
       setTapState('error');
       setError(err instanceof Error ? err.message : 'Failed to access records');
     }
-  }, [user, setEmergencyAccess, navigate]);
+  }, [user, setEmergencyAccess, navigate, onEmergencyAccess]);
 
   /**
    * Use demo NFC tag

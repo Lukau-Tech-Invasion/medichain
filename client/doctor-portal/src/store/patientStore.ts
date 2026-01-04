@@ -17,6 +17,9 @@ export interface EmergencyInfo {
   organDonor: boolean;
   dnrStatus: boolean;
   lastUpdated: string;
+  // Optional display fields for UI
+  fullName?: string;
+  lastAccessed?: string;
 }
 
 /**

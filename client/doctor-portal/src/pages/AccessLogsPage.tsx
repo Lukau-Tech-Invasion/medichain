@@ -81,7 +81,8 @@ const mockAccessLogs: AccessLog[] = [
 ];
 
 function AccessLogsPage() {
-  const { user } = useAuthStore();
+  // Note: user is available for future API calls requiring authentication
+  const { user: _user } = useAuthStore();
   const [logs, setLogs] = useState<AccessLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
