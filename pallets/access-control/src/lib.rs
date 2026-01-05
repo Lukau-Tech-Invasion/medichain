@@ -48,7 +48,9 @@ pub mod pallet {
     /// - LabTechnician: Can add lab results only
     /// - Pharmacist: Can view prescriptions, mark as dispensed
     /// - Patient: Read-only access to own records (enforced at API layer)
-    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen, Copy)]
+    #[derive(
+        Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen, Copy, Default,
+    )]
     pub enum Role {
         /// System administrator (Ministry of Health)
         Admin,
@@ -61,30 +63,22 @@ pub mod pallet {
         /// Licensed pharmacist
         Pharmacist,
         /// Patient (read-only, cannot self-register)
+        #[default]
         Patient,
     }
 
-    impl Default for Role {
-        fn default() -> Self {
-            Role::Patient
-        }
-    }
-
     /// Type of access granted
-    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    #[derive(
+        Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+    )]
     pub enum AccessType {
         /// Emergency access (time-limited, auto-expires)
+        #[default]
         Emergency,
         /// Regular access (granted by patient)
         Regular,
         /// Full access (for primary care provider)
         Full,
-    }
-
-    impl Default for AccessType {
-        fn default() -> Self {
-            AccessType::Emergency
-        }
     }
 
     /// Access log entry stored on-chain

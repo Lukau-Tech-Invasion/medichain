@@ -6,7 +6,7 @@
 import { clsx } from 'clsx';
 import { User, Heart, AlertTriangle, Phone, Droplets, Pill, Activity } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from './Card';
-import { Badge, StatusBadge } from './Badge';
+import { Badge } from './Badge';
 import type { PatientProfile, EmergencyInfo } from '../types';
 
 export interface PatientCardProps {

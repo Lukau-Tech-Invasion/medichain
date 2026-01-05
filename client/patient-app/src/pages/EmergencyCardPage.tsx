@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  CreditCard,
-  QrCode,
-  Smartphone,
   AlertTriangle,
   Heart,
   Droplet,
@@ -10,7 +7,6 @@ import {
   Phone,
   Shield,
   RefreshCw,
-  Download,
   Share2,
   Copy,
   Check,
@@ -51,7 +47,6 @@ interface EmergencyData {
 export function EmergencyCardPage() {
   const [emergencyData, setEmergencyData] = useState<EmergencyData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showFullCard, setShowFullCard] = useState(false);
   const [showMedicalInfo, setShowMedicalInfo] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);

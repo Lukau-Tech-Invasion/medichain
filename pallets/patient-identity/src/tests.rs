@@ -24,7 +24,7 @@ fn register_patient_works() {
         // Verify identity was stored
         let identity = PatientIdentity::identities(PATIENT).unwrap();
         assert_eq!(identity.id_hash, id_hash);
-        assert_eq!(identity.verified, false);
+        assert!(!identity.verified);
         assert_eq!(identity.registered_by, DOCTOR);
 
         // Verify patient role was assigned
@@ -143,7 +143,7 @@ fn verify_identity_works() {
         ));
 
         let identity = PatientIdentity::identities(PATIENT).unwrap();
-        assert_eq!(identity.verified, true);
+        assert!(identity.verified);
     });
 }
 

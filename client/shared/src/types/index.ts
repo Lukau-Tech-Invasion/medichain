@@ -326,5 +326,5 @@ export interface PendingLabResultsResponse {
 export type ApiResponse<T> = T | ApiError;
 
 export function isApiError(response: ApiResponse<unknown>): response is ApiError {
-  return (response as ApiError).success === false && 'error' in response;
+  return typeof response === 'object' && response !== null && (response as ApiError).success === false && 'error' in (response as object);
 }

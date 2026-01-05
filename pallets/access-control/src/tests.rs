@@ -159,7 +159,7 @@ fn grant_emergency_access_works() {
         // Verify access was granted
         let access = AccessControl::active_access(patient, DOCTOR).unwrap();
         assert_eq!(access.reason_hash, reason_hash);
-        assert_eq!(access.revoked, false);
+        assert!(!access.revoked);
         assert!(matches!(access.access_type, AccessType::Emergency));
     });
 }
@@ -224,7 +224,7 @@ fn revoke_access_by_patient_works() {
         ));
 
         let access = AccessControl::active_access(PATIENT, DOCTOR).unwrap();
-        assert_eq!(access.revoked, true);
+        assert!(access.revoked);
     });
 }
 
@@ -246,7 +246,7 @@ fn revoke_access_by_accessor_works() {
         ));
 
         let access = AccessControl::active_access(PATIENT, DOCTOR).unwrap();
-        assert_eq!(access.revoked, true);
+        assert!(access.revoked);
     });
 }
 

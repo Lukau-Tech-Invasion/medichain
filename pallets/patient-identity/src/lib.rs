@@ -32,9 +32,12 @@ pub mod pallet {
     pub const MAX_NAME_LENGTH: u32 = 128;
 
     /// Supported national ID types across Africa
-    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    #[derive(
+        Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+    )]
     pub enum NationalIdType {
         /// Ethiopia's Fayda Digital ID
+        #[default]
         FaydaID,
         /// Ghana's National ID Card
         GhanaCard,
@@ -42,12 +45,6 @@ pub mod pallet {
         NIN,
         /// South Africa's Smart ID Card
         SmartID,
-    }
-
-    impl Default for NationalIdType {
-        fn default() -> Self {
-            NationalIdType::FaydaID
-        }
     }
 
     /// Identity struct stored on-chain
@@ -163,7 +160,7 @@ pub mod pallet {
                 Error::<T>::AlreadyRegistered
             );
             ensure!(
-                !IdToAccount::<T>::contains_key(&id_hash),
+                !IdToAccount::<T>::contains_key(id_hash),
                 Error::<T>::IdAlreadyLinked
             );
 
@@ -180,7 +177,7 @@ pub mod pallet {
 
             // Store identity
             Identities::<T>::insert(&patient, identity);
-            IdToAccount::<T>::insert(&id_hash, &patient);
+            IdToAccount::<T>::insert(id_hash, &patient);
 
             // Also assign Patient role to the new patient account
             // (This will fail if they already have a role, which is fine)

@@ -11,7 +11,6 @@ import {
   Key,
   LogOut,
   ChevronRight,
-  Check,
   AlertTriangle,
   Info,
   HelpCircle,
@@ -52,8 +51,10 @@ interface AppSettings {
  * © 2025 Trustware. All rights reserved.
  */
 export function SettingsPage() {
-  const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  // Note: activeSection and isSaving are set but UI sections not yet implemented
+  // Prefixed with _ to indicate intentionally unused pending full implementation
+  const [_activeSection, setActiveSection] = useState<string | null>(null);
+  const [_isSaving, setIsSaving] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const [notifications, setNotifications] = useState<NotificationSettings>({
@@ -80,7 +81,8 @@ export function SettingsPage() {
     biometricLogin: true,
   });
 
-  const handleSave = async () => {
+  // Save handler ready for when modal UI is implemented
+  const _handleSave = async () => {
     setIsSaving(true);
     await new Promise(resolve => setTimeout(resolve, 1000));
     setIsSaving(false);

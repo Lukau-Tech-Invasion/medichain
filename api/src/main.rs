@@ -287,17 +287,12 @@ pub struct ErrorResponse {
 // ============================================================================
 
 /// Status of lab result submission
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum LabResultStatus {
+    #[default]
     Pending,
     Approved,
     Rejected,
-}
-
-impl Default for LabResultStatus {
-    fn default() -> Self {
-        LabResultStatus::Pending
-    }
 }
 
 impl std::fmt::Display for LabResultStatus {
@@ -1973,7 +1968,7 @@ async fn upload_medical_record(
         let mut records = data.medical_records.write().unwrap();
         records
             .entry(req.patient_id.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(record_ref.clone());
     }
 
@@ -2039,9 +2034,8 @@ async fn download_medical_record(
         let records = data.medical_records.read().unwrap();
         let patient_records = records.get(&current_user_id);
 
-        let owns_record = patient_records.map_or(false, |recs| {
-            recs.iter().any(|r| r.content_hash == req.content_hash)
-        });
+        let owns_record = patient_records
+            .is_some_and(|recs| recs.iter().any(|r| r.content_hash == req.content_hash));
 
         if !owns_record {
             return HttpResponse::Forbidden().json(ErrorResponse {
@@ -2611,7 +2605,7 @@ async fn review_lab_results(
             let mut records = data.medical_records.write().unwrap();
             records
                 .entry(patient_id.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(record_ref);
         }
 

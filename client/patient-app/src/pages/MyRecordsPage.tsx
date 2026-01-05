@@ -5,7 +5,6 @@ import {
   Eye,
   Calendar,
   User,
-  Filter,
   Search,
   ChevronRight,
   X,

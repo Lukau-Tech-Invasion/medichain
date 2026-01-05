@@ -35,7 +35,9 @@ pub mod pallet {
     pub const MAX_NAME_LENGTH: u32 = 128;
 
     /// Blood type enumeration
-    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    #[derive(
+        Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+    )]
     pub enum BloodType {
         APositive,
         ANegative,
@@ -45,13 +47,8 @@ pub mod pallet {
         ABNegative,
         OPositive,
         ONegative,
+        #[default]
         Unknown,
-    }
-
-    impl Default for BloodType {
-        fn default() -> Self {
-            BloodType::Unknown
-        }
     }
 
     /// Medical alert for critical conditions
@@ -66,19 +63,16 @@ pub mod pallet {
     }
 
     /// Types of medical alerts
-    #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    #[derive(
+        Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+    )]
     pub enum AlertType {
         Allergy,
         ChronicCondition,
         Medication,
         Disability,
+        #[default]
         Other,
-    }
-
-    impl Default for AlertType {
-        fn default() -> Self {
-            AlertType::Other
-        }
     }
 
     /// Health record stored on-chain (metadata only)
@@ -252,7 +246,7 @@ pub mod pallet {
             );
 
             // Validate severity (Rule 6: check early)
-            ensure!(severity >= 1 && severity <= 5, Error::<T>::InvalidSeverity);
+            ensure!((1..=5).contains(&severity), Error::<T>::InvalidSeverity);
 
             HealthRecords::<T>::try_mutate(&patient, |maybe_record| -> DispatchResult {
                 let record = maybe_record.as_mut().ok_or(Error::<T>::RecordNotFound)?;
