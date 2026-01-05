@@ -8,13 +8,10 @@ import {
   CheckCircle,
   XCircle,
   ChevronRight,
-  Plus,
   Search,
   Calendar,
   Building2,
   Stethoscope,
-  Eye,
-  FileText,
   X,
   History,
 } from 'lucide-react';
