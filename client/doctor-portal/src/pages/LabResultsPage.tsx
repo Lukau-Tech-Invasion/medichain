@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
+import { apiUrl } from '@medichain/shared';
 import {
   FlaskConical,
   Search,
@@ -39,59 +40,6 @@ interface LabSubmission {
   rejection_reason?: string;
 }
 
-// Mock data for demo
-const mockPendingSubmissions: LabSubmission[] = [
-  {
-    id: 'LAB-001',
-    patient_id: 'PAT-001-DEMO',
-    patient_name: 'John Doe',
-    test_name: 'Complete Blood Count',
-    test_category: 'Hematology',
-    results: [
-      { parameter: 'Hemoglobin', value: '14.2', unit: 'g/dL', reference_range: '12.0-17.5' },
-      { parameter: 'WBC Count', value: '7.5', unit: 'x10^9/L', reference_range: '4.5-11.0' },
-      { parameter: 'Platelet Count', value: '250', unit: 'x10^9/L', reference_range: '150-400' },
-      { parameter: 'RBC Count', value: '5.1', unit: 'x10^12/L', reference_range: '4.5-5.5' },
-    ],
-    notes: 'Patient appeared in good health. Routine checkup.',
-    submitted_by: 'LAB-001',
-    submitted_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    status: 'pending',
-  },
-  {
-    id: 'LAB-002',
-    patient_id: 'PAT-002',
-    patient_name: 'Jane Smith',
-    test_name: 'Lipid Panel',
-    test_category: 'Chemistry',
-    results: [
-      { parameter: 'Total Cholesterol', value: '220', unit: 'mg/dL', reference_range: '<200', flag: 'HIGH' },
-      { parameter: 'HDL Cholesterol', value: '55', unit: 'mg/dL', reference_range: '>40' },
-      { parameter: 'LDL Cholesterol', value: '145', unit: 'mg/dL', reference_range: '<100', flag: 'HIGH' },
-      { parameter: 'Triglycerides', value: '150', unit: 'mg/dL', reference_range: '<150' },
-    ],
-    submitted_by: 'LAB-001',
-    submitted_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-    status: 'pending',
-  },
-  {
-    id: 'LAB-003',
-    patient_id: 'PAT-001-DEMO',
-    patient_name: 'John Doe',
-    test_name: 'Liver Function Test',
-    test_category: 'Chemistry',
-    results: [
-      { parameter: 'ALT', value: '35', unit: 'U/L', reference_range: '7-56' },
-      { parameter: 'AST', value: '30', unit: 'U/L', reference_range: '10-40' },
-      { parameter: 'ALP', value: '75', unit: 'U/L', reference_range: '44-147' },
-      { parameter: 'Bilirubin (Total)', value: '0.9', unit: 'mg/dL', reference_range: '0.1-1.2' },
-    ],
-    submitted_by: 'LAB-001',
-    submitted_at: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-    status: 'pending',
-  },
-];
-
 function LabResultsPage() {
   const { user } = useAuthStore();
   const [submissions, setSubmissions] = useState<LabSubmission[]>([]);
@@ -109,34 +57,54 @@ function LabResultsPage() {
 
   const fetchSubmissions = async () => {
     setIsLoading(true);
-    // TODO: Replace with actual API call
-    // const response = await getPendingLabResults();
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Filter mock data based on status
-    const filtered = filterStatus === 'all' 
-      ? mockPendingSubmissions 
-      : mockPendingSubmissions.filter(s => s.status === filterStatus);
-    
-    setSubmissions(filtered);
-    setIsLoading(false);
+    try {
+      const statusParam = filterStatus === 'all' ? '' : `?status=${filterStatus}`;
+      const response = await fetch(`/api/lab/submissions${statusParam}`, {
+        headers: {
+          'X-User-Id': user?.userId || '',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        // Handle both array response and object with submissions field
+        const submissionsArray = Array.isArray(data) ? data : (data.submissions || data.results || []);
+        setSubmissions(submissionsArray);
+      } else {
+        console.error('Failed to fetch lab submissions');
+        setSubmissions([]);
+      }
+    } catch (error) {
+      console.error('Error fetching lab submissions:', error);
+      setSubmissions([]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleApprove = async (submissionId: string) => {
     setIsReviewing(submissionId);
     try {
-      // TODO: Replace with actual API call
-      // await reviewLabResult({ submission_id: submissionId, action: 'approve' });
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch(`/api/lab/submissions/${submissionId}/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user?.userId || '',
+        },
+        body: JSON.stringify({ action: 'approve' }),
+      });
       
-      // Update local state
-      setSubmissions(prev => 
-        prev.map(s => 
-          s.id === submissionId 
-            ? { ...s, status: 'approved' as const, reviewed_by: user?.userId, reviewed_at: new Date().toISOString() }
-            : s
-        )
-      );
+      if (response.ok) {
+        // Update local state
+        setSubmissions(prev => 
+          prev.map(s => 
+            s.id === submissionId 
+              ? { ...s, status: 'approved' as const, reviewed_by: user?.userId, reviewed_at: new Date().toISOString() }
+              : s
+          )
+        );
+      } else {
+        console.error('Failed to approve submission');
+      }
     } catch (error) {
       console.error('Failed to approve:', error);
     } finally {
@@ -149,26 +117,35 @@ function LabResultsPage() {
     
     setIsReviewing(submissionId);
     try {
-      // TODO: Replace with actual API call
-      // await reviewLabResult({ submission_id: submissionId, action: 'reject', rejection_reason: rejectionReason });
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch(`/api/lab/submissions/${submissionId}/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user?.userId || '',
+        },
+        body: JSON.stringify({ action: 'reject', rejection_reason: rejectionReason }),
+      });
       
-      // Update local state
-      setSubmissions(prev => 
-        prev.map(s => 
-          s.id === submissionId 
-            ? { 
-                ...s, 
-                status: 'rejected' as const, 
-                reviewed_by: user?.userId, 
-                reviewed_at: new Date().toISOString(),
-                rejection_reason: rejectionReason,
-              }
-            : s
-        )
-      );
-      setShowRejectModal(null);
-      setRejectionReason('');
+      if (response.ok) {
+        // Update local state
+        setSubmissions(prev => 
+          prev.map(s => 
+            s.id === submissionId 
+              ? { 
+                  ...s, 
+                  status: 'rejected' as const, 
+                  reviewed_by: user?.userId, 
+                  reviewed_at: new Date().toISOString(),
+                  rejection_reason: rejectionReason,
+                }
+              : s
+          )
+        );
+        setShowRejectModal(null);
+        setRejectionReason('');
+      } else {
+        console.error('Failed to reject submission');
+      }
     } catch (error) {
       console.error('Failed to reject:', error);
     } finally {

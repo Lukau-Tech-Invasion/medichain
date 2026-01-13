@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from '@medichain/shared';
 import {
   FileText,
   Download,
@@ -64,21 +65,28 @@ export function MyRecordsPage() {
   const loadRecords = async () => {
     setIsLoading(true);
     
-    // Try to fetch approved lab results from API
-    let labRecords: MedicalRecord[] = [];
+    // Get patient ID from stored auth
+    const authData = localStorage.getItem('patient-auth');
+    const userId = authData ? JSON.parse(authData).patientId : localStorage.getItem('medichain_user_id');
+    
+    if (!userId) {
+      setRecords([]);
+      setIsLoading(false);
+      return;
+    }
+    
+    // Fetch records from API
+    const allRecords: MedicalRecord[] = [];
+    
     try {
-      const userId = localStorage.getItem('medichain_user_id') || 'PAT-001-DEMO';
-      const response = await fetch(`http://localhost:8080/api/lab/patient/${userId}`, {
-        headers: {
-          'X-User-Id': userId,
-        },
+      // Fetch lab results
+      const labResponse = await fetch(`/api/lab/patient/${userId}`, {
+        headers: { 'X-User-Id': userId },
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        // Transform approved lab submissions to MedicalRecord format
-        // Note: Only approved results are returned by the API for patients
-        labRecords = (data.submissions || []).map((sub: LabResultSubmission) => ({
+      if (labResponse.ok) {
+        const data = await labResponse.json();
+        const labRecords = (data.submissions || []).map((sub: LabResultSubmission) => ({
           id: sub.id,
           type: 'lab_result' as const,
           title: sub.test_name,
@@ -87,85 +95,47 @@ export function MyRecordsPage() {
           date: new Date(sub.reviewed_at || sub.submitted_at).toISOString().split('T')[0],
           contentHash: sub.content_hash || `lab-${sub.id}`,
           metadataHash: sub.metadata_hash || `meta-${sub.id}`,
-          verified: true, // Approved means doctor-verified
+          verified: true,
           labResults: sub.results,
           reviewedBy: sub.reviewed_by,
         }));
+        allRecords.push(...labRecords);
+      }
+
+      // Fetch medical records from IPFS/storage
+      const recordsResponse = await fetch(`/api/records/${userId}`, {
+        headers: { 'X-User-Id': userId },
+      });
+      
+      if (recordsResponse.ok) {
+        const data = await recordsResponse.json();
+        const medRecords = (data.records || []).map((rec: {
+          record_id: string;
+          record_type: string;
+          metadata: { description?: string; content_hash?: string; metadata_hash?: string };
+          created_by: string;
+          created_at: string;
+        }) => ({
+          id: rec.record_id,
+          type: rec.record_type,
+          title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+          description: rec.metadata?.description || 'Medical record',
+          provider: rec.created_by,
+          date: new Date(rec.created_at).toISOString().split('T')[0],
+          contentHash: rec.metadata?.content_hash || `rec-${rec.record_id}`,
+          metadataHash: rec.metadata?.metadata_hash || `meta-${rec.record_id}`,
+          verified: true,
+        }));
+        allRecords.push(...medRecords);
       }
     } catch (error) {
-      console.error('Failed to fetch lab results:', error);
-      // Continue with demo data if API fails
+      console.error('Failed to fetch records:', error);
     }
 
-    // Demo records (non-lab records)
-    const demoRecords: MedicalRecord[] = [
-      {
-        id: '1',
-        type: 'lab_result',
-        title: 'Complete Blood Count (CBC)',
-        description: 'Routine blood work showing all values within normal range',
-        provider: 'City General Hospital Lab',
-        date: '2026-01-04',
-        contentHash: 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG',
-        metadataHash: 'QmZK3LwJ2K4GpQk8Q9K7LjM8N9P2Q4R5S6T7U8V9W0X1Y2',
-        verified: true,
-      },
-      {
-        id: '2',
-        type: 'imaging',
-        title: 'Chest X-Ray',
-        description: 'Annual chest x-ray, no abnormalities detected',
-        provider: 'RadiologyPlus Imaging Center',
-        date: '2026-01-02',
-        contentHash: 'QmT5NvUtoM5n8qTkFfvh8GsNPLPWSL6zcKgbKQcUdNqhyV',
-        metadataHash: 'QmU6OvVtpN6o9rRkGwIPQMUrXlNdLhxXKdmRqVoNsxAb1W',
-        verified: true,
-      },
-      {
-        id: '3',
-        type: 'prescription',
-        title: 'Diabetes Medication Refill',
-        description: 'Metformin 500mg, 90 day supply',
-        provider: 'Dr. Sarah Smith',
-        date: '2025-12-28',
-        contentHash: 'QmV7PwWuqO7p0sSlHxJQNVmYoWpOtSx2LgzmSrWpOtYc2X',
-        metadataHash: 'QmW8QxXvrP8q1tTmIyKRPWNnZpXqTz3MhAoTsXqPvUzD3Y',
-        verified: true,
-      },
-      {
-        id: '4',
-        type: 'consultation',
-        title: 'Annual Physical Examination',
-        description: 'Comprehensive health check with Dr. Smith',
-        provider: 'Dr. Sarah Smith',
-        date: '2025-12-15',
-        contentHash: 'QmX9RySwtQ9r2uUnJzLSQOXoApYuUa4NiBpUtYqQwVe4Z',
-        metadataHash: 'QmY0SzTxuR0s3vVoKaM0TPZpBqVw5OjCqCuZrSaRxWfE5A',
-        verified: true,
-      },
-      {
-        id: '5',
-        type: 'vaccination',
-        title: 'Influenza Vaccine 2025-2026',
-        description: 'Annual flu shot administered',
-        provider: 'Community Health Center',
-        date: '2025-11-10',
-        contentHash: 'QmZ1TaUyv51t4wWpLbN1UQaCsSxXpPkDrEsDvTaSwXg6B',
-        metadataHash: 'Qm02UbVzw62u5xXqMcO2VRbDtZYrFsEuFuCwUbTyYh7C',
-        verified: true,
-      },
-    ];
-
-    // Combine API lab results with demo records
-    // Filter out demo lab_result if we have real ones from API
-    const finalRecords = labRecords.length > 0
-      ? [...labRecords, ...demoRecords.filter(r => r.type !== 'lab_result')]
-      : demoRecords;
-
     // Sort by date descending
-    finalRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    allRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    setRecords(finalRecords);
+    setRecords(allRecords);
     setIsLoading(false);
   };
 
@@ -221,10 +191,34 @@ export function MyRecordsPage() {
 
   const handleDownload = async (record: MedicalRecord) => {
     setIsDownloading(record.id);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    // In production: API call to download from IPFS
-    setIsDownloading(null);
-    alert(`Downloaded: ${record.title}`);
+    try {
+      const authData = localStorage.getItem('patient-auth');
+      const patientId = authData ? JSON.parse(authData).patientId : '';
+      
+      const response = await fetch(apiUrl(`/api/records/${record.id}/download`), {
+        headers: {
+          'X-User-Id': patientId,
+        },
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = record.title;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        console.error('Failed to download record');
+        alert(`Unable to download: ${record.title}`);
+      }
+    } catch (error) {
+      console.error('Error downloading record:', error);
+      alert(`Error downloading: ${record.title}`);
+    } finally {
+      setIsDownloading(null);
+    }
   };
 
   const filteredRecords = records.filter(record => {

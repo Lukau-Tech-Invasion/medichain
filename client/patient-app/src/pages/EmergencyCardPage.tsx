@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from '@medichain/shared';
 import {
   AlertTriangle,
   Heart,
@@ -57,39 +58,63 @@ export function EmergencyCardPage() {
 
   const loadEmergencyData = async () => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    try {
+      // Get patient ID from stored auth
+      const authData = localStorage.getItem('patient-auth');
+      const patientId = authData ? JSON.parse(authData).patientId : null;
+      
+      if (!patientId) {
+        setEmergencyData(null);
+        setIsLoading(false);
+        return;
+      }
 
-    // Demo data
-    const demoData: EmergencyData = {
-      patientId: 'PAT-001-DEMO',
-      nationalHealthId: 'MCHI-2026-7842-3901',
-      fullName: 'John Doe',
-      dateOfBirth: '1985-06-15',
-      bloodType: 'O+',
-      allergies: ['Penicillin', 'Sulfa drugs'],
-      chronicConditions: ['Type 2 Diabetes', 'Hypertension'],
-      currentMedications: [
-        'Metformin 500mg - twice daily',
-        'Lisinopril 10mg - once daily',
-      ],
-      emergencyContact: {
-        name: 'Jane Doe',
-        phone: '+234-801-234-5678',
-        relationship: 'Spouse',
-      },
-      organDonor: true,
-      dnrStatus: false,
-      cardHash: 'a7b3c9d2e4f1g8h5i6j0k2l3m4n5o6p7',
-      lastUpdated: '2026-01-04T10:30:00Z',
-    };
+      const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
+        headers: {
+          'X-User-Id': patientId,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    setEmergencyData(demoData);
+      if (response.ok) {
+        const data = await response.json();
+        const emergencyInfo = data.emergency_info || {};
+        const emergencyContact = emergencyInfo.emergency_contacts?.[0] || {};
+
+        setEmergencyData({
+          patientId: data.patient_id,
+          nationalHealthId: data.national_id || data.patient_id,
+          fullName: data.full_name,
+          dateOfBirth: data.date_of_birth,
+          bloodType: emergencyInfo.blood_type || 'Unknown',
+          allergies: emergencyInfo.allergies?.map((a: { name: string }) => a.name) || [],
+          chronicConditions: emergencyInfo.chronic_conditions || [],
+          currentMedications: emergencyInfo.current_medications || [],
+          emergencyContact: {
+            name: emergencyContact.name || 'Not set',
+            phone: emergencyContact.phone || 'Not set',
+            relationship: emergencyContact.relationship || 'Not set',
+          },
+          organDonor: emergencyInfo.organ_donor || false,
+          dnrStatus: emergencyInfo.dnr_status || false,
+          cardHash: data.patient_id.replace(/-/g, '').toLowerCase(),
+          lastUpdated: data.last_updated || new Date().toISOString(),
+        });
+      } else {
+        setEmergencyData(null);
+      }
+    } catch (error) {
+      console.error('Failed to load emergency data:', error);
+      setEmergencyData(null);
+    }
+    
     setIsLoading(false);
   };
 
   const handleRefreshQR = async () => {
     setIsRefreshing(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await loadEmergencyData();
     setIsRefreshing(false);
   };
 

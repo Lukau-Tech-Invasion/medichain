@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiUrl, addEmergencyContact } from '@medichain/shared';
 import {
   User,
   Heart,
@@ -53,6 +54,7 @@ export function MyProfilePage() {
   const [newContact, setNewContact] = useState<EmergencyContact>({ name: '', phone: '', relationship: '' });
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadProfile();
@@ -60,28 +62,51 @@ export function MyProfilePage() {
 
   const loadProfile = async () => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    try {
+      // Get patient ID from stored auth
+      const authData = localStorage.getItem('patient-auth');
+      const patientId = authData ? JSON.parse(authData).patientId : null;
+      
+      if (!patientId) {
+        setProfile(null);
+        setIsLoading(false);
+        return;
+      }
 
-    // Demo profile data
-    const demoProfile: PatientProfile = {
-      patientId: 'PAT-001-DEMO',
-      fullName: 'John Doe',
-      dateOfBirth: '1985-06-15',
-      nationalHealthId: 'MCHI-2026-DEMO-XXXX',
-      bloodType: 'O+',
-      allergies: ['Penicillin', 'Sulfa drugs'],
-      currentMedications: ['Metformin 500mg - twice daily', 'Lisinopril 10mg - once daily'],
-      chronicConditions: ['Type 2 Diabetes', 'Hypertension'],
-      emergencyContacts: [
-        { name: 'Jane Doe', phone: '+234-801-234-5678', relationship: 'Spouse' },
-        { name: 'Mike Doe', phone: '+234-802-345-6789', relationship: 'Brother' },
-      ],
-      organDonor: true,
-      dnrStatus: false,
-      lastUpdated: '2026-01-04T10:30:00Z',
-    };
+      const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
+        headers: {
+          'X-User-Id': patientId,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    setProfile(demoProfile);
+      if (response.ok) {
+        const data = await response.json();
+        const emergencyInfo = data.emergency_info || {};
+
+        setProfile({
+          patientId: data.patient_id,
+          fullName: data.full_name,
+          dateOfBirth: data.date_of_birth,
+          nationalHealthId: data.national_id || data.patient_id,
+          bloodType: emergencyInfo.blood_type || 'Unknown',
+          allergies: emergencyInfo.allergies?.map((a: { name: string }) => a.name) || [],
+          currentMedications: emergencyInfo.current_medications || [],
+          chronicConditions: emergencyInfo.chronic_conditions || [],
+          emergencyContacts: emergencyInfo.emergency_contacts || [],
+          organDonor: emergencyInfo.organ_donor || false,
+          dnrStatus: emergencyInfo.dnr_status || false,
+          lastUpdated: data.last_updated || new Date().toISOString(),
+        });
+      } else {
+        setProfile(null);
+      }
+    } catch (error) {
+      console.error('Failed to load profile:', error);
+      setProfile(null);
+    }
+    
     setIsLoading(false);
   };
 
@@ -90,22 +115,33 @@ export function MyProfilePage() {
       return;
     }
 
+    if (!profile) return;
+
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    setError(null);
     
-    if (profile) {
-      setProfile({
-        ...profile,
-        emergencyContacts: [...profile.emergencyContacts, newContact],
-        lastUpdated: new Date().toISOString(),
-      });
+    try {
+      const response = await addEmergencyContact(profile.patientId, newContact);
+      
+      if (response.success) {
+        setProfile({
+          ...profile,
+          emergencyContacts: [...profile.emergencyContacts, newContact],
+          lastUpdated: new Date().toISOString(),
+        });
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        setError(response.message || 'Failed to save contact');
+      }
+    } catch (err) {
+      console.error('Failed to save contact:', err);
+      setError('Failed to save emergency contact. Please try again.');
+    } finally {
+      setIsSaving(false);
+      setIsAddingContact(false);
+      setNewContact({ name: '', phone: '', relationship: '' });
     }
-    
-    setIsSaving(false);
-    setIsAddingContact(false);
-    setNewContact({ name: '', phone: '', relationship: '' });
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
   };
 
   const cancelAddContact = () => {
@@ -130,6 +166,11 @@ export function MyProfilePage() {
       age--;
     }
     return age;
+  };
+
+  // Sanitize phone number for tel: links - only allow digits, +, -, (, ), spaces
+  const sanitizePhoneForTel = (phone: string): string => {
+    return phone.replace(/[^\d+\-() ]/g, '');
   };
 
   if (isLoading) {
@@ -166,6 +207,20 @@ export function MyProfilePage() {
         <div className="success-card flex items-center gap-3">
           <CheckCircle className="w-5 h-5 text-success-500" />
           <span>Emergency contact added successfully!</span>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="error-card flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-danger-500" />
+          <span>{error}</span>
+          <button 
+            onClick={() => setError(null)}
+            className="ml-auto text-danger-500 hover:text-danger-600"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -415,7 +470,7 @@ export function MyProfilePage() {
                 <p className="text-sm text-neutral-500">{contact.relationship}</p>
               </div>
               <a
-                href={`tel:${contact.phone}`}
+                href={`tel:${sanitizePhoneForTel(contact.phone)}`}
                 className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
               >
                 <Phone className="w-4 h-4" />

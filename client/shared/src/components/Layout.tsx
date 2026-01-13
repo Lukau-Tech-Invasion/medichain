@@ -15,11 +15,34 @@ import {
   X,
   User,
   Bell,
+  Pill,
+  Calendar,
+  MessageSquare,
+  Activity,
+  Watch,
+  TrendingUp,
+  ClipboardList,
+  Globe,
+  WifiOff,
+  Star,
+  HelpCircle,
+  Video,
 } from 'lucide-react';
 import { useState } from 'react';
 
 interface LayoutProps {
   variant?: 'doctor' | 'patient';
+}
+
+interface NavItem {
+  path: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+interface NavSection {
+  label: string;
+  items: NavItem[];
 }
 
 /**
@@ -34,7 +57,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const doctorNavItems = [
+  const doctorNavItems: NavItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/emergency', label: 'Emergency', icon: AlertCircle },
     { path: '/patients', label: 'Patients', icon: Users },
@@ -43,16 +66,70 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
-  const patientNavItems = [
+  // Comprehensive patient navigation organized by sections
+  const patientNavSections: NavSection[] = [
+    {
+      label: 'Main',
+      items: [
+        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { path: '/profile', label: 'My Profile', icon: User },
+        { path: '/records', label: 'My Records', icon: FileText },
+        { path: '/medical-id', label: 'Medical ID', icon: CreditCard },
+      ],
+    },
+    {
+      label: 'Health',
+      items: [
+        { path: '/medications', label: 'Medications', icon: Pill },
+        { path: '/reminders', label: 'Med Reminders', icon: Bell },
+        { path: '/symptoms', label: 'Symptom Tracker', icon: Activity },
+        { path: '/symptom-checker', label: 'Symptom Checker', icon: HelpCircle },
+        { path: '/lab-trends', label: 'Lab Trends', icon: TrendingUp },
+        { path: '/wearables', label: 'Wearables', icon: Watch },
+      ],
+    },
+    {
+      label: 'Care',
+      items: [
+        { path: '/appointments', label: 'Appointments', icon: Calendar },
+        { path: '/telehealth', label: 'Telehealth', icon: Video },
+        { path: '/messages', label: 'Messages', icon: MessageSquare },
+        { path: '/family', label: 'Family Group', icon: Users },
+      ],
+    },
+    {
+      label: 'Account',
+      items: [
+        { path: '/consent', label: 'Access Control', icon: Shield },
+        { path: '/emergency-card', label: 'Emergency Card', icon: AlertCircle },
+        { path: '/insurance', label: 'Insurance', icon: ClipboardList },
+        { path: '/survey', label: 'Satisfaction Survey', icon: Star },
+      ],
+    },
+    {
+      label: 'Settings',
+      items: [
+        { path: '/settings', label: 'Settings', icon: Settings },
+        { path: '/language', label: 'Language', icon: Globe },
+        { path: '/offline-sync', label: 'Offline Sync', icon: WifiOff },
+      ],
+    },
+  ];
+
+  // Flatten patient sections for mobile and simple nav
+  const _patientNavItems: NavItem[] = patientNavSections.flatMap(section => section.items);
+  
+  // Main nav for top bar (subset for cleaner UX)
+  const patientMainNav: NavItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/profile', label: 'My Profile', icon: User },
-    { path: '/records', label: 'My Records', icon: FileText },
-    { path: '/consent', label: 'Access Control', icon: Shield },
-    { path: '/emergency-card', label: 'Emergency Card', icon: CreditCard },
+    { path: '/records', label: 'Records', icon: FileText },
+    { path: '/medications', label: 'Medications', icon: Pill },
+    { path: '/appointments', label: 'Appointments', icon: Calendar },
+    { path: '/messages', label: 'Messages', icon: MessageSquare },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
-  const navItems = variant === 'doctor' ? doctorNavItems : patientNavItems;
+  const navItems = variant === 'doctor' ? doctorNavItems : patientMainNav;
   const brandColor = variant === 'doctor' ? 'primary' : 'health';
 
   const handleLogout = () => {
@@ -128,30 +205,65 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-neutral-200 bg-white">
-            <div className="px-4 py-2 space-y-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location.pathname === item.path;
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
-                      isActive
-                        ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                        : 'text-neutral-600 hover:bg-neutral-100'
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
+          <div className="md:hidden border-t border-neutral-200 bg-white max-h-[80vh] overflow-y-auto">
+            <div className="px-4 py-2">
+              {variant === 'patient' ? (
+                // Sectioned navigation for patient
+                patientNavSections.map((section) => (
+                  <div key={section.label} className="mb-4">
+                    <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-2">
+                      {section.label}
+                    </p>
+                    <div className="space-y-1">
+                      {section.items.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = location.pathname === item.path;
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+                              isActive
+                                ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                                : 'text-neutral-600 hover:bg-neutral-100'
+                            }`}
+                          >
+                            <Icon className="w-5 h-5" />
+                            <span>{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                // Simple navigation for doctor
+                <div className="space-y-1">
+                  {doctorNavItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+                          isActive
+                            ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
+                            : 'text-neutral-600 hover:bg-neutral-100'
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors mt-4"
               >
                 <LogOut className="w-5 h-5" />
                 <span>Sign Out</span>

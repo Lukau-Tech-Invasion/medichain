@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePatientStore, useAuthStore } from '../store';
 import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
 
 /**
  * NFC tap simulation states
@@ -44,7 +45,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
 
     try {
       // Call emergency access API
-      const response = await fetch('/api/emergency-access', {
+      const response = await fetch(apiUrl('/api/emergency-access'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

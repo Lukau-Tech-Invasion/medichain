@@ -2,12 +2,13 @@
  * useAuth Hook
  * 
  * Manages authentication state for MediChain apps.
- * Uses X-User-Id header-based authentication (demo mode).
+ * Uses wallet-based authentication with X-User-Id header containing wallet address.
  */
 
 import { useState, useCallback, useEffect, createContext, useContext, type ReactNode } from 'react';
 import { getApiClient, initApiClient } from '../api/client';
-import type { User, Role } from '../types';
+import { walletLogin, getCurrentUser } from '../api/endpoints';
+import type { User, Role, WalletUserInfo } from '../types';
 
 export interface AuthState {
   user: User | null;
@@ -17,7 +18,7 @@ export interface AuthState {
 }
 
 export interface AuthContextValue extends AuthState {
-  login: (userId: string) => Promise<void>;
+  login: (walletAddress: string) => Promise<void>;
   logout: () => void;
   isAdmin: boolean;
   isHealthcareProvider: boolean;
@@ -28,6 +29,20 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const HEALTHCARE_PROVIDER_ROLES: Role[] = ['Admin', 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist'];
 const RECORD_EDITOR_ROLES: Role[] = ['Admin', 'Doctor', 'Nurse'];
+
+/**
+ * Convert WalletUserInfo to User format
+ */
+function walletUserToUser(walletUser: WalletUserInfo): User {
+  return {
+    wallet_address: walletUser.wallet_address,
+    username: walletUser.username,
+    name: walletUser.name,
+    role: walletUser.role,
+    created_at: walletUser.created_at,
+    linked_patient_id: walletUser.linked_patient_id,
+  };
+}
 
 export function AuthProvider({ 
   children, 
@@ -55,60 +70,33 @@ export function AuthProvider({
     });
 
     // Check for saved session
-    const savedUserId = localStorage.getItem('medichain_user_id');
-    if (savedUserId) {
-      // Re-authenticate with saved user
-      loginInternal(savedUserId);
+    const savedWalletAddress = localStorage.getItem('medichain_wallet_address');
+    if (savedWalletAddress) {
+      // Re-authenticate with saved wallet
+      loginInternal(savedWalletAddress);
     } else {
       setState(prev => ({ ...prev, isLoading: false }));
     }
   }, [apiBaseUrl]);
 
-  const loginInternal = async (userId: string) => {
+  const loginInternal = async (walletAddress: string) => {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
 
+    const client = getApiClient();
+
     try {
-      const client = getApiClient();
-      client.setUserId(userId);
+      client.setUserId(walletAddress);
 
-      // Fetch users list and find our user
-      const response = await fetch(`${apiBaseUrl}/api/users`, {
-        headers: { 'X-User-Id': userId },
-      });
+      // Use wallet login endpoint to validate and get user info
+      const loginResponse = await walletLogin({ wallet_address: walletAddress });
 
-      if (!response.ok) {
-        // If not admin, try fetching demo info to at least verify connectivity
-        const demoResponse = await fetch(`${apiBaseUrl}/api/demo`);
-        if (!demoResponse.ok) {
-          throw new Error('Failed to connect to API');
-        }
-
-        // Create a basic user object for non-admin users
-        const user: User = {
-          user_id: userId,
-          username: userId.toLowerCase(),
-          role: 'Patient',
-          created_at: new Date().toISOString(),
-        };
-
-        localStorage.setItem('medichain_user_id', userId);
-        setState({
-          user,
-          isAuthenticated: true,
-          isLoading: false,
-          error: null,
-        });
-        return;
+      if (!loginResponse.success || !loginResponse.user) {
+        throw new Error(loginResponse.message || 'Wallet not registered');
       }
 
-      const users = await response.json() as User[];
-      const user = users.find(u => u.user_id === userId);
+      const user = walletUserToUser(loginResponse.user);
 
-      if (!user) {
-        throw new Error(`User ${userId} not found`);
-      }
-
-      localStorage.setItem('medichain_user_id', userId);
+      localStorage.setItem('medichain_wallet_address', walletAddress);
       setState({
         user,
         isAuthenticated: true,
@@ -117,6 +105,8 @@ export function AuthProvider({
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authentication failed';
+      localStorage.removeItem('medichain_wallet_address');
+      client.setUserId(undefined);
       setState({
         user: null,
         isAuthenticated: false,
@@ -126,12 +116,12 @@ export function AuthProvider({
     }
   };
 
-  const login = useCallback(async (userId: string) => {
-    await loginInternal(userId);
+  const login = useCallback(async (walletAddress: string) => {
+    await loginInternal(walletAddress);
   }, [apiBaseUrl]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('medichain_user_id');
+    localStorage.removeItem('medichain_wallet_address');
     getApiClient().setUserId(undefined);
     setState({
       user: null,

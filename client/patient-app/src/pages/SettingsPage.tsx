@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from '@medichain/shared';
 import {
   Settings,
   User,
@@ -84,9 +85,25 @@ export function SettingsPage() {
   // Save handler ready for when modal UI is implemented
   const _handleSave = async () => {
     setIsSaving(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    setActiveSection(null);
+    try {
+      const patientId = localStorage.getItem('patientId') || '';
+      const response = await fetch(apiUrl('/api/settings'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': patientId,
+        },
+        body: JSON.stringify({ notifications, privacy, appSettings }),
+      });
+      if (!response.ok) {
+        console.error('Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    } finally {
+      setIsSaving(false);
+      setActiveSection(null);
+    }
   };
 
   const handleLogout = () => {

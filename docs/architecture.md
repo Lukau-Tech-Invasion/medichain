@@ -180,21 +180,27 @@ Cryptographic utilities:
 ### Client Applications
 
 #### Doctor Portal (`client/doctor-portal/`)
-- Web-based interface for healthcare providers
-- Patient registration
-- Medical record management
+- Web-based interface for healthcare providers (72 pages)
+- Patient registration & management
+- Clinical documentation (ESI Triage, SOAP Notes, Code Blue, etc.)
+- Medical record management with IPFS
 - Emergency access controls
+- Nursing documentation (MAR, I/O, Wound Care)
+- Surgical & specialty emergency workflows
 
 #### Patient App (`client/patient-app/`)
-- Mobile application for patients
-- View own records
-- Manage access permissions
-- Emergency contact info
+- Mobile-first web application for patients (23 pages)
+- View own records & medical history
+- Manage access permissions & consents
+- Medication reminders & telehealth
+- Family group management
+- Appointment scheduling
 
 #### Shared (`client/shared/`)
 - Common components and utilities
-- API client library
-- Type definitions
+- API client library (1,577 lines, typed functions)
+- Type definitions for 150+ clinical endpoints
+- Shared UI components
 
 ---
 

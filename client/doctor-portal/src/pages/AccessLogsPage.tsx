@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
+import { apiUrl } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -26,60 +27,6 @@ interface AccessLog {
   emergency: boolean;
 }
 
-// Mock access logs for demo
-const mockAccessLogs: AccessLog[] = [
-  {
-    access_id: 'ACC-001',
-    patient_id: 'PAT-001-DEMO',
-    accessor_id: 'DOC-001',
-    accessor_role: 'Doctor',
-    access_type: 'nfc_tap',
-    location: 'Emergency Room A',
-    timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    emergency: true,
-  },
-  {
-    access_id: 'ACC-002',
-    patient_id: 'PAT-001-DEMO',
-    accessor_id: 'NURSE-001',
-    accessor_role: 'Nurse',
-    access_type: 'list_records',
-    location: null,
-    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    emergency: false,
-  },
-  {
-    access_id: 'ACC-003',
-    patient_id: 'PAT-002',
-    accessor_id: 'DOC-001',
-    accessor_role: 'Doctor',
-    access_type: 'download_record',
-    location: null,
-    timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-    emergency: false,
-  },
-  {
-    access_id: 'ACC-004',
-    patient_id: 'PAT-001-DEMO',
-    accessor_id: 'LAB-001',
-    accessor_role: 'LabTechnician',
-    access_type: 'upload_record',
-    location: 'Lab Center',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    emergency: false,
-  },
-  {
-    access_id: 'ACC-005',
-    patient_id: 'PAT-003',
-    accessor_id: 'DOC-001',
-    accessor_role: 'Doctor',
-    access_type: 'qr_verification',
-    location: 'Clinic B',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
-    emergency: true,
-  },
-];
-
 function AccessLogsPage() {
   // Note: user is available for future API calls requiring authentication
   const { user: _user } = useAuthStore();
@@ -91,12 +38,28 @@ function AccessLogsPage() {
   const logsPerPage = 10;
 
   useEffect(() => {
-    // Simulate API call
     const fetchLogs = async () => {
       setIsLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setLogs(mockAccessLogs);
-      setIsLoading(false);
+      try {
+        const user = useAuthStore.getState().user;
+        const response = await fetch(apiUrl('/api/access/logs'), {
+          headers: {
+            'X-User-Id': user?.userId || '',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setLogs(data);
+        } else {
+          console.error('Failed to fetch access logs');
+          setLogs([]);
+        }
+      } catch (error) {
+        console.error('Error fetching access logs:', error);
+        setLogs([]);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     fetchLogs();

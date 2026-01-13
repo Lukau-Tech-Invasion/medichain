@@ -109,7 +109,7 @@ export function PatientCard({
             {patient.emergency_info.allergies.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {patient.emergency_info.allergies.map((allergy, idx) => (
-                  <Badge key={idx} variant="danger">{allergy}</Badge>
+                  <Badge key={idx} variant="danger">{allergy.name}</Badge>
                 ))}
               </div>
             ) : (

@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
+import { apiUrl } from '@medichain/shared';
 import { 
   Settings, 
   User, 
@@ -54,19 +56,44 @@ const initialSettings: UserSettings = {
 };
 
 function SettingsPage() {
-  const { user } = useAuthStore();
+  const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuthStore();
   const [settings, setSettings] = useState<UserSettings>(initialSettings);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'display'>('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, navigate]);
+
   const handleSave = async () => {
+    if (!user) return;
+    
     setIsSaving(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    setIsSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    try {
+      const response = await fetch(`${apiUrl}/api/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role,
+        },
+        body: JSON.stringify(settings),
+      });
+      if (response.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      } else {
+        console.error('Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const updateNotification = (key: keyof UserSettings['notifications'], value: boolean) => {

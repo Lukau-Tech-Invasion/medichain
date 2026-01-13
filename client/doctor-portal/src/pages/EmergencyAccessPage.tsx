@@ -157,11 +157,8 @@ function EmergencyAccessPage() {
 
               <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-600">
-                  <strong>Demo Mode:</strong> Use Patient ID{' '}
-                  <code className="bg-gray-200 px-2 py-0.5 rounded font-mono text-sm">
-                    PAT-001-DEMO
-                  </code>{' '}
-                  to test emergency access.
+                  <strong>Note:</strong> Enter the patient's wallet address or registered patient ID to access their records. 
+                  Emergency access is logged and audited for compliance.
                 </p>
               </div>
             </div>

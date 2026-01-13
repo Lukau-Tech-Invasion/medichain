@@ -8,16 +8,36 @@ import {
   ConsentManagementPage,
   EmergencyCardPage,
   SettingsPage,
+  MedicationsPage,
+  AppointmentsPage,
+  MessagesPage,
+  SymptomTrackerPage,
+  MedicalIdPage,
+  MedicationRemindersPage,
+  FamilyGroupPage,
+  TelehealthPage,
+  WearablesPage,
+  LabTrendsPage,
+  InsurancePage,
+  SatisfactionSurveyPage,
+  SymptomCheckerPage,
+  LanguageSettingsPage,
+  OfflineSyncPage,
 } from './pages';
 
 /**
  * MediChain Patient Portal Application
  * 
  * Patient-facing interface for:
- * - Viewing medical records
+ * - Viewing medical records and lab results
  * - Managing consent/access permissions
  * - Accessing emergency QR code/NFC card info
- * - Viewing access history
+ * - Tracking medications and reminders
+ * - Wearable device integrations
+ * - Telehealth appointments
+ * - Family group management
+ * - Symptom checking and tracking
+ * - Insurance and billing information
  * 
  * © 2025 Trustware. All rights reserved.
  */
@@ -35,7 +55,24 @@ function App() {
         <Route path="records" element={<MyRecordsPage />} />
         <Route path="consent" element={<ConsentManagementPage />} />
         <Route path="emergency-card" element={<EmergencyCardPage />} />
+        <Route path="medications" element={<MedicationsPage />} />
+        <Route path="appointments" element={<AppointmentsPage />} />
+        <Route path="messages" element={<MessagesPage />} />
+        <Route path="symptoms" element={<SymptomTrackerPage />} />
+        <Route path="medical-id" element={<MedicalIdPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="reminders" element={<MedicationRemindersPage />} />
+        <Route path="family" element={<FamilyGroupPage />} />
+        <Route path="telehealth" element={<TelehealthPage />} />
+        
+        {/* New Routes */}
+        <Route path="wearables" element={<WearablesPage />} />
+        <Route path="lab-trends" element={<LabTrendsPage />} />
+        <Route path="insurance" element={<InsurancePage />} />
+        <Route path="survey" element={<SatisfactionSurveyPage />} />
+        <Route path="symptom-checker" element={<SymptomCheckerPage />} />
+        <Route path="language" element={<LanguageSettingsPage />} />
+        <Route path="offline-sync" element={<OfflineSyncPage />} />
       </Route>
 
       {/* Catch all - redirect to dashboard */}

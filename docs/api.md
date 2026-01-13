@@ -12,23 +12,27 @@ MediChain REST API provides secure access to patient identity, medical records, 
 
 ## Authentication
 
-### Header-Based Authentication
+### Wallet-Based Blockchain Authentication
 
-All protected endpoints require the `X-User-Id` header:
+MediChain uses **wallet-based blockchain authentication** with SS58 addresses. Users authenticate via their blockchain wallets (Polkadot.js, Subwallet, etc.) rather than traditional username/password.
+
+For API testing, the `X-User-Id` header accepts a user's wallet address (SS58 format):
 
 ```http
-X-User-Id: ADMIN-001
+X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
 ```
 
-### Demo Users
+### User Registration
 
-| User ID | Username | Role | Description |
-|---------|----------|------|-------------|
-| `ADMIN-001` | admin | Admin | System administrator |
-| `DOC-001` | dr.smith | Doctor | Licensed physician |
-| `NURSE-001` | nurse.johnson | Nurse | Registered nurse |
-| `LAB-001` | lab.tech | LabTechnician | Laboratory staff |
-| `PAT-001-DEMO` | john.doe | Patient | Demo patient |
+New users are registered on the blockchain with their wallet address and assigned a role:
+- **Admin** - Full system access, user management
+- **Doctor** - Patient registration, medical record access/edit
+- **Nurse** - Patient registration, medical record access/edit
+- **LabTechnician** - Lab results upload, limited record access
+- **Pharmacist** - Prescription verification, medication records
+- **Patient** - Read-only access to own records
+
+> **Note:** Demo user IDs (e.g., `DOC-001`, `ADMIN-001`) are deprecated. Use wallet addresses for all authentication.
 
 ---
 
@@ -81,7 +85,7 @@ Register a new patient with national ID.
   "patient_id": "PAT-001",
   "national_health_id": "MCHI-2026-XXXX-XXXX",
   "blockchain_tx": "0xabc123...",
-  "registered_by": "DOC-001"
+  "registered_by": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 }
 ```
 
@@ -116,7 +120,7 @@ Update patient information.
   "success": true,
   "message": "Patient record updated",
   "patient_id": "PAT-001",
-  "last_modified_by": "DOC-001"
+  "last_modified_by": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 }
 ```
 
@@ -178,7 +182,7 @@ Request emergency access to patient records.
   "patient_id": "PAT-001",
   "access_expires": "2026-01-04T14:15:00Z",
   "granted_by": "SYSTEM",
-  "granted_to": "DOC-001"
+  "granted_to": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 }
 ```
 
@@ -229,7 +233,7 @@ Get access logs for a patient.
   "logs": [
     {
       "timestamp": "2026-01-04T13:00:00Z",
-      "accessed_by": "DOC-001",
+      "accessed_by": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
       "access_type": "view",
       "reason": "Scheduled appointment"
     }
@@ -344,13 +348,13 @@ List all users and their roles.
 {
   "users": [
     {
-      "user_id": "ADMIN-001",
-      "username": "admin",
+      "user_id": "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY",
+      "username": "admin_wallet",
       "role": "Admin"
     },
     {
-      "user_id": "DOC-001",
-      "username": "dr.smith",
+      "user_id": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+      "username": "dr_smith_wallet",
       "role": "Doctor"
     }
   ]
@@ -487,7 +491,7 @@ Download and decrypt a medical document from IPFS.
   "filename": "lab_results_2026-01-04.pdf",
   "content_type": "application/pdf",
   "record_type": "lab_result",
-  "uploaded_by": "DOC-001",
+  "uploaded_by": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
   "uploaded_at": 1704380400
 }
 ```
@@ -576,6 +580,177 @@ All errors follow a consistent format:
 - **Default:** 100 requests per minute per IP
 - **Authenticated:** 500 requests per minute per user
 - **Emergency Access:** No rate limiting
+
+---
+
+## Clinical Documentation Endpoints (150+)
+
+MediChain includes comprehensive clinical documentation endpoints organized into 33 implementation phases. All endpoints are located in `clinical_endpoints.rs`.
+
+### Endpoint Categories
+
+| Category | Endpoints | Description |
+|----------|-----------|-------------|
+| **ESI Triage** | 6 | Emergency Severity Index assessments |
+| **SOAP Notes** | 6 | Subjective/Objective/Assessment/Plan notes |
+| **GCS & Neuro** | 6 | Glasgow Coma Scale, neurological assessments |
+| **Vital Signs** | 6 | Vital signs flowsheets, readings |
+| **Code Blue** | 6 | Cardiac arrest documentation |
+| **Trauma** | 6 | Trauma assessments and protocols |
+| **Stroke** | 6 | Stroke assessments (NIHSS, RACE) |
+| **Cardiac** | 6 | Cardiac emergency documentation |
+| **Burns** | 6 | Burn assessments and treatment |
+| **Pediatric** | 6 | Pediatric-specific assessments |
+| **Obstetric** | 6 | OB emergency documentation |
+| **Psychiatric** | 6 | Psychiatric assessments |
+| **Toxicology** | 6 | Poisoning and overdose |
+| **MCI** | 6 | Mass casualty incident (START triage) |
+| **Nursing** | 12 | MAR, I/O records, care plans |
+| **Lab** | 12 | Specimens, QC, chain of custody |
+| **Procedures** | 12 | Intubation, laceration repair, splints |
+| **Discharge** | 6 | Discharge planning and orders |
+
+### Example Clinical Endpoint
+
+#### `POST /api/clinical/esi-triage`
+
+Create ESI triage assessment.
+
+**Authentication:** Healthcare Provider required
+
+**Request Body:**
+```json
+{
+  "patient_id": "PAT-001",
+  "esi_level": 2,
+  "chief_complaint": "Chest pain",
+  "vital_signs": {
+    "heart_rate": 110,
+    "blood_pressure_systolic": 90,
+    "blood_pressure_diastolic": 60,
+    "respiratory_rate": 22,
+    "temperature": 37.2,
+    "oxygen_saturation": 94
+  }
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "success": true,
+  "assessment_id": "ESI-001-20260113",
+  "esi_level": 2,
+  "color_code": "orange"
+}
+```
+
+---
+
+## HL7 FHIR R4 API
+
+MediChain implements 10 HL7 FHIR R4 resources for healthcare interoperability.
+
+### FHIR Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/fhir/r4/Patient/{id}` | Patient demographics |
+| GET | `/api/fhir/r4/AllergyIntolerance?patient={id}` | Patient allergies |
+| GET | `/api/fhir/r4/MedicationStatement?patient={id}` | Current medications |
+| GET | `/api/fhir/r4/Condition?patient={id}` | Active conditions |
+| GET | `/api/fhir/r4/Observation?patient={id}` | Vital signs, lab results |
+| GET | `/api/fhir/r4/Encounter?patient={id}` | Visit encounters |
+| GET | `/api/fhir/r4/DiagnosticReport?patient={id}` | Lab/imaging reports |
+| GET | `/api/fhir/r4/Procedure?patient={id}` | Clinical procedures |
+| GET | `/api/fhir/r4/Immunization?patient={id}` | Vaccination records |
+| GET | `/api/fhir/r4/metadata` | CapabilityStatement |
+
+### FHIR Response Format
+
+All FHIR endpoints return standard FHIR R4 JSON with `application/fhir+json` content type.
+
+**Example Response:**
+```json
+{
+  "resourceType": "Patient",
+  "id": "PAT-001",
+  "meta": {
+    "versionId": "1",
+    "lastUpdated": "2026-01-13T10:00:00Z"
+  },
+  "identifier": [
+    {
+      "system": "urn:medichain:national-health-id",
+      "value": "MCHI-2026-XXXX-XXXX"
+    }
+  ],
+  "name": [
+    {
+      "family": "Okonkwo",
+      "given": ["Chidi"]
+    }
+  ]
+}
+```
+
+---
+
+## Insurance Verification API
+
+### Verify Insurance
+
+#### `POST /api/insurance/verify`
+
+Verify patient insurance coverage.
+
+**Authentication:** Healthcare Provider required
+
+**Request Body:**
+```json
+{
+  "patient_id": "PAT-001",
+  "policy_number": "INS-123456",
+  "provider_code": "NHIS"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "verified": true,
+  "coverage_status": "active",
+  "coverage_type": "comprehensive",
+  "valid_until": "2026-12-31"
+}
+```
+
+### Check Eligibility
+
+#### `POST /api/insurance/eligibility`
+
+Check service eligibility for a patient.
+
+**Authentication:** Healthcare Provider required
+
+**Request Body:**
+```json
+{
+  "patient_id": "PAT-001",
+  "service_code": "SURGERY-001"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "eligible": true,
+  "pre_authorization_required": true,
+  "copay_amount": 500
+}
+```
 
 ---
 

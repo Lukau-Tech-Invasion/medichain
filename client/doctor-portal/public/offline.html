@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediChain - Offline</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .offline-container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      padding: 48px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+    }
+    
+    .offline-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px;
+      background: #fef3c7;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .offline-icon svg {
+      width: 40px;
+      height: 40px;
+      color: #d97706;
+    }
+    
+    h1 {
+      color: #1e293b;
+      font-size: 24px;
+      margin-bottom: 12px;
+    }
+    
+    p {
+      color: #64748b;
+      font-size: 16px;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    
+    .retry-button {
+      background: #0ea5e9;
+      color: white;
+      border: none;
+      padding: 12px 32px;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .retry-button:hover {
+      background: #0284c7;
+    }
+    
+    .emergency-info {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid #e2e8f0;
+    }
+    
+    .emergency-title {
+      color: #dc2626;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    
+    .emergency-number {
+      font-size: 24px;
+      font-weight: bold;
+      color: #dc2626;
+    }
+    
+    .cached-data {
+      margin-top: 24px;
+      background: #f1f5f9;
+      padding: 16px;
+      border-radius: 8px;
+      text-align: left;
+    }
+    
+    .cached-data h3 {
+      font-size: 14px;
+      color: #475569;
+      margin-bottom: 8px;
+    }
+    
+    .cached-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    
+    .cached-item:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-container">
+    <div class="offline-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3" />
+      </svg>
+    </div>
+    
+    <h1>You're Offline</h1>
+    <p>
+      It looks like you've lost your internet connection. 
+      Some features may not be available until you reconnect.
+    </p>
+    
+    <button class="retry-button" onclick="location.reload()">
+      Try Again
+    </button>
+    
+    <div class="emergency-info">
+      <p class="emergency-title">🚨 Medical Emergency?</p>
+      <p class="emergency-number">Call 10177 (SA)</p>
+    </div>
+    
+    <div class="cached-data" id="cached-data" style="display: none;">
+      <h3>📋 Cached Emergency Data</h3>
+      <div id="cached-items"></div>
+    </div>
+  </div>
+  
+  <script>
+    // Check for cached emergency data
+    if ('caches' in window) {
+      caches.open('medichain-data-v1').then(cache => {
+        cache.keys().then(keys => {
+          if (keys.length > 0) {
+            document.getElementById('cached-data').style.display = 'block';
+            const container = document.getElementById('cached-items');
+            keys.forEach(key => {
+              const url = new URL(key.url);
+              const div = document.createElement('div');
+              div.className = 'cached-item';
+              div.innerHTML = `
+                <span>${url.pathname}</span>
+                <a href="${key.url}" style="color: #0ea5e9;">View</a>
+              `;
+              container.appendChild(div);
+            });
+          }
+        });
+      });
+    }
+    
+    // Auto-retry when online
+    window.addEventListener('online', () => {
+      location.reload();
+    });
+  </script>
+</body>
+</html>

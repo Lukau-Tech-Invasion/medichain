@@ -16,12 +16,91 @@ export type Role =
   | 'Pharmacist' 
   | 'Patient';
 
+/**
+ * User authenticated via blockchain wallet
+ */
 export interface User {
-  user_id: string;
-  username: string;
+  /** SS58 encoded wallet address (primary identifier) */
+  wallet_address: string;
+  /** Optional display username */
+  username?: string;
+  /** Full name of the user */
+  name: string;
+  /** Role in the system */
   role: Role;
+  /** When the user was created (ISO 8601) */
   created_at: string;
+  /** Wallet address of admin who created this user */
   created_by?: string;
+  /** Patient ID if this user is linked to a patient record */
+  linked_patient_id?: string;
+}
+
+/**
+ * User info returned from wallet auth endpoints
+ */
+export interface WalletUserInfo {
+  wallet_address: string;
+  name: string;
+  username?: string;
+  role: string;
+  linked_patient_id?: string;
+}
+
+/**
+ * Request to bootstrap first admin
+ */
+export interface BootstrapAdminRequest {
+  wallet_address: string;
+  name: string;
+  username?: string;
+  secret_key: string;
+}
+
+/**
+ * Response from bootstrap admin
+ */
+export interface BootstrapAdminResponse {
+  success: boolean;
+  admin: WalletUserInfo;
+  message: string;
+}
+
+/**
+ * Request to register a new user with wallet
+ */
+export interface WalletRegisterRequest {
+  wallet_address: string;
+  name: string;
+  username?: string;
+  role: string;
+  linked_patient_id?: string;
+}
+
+/**
+ * Response from wallet registration
+ */
+export interface WalletRegisterResponse {
+  success: boolean;
+  wallet_address: string;
+  role: string;
+  message: string;
+}
+
+/**
+ * Request to login with wallet
+ */
+export interface WalletLoginRequest {
+  wallet_address: string;
+}
+
+/**
+ * Response from wallet login
+ */
+export interface WalletLoginResponse {
+  success: boolean;
+  user?: WalletUserInfo;
+  message: string;
 }
 
 // ============================================================================
@@ -34,21 +113,177 @@ export type BloodType =
   | 'AB+' | 'AB-' 
   | 'O+' | 'O-';
 
-export interface EmergencyContact {
+/**
+ * Allergy severity levels (FHIR R5 AllergyIntolerance compatible)
+ */
+export type AllergySeverity = 'mild' | 'moderate' | 'severe' | 'unknown';
+
+/**
+ * Structured allergy information with severity
+ */
+export interface Allergy {
+  /** Name of the allergen (e.g., "Penicillin", "Peanuts") */
   name: string;
+  /** Severity of the allergic reaction */
+  severity: AllergySeverity;
+  /** Clinical reaction description (optional) */
+  reaction?: string;
+  /** When the allergy was verified by a healthcare provider */
+  verified_at?: string;
+}
+
+/**
+ * Emergency contact information (enhanced with priority and decision authority)
+ */
+export interface EmergencyContact {
+  /** Full name of the emergency contact */
+  name: string;
+  /** Phone number with country code (e.g., "+234-801-234-5678") */
   phone: string;
+  /** Relationship to patient (e.g., "Spouse", "Mother", "Brother") */
   relationship: string;
+  /** Priority order (1 = primary contact) */
+  priority?: number;
+  /** Can this contact make medical decisions for the patient? */
+  can_make_medical_decisions?: boolean;
+  /** Preferred language for communication (ISO 639-1 code) */
+  language?: string;
+}
+
+/**
+ * Insurance coverage type (FHIR Coverage compatible)
+ */
+export type InsuranceCoverageType = 
+  | 'public' 
+  | 'private' 
+  | 'employer' 
+  | 'nhis' 
+  | 'community' 
+  | 'none';
+
+/**
+ * Insurance information (FHIR Coverage resource compatible)
+ */
+export interface InsuranceInfo {
+  /** Insurance provider name */
+  provider: string;
+  /** Policy number */
+  policy_number: string;
+  /** Group number (optional) */
+  group_number?: string;
+  /** Coverage start date (ISO 8601) */
+  valid_from: string;
+  /** Coverage end date (ISO 8601) */
+  valid_to: string;
+  /** Type of coverage */
+  coverage_type: InsuranceCoverageType;
+  /** Is the insurance currently active? */
+  is_active?: boolean;
+}
+
+/**
+ * Geographic coordinates (for rural areas without formal addresses)
+ */
+export interface GeoCoordinates {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Patient address (FHIR Address compatible)
+ */
+export interface Address {
+  /** Street address line */
+  street?: string;
+  /** City */
+  city: string;
+  /** State/Province/Region */
+  state?: string;
+  /** Country (ISO 3166-1 alpha-2 code, e.g., "NG", "KE", "GH") */
+  country: string;
+  /** Postal/ZIP code */
+  postal_code?: string;
+  /** GPS coordinates for areas without formal addresses (critical for rural Africa) */
+  coordinates?: GeoCoordinates;
+}
+
+/**
+ * Healthcare provider information
+ */
+export interface HealthcareProvider {
+  /** Provider's full name */
+  name: string;
+  /** Phone number with country code */
+  phone: string;
+  /** Healthcare facility name */
+  facility?: string;
+  /** Specialty (e.g., "General Practice", "Cardiology") */
+  specialty?: string;
+  /** License/registration number */
+  license_number?: string;
+}
+
+/**
+ * Patient preferences and settings
+ */
+export interface PatientPreferences {
+  /** Show medical ID when device is locked (for emergency access) */
+  show_when_locked?: boolean;
+  /** Enable location sharing during emergencies */
+  enable_location_sharing?: boolean;
+  /** Automatically notify family/emergency contacts during emergency */
+  auto_notify_family?: boolean;
+  /** Preferred display language for medical ID (ISO 639-1 code) */
+  display_language?: string;
+}
+
+/**
+ * Advanced directives document reference
+ */
+export interface AdvancedDirectives {
+  /** IPFS hash of the advanced directives document */
+  ipfs_hash: string;
+  /** Type of directive (e.g., "living_will", "healthcare_proxy", "dnr_order") */
+  directive_type: string;
+  /** Date the directive was signed (ISO 8601) */
+  signed_date: string;
+  /** Witness or notary information */
+  witness_info?: string;
+  /** When uploaded to system (Unix timestamp) */
+  uploaded_at: number;
+  /** Who uploaded the document */
+  uploaded_by: string;
+}
+
+/**
+ * Family notification settings
+ */
+export interface FamilyNotificationSettings {
+  /** Enable automatic notifications */
+  enabled?: boolean;
+  /** Notification methods: "sms", "email", "push" */
+  notification_methods?: string[];
+  /** Delay before sending notifications (in minutes, 0 = immediate) */
+  delay_minutes?: number;
+  /** Custom message to include in notifications */
+  custom_message?: string;
 }
 
 export interface EmergencyInfo {
   patient_id: string;
   blood_type: BloodType;
-  allergies: string[];
+  /** Structured allergies with severity levels */
+  allergies: Allergy[];
   current_medications: string[];
   chronic_conditions: string[];
   emergency_contacts: EmergencyContact[];
   organ_donor: boolean;
   dnr_status: boolean;
+  /** 
+   * Preferred languages for communication (ISO 639-1 codes, e.g., ["en", "yo", "ha"])
+   * First language is primary. Critical for Africa's 2000+ languages.
+   */
+  languages?: string[];
   last_updated: string;
 }
 
@@ -58,6 +293,20 @@ export interface PatientProfile {
   date_of_birth: string;
   national_id: string;
   emergency_info: EmergencyInfo;
+  /** Patient's address (optional, FHIR compatible) */
+  address?: Address;
+  /** Insurance information (optional, FHIR Coverage compatible) */
+  insurance?: InsuranceInfo;
+  /** Primary healthcare provider */
+  primary_doctor?: HealthcareProvider;
+  /** Community Health Worker (Africa-specific: critical for rural healthcare access) */
+  community_health_worker?: HealthcareProvider;
+  /** Patient preferences and settings (lock screen, notifications, etc.) */
+  preferences?: PatientPreferences;
+  /** Advanced directives documents (living will, healthcare proxy, etc.) */
+  advanced_directives?: AdvancedDirectives[];
+  /** Family notification settings */
+  family_notifications?: FamilyNotificationSettings;
   created_at: string;
   last_updated: string;
 }
@@ -67,6 +316,7 @@ export interface RegisterPatientRequest {
   date_of_birth: string;
   national_id: string;
   blood_type: string;
+  /** Allergies - simple strings (converted to Mild severity on backend) */
   allergies: string[];
   current_medications: string[];
   chronic_conditions: string[];
@@ -75,6 +325,8 @@ export interface RegisterPatientRequest {
   emergency_contact_relationship: string;
   organ_donor: boolean;
   dnr_status: boolean;
+  /** Preferred languages (ISO 639-1 codes), e.g., ["en", "yo", "ha"] */
+  languages?: string[];
 }
 
 export interface RegisterPatientResponse {
