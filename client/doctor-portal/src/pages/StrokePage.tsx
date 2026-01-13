@@ -1,0 +1,273 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../store/authStore';
+import { createStroke, getPatients } from '@medichain/shared';
+import type { PatientProfile } from '@medichain/shared';
+import {
+  Activity,
+  Brain,
+  Clock,
+  Save,
+  Search,
+  CheckCircle
+} from 'lucide-react';
+
+export default function StrokePage() {
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const [patients, setPatients] = useState<PatientProfile[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<string>('');
+  
+  // Stroke Assessment State
+  const [lastKnownWell, setLastKnownWell] = useState('');
+  const [symptomOnset, setSymptomOnset] = useState('');
+  const [nihssScore, setNihssScore] = useState<number>(0);
+  
+  // FAST Assessment
+  const [faceDroop, setFaceDroop] = useState(false);
+  const [armDrift, setArmDrift] = useState(false);
+  const [speechDifficulty, setSpeechDifficulty] = useState(false);
+  
+  // Clinical Data
+  const [bloodGlucose, setBloodGlucose] = useState('');
+  const [ctHeadResult, setCtHeadResult] = useState('pending');
+  const [tpaCandidate, setTpaCandidate] = useState('evaluating');
+  const [notes, setNotes] = useState('');
+
+  useEffect(() => {
+    loadPatients();
+  }, []);
+
+  const loadPatients = async () => {
+    try {
+      const data = await getPatients();
+      setPatients(data);
+    } catch (error) {
+      console.error('Failed to load patients', error);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPatient) return;
+
+    try {
+      const strokeData = {
+        assessment_id: `STR-${Date.now()}`,
+        patient_id: selectedPatient,
+        last_known_well: new Date(lastKnownWell).getTime() / 1000,
+        symptom_onset: new Date(symptomOnset).getTime() / 1000,
+        fast_exam: {
+          face: faceDroop,
+          arms: armDrift,
+          speech: speechDifficulty,
+          time: true // Implied by filling the form
+        },
+        nihss_score: nihssScore,
+        blood_glucose: parseFloat(bloodGlucose),
+        ct_head_interpretation: ctHeadResult,
+        tpa_eligibility: tpaCandidate,
+        notes,
+        assessed_by: user?.userId || 'unknown',
+        assessed_at: Math.floor(Date.now() / 1000)
+      };
+
+      await createStroke(strokeData);
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Failed to save stroke assessment', error);
+      alert('Failed to save assessment. Please try again.');
+    }
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 flex items-center">
+          <Brain className="h-8 w-8 text-purple-600 mr-3" />
+          Stroke Code Management
+        </h1>
+        <p className="mt-2 text-gray-600">
+          Acute stroke assessment, NIHSS scoring, and thrombolytic eligibility.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-8">
+        {/* Patient Selection */}
+        <div className="bg-white shadow rounded-lg p-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Select Patient
+          </label>
+          <div className="relative max-w-md">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-gray-400" />
+            </div>
+            <select
+              className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+              value={selectedPatient}
+              onChange={(e) => setSelectedPatient(e.target.value)}
+              required
+            >
+              <option value="">Select a patient...</option>
+              {patients.map(patient => (
+                <option key={patient.patient_id} value={patient.patient_id}>
+                  {patient.full_name} ({patient.national_id})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Timing & FAST */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="bg-white shadow rounded-lg p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+              <Clock className="h-5 w-5 mr-2 text-gray-500" />
+              Critical Timing
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Last Known Well</label>
+                <input
+                  type="datetime-local"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                  value={lastKnownWell}
+                  onChange={(e) => setLastKnownWell(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Symptom Discovery</label>
+                <input
+                  type="datetime-local"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                  value={symptomOnset}
+                  onChange={(e) => setSymptomOnset(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white shadow rounded-lg p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+              <Activity className="h-5 w-5 mr-2 text-gray-500" />
+              FAST Assessment
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Face Drooping</span>
+                <button
+                  type="button"
+                  onClick={() => setFaceDroop(!faceDroop)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium ${faceDroop ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}
+                >
+                  {faceDroop ? 'Present' : 'Absent'}
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Arm Weakness</span>
+                <button
+                  type="button"
+                  onClick={() => setArmDrift(!armDrift)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium ${armDrift ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}
+                >
+                  {armDrift ? 'Present' : 'Absent'}
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Speech Difficulty</span>
+                <button
+                  type="button"
+                  onClick={() => setSpeechDifficulty(!speechDifficulty)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium ${speechDifficulty ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}
+                >
+                  {speechDifficulty ? 'Present' : 'Absent'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Clinical Data */}
+        <div className="bg-white shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+            <CheckCircle className="h-5 w-5 mr-2 text-gray-500" />
+            Clinical Data & Eligibility
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">NIHSS Score (0-42)</label>
+              <input
+                type="number"
+                min="0"
+                max="42"
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                value={nihssScore}
+                onChange={(e) => setNihssScore(parseInt(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Blood Glucose (mg/dL)</label>
+              <input
+                type="number"
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                value={bloodGlucose}
+                onChange={(e) => setBloodGlucose(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">CT Head Result</label>
+              <select
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                value={ctHeadResult}
+                onChange={(e) => setCtHeadResult(e.target.value)}
+              >
+                <option value="pending">Pending</option>
+                <option value="negative">Negative for Hemorrhage</option>
+                <option value="hemorrhage">Intracranial Hemorrhage</option>
+                <option value="infarct">Established Infarct</option>
+                <option value="tumor">Mass/Tumor</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">tPA Eligibility</label>
+              <select
+                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                value={tpaCandidate}
+                onChange={(e) => setTpaCandidate(e.target.value)}
+              >
+                <option value="evaluating">Evaluating</option>
+                <option value="eligible">Eligible</option>
+                <option value="contraindicated">Contraindicated</option>
+                <option value="refused">Patient/Family Refused</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div className="bg-white shadow rounded-lg p-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+          <textarea
+            rows={4}
+            className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={!selectedPatient}
+            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+          >
+            <Save className="h-5 w-5 mr-2" />
+            Save Assessment
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store';
 import { 
   ArrowLeft, 
   User, 
@@ -35,48 +37,94 @@ interface PatientDetails {
 
 function PatientDetailPage() {
   const { patientId } = useParams<{ patientId: string }>();
+  const navigate = useNavigate();
+  const { user, isAuthenticated } = useAuthStore();
   const [patient, setPatient] = useState<PatientDetails | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'records' | 'access'>('overview');
 
+  // Auth redirect
   useEffect(() => {
-    // Simulate API call
+    if (!isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, navigate]);
+
+  useEffect(() => {
+    if (!user || !patientId) return;
+    
     const fetchPatient = async () => {
       setLoading(true);
-      await new Promise(resolve => setTimeout(resolve, 300));
+      setError(null);
       
-      // Mock data
-      if (patientId === 'PAT-001-DEMO') {
-        setPatient({
-          patientId: 'PAT-001-DEMO',
-          fullName: 'John Doe',
-          dateOfBirth: '1985-06-15',
-          nationalHealthId: 'MCHI-2026-A1B2-C3D4',
-          bloodType: 'O+',
-          allergies: ['Penicillin', 'Sulfa drugs'],
-          currentMedications: ['Metformin 500mg - twice daily', 'Lisinopril 10mg - once daily'],
-          chronicConditions: ['Type 2 Diabetes', 'Hypertension'],
-          emergencyContacts: [
-            { name: 'Jane Doe', phone: '+234-801-234-5678', relationship: 'Spouse' }
-          ],
-          organDonor: true,
-          dnrStatus: false,
-          lastUpdated: '2026-01-03T10:30:00Z',
-          registeredBy: 'DOC-001',
+      try {
+        const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role,
+            'Content-Type': 'application/json',
+          },
         });
-      } else {
-        setPatient(null);
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            setPatient(null);
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            setError(errorData.error || `Error: ${response.status}`);
+          }
+          setLoading(false);
+          return;
+        }
+
+        const data = await response.json();
+        
+        // Map API response to PatientDetails interface
+        setPatient({
+          patientId: data.patient_id,
+          fullName: data.full_name,
+          dateOfBirth: data.date_of_birth,
+          nationalHealthId: data.national_id || data.patient_id,
+          bloodType: data.emergency_info?.blood_type || 'Unknown',
+          allergies: data.emergency_info?.allergies?.map((a: { name: string }) => a.name) || [],
+          currentMedications: data.emergency_info?.current_medications || [],
+          chronicConditions: data.emergency_info?.chronic_conditions || [],
+          emergencyContacts: data.emergency_info?.emergency_contacts || [],
+          organDonor: data.emergency_info?.organ_donor || false,
+          dnrStatus: data.emergency_info?.dnr_status || false,
+          lastUpdated: data.last_updated || new Date().toISOString(),
+          registeredBy: data.primary_doctor?.provider_id || 'Unknown',
+        });
+      } catch (err) {
+        console.error('Failed to fetch patient:', err);
+        setError('Failed to connect to the API server');
       }
       setLoading(false);
     };
 
     fetchPatient();
-  }, [patientId]);
+  }, [patientId, user]);
 
   if (loading) {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="text-center py-12">
+          <AlertTriangle className="mx-auto mb-4 text-red-400" size={64} />
+          <h2 className="text-xl font-semibold text-gray-700">Error Loading Patient</h2>
+          <p className="text-gray-500 mt-2">{error}</p>
+          <Link to="/patients" className="mt-4 inline-block text-primary-600 hover:underline">
+            ← Back to Patient Search
+          </Link>
+        </div>
       </div>
     );
   }

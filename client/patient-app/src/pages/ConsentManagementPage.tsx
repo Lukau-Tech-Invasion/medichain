@@ -65,90 +65,48 @@ export function ConsentManagementPage() {
 
   const loadData = async () => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    try {
+      // Get patient ID from stored auth
+      const authData = localStorage.getItem('patient-auth');
+      const patientId = authData ? JSON.parse(authData).patientId : null;
+      
+      if (!patientId) {
+        setGrants([]);
+        setRequests([]);
+        setIsLoading(false);
+        return;
+      }
 
-    // Demo grants
-    const demoGrants: AccessGrant[] = [
-      {
-        id: '1',
-        providerId: 'DOC-001',
-        providerName: 'Dr. Sarah Smith',
-        providerRole: 'Doctor',
-        organization: 'City General Hospital',
-        accessType: 'full',
-        grantedAt: '2025-06-15T10:00:00Z',
-        expiresAt: null,
-        status: 'active',
-        lastAccessed: '2026-01-04T09:30:00Z',
-        accessCount: 24,
-      },
-      {
-        id: '2',
-        providerId: 'NURSE-001',
-        providerName: 'Nurse Johnson',
-        providerRole: 'Nurse',
-        organization: 'City General Hospital',
-        accessType: 'limited',
-        grantedAt: '2025-12-01T14:00:00Z',
-        expiresAt: '2026-06-01T14:00:00Z',
-        status: 'active',
-        lastAccessed: '2026-01-03T11:15:00Z',
-        accessCount: 8,
-      },
-      {
-        id: '3',
-        providerId: 'LAB-001',
-        providerName: 'Lab Technician',
-        providerRole: 'LabTechnician',
-        organization: 'PathLab Diagnostics',
-        accessType: 'limited',
-        grantedAt: '2025-11-20T09:00:00Z',
-        expiresAt: '2026-02-20T09:00:00Z',
-        status: 'active',
-        lastAccessed: '2026-01-04T08:00:00Z',
-        accessCount: 3,
-      },
-      {
-        id: '4',
-        providerId: 'DOC-002',
-        providerName: 'Dr. Michael Brown',
-        providerRole: 'Doctor',
-        organization: 'Emergency Response Unit',
-        accessType: 'emergency',
-        grantedAt: '2025-10-15T16:30:00Z',
-        expiresAt: '2025-10-15T16:45:00Z',
-        status: 'expired',
-        lastAccessed: '2025-10-15T16:32:00Z',
-        accessCount: 1,
-      },
-    ];
+      // Fetch access grants from API
+      const grantsResponse = await fetch(`/api/access/patient/${patientId}/grants`, {
+        headers: { 'X-User-Id': patientId },
+      });
+      
+      if (grantsResponse.ok) {
+        const data = await grantsResponse.json();
+        setGrants(data.grants || []);
+      } else {
+        setGrants([]);
+      }
 
-    // Demo requests
-    const demoRequests: AccessRequest[] = [
-      {
-        id: '1',
-        providerId: 'PHARM-001',
-        providerName: 'PharmaCare Pharmacy',
-        providerRole: 'Pharmacist',
-        organization: 'PharmaCare Chain',
-        requestedAt: '2026-01-04T10:00:00Z',
-        reason: 'Verify prescription for medication refill',
-        status: 'pending',
-      },
-      {
-        id: '2',
-        providerId: 'DOC-003',
-        providerName: 'Dr. Emily Chen',
-        providerRole: 'Doctor',
-        organization: 'Specialist Clinic',
-        requestedAt: '2026-01-03T15:30:00Z',
-        reason: 'Referral consultation for diabetes management',
-        status: 'pending',
-      },
-    ];
-
-    setGrants(demoGrants);
-    setRequests(demoRequests);
+      // Fetch pending access requests from API
+      const requestsResponse = await fetch(`/api/access/patient/${patientId}/requests`, {
+        headers: { 'X-User-Id': patientId },
+      });
+      
+      if (requestsResponse.ok) {
+        const data = await requestsResponse.json();
+        setRequests(data.requests || []);
+      } else {
+        setRequests([]);
+      }
+    } catch (error) {
+      console.error('Failed to load consent data:', error);
+      setGrants([]);
+      setRequests([]);
+    }
+    
     setIsLoading(false);
   };
 
@@ -210,35 +168,84 @@ export function ConsentManagementPage() {
     if (!selectedGrant) return;
     
     setIsRevoking(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    setGrants(grants.map(g => 
-      g.id === selectedGrant.id 
-        ? { ...g, status: 'revoked' as const } 
-        : g
-    ));
-    
-    setIsRevoking(false);
-    setShowRevokeConfirm(false);
-    setSelectedGrant(null);
+    try {
+      const authData = localStorage.getItem('patient-auth');
+      const patientId = authData ? JSON.parse(authData).patientId : '';
+      
+      const response = await fetch(`/api/access/grants/${selectedGrant.id}/revoke`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': patientId,
+        },
+      });
+      
+      if (response.ok) {
+        setGrants(grants.map(g => 
+          g.id === selectedGrant.id 
+            ? { ...g, status: 'revoked' as const } 
+            : g
+        ));
+      } else {
+        console.error('Failed to revoke access');
+      }
+    } catch (error) {
+      console.error('Error revoking access:', error);
+    } finally {
+      setIsRevoking(false);
+      setShowRevokeConfirm(false);
+      setSelectedGrant(null);
+    }
   };
 
   const handleApproveRequest = async (requestId: string) => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setRequests(requests.map(r => 
-      r.id === requestId 
-        ? { ...r, status: 'approved' as const } 
-        : r
-    ));
+    try {
+      const authData = localStorage.getItem('patient-auth');
+      const patientId = authData ? JSON.parse(authData).patientId : '';
+      
+      const response = await fetch(`/api/access/requests/${requestId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': patientId,
+        },
+      });
+      
+      if (response.ok) {
+        setRequests(requests.map(r => 
+          r.id === requestId 
+            ? { ...r, status: 'approved' as const } 
+            : r
+        ));
+      }
+    } catch (error) {
+      console.error('Error approving request:', error);
+    }
   };
 
   const handleDenyRequest = async (requestId: string) => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    setRequests(requests.map(r => 
-      r.id === requestId 
-        ? { ...r, status: 'denied' as const } 
-        : r
-    ));
+    try {
+      const authData = localStorage.getItem('patient-auth');
+      const patientId = authData ? JSON.parse(authData).patientId : '';
+      
+      const response = await fetch(`/api/access/requests/${requestId}/deny`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': patientId,
+        },
+      });
+      
+      if (response.ok) {
+        setRequests(requests.map(r => 
+          r.id === requestId 
+            ? { ...r, status: 'denied' as const } 
+            : r
+        ));
+      }
+    } catch (error) {
+      console.error('Error denying request:', error);
+    }
   };
 
   const activeGrants = grants.filter(g => g.status === 'active');

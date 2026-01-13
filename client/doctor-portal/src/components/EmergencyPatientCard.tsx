@@ -42,7 +42,13 @@ function formatBloodType(bloodType: string): string {
  * Emergency Patient Card - displays critical medical info
  */
 function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: EmergencyPatientCardProps) {
-  const bloodType = formatBloodType(patient.bloodType);
+  // Extract optional properties with defaults to avoid undefined errors
+  const patientBloodType = patient.bloodType || '';
+  const chronicConditions = patient.chronicConditions || [];
+  const emergencyContacts = patient.emergencyContacts || [];
+  const lastUpdated = patient.lastUpdated || new Date().toISOString();
+
+  const bloodType = formatBloodType(patientBloodType);
   const bloodTypeColor = BLOOD_TYPE_COLORS[bloodType] || 'bg-gray-100 text-gray-800';
 
   return (
@@ -150,9 +156,9 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
             <Heart className="text-red-500" size={20} />
             <h3 className="font-semibold text-gray-900">Chronic Conditions</h3>
           </div>
-          {patient.chronicConditions.length > 0 ? (
+          {chronicConditions.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {patient.chronicConditions.map((condition, idx) => (
+              {chronicConditions.map((condition, idx) => (
                 <span
                   key={idx}
                   className="px-3 py-1 bg-red-50 text-red-700 rounded-full text-sm"
@@ -167,14 +173,14 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         </div>
 
         {/* Emergency Contacts */}
-        {showFullDetails && patient.emergencyContacts.length > 0 && (
+        {showFullDetails && emergencyContacts.length > 0 && (
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
               <Phone className="text-green-500" size={20} />
               <h3 className="font-semibold text-gray-900">Emergency Contacts</h3>
             </div>
             <div className="space-y-2">
-              {patient.emergencyContacts.map((contact, idx) => (
+              {emergencyContacts.map((contact, idx) => (
                 <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div>
                     <p className="font-medium text-gray-900">{contact.name}</p>
@@ -211,7 +217,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
       {/* Footer with timestamp */}
       <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
         <p className="text-xs text-gray-500">
-          Last updated: {new Date(patient.lastUpdated).toLocaleString()}
+          Last updated: {new Date(lastUpdated).toLocaleString()}
         </p>
       </div>
     </div>

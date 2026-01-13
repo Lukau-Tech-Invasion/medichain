@@ -158,26 +158,25 @@ npm run dev
 
 ---
 
-## 🔑 Demo Credentials
+## 🔑 Authentication
 
-### API Authentication (X-User-Id Header)
+### Wallet-Based Blockchain Authentication
 
-| User ID | Role | Description |
-|---------|------|-------------|
-| `ADMIN-001` | Admin | System administrator |
-| `DOC-001` | Doctor | Dr. Smith - can register patients, edit records |
-| `NURSE-001` | Nurse | Nurse Johnson - can register patients, edit records |
-| `LAB-001` | LabTechnician | Lab tech - can register patients |
-| `PAT-001-DEMO` | Patient | John Doe - demo patient (view own records only) |
+MediChain uses **wallet-based blockchain authentication** with SS58 addresses. Users authenticate using their blockchain wallet credentials.
 
-### Demo Patient
+**Authentication Flow:**
+1. User connects blockchain wallet (Polkadot.js, SubWallet, etc.)
+2. Wallet signs authentication challenge
+3. Server verifies signature and extracts SS58 address
+4. Address is used as `X-User-Id` header for API requests
 
-- **Patient ID:** PAT-001-DEMO
-- **Name:** John Doe
-- **National Health ID:** MCHI-2026-XXXX-XXXX
-- **Blood Type:** O+
-- **Allergies:** Penicillin, Sulfa drugs
-- **Conditions:** Type 2 Diabetes, Hypertension
+**Example:**
+```bash
+curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" \
+     http://localhost:8080/api/patients
+```
+
+> **Note:** Legacy demo user IDs (e.g., `DOC-001`, `ADMIN-001`) are deprecated. Register users via the blockchain with their wallet addresses.
 
 ---
 
@@ -245,15 +244,17 @@ cargo tarpaulin --workspace         # Code coverage
 medichain/
 ├── api/                    # REST API server (Actix-web)
 │   └── src/
-│       ├── main.rs         # API endpoints, RBAC
+│       ├── main.rs         # Core API endpoints, RBAC
+│       ├── clinical_endpoints.rs  # 150+ clinical endpoints
+│       ├── clinical.rs     # Clinical types (7,500+ lines)
 │       ├── ipfs.rs         # IPFS integration
 │       └── nfc_simulator.rs # NFC card simulation
 ├── client/
 │   ├── doctor-portal/      # Healthcare provider web app
-│   │   └── src/pages/      # 8 pages (Login, Dashboard, etc.)
+│   │   └── src/pages/      # 72 pages (Emergency, Nursing, Surgical, etc.)
 │   ├── patient-app/        # Patient mobile-first web app
-│   │   └── src/pages/      # 7 pages (Login, Dashboard, etc.)
-│   └── shared/             # Shared components & API client
+│   │   └── src/pages/      # 23 pages (Dashboard, Records, Telehealth, etc.)
+│   └── shared/             # Shared components & API client (1,577 lines)
 ├── crypto/                 # Cryptographic primitives
 ├── docs/                   # Documentation
 │   ├── api.md              # API reference

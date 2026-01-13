@@ -5,20 +5,29 @@ import { create } from 'zustand';
  */
 export interface EmergencyInfo {
   patientId: string;
-  bloodType: string;
+  bloodType?: string;
   allergies: string[];
   currentMedications: string[];
-  chronicConditions: string[];
-  emergencyContacts: {
+  chronicConditions?: string[];
+  medicalConditions?: string[];
+  emergencyContacts?: {
     name: string;
     phone: string;
     relationship: string;
   }[];
-  organDonor: boolean;
-  dnrStatus: boolean;
-  lastUpdated: string;
-  // Optional display fields for UI
+  emergencyContact?: {
+    name: string;
+    phone: string;
+    relationship: string;
+  };
+  organDonor?: boolean;
+  dnrStatus?: boolean;
+  lastUpdated?: string;
+  // Display fields for UI
   fullName?: string;
+  healthId?: string;
+  dateOfBirth?: string;
+  gender?: string;
   lastAccessed?: string;
 }
 
@@ -46,6 +55,7 @@ interface PatientState {
   setSearchResults: (results: EmergencyInfo[]) => void;
   setSearching: (isSearching: boolean) => void;
   addToRecentPatients: (patient: EmergencyInfo) => void;
+  setRecentPatients: (patients: EmergencyInfo[]) => void;
 }
 
 /**
@@ -106,5 +116,9 @@ export const usePatientStore = create<PatientState>()((set, get) => ({
     const updated = [patient, ...filtered].slice(0, MAX_RECENT_PATIENTS);
 
     set({ recentPatients: updated });
+  },
+
+  setRecentPatients: (patients: EmergencyInfo[]) => {
+    set({ recentPatients: patients.slice(0, MAX_RECENT_PATIENTS) });
   },
 }));

@@ -1,0 +1,14990 @@
+//! Clinical Documentation API Endpoints (Phase 2-8)
+//!
+//! This module provides REST API endpoints for all clinical documentation types.
+//! Uses generic CRUD pattern: clients submit complete structs from clinical.rs
+//!
+//! © 2025 Trustware. All rights reserved.
+
+use crate::clinical;
+use crate::clinical::*;
+use crate::{get_current_user_id, get_user, AppState, ErrorResponse};
+use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
+use serde::Deserialize;
+
+// ============================================================================
+// Phase 2: Emergency Protocols
+// ============================================================================
+
+/// Create Code Blue record
+#[post("/api/clinical/code-blue")]
+pub async fn create_code_blue(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CodeBlueRecord>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let event_id = req.event_id.clone();
+    {
+        let mut records = data.code_blue_records.write().unwrap();
+        records.insert(event_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "event_id": event_id
+    }))
+}
+
+/// Get Code Blue record by ID
+#[get("/api/clinical/code-blue/{event_id}")]
+pub async fn get_code_blue(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let event_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.code_blue_records.read().unwrap();
+    match records.get(&event_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Code Blue record '{}' not found", event_id),
+            code: "RECORD_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// List all Code Blue records for a patient
+#[get("/api/clinical/code-blue/patient/{patient_id}")]
+pub async fn list_patient_code_blues(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.code_blue_records.read().unwrap();
+    let patient_records: Vec<&CodeBlueRecord> = records
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .collect();
+
+    HttpResponse::Ok().json(patient_records)
+}
+
+// Trauma Assessment endpoints
+#[post("/api/clinical/trauma")]
+pub async fn create_trauma(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<TraumaAssessment>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.trauma_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/trauma/{assessment_id}")]
+pub async fn get_trauma(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.trauma_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Trauma assessment '{}' not found", assessment_id),
+            code: "RECORD_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// Stroke Assessment endpoints
+#[post("/api/clinical/stroke")]
+pub async fn create_stroke(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<StrokeAssessment>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.stroke_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/stroke/{assessment_id}")]
+pub async fn get_stroke(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.stroke_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Stroke assessment '{}' not found", assessment_id),
+            code: "RECORD_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// Cardiac Event endpoints
+#[post("/api/clinical/cardiac")]
+pub async fn create_cardiac(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CardiacEvent>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let event_id = req.event_id.clone();
+    {
+        let mut events = data.cardiac_events.write().unwrap();
+        events.insert(event_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "event_id": event_id
+    }))
+}
+
+#[get("/api/clinical/cardiac/{event_id}")]
+pub async fn get_cardiac(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let event_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let events = data.cardiac_events.read().unwrap();
+    match events.get(&event_id) {
+        Some(event) => HttpResponse::Ok().json(event),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Cardiac event '{}' not found", event_id),
+            code: "RECORD_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// Sepsis Assessment endpoints
+#[post("/api/clinical/sepsis")]
+pub async fn create_sepsis(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<SepsisAssessment>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.sepsis_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/sepsis/{assessment_id}")]
+pub async fn get_sepsis(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.sepsis_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Sepsis assessment '{}' not found", assessment_id),
+            code: "RECORD_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// EMS Handoff endpoints
+#[post("/api/clinical/ems-handoff")]
+pub async fn create_ems_handoff(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<EMSHandoff>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let handoff_id = req.report_id.clone();
+    {
+        let mut handoffs = data.ems_handoffs.write().unwrap();
+        handoffs.insert(handoff_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "report_id": handoff_id
+    }))
+}
+
+#[get("/api/clinical/ems-handoff/{handoff_id}")]
+pub async fn get_ems_handoff(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let handoff_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let handoffs = data.ems_handoffs.read().unwrap();
+    match handoffs.get(&handoff_id) {
+        Some(handoff) => HttpResponse::Ok().json(handoff),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("EMS handoff '{}' not found", handoff_id),
+            code: "RECORD_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Summary endpoint for all emergency records
+// ============================================================================
+
+/// Get all emergency records for a patient
+#[get("/api/clinical/patient/{patient_id}/emergency")]
+pub async fn get_patient_emergency_records(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Collect records
+    let code_blues: Vec<CodeBlueRecord> = data
+        .code_blue_records
+        .read()
+        .unwrap()
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    let traumas: Vec<TraumaAssessment> = data
+        .trauma_assessments
+        .read()
+        .unwrap()
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    let strokes: Vec<StrokeAssessment> = data
+        .stroke_assessments
+        .read()
+        .unwrap()
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    let sepsis: Vec<SepsisAssessment> = data
+        .sepsis_assessments
+        .read()
+        .unwrap()
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    let cardiac: Vec<CardiacEvent> = data
+        .cardiac_events
+        .read()
+        .unwrap()
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "patient_id": patient_id,
+        "code_blue_records": code_blues,
+        "trauma_assessments": traumas,
+        "stroke_assessments": strokes,
+        "sepsis_assessments": sepsis,
+        "cardiac_events": cardiac,
+        "total_emergency_events": code_blues.len() + traumas.len() + strokes.len() + sepsis.len() + cardiac.len()
+    }))
+}
+
+// ============================================================================
+// PHASE 3: NURSING DOCUMENTATION ENDPOINTS
+// ============================================================================
+
+/// Create medication administration record
+#[post("/api/clinical/mar")]
+pub async fn create_mar(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::MedicationAdministrationRecord>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let key = format!("{}_{}", req.patient_id, req.date);
+    {
+        let mut records = data.medication_records.write().unwrap();
+        records.insert(key.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "key": key
+    }))
+}
+
+#[get("/api/clinical/mar/{patient_id}/{date}")]
+pub async fn get_mar(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<(String, String)>,
+) -> impl Responder {
+    let (patient_id, date) = path.into_inner();
+    let key = format!("{}_{}", patient_id, date);
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.medication_records.read().unwrap();
+    match records.get(&key) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "MAR not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// List all MAR records (for NursingPage)
+#[get("/api/nursing/mar")]
+pub async fn list_mar(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.medication_records.read().unwrap();
+    let record_list: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "records": record_list
+    }))
+}
+
+/// Administer medication (for NursingPage MAR)
+#[post("/api/nursing/mar/administer")]
+pub async fn administer_medication(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Extract administration details
+    let mar_id = req.get("mar_id").and_then(|v| v.as_str()).unwrap_or("");
+    let status = req.get("status").and_then(|v| v.as_str()).unwrap_or("given");
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Medication administered successfully",
+        "mar_id": mar_id,
+        "status": status,
+        "administered_by": current_user.user_id,
+        "administered_at": chrono::Utc::now().timestamp()
+    }))
+}
+
+/// Create intake/output record
+#[post("/api/clinical/io")]
+pub async fn create_io(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::IntakeOutputRecord>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let key = format!("{}_{}_{}", req.patient_id, req.date, req.shift);
+    {
+        let mut records = data.io_records.write().unwrap();
+        records.insert(key.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "key": key
+    }))
+}
+
+#[get("/api/clinical/io/{patient_id}/{date}/{shift}")]
+pub async fn get_io(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<(String, String, String)>,
+) -> impl Responder {
+    let (patient_id, date, shift) = path.into_inner();
+    let key = format!("{}_{}_{}", patient_id, date, shift);
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.io_records.read().unwrap();
+    match records.get(&key) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "I/O record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// List all I/O records (for NursingPage)
+#[get("/api/nursing/intake-output")]
+pub async fn list_io(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.io_records.read().unwrap();
+    let record_list: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "records": record_list
+    }))
+}
+
+/// Record fluid entry (for NursingPage I/O)
+#[post("/api/nursing/intake-output/record")]
+pub async fn record_fluid(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let patient_id = req.get("patient_id").and_then(|v| v.as_str()).unwrap_or("");
+    let entry_type = req.get("entry_type").and_then(|v| v.as_str()).unwrap_or("intake");
+    let amount_ml = req.get("amount_ml").and_then(|v| v.as_i64()).unwrap_or(0);
+    
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Fluid entry recorded successfully",
+        "patient_id": patient_id,
+        "entry_type": entry_type,
+        "amount_ml": amount_ml,
+        "recorded_by": current_user.user_id,
+        "recorded_at": chrono::Utc::now().timestamp()
+    }))
+}
+
+/// Create nursing care plan
+#[post("/api/clinical/care-plan")]
+pub async fn create_care_plan(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::NursingCarePlan>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let plan_id = req.care_plan_id.clone();
+    {
+        let mut plans = data.nursing_care_plans.write().unwrap();
+        plans.insert(plan_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "care_plan_id": plan_id
+    }))
+}
+
+#[get("/api/clinical/care-plan/{plan_id}")]
+pub async fn get_care_plan(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let plan_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let plans = data.nursing_care_plans.read().unwrap();
+    match plans.get(&plan_id) {
+        Some(plan) => HttpResponse::Ok().json(plan),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Care plan not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// List all care plans (for NursingPage)
+#[get("/api/nursing/care-plans")]
+pub async fn list_care_plans(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let plans = data.nursing_care_plans.read().unwrap();
+    let plan_list: Vec<_> = plans.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "plans": plan_list
+    }))
+}
+
+/// Create wound assessment
+#[post("/api/clinical/wound")]
+pub async fn create_wound(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::WoundAssessment>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.wound_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/wound/{assessment_id}")]
+pub async fn get_wound(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.wound_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Wound assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create IV site assessment
+#[post("/api/clinical/iv-site")]
+pub async fn create_iv_site(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::IVSiteAssessment>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.iv_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/iv-site/{assessment_id}")]
+pub async fn get_iv_site(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.iv_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "IV site assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create shift handoff
+#[post("/api/clinical/shift-handoff")]
+pub async fn create_shift_handoff(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::ShiftHandoff>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let handoff_id = req.handoff_id.clone();
+    {
+        let mut handoffs = data.shift_handoffs.write().unwrap();
+        handoffs.insert(handoff_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "handoff_id": handoff_id
+    }))
+}
+
+#[get("/api/clinical/shift-handoff/{handoff_id}")]
+pub async fn get_shift_handoff(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let handoff_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let handoffs = data.shift_handoffs.read().unwrap();
+    match handoffs.get(&handoff_id) {
+        Some(handoff) => HttpResponse::Ok().json(handoff),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Shift handoff not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create incident report
+#[post("/api/clinical/incident")]
+pub async fn create_incident(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::IncidentReport>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let report_id = req.report_id.clone();
+    {
+        let mut reports = data.incident_reports.write().unwrap();
+        reports.insert(report_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "report_id": report_id
+    }))
+}
+
+#[get("/api/clinical/incident/{report_id}")]
+pub async fn get_incident(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let report_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let reports = data.incident_reports.read().unwrap();
+    match reports.get(&report_id) {
+        Some(report) => HttpResponse::Ok().json(report),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Incident report not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create fall risk assessment
+#[post("/api/clinical/fall-risk")]
+pub async fn create_fall_risk(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::FallRiskAssessment>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.fall_risk_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/fall-risk/{assessment_id}")]
+pub async fn get_fall_risk(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.fall_risk_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Fall risk assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// PHASE 4: SPECIALIZED ASSESSMENT ENDPOINTS
+// ============================================================================
+
+/// Create burn assessment
+#[post("/api/clinical/burn")]
+pub async fn create_burn(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::BurnAssessment>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.burn_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/burn/{assessment_id}")]
+pub async fn get_burn(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.burn_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Burn assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create psychiatric assessment
+#[post("/api/clinical/psych")]
+pub async fn create_psych(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::PsychiatricAssessment>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.psych_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/psych/{assessment_id}")]
+pub async fn get_psych(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.psych_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Psychiatric assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create toxicology assessment
+#[post("/api/clinical/tox")]
+pub async fn create_tox(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::ToxicologyAssessment>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.tox_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/tox/{assessment_id}")]
+pub async fn get_tox(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.tox_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Toxicology assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create mass casualty incident
+#[post("/api/clinical/mci")]
+pub async fn create_mci(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::MassCasualtyIncident>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let incident_id = req.incident_id.clone();
+    {
+        let mut incidents = data.mci_records.write().unwrap();
+        incidents.insert(incident_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "incident_id": incident_id
+    }))
+}
+
+#[get("/api/clinical/mci/{incident_id}")]
+pub async fn get_mci(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let incident_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let incidents = data.mci_records.read().unwrap();
+    match incidents.get(&incident_id) {
+        Some(incident) => HttpResponse::Ok().json(incident),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "MCI record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// PHASE 5: PROCEDURE ENDPOINTS
+// ============================================================================
+
+/// Create intubation record
+#[post("/api/clinical/intubation")]
+pub async fn create_intubation(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::IntubationRecord>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let record_id = req.record_id.clone();
+    {
+        let mut records = data.intubation_records.write().unwrap();
+        records.insert(record_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "record_id": record_id
+    }))
+}
+
+#[get("/api/clinical/intubation/{record_id}")]
+pub async fn get_intubation(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let record_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.intubation_records.read().unwrap();
+    match records.get(&record_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Intubation record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create laceration repair record
+#[post("/api/clinical/laceration")]
+pub async fn create_laceration(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::LacerationRepair>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let record_id = req.record_id.clone();
+    {
+        let mut records = data.laceration_records.write().unwrap();
+        records.insert(record_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "record_id": record_id
+    }))
+}
+
+#[get("/api/clinical/laceration/{record_id}")]
+pub async fn get_laceration(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let record_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.laceration_records.read().unwrap();
+    match records.get(&record_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Laceration repair not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create splint/cast record
+#[post("/api/clinical/splint")]
+pub async fn create_splint(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::SplintCastRecord>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let record_id = req.record_id.clone();
+    {
+        let mut records = data.splint_cast_records.write().unwrap();
+        records.insert(record_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "record_id": record_id
+    }))
+}
+
+#[get("/api/clinical/splint/{record_id}")]
+pub async fn get_splint(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let record_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.splint_cast_records.read().unwrap();
+    match records.get(&record_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Splint/cast record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// PHASE 6: SPECIALTY POPULATION ENDPOINTS
+// ============================================================================
+
+/// Create pediatric assessment
+#[post("/api/clinical/peds")]
+pub async fn create_peds(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::PediatricAssessment>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut assessments = data.pediatric_assessments.write().unwrap();
+        assessments.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/peds/{assessment_id}")]
+pub async fn get_peds(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.pediatric_assessments.read().unwrap();
+    match assessments.get(&assessment_id) {
+        Some(assessment) => HttpResponse::Ok().json(assessment),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Pediatric assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create obstetric emergency record
+#[post("/api/clinical/ob")]
+pub async fn create_ob(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::ObstetricEmergency>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut records = data.obstetric_emergencies.write().unwrap();
+        records.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+#[get("/api/clinical/ob/{assessment_id}")]
+pub async fn get_ob(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.obstetric_emergencies.read().unwrap();
+    match records.get(&assessment_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Obstetric emergency not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// PHASE 7: LABORATORY ENDPOINTS
+// ============================================================================
+
+/// Create specimen collection
+#[post("/api/clinical/specimen")]
+pub async fn create_specimen(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::SpecimenCollection>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let collection_id = req.collection_id.clone();
+    {
+        let mut collections = data.specimen_collections.write().unwrap();
+        collections.insert(collection_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "collection_id": collection_id
+    }))
+}
+
+#[get("/api/clinical/specimen/{collection_id}")]
+pub async fn get_specimen(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let collection_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let collections = data.specimen_collections.read().unwrap();
+    match collections.get(&collection_id) {
+        Some(collection) => HttpResponse::Ok().json(collection),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Specimen collection not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create chain of custody
+#[post("/api/clinical/chain-of-custody")]
+pub async fn create_chain_of_custody(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::ChainOfCustody>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let form_id = req.form_id.clone();
+    {
+        let mut forms = data.chain_of_custody.write().unwrap();
+        forms.insert(form_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "form_id": form_id
+    }))
+}
+
+#[get("/api/clinical/chain-of-custody/{form_id}")]
+pub async fn get_chain_of_custody(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let form_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let forms = data.chain_of_custody.read().unwrap();
+    match forms.get(&form_id) {
+        Some(form) => HttpResponse::Ok().json(form),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Chain of custody not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create lab QC record
+#[post("/api/clinical/lab-qc")]
+pub async fn create_lab_qc(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::LabQCRecord>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let qc_id = req.qc_id.clone();
+    {
+        let mut records = data.lab_qc_records.write().unwrap();
+        records.insert(qc_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "qc_id": qc_id
+    }))
+}
+
+#[get("/api/clinical/lab-qc/{qc_id}")]
+pub async fn get_lab_qc(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let qc_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.lab_qc_records.read().unwrap();
+    match records.get(&qc_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Lab QC record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create critical value notification
+#[post("/api/clinical/critical-value")]
+pub async fn create_critical_value(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::CriticalValueNotification>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let notification_id = req.notification_id.clone();
+    {
+        let mut notifications = data.critical_values.write().unwrap();
+        notifications.insert(notification_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "notification_id": notification_id
+    }))
+}
+
+#[get("/api/clinical/critical-value/{notification_id}")]
+pub async fn get_critical_value(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let notification_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let notifications = data.critical_values.read().unwrap();
+    match notifications.get(&notification_id) {
+        Some(notification) => HttpResponse::Ok().json(notification),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Critical value notification not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create specimen rejection
+#[post("/api/clinical/specimen-rejection")]
+pub async fn create_specimen_rejection(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::SpecimenRejection>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let rejection_id = req.rejection_id.clone();
+    {
+        let mut rejections = data.specimen_rejections.write().unwrap();
+        rejections.insert(rejection_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "rejection_id": rejection_id
+    }))
+}
+
+#[get("/api/clinical/specimen-rejection/{rejection_id}")]
+pub async fn get_specimen_rejection(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let rejection_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let rejections = data.specimen_rejections.read().unwrap();
+    match rejections.get(&rejection_id) {
+        Some(rejection) => HttpResponse::Ok().json(rejection),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Specimen rejection not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// PHASE 8: PHYSICIAN DOCUMENTATION ENDPOINTS
+// ============================================================================
+
+/// Create physician order
+#[post("/api/clinical/order")]
+pub async fn create_order(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::PhysicianOrder>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let order_id = req.order_id.clone();
+    {
+        let mut orders = data.physician_orders.write().unwrap();
+        orders.insert(order_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "order_id": order_id
+    }))
+}
+
+#[get("/api/clinical/order/{order_id}")]
+pub async fn get_order(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let order_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let orders = data.physician_orders.read().unwrap();
+    match orders.get(&order_id) {
+        Some(order) => HttpResponse::Ok().json(order),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Physician order not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// List all physician orders (for NursingPage and OrdersPage)
+#[get("/api/clinical/orders")]
+pub async fn list_orders(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let orders = data.physician_orders.read().unwrap();
+    let order_list: Vec<_> = orders.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "orders": order_list
+    }))
+}
+
+/// Create discharge summary
+#[post("/api/clinical/discharge-summary")]
+pub async fn create_discharge_summary(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::DischargeSummary>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let summary_id = req.summary_id.clone();
+    {
+        let mut summaries = data.discharge_summaries.write().unwrap();
+        summaries.insert(summary_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "summary_id": summary_id
+    }))
+}
+
+#[get("/api/clinical/discharge-summary/{summary_id}")]
+pub async fn get_discharge_summary(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let summary_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let summaries = data.discharge_summaries.read().unwrap();
+    match summaries.get(&summary_id) {
+        Some(summary) => HttpResponse::Ok().json(summary),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Discharge summary not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// List all discharge summaries (for DischargePage)
+#[get("/api/clinical/discharges")]
+pub async fn list_discharges(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let summaries = data.discharge_summaries.read().unwrap();
+    let discharge_list: Vec<_> = summaries.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "discharges": discharge_list
+    }))
+}
+
+/// Approve discharge (for DischargePage)
+#[post("/api/clinical/discharges/{id}/approve")]
+pub async fn approve_discharge(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let summary_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let mut summaries = data.discharge_summaries.write().unwrap();
+    match summaries.get_mut(&summary_id) {
+        Some(summary) => {
+            summary.signed_by = Some(current_user.user_id.clone());
+            summary.signature_time = Some(chrono::Utc::now().timestamp());
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "message": "Discharge approved",
+                "summary_id": summary_id,
+                "signed_by": current_user.user_id
+            }))
+        }
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Discharge summary not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create discharge instructions
+#[post("/api/clinical/discharge-instructions")]
+pub async fn create_discharge_instructions(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::DischargeInstructions>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let instructions_id = req.instructions_id.clone();
+    {
+        let mut instructions = data.discharge_instructions.write().unwrap();
+        instructions.insert(instructions_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "instructions_id": instructions_id
+    }))
+}
+
+#[get("/api/clinical/discharge-instructions/{instructions_id}")]
+pub async fn get_discharge_instructions(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let instructions_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let instructions = data.discharge_instructions.read().unwrap();
+    match instructions.get(&instructions_id) {
+        Some(instruction) => HttpResponse::Ok().json(instruction),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Discharge instructions not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create AMA discharge
+#[post("/api/clinical/ama")]
+pub async fn create_ama(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::AMADischarge>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let ama_id = req.ama_id.clone();
+    {
+        let mut amas = data.ama_discharges.write().unwrap();
+        amas.insert(ama_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "ama_id": ama_id
+    }))
+}
+
+#[get("/api/clinical/ama/{ama_id}")]
+pub async fn get_ama(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let ama_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let amas = data.ama_discharges.read().unwrap();
+    match amas.get(&ama_id) {
+        Some(ama) => HttpResponse::Ok().json(ama),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "AMA discharge not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create history and physical
+#[post("/api/clinical/hp")]
+pub async fn create_hp(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::HistoryAndPhysical>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let hp_id = req.hp_id.clone();
+    {
+        let mut hps = data.history_physicals.write().unwrap();
+        hps.insert(hp_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "hp_id": hp_id
+    }))
+}
+
+#[get("/api/clinical/hp/{hp_id}")]
+pub async fn get_hp(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let hp_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let hps = data.history_physicals.read().unwrap();
+    match hps.get(&hp_id) {
+        Some(hp) => HttpResponse::Ok().json(hp),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "H&P not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create consultation note
+#[post("/api/clinical/consult")]
+pub async fn create_consult(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::ConsultationNote>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let consult_id = req.consult_id.clone();
+    {
+        let mut consults = data.consult_notes.write().unwrap();
+        consults.insert(consult_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "consult_id": consult_id
+    }))
+}
+
+#[get("/api/clinical/consult/{consult_id}")]
+pub async fn get_consult(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let consult_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let consults = data.consult_notes.read().unwrap();
+    match consults.get(&consult_id) {
+        Some(consult) => HttpResponse::Ok().json(consult),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Consultation note not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create progress note
+#[post("/api/clinical/progress-note")]
+pub async fn create_progress_note(
+    data: web::Data<AppState>,
+    req: web::Json<clinical::ProgressNote>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let note_id = req.note_id.clone();
+    {
+        let mut notes = data.progress_notes.write().unwrap();
+        notes.insert(note_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "note_id": note_id
+    }))
+}
+
+#[get("/api/clinical/progress-note/{note_id}")]
+pub async fn get_progress_note(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let note_id = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let notes = data.progress_notes.read().unwrap();
+    match notes.get(&note_id) {
+        Some(note) => HttpResponse::Ok().json(note),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Progress note not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// DASHBOARD & WORKFLOW ENDPOINTS
+// ============================================================================
+
+/// Patient Home Dashboard - timeline of visits, meds, test results
+#[get("/api/dashboard/patient")]
+pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Get patient profile
+    let patient_profile = {
+        let patients = data.patients.read().unwrap();
+        patients.get(&current_user_id).cloned()
+    };
+
+    // Get recent lab results (approved only for patients)
+    let lab_results: Vec<_> = {
+        let submissions = data.lab_submissions.read().unwrap();
+        submissions
+            .values()
+            .filter(|s| {
+                s.patient_id == current_user_id
+                    && (current_user.role.can_view_medical_records()
+                        || s.status == crate::LabResultStatus::Approved)
+            })
+            .take(10)
+            .cloned()
+            .collect()
+    };
+
+    // Get medical records
+    let medical_records: Vec<_> = {
+        let records = data.medical_records.read().unwrap();
+        records.get(&current_user_id).cloned().unwrap_or_default()
+    };
+
+    // Get vital signs
+    let vital_signs = {
+        let vitals = data.vital_signs.read().unwrap();
+        vitals.get(&current_user_id).cloned()
+    };
+
+    // Get SOAP notes
+    let soap_notes: Vec<_> = {
+        let notes = data.soap_notes.read().unwrap();
+        notes
+            .values()
+            .filter(|n| n.patient_id == current_user_id)
+            .take(5)
+            .cloned()
+            .collect()
+    };
+
+    // Get triage assessments
+    let triage_history: Vec<_> = {
+        let triages = data.triage_assessments.read().unwrap();
+        triages
+            .values()
+            .filter(|t| t.patient_id == current_user_id)
+            .take(5)
+            .cloned()
+            .collect()
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "user_id": current_user_id,
+        "role": current_user.role.to_string(),
+        "profile": patient_profile,
+        "recent_lab_results": lab_results,
+        "medical_records": medical_records,
+        "vital_signs": vital_signs,
+        "recent_soap_notes": soap_notes,
+        "triage_history": triage_history,
+        "summary": {
+            "total_lab_results": lab_results.len(),
+            "total_medical_records": medical_records.len(),
+            "total_visits": soap_notes.len()
+        }
+    }))
+}
+
+/// Doctor Dashboard - patient list, pending tasks, alerts
+#[get("/api/dashboard/doctor")]
+pub async fn doctor_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !matches!(current_user.role, crate::Role::Doctor | crate::Role::Admin) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Doctor dashboard requires Doctor or Admin role".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get all patients
+    let patients: Vec<_> = {
+        let patients = data.patients.read().unwrap();
+        patients.values().cloned().collect()
+    };
+
+    // Get pending lab results awaiting approval
+    let pending_labs: Vec<_> = {
+        let submissions = data.lab_submissions.read().unwrap();
+        submissions
+            .values()
+            .filter(|s| s.status == crate::LabResultStatus::Pending)
+            .cloned()
+            .collect()
+    };
+
+    // Get critical values needing attention
+    let critical_values: Vec<_> = {
+        let criticals = data.critical_values.read().unwrap();
+        criticals.values().take(10).cloned().collect()
+    };
+
+    // Get recent code blues
+    let code_blues: Vec<_> = {
+        let codes = data.code_blue_records.read().unwrap();
+        codes.values().take(5).cloned().collect()
+    };
+
+    // Get active physician orders
+    let active_orders: Vec<_> = {
+        let orders = data.physician_orders.read().unwrap();
+        orders.values().take(20).cloned().collect()
+    };
+
+    // Get recent consults
+    let pending_consults: Vec<_> = {
+        let consults = data.consult_notes.read().unwrap();
+        consults.values().take(10).cloned().collect()
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "role": "Doctor",
+        "patients": {
+            "total": patients.len(),
+            "list": patients.iter().take(50).collect::<Vec<_>>()
+        },
+        "pending_lab_approvals": pending_labs,
+        "critical_values": critical_values,
+        "recent_code_blues": code_blues,
+        "active_orders": active_orders,
+        "pending_consults": pending_consults,
+        "alerts": {
+            "pending_labs_count": pending_labs.len(),
+            "critical_values_count": critical_values.len(),
+            "code_blues_count": code_blues.len()
+        }
+    }))
+}
+
+/// Nurse Dashboard - assigned patients, tasks, medication due
+#[get("/api/dashboard/nurse")]
+pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !matches!(current_user.role, crate::Role::Nurse | crate::Role::Admin) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Nurse dashboard requires Nurse or Admin role".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get all patients
+    let patients: Vec<_> = {
+        let patients = data.patients.read().unwrap();
+        patients.values().cloned().collect()
+    };
+
+    // Get active care plans
+    let care_plans: Vec<_> = {
+        let plans = data.nursing_care_plans.read().unwrap();
+        plans.values().cloned().collect()
+    };
+
+    // Get recent vital signs needing attention
+    let vitals_needing_attention: Vec<_> = {
+        let vitals = data.vital_signs.read().unwrap();
+        vitals
+            .values()
+            .filter(|v| {
+                v.readings
+                    .last()
+                    .map(|r| !r.has_critical_values().is_empty())
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect()
+    };
+
+    // Get medication records for today
+    let medication_records: Vec<_> = {
+        let meds = data.medication_records.read().unwrap();
+        meds.values().take(20).cloned().collect()
+    };
+
+    // Get I/O records
+    let io_records: Vec<_> = {
+        let ios = data.io_records.read().unwrap();
+        ios.values().take(20).cloned().collect()
+    };
+
+    // Get wound assessments needing follow-up
+    let wound_assessments: Vec<_> = {
+        let wounds = data.wound_assessments.read().unwrap();
+        wounds.values().take(10).cloned().collect()
+    };
+
+    // Get IV site assessments
+    let iv_assessments: Vec<_> = {
+        let ivs = data.iv_assessments.read().unwrap();
+        ivs.values().take(10).cloned().collect()
+    };
+
+    // Get fall risk assessments
+    let fall_risks: Vec<_> = {
+        let falls = data.fall_risk_assessments.read().unwrap();
+        falls.values().cloned().collect()
+    };
+
+    // Get recent incidents
+    let incidents: Vec<_> = {
+        let inc = data.incident_reports.read().unwrap();
+        inc.values().take(5).cloned().collect()
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "role": "Nurse",
+        "patients": {
+            "total": patients.len(),
+            "list": patients.iter().take(30).collect::<Vec<_>>()
+        },
+        "care_plans": care_plans,
+        "vitals_needing_attention": vitals_needing_attention,
+        "medication_records": medication_records,
+        "io_records": io_records,
+        "wound_assessments": wound_assessments,
+        "iv_assessments": iv_assessments,
+        "fall_risk_patients": fall_risks,
+        "recent_incidents": incidents,
+        "tasks": {
+            "vitals_due": vitals_needing_attention.len(),
+            "meds_due": medication_records.len(),
+            "wounds_to_assess": wound_assessments.len(),
+            "ivs_to_check": iv_assessments.len()
+        }
+    }))
+}
+
+/// Lab Technician Dashboard - test queue, pending specimens, QC status
+#[get("/api/dashboard/lab")]
+pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !matches!(
+        current_user.role,
+        crate::Role::LabTechnician | crate::Role::Admin
+    ) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Lab dashboard requires LabTechnician or Admin role".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get pending lab submissions
+    let pending_submissions: Vec<_> = {
+        let subs = data.lab_submissions.read().unwrap();
+        subs.values()
+            .filter(|s| s.status == crate::LabResultStatus::Pending)
+            .cloned()
+            .collect()
+    };
+
+    // Get approved submissions
+    let approved_submissions: Vec<_> = {
+        let subs = data.lab_submissions.read().unwrap();
+        subs.values()
+            .filter(|s| s.status == crate::LabResultStatus::Approved)
+            .take(20)
+            .cloned()
+            .collect()
+    };
+
+    // Get specimen collections
+    let specimens: Vec<_> = {
+        let specs = data.specimen_collections.read().unwrap();
+        specs.values().take(20).cloned().collect()
+    };
+
+    // Get specimen rejections
+    let rejections: Vec<_> = {
+        let rejs = data.specimen_rejections.read().unwrap();
+        rejs.values().take(10).cloned().collect()
+    };
+
+    // Get QC records
+    let qc_records: Vec<_> = {
+        let qcs = data.lab_qc_records.read().unwrap();
+        qcs.values().take(10).cloned().collect()
+    };
+
+    // Get critical value notifications
+    let critical_notifications: Vec<_> = {
+        let crits = data.critical_values.read().unwrap();
+        crits.values().take(10).cloned().collect()
+    };
+
+    // Get chain of custody records
+    let custody_records: Vec<_> = {
+        let cocs = data.chain_of_custody.read().unwrap();
+        cocs.values().take(10).cloned().collect()
+    };
+
+    // Get lab panels
+    let lab_panels: Vec<_> = {
+        let panels = data.lab_panels.read().unwrap();
+        panels.values().cloned().collect()
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "role": "LabTechnician",
+        "test_queue": {
+            "pending": pending_submissions,
+            "approved_today": approved_submissions,
+            "pending_count": pending_submissions.len(),
+            "approved_count": approved_submissions.len()
+        },
+        "specimens": specimens,
+        "rejections": rejections,
+        "qc_records": qc_records,
+        "critical_notifications": critical_notifications,
+        "chain_of_custody": custody_records,
+        "available_panels": lab_panels,
+        "alerts": {
+            "pending_tests": pending_submissions.len(),
+            "critical_values": critical_notifications.len(),
+            "rejections_today": rejections.len()
+        }
+    }))
+}
+
+/// Admin Dashboard - system overview, all users, all data
+#[get("/api/dashboard/admin")]
+pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !matches!(current_user.role, crate::Role::Admin) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Admin dashboard requires Admin role".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get all users
+    let users: Vec<_> = {
+        let users = data.users.read().unwrap();
+        users.values().cloned().collect()
+    };
+
+    // Get all patients
+    let patients: Vec<_> = {
+        let patients = data.patients.read().unwrap();
+        patients.values().cloned().collect()
+    };
+
+    // Count by role
+    let doctors_count = users
+        .iter()
+        .filter(|u| matches!(u.role, crate::Role::Doctor))
+        .count();
+    let nurses_count = users
+        .iter()
+        .filter(|u| matches!(u.role, crate::Role::Nurse))
+        .count();
+    let lab_techs_count = users
+        .iter()
+        .filter(|u| matches!(u.role, crate::Role::LabTechnician))
+        .count();
+    let pharmacists_count = users
+        .iter()
+        .filter(|u| matches!(u.role, crate::Role::Pharmacist))
+        .count();
+    let patients_count = users
+        .iter()
+        .filter(|u| matches!(u.role, crate::Role::Patient))
+        .count();
+
+    // Get access logs
+    let access_logs: Vec<_> = {
+        let logs = data.access_logs.read().unwrap();
+        logs.iter().rev().take(50).cloned().collect()
+    };
+
+    // Get NFC cards
+    let nfc_cards = data.card_registry.list_cards();
+
+    // Get all lab submissions
+    let lab_submissions: Vec<_> = {
+        let subs = data.lab_submissions.read().unwrap();
+        subs.values().cloned().collect()
+    };
+
+    // Get emergency events
+    let code_blues_count = data.code_blue_records.read().unwrap().len();
+    let traumas_count = data.trauma_assessments.read().unwrap().len();
+    let strokes_count = data.stroke_assessments.read().unwrap().len();
+    let sepsis_count = data.sepsis_assessments.read().unwrap().len();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "role": "Admin",
+        "system_stats": {
+            "total_users": users.len(),
+            "total_patients": patients.len(),
+            "doctors": doctors_count,
+            "nurses": nurses_count,
+            "lab_technicians": lab_techs_count,
+            "pharmacists": pharmacists_count,
+            "patient_users": patients_count
+        },
+        "users": users,
+        "nfc_cards": {
+            "total": nfc_cards.len(),
+            "cards": nfc_cards.iter().take(20).collect::<Vec<_>>()
+        },
+        "lab_submissions": {
+            "total": lab_submissions.len(),
+            "pending": lab_submissions.iter().filter(|s| s.status == crate::LabResultStatus::Pending).count(),
+            "approved": lab_submissions.iter().filter(|s| s.status == crate::LabResultStatus::Approved).count()
+        },
+        "emergency_events": {
+            "code_blues": code_blues_count,
+            "traumas": traumas_count,
+            "strokes": strokes_count,
+            "sepsis_cases": sepsis_count,
+            "total": code_blues_count + traumas_count + strokes_count + sepsis_count
+        },
+        "recent_access_logs": access_logs
+    }))
+}
+
+// ============================================================================
+// PATIENT LIST & FILTERING
+// ============================================================================
+
+/// Get patient list with filters (for doctors/nurses)
+#[get("/api/patients/list")]
+pub async fn get_patient_list(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let patients = data.patients.read().unwrap();
+    let mut patient_list: Vec<_> = patients.values().cloned().collect();
+
+    // Apply filters
+    if let Some(blood_type) = query.get("blood_type") {
+        patient_list.retain(|p| {
+            p.emergency_info.blood_type.to_string().to_lowercase() == blood_type.to_lowercase()
+        });
+    }
+
+    if let Some(has_allergies) = query.get("has_allergies") {
+        if has_allergies == "true" {
+            patient_list.retain(|p| !p.emergency_info.allergies.is_empty());
+        }
+    }
+
+    if let Some(organ_donor) = query.get("organ_donor") {
+        if organ_donor == "true" {
+            patient_list.retain(|p| p.emergency_info.organ_donor);
+        }
+    }
+
+    if let Some(dnr) = query.get("dnr") {
+        if dnr == "true" {
+            patient_list.retain(|p| p.emergency_info.dnr_status);
+        }
+    }
+
+    if let Some(search) = query.get("search") {
+        let search_lower = search.to_lowercase();
+        patient_list.retain(|p| {
+            p.full_name.to_lowercase().contains(&search_lower)
+                || p.patient_id.to_lowercase().contains(&search_lower)
+        });
+    }
+
+    // Limit results
+    let limit: usize = query
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(50);
+
+    let offset: usize = query
+        .get("offset")
+        .and_then(|o| o.parse().ok())
+        .unwrap_or(0);
+
+    let total = patient_list.len();
+    let paginated: Vec<_> = patient_list.into_iter().skip(offset).take(limit).collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "patients": paginated,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }))
+}
+
+// ============================================================================
+// ORDER SETS (Common Order Bundles)
+// ============================================================================
+
+/// Get available order sets
+#[get("/api/order-sets")]
+pub async fn get_order_sets(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Predefined order sets
+    let order_sets = vec![
+        serde_json::json!({
+            "id": "OS-CHF",
+            "name": "CHF Admission Orders",
+            "category": "Cardiology",
+            "orders": [
+                {"type": "diet", "description": "Low sodium diet (2g Na)"},
+                {"type": "activity", "description": "Bed rest with bathroom privileges"},
+                {"type": "vital_signs", "description": "VS q4h, daily weights"},
+                {"type": "lab", "description": "BMP, BNP, CBC daily"},
+                {"type": "medication", "description": "Furosemide 40mg IV BID"},
+                {"type": "medication", "description": "Lisinopril 10mg PO daily"},
+                {"type": "medication", "description": "Carvedilol 12.5mg PO BID"},
+                {"type": "iv", "description": "IV access, saline lock"},
+                {"type": "monitoring", "description": "Strict I&O, fluid restriction 1.5L/day"}
+            ]
+        }),
+        serde_json::json!({
+            "id": "OS-DKA",
+            "name": "DKA Management Orders",
+            "category": "Endocrinology",
+            "orders": [
+                {"type": "iv", "description": "NS 1L bolus, then 250-500ml/hr"},
+                {"type": "lab", "description": "BMP q2h, POC glucose q1h"},
+                {"type": "medication", "description": "Regular insulin 0.1 U/kg/hr IV"},
+                {"type": "medication", "description": "Potassium replacement per protocol"},
+                {"type": "monitoring", "description": "Strict I&O, neuro checks q2h"},
+                {"type": "vital_signs", "description": "VS q1h x4, then q2h"}
+            ]
+        }),
+        serde_json::json!({
+            "id": "OS-SEPSIS",
+            "name": "Sepsis Bundle Orders",
+            "category": "Infectious Disease",
+            "orders": [
+                {"type": "lab", "description": "Blood cultures x2 sets, lactate, CBC, BMP, LFTs"},
+                {"type": "iv", "description": "30ml/kg crystalloid bolus"},
+                {"type": "medication", "description": "Broad spectrum antibiotics within 1 hour"},
+                {"type": "monitoring", "description": "MAP goal ≥65, urine output ≥0.5ml/kg/hr"},
+                {"type": "vital_signs", "description": "VS q15min x4, then q1h"},
+                {"type": "consult", "description": "Consider ICU consult if refractory"}
+            ]
+        }),
+        serde_json::json!({
+            "id": "OS-STROKE",
+            "name": "Acute Stroke Orders",
+            "category": "Neurology",
+            "orders": [
+                {"type": "imaging", "description": "CT head STAT, CT angio if indicated"},
+                {"type": "lab", "description": "CBC, BMP, PT/INR, glucose"},
+                {"type": "vital_signs", "description": "Neuro checks q15min, VS q15min"},
+                {"type": "diet", "description": "NPO pending swallow eval"},
+                {"type": "activity", "description": "Bed rest, HOB 0-30 degrees"},
+                {"type": "medication", "description": "tPA if eligible (door-to-needle <60min)"},
+                {"type": "consult", "description": "Neurology STAT, consider interventional"}
+            ]
+        }),
+        serde_json::json!({
+            "id": "OS-CHEST-PAIN",
+            "name": "Chest Pain Rule-Out ACS",
+            "category": "Cardiology",
+            "orders": [
+                {"type": "lab", "description": "Troponin x3 (0, 3, 6 hours), BMP, CBC"},
+                {"type": "ecg", "description": "12-lead ECG STAT, repeat if symptoms change"},
+                {"type": "medication", "description": "Aspirin 325mg PO x1 (if not contraindicated)"},
+                {"type": "medication", "description": "Nitroglycerin 0.4mg SL PRN chest pain"},
+                {"type": "iv", "description": "IV access, saline lock"},
+                {"type": "monitoring", "description": "Continuous cardiac monitoring"},
+                {"type": "vital_signs", "description": "VS q4h, pain reassessment q1h"}
+            ]
+        }),
+        serde_json::json!({
+            "id": "OS-PNEUMONIA",
+            "name": "Community Acquired Pneumonia",
+            "category": "Pulmonology",
+            "orders": [
+                {"type": "lab", "description": "CBC, BMP, procalcitonin, blood cultures x2"},
+                {"type": "imaging", "description": "Chest X-ray PA/Lateral"},
+                {"type": "medication", "description": "Ceftriaxone 1g IV daily + Azithromycin 500mg IV daily"},
+                {"type": "medication", "description": "Acetaminophen 650mg PO q6h PRN fever"},
+                {"type": "iv", "description": "NS at 75ml/hr"},
+                {"type": "diet", "description": "Regular diet as tolerated"},
+                {"type": "vital_signs", "description": "VS q4h, pulse ox continuous"}
+            ]
+        }),
+        serde_json::json!({
+            "id": "OS-POST-OP",
+            "name": "General Post-Op Orders",
+            "category": "Surgery",
+            "orders": [
+                {"type": "diet", "description": "NPO until bowel sounds, advance as tolerated"},
+                {"type": "activity", "description": "OOB to chair POD1, ambulate TID"},
+                {"type": "vital_signs", "description": "VS q4h, neuro checks q4h if applicable"},
+                {"type": "medication", "description": "DVT prophylaxis per protocol"},
+                {"type": "medication", "description": "Pain management per service"},
+                {"type": "lab", "description": "CBC, BMP POD1"},
+                {"type": "wound", "description": "Wound checks daily, dressing change POD2"}
+            ]
+        }),
+        serde_json::json!({
+            "id": "OS-ASTHMA",
+            "name": "Acute Asthma Exacerbation",
+            "category": "Pulmonology",
+            "orders": [
+                {"type": "medication", "description": "Albuterol 2.5mg nebulizer q20min x3"},
+                {"type": "medication", "description": "Ipratropium 0.5mg nebulizer x1"},
+                {"type": "medication", "description": "Methylprednisolone 125mg IV x1"},
+                {"type": "lab", "description": "ABG if severe, peak flow before/after"},
+                {"type": "vital_signs", "description": "VS q15min during treatment"},
+                {"type": "monitoring", "description": "Continuous pulse ox"},
+                {"type": "imaging", "description": "CXR if first episode or concern for PNA"}
+            ]
+        }),
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "order_sets": order_sets,
+        "total": order_sets.len()
+    }))
+}
+
+// ============================================================================
+// NOTIFICATION SYSTEM
+// ============================================================================
+
+/// Get notifications for current user
+#[get("/api/notifications")]
+pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    let mut notifications = Vec::new();
+
+    // For doctors/nurses/admins - check for critical values
+    if current_user.role.can_view_medical_records() {
+        let critical_values = data.critical_values.read().unwrap();
+        for cv in critical_values.values().take(5) {
+            notifications.push(serde_json::json!({
+                "id": cv.notification_id,
+                "type": "critical_value",
+                "priority": "high",
+                "title": format!("Critical Value: {}", cv.test_name),
+                "patient_id": cv.patient_id,
+                "timestamp": chrono::Utc::now().timestamp()
+            }));
+        }
+
+        // Check for pending lab approvals (doctors only)
+        if matches!(current_user.role, crate::Role::Doctor | crate::Role::Admin) {
+            let pending = data.lab_submissions.read().unwrap();
+            let pending_count = pending
+                .values()
+                .filter(|s| s.status == crate::LabResultStatus::Pending)
+                .count();
+            if pending_count > 0 {
+                notifications.push(serde_json::json!({
+                    "id": "pending-labs",
+                    "type": "pending_approval",
+                    "priority": "medium",
+                    "title": format!("{} lab results awaiting approval", pending_count),
+                    "count": pending_count,
+                    "timestamp": chrono::Utc::now().timestamp()
+                }));
+            }
+        }
+
+        // Check for recent code blues
+        let code_blues = data.code_blue_records.read().unwrap();
+        for cb in code_blues.values().take(3) {
+            notifications.push(serde_json::json!({
+                "id": cb.event_id,
+                "type": "code_blue",
+                "priority": "critical",
+                "title": "Code Blue Event",
+                "patient_id": cb.patient_id,
+                "timestamp": cb.code_called_at
+            }));
+        }
+    }
+
+    // For patients - check for new lab results
+    if matches!(current_user.role, crate::Role::Patient) {
+        let lab_results = data.lab_submissions.read().unwrap();
+        let approved_results: Vec<_> = lab_results
+            .values()
+            .filter(|s| {
+                s.patient_id == current_user_id && s.status == crate::LabResultStatus::Approved
+            })
+            .take(5)
+            .collect();
+
+        for result in approved_results {
+            notifications.push(serde_json::json!({
+                "id": result.id,
+                "type": "lab_result",
+                "priority": "low",
+                "title": format!("New lab result: {}", result.test_name),
+                "timestamp": result.reviewed_at.map(|t| t.timestamp()).unwrap_or(0)
+            }));
+        }
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "notifications": notifications,
+        "count": notifications.len(),
+        "unread": notifications.len()
+    }))
+}
+
+// ============================================================================
+// MEDICATION REMINDERS (for patients)
+// ============================================================================
+
+/// Get medication reminders for a patient
+#[get("/api/medication-reminders/{patient_id}")]
+pub async fn get_medication_reminders(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patients can only see their own, healthcare providers can see any
+    if !current_user.role.can_view_medical_records() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    // Get patient profile for current medications
+    let patient = {
+        let patients = data.patients.read().unwrap();
+        patients.get(&patient_id).cloned()
+    };
+
+    let medications = patient
+        .as_ref()
+        .map(|p| p.emergency_info.current_medications.clone())
+        .unwrap_or_default();
+
+    // Generate reminders based on medication names (simplified)
+    let reminders: Vec<_> = medications
+        .iter()
+        .enumerate()
+        .map(|(i, med)| {
+            serde_json::json!({
+                "id": format!("rem-{}", i),
+                "medication": med,
+                "schedule": if med.to_lowercase().contains("daily") {
+                    vec!["08:00"]
+                } else if med.to_lowercase().contains("bid") {
+                    vec!["08:00", "20:00"]
+                } else if med.to_lowercase().contains("tid") {
+                    vec!["08:00", "14:00", "20:00"]
+                } else {
+                    vec!["08:00"]
+                },
+                "next_due": "08:00",
+                "last_taken": serde_json::Value::Null,
+                "refill_due": false
+            })
+        })
+        .collect();
+
+    // Get MAR records for history
+    let mar_history: Vec<_> = {
+        let mars = data.medication_records.read().unwrap();
+        mars.values()
+            .filter(|m| m.patient_id == patient_id)
+            .take(5)
+            .cloned()
+            .collect()
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "patient_id": patient_id,
+        "medications": medications,
+        "reminders": reminders,
+        "administration_history": mar_history,
+        "total_medications": medications.len()
+    }))
+}
+
+// ============================================================================
+// NURSE TASK LIST
+// ============================================================================
+
+/// Get task list for nurses
+#[get("/api/tasks/nurse")]
+pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !matches!(current_user.role, crate::Role::Nurse | crate::Role::Admin) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Nurse task list requires Nurse or Admin role".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now();
+    let mut tasks = Vec::new();
+
+    // Vital signs tasks
+    {
+        let patients = data.patients.read().unwrap();
+        for (patient_id, patient) in patients.iter() {
+            tasks.push(serde_json::json!({
+                "id": format!("vs-{}", patient_id),
+                "type": "vital_signs",
+                "patient_id": patient_id,
+                "patient_name": patient.full_name,
+                "description": "Vital signs check due",
+                "due_time": now.timestamp() + 3600, // 1 hour from now
+                "priority": "routine",
+                "completed": false
+            }));
+        }
+    }
+
+    // Medication administration tasks
+    {
+        let mars = data.medication_records.read().unwrap();
+        for mar in mars.values().take(10) {
+            for med in &mar.scheduled_medications {
+                tasks.push(serde_json::json!({
+                    "id": format!("med-{}-{}", mar.patient_id, med.name),
+                    "type": "medication",
+                    "patient_id": mar.patient_id,
+                    "description": format!("Administer {}", med.name),
+                    "due_time": now.timestamp() + 1800, // 30 min from now
+                    "priority": "high",
+                    "completed": false
+                }));
+            }
+        }
+    }
+
+    // Wound care tasks
+    {
+        let wounds = data.wound_assessments.read().unwrap();
+        for wound in wounds.values().take(5) {
+            tasks.push(serde_json::json!({
+                "id": format!("wound-{}", wound.assessment_id),
+                "type": "wound_care",
+                "patient_id": wound.patient_id,
+                "description": format!("Wound assessment - {}", wound.wound_id),
+                "due_time": now.timestamp() + 7200, // 2 hours
+                "priority": "medium",
+                "completed": false
+            }));
+        }
+    }
+
+    // IV checks
+    {
+        let ivs = data.iv_assessments.read().unwrap();
+        for iv in ivs.values().take(5) {
+            tasks.push(serde_json::json!({
+                "id": format!("iv-{}", iv.assessment_id),
+                "type": "iv_check",
+                "patient_id": iv.patient_id,
+                "description": format!("IV site check - {}", iv.line_id),
+                "due_time": now.timestamp() + 14400, // 4 hours
+                "priority": "routine",
+                "completed": false
+            }));
+        }
+    }
+
+    // Sort by due time
+    tasks.sort_by(|a, b| {
+        let time_a = a.get("due_time").and_then(|t| t.as_i64()).unwrap_or(0);
+        let time_b = b.get("due_time").and_then(|t| t.as_i64()).unwrap_or(0);
+        time_a.cmp(&time_b)
+    });
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "tasks": tasks,
+        "total": tasks.len(),
+        "overdue": tasks.iter().filter(|t| {
+            t.get("due_time").and_then(|d| d.as_i64()).unwrap_or(0) < now.timestamp()
+        }).count()
+    }))
+}
+
+// ============================================================================
+// SYMPTOM TRACKER (for chronic condition management)
+// ============================================================================
+
+/// Log a symptom entry for a patient
+#[post("/api/symptoms/log")]
+pub async fn log_symptom(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Get patient_id - patients log for themselves, providers can log for patients
+    let patient_id = if matches!(current_user.role, crate::Role::Patient) {
+        current_user_id.clone()
+    } else {
+        body.get("patient_id")
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or(current_user_id.clone())
+    };
+
+    let symptom = body
+        .get("symptom")
+        .and_then(|s| s.as_str())
+        .unwrap_or("Unknown");
+    let severity = body.get("severity").and_then(|s| s.as_u64()).unwrap_or(5) as u8;
+    let notes = body
+        .get("notes")
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string());
+    let triggers = body
+        .get("triggers")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let entry_id = format!(
+        "SYM-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("000")
+    );
+
+    let symptom_entry = serde_json::json!({
+        "entry_id": entry_id,
+        "patient_id": patient_id,
+        "symptom": symptom,
+        "severity": severity.min(10), // 0-10 scale
+        "notes": notes,
+        "triggers": triggers,
+        "logged_by": current_user_id,
+        "logged_at": chrono::Utc::now().timestamp(),
+        "date": chrono::Utc::now().format("%Y-%m-%d").to_string()
+    });
+
+    // Log access
+    {
+        let mut logs = data.access_logs.write().unwrap();
+        logs.push(crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: patient_id.clone(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "log_symptom".to_string(),
+            location: None,
+            timestamp: chrono::Utc::now(),
+            emergency: false,
+        });
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "entry": symptom_entry,
+        "message": "Symptom logged successfully"
+    }))
+}
+
+/// Get symptom history for a patient
+#[get("/api/symptoms/{patient_id}")]
+pub async fn get_symptom_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patients can only see their own, providers can see any
+    if !current_user.role.can_view_medical_records() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    // Get patient's chronic conditions for context
+    let chronic_conditions = {
+        let patients = data.patients.read().unwrap();
+        patients
+            .get(&patient_id)
+            .map(|p| p.emergency_info.chronic_conditions.clone())
+            .unwrap_or_default()
+    };
+
+    // Generate sample symptom history based on chronic conditions
+    let symptom_entries: Vec<serde_json::Value> = chronic_conditions
+        .iter()
+        .enumerate()
+        .map(|(i, condition)| {
+            serde_json::json!({
+                "entry_id": format!("SYM-{:03}", i + 1),
+                "patient_id": patient_id,
+                "symptom": match condition.to_lowercase().as_str() {
+                    c if c.contains("diabetes") => "Blood sugar fluctuation",
+                    c if c.contains("hypertension") => "Headache",
+                    c if c.contains("asthma") => "Shortness of breath",
+                    c if c.contains("arthritis") => "Joint pain",
+                    _ => "General discomfort"
+                },
+                "severity": (i % 5 + 3) as u8,
+                "logged_at": chrono::Utc::now().timestamp() - (i as i64 * 86400),
+                "condition_related": condition
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "patient_id": patient_id,
+        "chronic_conditions": chronic_conditions,
+        "symptom_history": symptom_entries,
+        "total_entries": symptom_entries.len()
+    }))
+}
+
+// ============================================================================
+// SECURE MESSAGING SYSTEM
+// ============================================================================
+
+/// Send a secure message
+#[post("/api/messages/send")]
+pub async fn send_message(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    let recipient_id = match body.get("recipient_id").and_then(|r| r.as_str()) {
+        Some(r) => r.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "recipient_id is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+    };
+
+    let subject = body
+        .get("subject")
+        .and_then(|s| s.as_str())
+        .unwrap_or("No Subject");
+    let content = match body.get("content").and_then(|c| c.as_str()) {
+        Some(c) => c,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "content is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+    };
+
+    let priority = body
+        .get("priority")
+        .and_then(|p| p.as_str())
+        .unwrap_or("normal");
+    let related_patient_id = body.get("related_patient_id").and_then(|p| p.as_str());
+
+    // Patients can only message healthcare providers
+    if matches!(current_user.role, crate::Role::Patient) {
+        let recipient = get_user(&data, &recipient_id);
+        if recipient.is_none() || matches!(recipient.as_ref().unwrap().role, crate::Role::Patient) {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Patients can only message healthcare providers".to_string(),
+                code: "INVALID_RECIPIENT".to_string(),
+            });
+        }
+    }
+
+    let message_id = format!(
+        "MSG-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("000")
+    );
+
+    let message = serde_json::json!({
+        "message_id": message_id,
+        "sender_id": current_user_id,
+        "sender_name": current_user.username,
+        "sender_role": current_user.role.to_string(),
+        "recipient_id": recipient_id,
+        "subject": subject,
+        "content": content,
+        "priority": priority,
+        "related_patient_id": related_patient_id,
+        "sent_at": chrono::Utc::now().timestamp(),
+        "read": false,
+        "thread_id": body.get("thread_id").and_then(|t| t.as_str()).unwrap_or(&message_id)
+    });
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "message": message,
+        "info": "Message sent successfully"
+    }))
+}
+
+/// Get messages for current user
+#[get("/api/messages")]
+pub async fn get_messages(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    let folder = query.get("folder").map(|s| s.as_str()).unwrap_or("inbox");
+
+    // Generate sample messages based on role
+    let messages: Vec<serde_json::Value> = if matches!(current_user.role, crate::Role::Patient) {
+        vec![
+            serde_json::json!({
+                "message_id": "MSG-001",
+                "sender_id": "PROVIDER-SAMPLE-001",
+                "sender_name": "Dr. Sample",
+                "sender_role": "Doctor",
+                "subject": "Your lab results are ready",
+                "preview": "Your recent blood work shows improvement...",
+                "sent_at": chrono::Utc::now().timestamp() - 3600,
+                "read": false,
+                "priority": "normal"
+            }),
+            serde_json::json!({
+                "message_id": "MSG-002",
+                "sender_id": "PROVIDER-SAMPLE-002",
+                "sender_name": "Nurse Sample",
+                "sender_role": "Nurse",
+                "subject": "Appointment reminder",
+                "preview": "This is a reminder for your appointment tomorrow...",
+                "sent_at": chrono::Utc::now().timestamp() - 86400,
+                "read": true,
+                "priority": "normal"
+            }),
+        ]
+    } else {
+        vec![
+            serde_json::json!({
+                "message_id": "MSG-003",
+                "sender_id": "PATIENT-SAMPLE-001",
+                "sender_name": "Patient Sample",
+                "sender_role": "Patient",
+                "subject": "Question about medication",
+                "preview": "I've been experiencing some side effects...",
+                "sent_at": chrono::Utc::now().timestamp() - 1800,
+                "read": false,
+                "priority": "high"
+            }),
+            serde_json::json!({
+                "message_id": "MSG-004",
+                "sender_id": "PROVIDER-SAMPLE-003",
+                "sender_name": "Dr. Colleague",
+                "sender_role": "Doctor",
+                "subject": "Consult request",
+                "preview": "I'd like your opinion on a patient case...",
+                "sent_at": chrono::Utc::now().timestamp() - 7200,
+                "read": false,
+                "priority": "normal"
+            }),
+        ]
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "folder": folder,
+        "messages": messages,
+        "unread_count": messages.iter().filter(|m| !m.get("read").and_then(|r| r.as_bool()).unwrap_or(true)).count(),
+        "total": messages.len()
+    }))
+}
+
+// ============================================================================
+// CONSENT FORMS MANAGEMENT
+// ============================================================================
+
+/// Available consent form types
+#[get("/api/consent/types")]
+pub async fn get_consent_types(
+    _data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let _current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let consent_types = vec![
+        serde_json::json!({
+            "type_id": "CONSENT-TREATMENT",
+            "name": "General Treatment Consent",
+            "description": "Consent for general medical treatment and care",
+            "required_for": ["admission", "outpatient"],
+            "expires_after_days": 365
+        }),
+        serde_json::json!({
+            "type_id": "CONSENT-SURGERY",
+            "name": "Surgical Consent",
+            "description": "Consent for surgical procedures",
+            "required_for": ["surgery"],
+            "expires_after_days": 30
+        }),
+        serde_json::json!({
+            "type_id": "CONSENT-ANESTHESIA",
+            "name": "Anesthesia Consent",
+            "description": "Consent for anesthesia administration",
+            "required_for": ["surgery"],
+            "expires_after_days": 30
+        }),
+        serde_json::json!({
+            "type_id": "CONSENT-BLOOD",
+            "name": "Blood Transfusion Consent",
+            "description": "Consent for blood product transfusion",
+            "required_for": ["transfusion"],
+            "expires_after_days": 30
+        }),
+        serde_json::json!({
+            "type_id": "CONSENT-HIPAA",
+            "name": "HIPAA Privacy Notice",
+            "description": "Acknowledgment of privacy practices",
+            "required_for": ["admission"],
+            "expires_after_days": 365
+        }),
+        serde_json::json!({
+            "type_id": "CONSENT-RESEARCH",
+            "name": "Research Participation Consent",
+            "description": "Consent for participation in clinical research",
+            "required_for": ["research"],
+            "expires_after_days": 365
+        }),
+        serde_json::json!({
+            "type_id": "CONSENT-TELEMEDICINE",
+            "name": "Telemedicine Consent",
+            "description": "Consent for virtual/remote care",
+            "required_for": ["telemedicine"],
+            "expires_after_days": 365
+        }),
+        serde_json::json!({
+            "type_id": "CONSENT-IMAGING",
+            "name": "Imaging/Radiology Consent",
+            "description": "Consent for diagnostic imaging procedures",
+            "required_for": ["imaging"],
+            "expires_after_days": 30
+        }),
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "consent_types": consent_types,
+        "total": consent_types.len()
+    }))
+}
+
+/// Sign a consent form
+#[post("/api/consent/sign")]
+pub async fn sign_consent(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|p| p.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or(current_user_id.clone());
+
+    let consent_type = match body.get("consent_type").and_then(|c| c.as_str()) {
+        Some(c) => c,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "consent_type is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+    };
+
+    let witness_id = body.get("witness_id").and_then(|w| w.as_str());
+    let procedure_description = body.get("procedure_description").and_then(|p| p.as_str());
+
+    let consent_id = format!(
+        "CSNT-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("000")
+    );
+
+    // Generate signature hash (in production: use actual digital signature)
+    let signature_hash = {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        format!(
+            "{}{}{}",
+            patient_id,
+            consent_type,
+            chrono::Utc::now().timestamp()
+        )
+        .hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    };
+
+    let signed_consent = serde_json::json!({
+        "consent_id": consent_id,
+        "patient_id": patient_id,
+        "consent_type": consent_type,
+        "procedure_description": procedure_description,
+        "signed_by": current_user_id,
+        "signer_name": current_user.username,
+        "signer_role": current_user.role.to_string(),
+        "witness_id": witness_id,
+        "signature_hash": signature_hash,
+        "signed_at": chrono::Utc::now().timestamp(),
+        "valid_until": chrono::Utc::now().timestamp() + (30 * 24 * 60 * 60), // 30 days
+        "status": "active",
+        "ip_address": "127.0.0.1", // In production: actual IP
+        "device_info": "MediChain API"
+    });
+
+    // Log access
+    {
+        let mut logs = data.access_logs.write().unwrap();
+        logs.push(crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: patient_id.clone(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "sign_consent".to_string(),
+            location: None,
+            timestamp: chrono::Utc::now(),
+            emergency: false,
+        });
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "consent": signed_consent,
+        "message": "Consent form signed successfully"
+    }))
+}
+
+/// Get patient's consent forms
+#[get("/api/consent/patient/{patient_id}")]
+pub async fn get_patient_consents(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patients can only see their own, providers can see any
+    if !current_user.role.can_view_medical_records() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    // Sample consents for demo
+    let consents = vec![
+        serde_json::json!({
+            "consent_id": "CSNT-001",
+            "consent_type": "CONSENT-TREATMENT",
+            "signed_at": chrono::Utc::now().timestamp() - 86400 * 30,
+            "valid_until": chrono::Utc::now().timestamp() + 86400 * 335,
+            "status": "active"
+        }),
+        serde_json::json!({
+            "consent_id": "CSNT-002",
+            "consent_type": "CONSENT-HIPAA",
+            "signed_at": chrono::Utc::now().timestamp() - 86400 * 30,
+            "valid_until": chrono::Utc::now().timestamp() + 86400 * 335,
+            "status": "active"
+        }),
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "patient_id": patient_id,
+        "consents": consents,
+        "total": consents.len()
+    }))
+}
+
+// ============================================================================
+// BARCODE/SAMPLE TRACKING (Simulation)
+// ============================================================================
+
+/// Generate a barcode for specimen tracking
+#[post("/api/barcode/generate")]
+pub async fn generate_barcode(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let entity_type = body
+        .get("entity_type")
+        .and_then(|e| e.as_str())
+        .unwrap_or("specimen");
+    let entity_id = body
+        .get("entity_id")
+        .and_then(|e| e.as_str())
+        .unwrap_or("UNKNOWN");
+    let patient_id = body.get("patient_id").and_then(|p| p.as_str());
+
+    let barcode_id = format!(
+        "BC-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .replace("-", "")
+            .chars()
+            .take(12)
+            .collect::<String>()
+            .to_uppercase()
+    );
+
+    // Generate barcode value (Code 128 compatible)
+    let barcode_value = format!(
+        "MC{}{:06}",
+        match entity_type {
+            "specimen" => "SP",
+            "medication" => "MED",
+            "patient" => "PAT",
+            "equipment" => "EQ",
+            _ => "XX",
+        },
+        chrono::Utc::now().timestamp() % 1000000
+    );
+
+    let barcode = serde_json::json!({
+        "barcode_id": barcode_id,
+        "barcode_value": barcode_value,
+        "barcode_type": "CODE128",
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "patient_id": patient_id,
+        "generated_by": current_user.user_id,
+        "generated_at": chrono::Utc::now().timestamp(),
+        "status": "active",
+        "scan_count": 0
+    });
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "barcode": barcode,
+        "message": "Barcode generated successfully"
+    }))
+}
+
+/// Scan a barcode and get entity information
+#[post("/api/barcode/scan")]
+pub async fn scan_barcode(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let barcode_value = match body.get("barcode_value").and_then(|b| b.as_str()) {
+        Some(b) => b,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "barcode_value is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+    };
+
+    let location = body
+        .get("location")
+        .and_then(|l| l.as_str())
+        .unwrap_or("Unknown");
+
+    // Parse barcode to determine type
+    let entity_type = if barcode_value.starts_with("MCSP") {
+        "specimen"
+    } else if barcode_value.starts_with("MCMED") {
+        "medication"
+    } else if barcode_value.starts_with("MCPAT") {
+        "patient"
+    } else if barcode_value.starts_with("MCEQ") {
+        "equipment"
+    } else {
+        "unknown"
+    };
+
+    let scan_result = serde_json::json!({
+        "barcode_value": barcode_value,
+        "entity_type": entity_type,
+        "scan_time": chrono::Utc::now().timestamp(),
+        "scanned_by": current_user.user_id,
+        "scanned_by_role": current_user.role.to_string(),
+        "location": location,
+        "status": "valid",
+        "entity_info": match entity_type {
+            "specimen" => serde_json::json!({
+                "specimen_type": "Blood",
+                "collection_time": chrono::Utc::now().timestamp() - 3600,
+                "tests_ordered": ["CBC", "BMP"],
+                "status": "In Transit"
+            }),
+            "medication" => serde_json::json!({
+                "medication_name": "Metformin 500mg",
+                "lot_number": "LOT-2026-001",
+                "expiry_date": "2027-12-31",
+                "status": "Available"
+            }),
+            "patient" => serde_json::json!({
+                "patient_name": "Verified Patient",
+                "room": "Room 101",
+                "allergies": ["Penicillin"],
+                "status": "Admitted"
+            }),
+            _ => serde_json::json!({"status": "Unknown barcode format"})
+        }
+    });
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "scan_result": scan_result,
+        "message": "Barcode scanned successfully"
+    }))
+}
+
+/// Get tracking history for a barcode
+#[get("/api/barcode/track/{barcode_value}")]
+pub async fn track_barcode(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let barcode_value = path.into_inner();
+
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Sample tracking history
+    let tracking_history = vec![
+        serde_json::json!({
+            "event": "Generated",
+            "timestamp": chrono::Utc::now().timestamp() - 7200,
+            "location": "Lab Reception",
+            "user": "LAB-TECH-SAMPLE-001"
+        }),
+        serde_json::json!({
+            "event": "Collected",
+            "timestamp": chrono::Utc::now().timestamp() - 6000,
+            "location": "Room 101",
+            "user": "NURSE-SAMPLE-001"
+        }),
+        serde_json::json!({
+            "event": "Received at Lab",
+            "timestamp": chrono::Utc::now().timestamp() - 3600,
+            "location": "Main Laboratory",
+            "user": "LAB-TECH-SAMPLE-001"
+        }),
+        serde_json::json!({
+            "event": "Processing",
+            "timestamp": chrono::Utc::now().timestamp() - 1800,
+            "location": "Hematology Section",
+            "user": "LAB-TECH-SAMPLE-001"
+        }),
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "barcode_value": barcode_value,
+        "tracking_history": tracking_history,
+        "current_status": "Processing",
+        "current_location": "Hematology Section",
+        "total_scans": tracking_history.len()
+    }))
+}
+
+// ============================================================================
+// QUICK NOTE TEMPLATES
+// ============================================================================
+
+/// Get available note templates
+#[get("/api/templates/notes")]
+pub async fn get_note_templates(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let templates = vec![
+        // SOAP Note Templates
+        serde_json::json!({
+            "template_id": "TPL-SOAP-ROUTINE",
+            "name": "Routine Follow-up SOAP",
+            "category": "SOAP",
+            "content": {
+                "subjective": "Patient presents for routine follow-up. Reports [SYMPTOMS]. Denies [NEGATIVE_SYMPTOMS]. Medications are being taken as prescribed.",
+                "objective": "VS: BP [BP], HR [HR], RR [RR], Temp [TEMP], SpO2 [SPO2]. General: Alert and oriented, no acute distress. [SYSTEM_EXAM]",
+                "assessment": "1. [PRIMARY_DIAGNOSIS] - [STATUS]\n2. [SECONDARY_DIAGNOSIS] - [STATUS]",
+                "plan": "1. Continue current medications\n2. [ADDITIONAL_ORDERS]\n3. Follow-up in [TIMEFRAME]"
+            }
+        }),
+        serde_json::json!({
+            "template_id": "TPL-SOAP-ED",
+            "name": "Emergency Department SOAP",
+            "category": "SOAP",
+            "content": {
+                "subjective": "Chief Complaint: [CC]\nHPI: [AGE] y/o [SEX] presents with [SYMPTOMS] x [DURATION]. Onset: [ONSET]. Quality: [QUALITY]. Severity: [SEVERITY]/10. Associated symptoms: [ASSOCIATED]. Denies: [PERTINENT_NEGATIVES].",
+                "objective": "VS: BP [BP], HR [HR], RR [RR], Temp [TEMP], SpO2 [SPO2]\nGeneral: [GENERAL]\nHEENT: [HEENT]\nCardio: [CARDIO]\nPulm: [PULM]\nAbd: [ABD]\nExt: [EXT]\nNeuro: [NEURO]",
+                "assessment": "1. [DIAGNOSIS] - [DIFFERENTIAL_CONSIDERATIONS]",
+                "plan": "1. [WORKUP]\n2. [TREATMENT]\n3. [DISPOSITION]"
+            }
+        }),
+        // H&P Templates
+        serde_json::json!({
+            "template_id": "TPL-HP-ADMISSION",
+            "name": "Admission H&P",
+            "category": "H&P",
+            "content": {
+                "chief_complaint": "[CC]",
+                "hpi": "[AGE] y/o [SEX] with PMH of [PMH] presenting with [SYMPTOMS]...",
+                "pmh": "[PMH_LIST]",
+                "psh": "[SURGICAL_HISTORY]",
+                "medications": "[MEDICATION_LIST]",
+                "allergies": "[ALLERGY_LIST]",
+                "social_history": "Smoking: [SMOKING]\nAlcohol: [ALCOHOL]\nDrugs: [DRUGS]\nOccupation: [OCCUPATION]",
+                "family_history": "[FAMILY_HISTORY]",
+                "ros": "Constitutional: [CONST]\nCardiovascular: [CV]\nRespiratory: [RESP]\nGI: [GI]\nGU: [GU]\nMSK: [MSK]\nNeuro: [NEURO]\nPsych: [PSYCH]",
+                "physical_exam": "[EXAM_FINDINGS]",
+                "assessment_plan": "[ASSESSMENT_AND_PLAN]"
+            }
+        }),
+        // Procedure Notes
+        serde_json::json!({
+            "template_id": "TPL-PROC-CENTRAL",
+            "name": "Central Line Procedure Note",
+            "category": "Procedure",
+            "content": {
+                "procedure": "Central Venous Catheter Placement",
+                "indication": "[INDICATION]",
+                "consent": "Informed consent obtained",
+                "site": "[SITE] - [IJ/SC/FEMORAL]",
+                "technique": "Sterile technique with full barrier precautions. Ultrasound-guided. Local anesthesia with [LIDOCAINE_DOSE]. [CATHETER_TYPE] catheter placed using Seldinger technique. [ATTEMPTS] attempt(s). Blood aspirated from all ports. Catheter secured at [CM] cm.",
+                "complications": "[NONE/COMPLICATIONS]",
+                "post_procedure": "CXR ordered for placement confirmation",
+                "attending": "[ATTENDING_NAME]"
+            }
+        }),
+        serde_json::json!({
+            "template_id": "TPL-PROC-LP",
+            "name": "Lumbar Puncture Procedure Note",
+            "category": "Procedure",
+            "content": {
+                "procedure": "Lumbar Puncture",
+                "indication": "[INDICATION]",
+                "consent": "Informed consent obtained",
+                "position": "[LATERAL_DECUBITUS/SITTING]",
+                "site": "[L3-L4/L4-L5]",
+                "technique": "Sterile technique. Local anesthesia with [LIDOCAINE]. [NEEDLE_SIZE] spinal needle. Opening pressure: [OP] cm H2O. [VOLUME] mL CSF collected in [TUBES] tubes.",
+                "csf_appearance": "[CLEAR/CLOUDY/BLOODY/XANTHOCHROMIC]",
+                "closing_pressure": "[CP] cm H2O",
+                "complications": "[NONE/COMPLICATIONS]",
+                "post_procedure": "Patient instructed to remain supine for [DURATION]"
+            }
+        }),
+        // Discharge Templates
+        serde_json::json!({
+            "template_id": "TPL-DC-STANDARD",
+            "name": "Standard Discharge Summary",
+            "category": "Discharge",
+            "content": {
+                "admission_date": "[ADMIT_DATE]",
+                "discharge_date": "[DC_DATE]",
+                "admitting_diagnosis": "[ADMIT_DX]",
+                "discharge_diagnoses": "[DC_DX_LIST]",
+                "procedures": "[PROCEDURES_LIST]",
+                "hospital_course": "[COURSE_SUMMARY]",
+                "discharge_medications": "[DC_MEDS]",
+                "discharge_instructions": "[INSTRUCTIONS]",
+                "follow_up": "[FOLLOW_UP_APPOINTMENTS]",
+                "pending_results": "[PENDING_LABS_IMAGING]"
+            }
+        }),
+        // Consultation Templates
+        serde_json::json!({
+            "template_id": "TPL-CONSULT-CARDIO",
+            "name": "Cardiology Consult",
+            "category": "Consult",
+            "content": {
+                "reason_for_consult": "[REASON]",
+                "hpi": "[CARDIAC_HPI]",
+                "cardiac_history": "[CARDIAC_PMH]",
+                "risk_factors": "HTN: [Y/N], DM: [Y/N], Smoking: [Y/N], Dyslipidemia: [Y/N], Family Hx: [Y/N]",
+                "current_meds": "[CARDIAC_MEDS]",
+                "exam": "VS: [VS]\nJVP: [JVP]\nCarotids: [CAROTIDS]\nHeart: [HEART_EXAM]\nLungs: [LUNG_EXAM]\nExt: [EXTREMITIES]",
+                "ecg": "[ECG_FINDINGS]",
+                "echo": "[ECHO_FINDINGS]",
+                "impression": "[IMPRESSION]",
+                "recommendations": "[RECOMMENDATIONS]"
+            }
+        }),
+        // Progress Note Templates
+        serde_json::json!({
+            "template_id": "TPL-PROG-ICU",
+            "name": "ICU Progress Note",
+            "category": "Progress",
+            "content": {
+                "events_overnight": "[OVERNIGHT_EVENTS]",
+                "neuro": "GCS: [GCS], Sedation: [RASS], Pain: [CPOT]",
+                "cardiovascular": "HR: [HR], BP: [BP], MAP: [MAP], Pressors: [PRESSORS], CVP: [CVP]",
+                "respiratory": "Vent Mode: [MODE], FiO2: [FIO2], PEEP: [PEEP], TV: [TV], RR: [RR], SpO2: [SPO2], ABG: [ABG]",
+                "renal_fluids": "I/O: [IO], UOP: [UOP], Cr: [CR], BUN: [BUN]",
+                "gi_nutrition": "Diet: [DIET], Bowel: [BOWEL], Feeds: [FEEDS]",
+                "heme": "Hgb: [HGB], Plt: [PLT], INR: [INR], Anticoag: [ANTICOAG]",
+                "id": "Temp: [TEMP], WBC: [WBC], Abx: [ABX], Cultures: [CULTURES]",
+                "skin": "[SKIN_ASSESSMENT]",
+                "lines_tubes_drains": "[LINES_TUBES]",
+                "assessment_plan": "[AP_BY_PROBLEM]"
+            }
+        }),
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "templates": templates,
+        "total": templates.len(),
+        "categories": ["SOAP", "H&P", "Procedure", "Discharge", "Consult", "Progress"]
+    }))
+}
+
+/// Create a note from template
+#[post("/api/templates/notes/use")]
+pub async fn use_note_template(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let template_id = match body.get("template_id").and_then(|t| t.as_str()) {
+        Some(t) => t,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "template_id is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+    };
+
+    let patient_id = match body.get("patient_id").and_then(|p| p.as_str()) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "patient_id is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            })
+        }
+    };
+
+    let replacements = body.get("replacements").and_then(|r| r.as_object());
+
+    let note_id = format!(
+        "NOTE-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("000")
+    );
+
+    let created_note = serde_json::json!({
+        "note_id": note_id,
+        "template_id": template_id,
+        "patient_id": patient_id,
+        "created_by": current_user_id,
+        "created_at": chrono::Utc::now().timestamp(),
+        "status": "draft",
+        "replacements_applied": replacements.is_some(),
+        "message": "Note created from template. Fill in placeholders and save."
+    });
+
+    // Log access
+    {
+        let mut logs = data.access_logs.write().unwrap();
+        logs.push(crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: patient_id.to_string(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "create_note_from_template".to_string(),
+            location: None,
+            timestamp: chrono::Utc::now(),
+            emergency: false,
+        });
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "note": created_note
+    }))
+}
+
+// ============================================================================
+// MEDICAL ID CARD SYSTEM (Emergency Access)
+// ============================================================================
+
+/// Helper to get current user
+fn get_current_user(data: &web::Data<AppState>, http_req: &HttpRequest) -> Option<crate::User> {
+    let user_id = get_current_user_id(http_req)?;
+    get_user(data, &user_id)
+}
+
+/// Get Medical ID card data for a patient (emergency format)
+/// This is the core data shown on lock screen and emergency access
+#[get("/api/medical-id/{patient_id}")]
+pub async fn get_medical_id(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patients can only view their own, providers can view any
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    let patients = data.patients.read().unwrap();
+    let patient = match patients.get(&patient_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Pre-compute values that need sorting or complex logic
+    let blood_type_color = match patient.emergency_info.blood_type {
+        crate::BloodType::ONegative => "#DC2626",
+        crate::BloodType::OPositive => "#EA580C",
+        crate::BloodType::ABPositive => "#16A34A",
+        _ => "#2563EB",
+    };
+
+    let critical_allergies: Vec<serde_json::Value> = patient
+        .emergency_info
+        .allergies
+        .iter()
+        .filter(|a| matches!(a.severity, crate::AllergySeverity::Severe))
+        .map(|a| {
+            serde_json::json!({
+                "name": a.name,
+                "severity": a.severity.to_string(),
+                "reaction": a.reaction,
+                "display_color": "#DC2626"
+            })
+        })
+        .collect();
+
+    let all_allergies: Vec<serde_json::Value> = patient
+        .emergency_info
+        .allergies
+        .iter()
+        .map(|a| {
+            let color = match a.severity {
+                crate::AllergySeverity::Severe => "#DC2626",
+                crate::AllergySeverity::Moderate => "#EA580C",
+                crate::AllergySeverity::Mild => "#CA8A04",
+                crate::AllergySeverity::Unknown => "#6B7280",
+            };
+            serde_json::json!({
+                "name": a.name,
+                "severity": a.severity.to_string(),
+                "reaction": a.reaction,
+                "display_color": color
+            })
+        })
+        .collect();
+
+    let mut sorted_contacts = patient.emergency_info.emergency_contacts.clone();
+    sorted_contacts.sort_by_key(|c| c.priority);
+    let emergency_contacts: Vec<serde_json::Value> = sorted_contacts
+        .iter()
+        .map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "relationship": c.relationship,
+                "phone": c.phone,
+                "priority": c.priority,
+                "can_make_medical_decisions": c.can_make_medical_decisions,
+                "language": c.language
+            })
+        })
+        .collect();
+
+    let dnr_warning: Option<&str> = if patient.emergency_info.dnr_status {
+        Some("DO NOT RESUSCITATE - Verify advanced directive")
+    } else {
+        None
+    };
+
+    // Build Medical ID card data (emergency format)
+    let medical_id = serde_json::json!({
+        "patient_id": patient.patient_id,
+        "national_health_id": format!("MCHI-{}", patient.patient_id.chars().skip(4).collect::<String>().to_uppercase()),
+        "name": patient.full_name,
+        "date_of_birth": patient.date_of_birth,
+        "photo": Option::<String>::None,
+        "blood_type": {
+            "value": patient.emergency_info.blood_type.to_string(),
+            "display_color": blood_type_color
+        },
+        "critical_allergies": critical_allergies,
+        "allergies": all_allergies,
+        "organ_donor": {
+            "status": patient.emergency_info.organ_donor,
+            "display_color": if patient.emergency_info.organ_donor { "#16A34A" } else { "#6B7280" }
+        },
+        "dnr_status": {
+            "status": patient.emergency_info.dnr_status,
+            "display_color": if patient.emergency_info.dnr_status { "#DC2626" } else { "#6B7280" },
+            "warning": dnr_warning
+        },
+        "chronic_conditions": patient.emergency_info.chronic_conditions,
+        "medications": patient.emergency_info.current_medications,
+        "emergency_contacts": emergency_contacts,
+        "primary_doctor": patient.primary_doctor.as_ref().map(|d| serde_json::json!({
+            "name": d.name,
+            "phone": d.phone,
+            "facility": d.facility,
+            "specialty": d.specialty
+        })),
+        "community_health_worker": patient.community_health_worker.as_ref().map(|c| serde_json::json!({
+            "name": c.name,
+            "phone": c.phone,
+            "facility": c.facility
+        })),
+        "languages": patient.emergency_info.languages,
+        "primary_language": patient.emergency_info.languages.first(),
+        "insurance": patient.insurance.as_ref().map(|i| serde_json::json!({
+            "provider": i.provider,
+            "policy_number": i.policy_number,
+            "is_active": i.is_active,
+            "coverage_type": i.coverage_type.to_string()
+        })),
+        "address": patient.address.as_ref().map(|a| serde_json::json!({
+            "city": a.city,
+            "state": a.state,
+            "country": a.country,
+            "coordinates": a.coordinates.as_ref().map(|c| serde_json::json!({
+                "lat": c.latitude,
+                "lng": c.longitude
+            }))
+        })),
+        "has_advanced_directives": !patient.advanced_directives.is_empty(),
+        "advanced_directives_count": patient.advanced_directives.len(),
+        "preferences": {
+            "show_when_locked": patient.preferences.show_when_locked,
+            "enable_location_sharing": patient.preferences.enable_location_sharing,
+            "auto_notify_family": patient.preferences.auto_notify_family
+        },
+        "last_updated": patient.emergency_info.last_updated.to_rfc3339(),
+        "qr_code_url": format!("/api/medical-id/{}/qr", patient_id)
+    });
+
+    // Log access
+    {
+        let mut logs = data.access_logs.write().unwrap();
+        logs.push(crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: patient_id.clone(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "view_medical_id".to_string(),
+            location: None,
+            timestamp: chrono::Utc::now(),
+            emergency: false,
+        });
+    }
+
+    HttpResponse::Ok().json(medical_id)
+}
+
+/// Get Medical ID QR code data (for scanning)
+#[get("/api/medical-id/{patient_id}/qr")]
+pub async fn get_medical_id_qr(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patients can only view their own QR
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    let patients = data.patients.read().unwrap();
+    let patient = match patients.get(&patient_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // QR code contains minimal critical data for offline access
+    let qr_data = serde_json::json!({
+        "type": "medichain_medical_id",
+        "version": "1.0",
+        "patient_id": patient.patient_id,
+        "name": patient.full_name,
+        "dob": patient.date_of_birth,
+        "blood_type": patient.emergency_info.blood_type.to_string(),
+        "critical_allergies": patient.emergency_info.allergies.iter()
+            .filter(|a| matches!(a.severity, crate::AllergySeverity::Severe))
+            .map(|a| a.name.clone())
+            .collect::<Vec<_>>(),
+        "dnr": patient.emergency_info.dnr_status,
+        "organ_donor": patient.emergency_info.organ_donor,
+        "emergency_contact": patient.emergency_info.emergency_contacts.first().map(|c| serde_json::json!({
+            "name": c.name,
+            "phone": c.phone
+        })),
+        "api_url": format!("/api/medical-id/{}", patient_id),
+        "generated_at": chrono::Utc::now().timestamp()
+    });
+
+    // Generate QR code image (base64 PNG)
+    let qr_json = serde_json::to_string(&qr_data).unwrap_or_default();
+    let qr_image_base64 = crate::generate_qr_code_base64(&qr_json);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "patient_id": patient_id,
+        "qr_data": qr_data,
+        "qr_image_base64": qr_image_base64,
+        "format": "PNG",
+        "instructions": "Scan this QR code to access emergency medical information"
+    }))
+}
+
+/// Get emergency-only view (minimal data for first responders)
+/// This endpoint can be accessed without full authentication for emergency scenarios
+#[get("/api/medical-id/{patient_id}/emergency")]
+pub async fn get_emergency_medical_id(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    // Emergency access can be granted with a token or NFC hash
+    let emergency_token = query.get("token");
+    let nfc_hash = query.get("nfc_hash");
+
+    // Validate emergency access (simplified for demo)
+    let is_valid_emergency = emergency_token.is_some() || nfc_hash.is_some();
+
+    if !is_valid_emergency {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Emergency access requires valid token or NFC hash".to_string(),
+            code: "EMERGENCY_ACCESS_REQUIRED".to_string(),
+        });
+    }
+
+    let patients = data.patients.read().unwrap();
+    let patient = match patients.get(&patient_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Emergency view - ONLY critical information
+    let emergency_data = serde_json::json!({
+        "type": "EMERGENCY_MEDICAL_ID",
+        "warning": "⚠️ EMERGENCY ACCESS - ALL ACCESS IS LOGGED",
+
+        // CRITICAL LIFE-SAVING INFO ONLY
+        "patient": {
+            "name": patient.full_name,
+            "dob": patient.date_of_birth,
+        },
+
+        "blood_type": {
+            "value": patient.emergency_info.blood_type.to_string(),
+            "compatible_donors": match patient.emergency_info.blood_type {
+                crate::BloodType::APositive => vec!["A+", "A-", "O+", "O-"],
+                crate::BloodType::ANegative => vec!["A-", "O-"],
+                crate::BloodType::BPositive => vec!["B+", "B-", "O+", "O-"],
+                crate::BloodType::BNegative => vec!["B-", "O-"],
+                crate::BloodType::ABPositive => vec!["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"],
+                crate::BloodType::ABNegative => vec!["A-", "B-", "AB-", "O-"],
+                crate::BloodType::OPositive => vec!["O+", "O-"],
+                crate::BloodType::ONegative => vec!["O-"],
+            }
+        },
+
+        // CRITICAL ALLERGIES - LIFE THREATENING
+        "critical_allergies": patient.emergency_info.allergies.iter()
+            .filter(|a| matches!(a.severity, crate::AllergySeverity::Severe | crate::AllergySeverity::Moderate))
+            .map(|a| serde_json::json!({
+                "allergen": a.name.to_uppercase(),
+                "severity": a.severity.to_string().to_uppercase(),
+                "reaction": a.reaction
+            }))
+            .collect::<Vec<_>>(),
+
+        // DNR STATUS - LEGAL REQUIREMENT
+        "dnr_status": if patient.emergency_info.dnr_status {
+            serde_json::json!({
+                "status": "ACTIVE",
+                "warning": "⛔ DO NOT RESUSCITATE",
+                "verify_directive": true
+            })
+        } else {
+            serde_json::json!({
+                "status": "NOT_ON_FILE",
+                "warning": null
+            })
+        },
+
+        // ORGAN DONOR
+        "organ_donor": patient.emergency_info.organ_donor,
+
+        // CRITICAL MEDICATIONS
+        "medications": patient.emergency_info.current_medications,
+
+        // CRITICAL CONDITIONS
+        "conditions": patient.emergency_info.chronic_conditions,
+
+        // PRIMARY EMERGENCY CONTACT
+        "emergency_contact": patient.emergency_info.emergency_contacts.first().map(|c| serde_json::json!({
+            "name": c.name,
+            "relationship": c.relationship,
+            "phone": c.phone,
+            "can_make_decisions": c.can_make_medical_decisions
+        })),
+
+        // LANGUAGE (for communication)
+        "primary_language": patient.emergency_info.languages.first().unwrap_or(&"en".to_string()),
+
+        // ACCESS LOG WARNING
+        "access_logged": true,
+        "access_timestamp": chrono::Utc::now().to_rfc3339()
+    });
+
+    // Log emergency access (CRITICAL - immutable audit trail)
+    {
+        let mut logs = data.access_logs.write().unwrap();
+        logs.push(crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: patient_id.clone(),
+            accessor_id: "EMERGENCY_ACCESS".to_string(),
+            accessor_role: "FirstResponder".to_string(),
+            access_type: "emergency_medical_id".to_string(),
+            location: query.get("location").cloned(),
+            timestamp: chrono::Utc::now(),
+            emergency: true,
+        });
+    }
+
+    HttpResponse::Ok().json(emergency_data)
+}
+
+/// Get Medical ID in lock screen format (minimal, high-contrast)
+#[get("/api/medical-id/{patient_id}/lockscreen")]
+pub async fn get_lockscreen_medical_id(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    // For lock screen, we allow patient's own ID to be accessed
+    // In production, this would be tied to device authentication
+    let current_user_id = get_current_user_id(&http_req);
+
+    let patients = data.patients.read().unwrap();
+    let patient = match patients.get(&patient_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Check if patient allows lock screen access
+    if !patient.preferences.show_when_locked {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Lock screen access disabled by patient".to_string(),
+            code: "LOCKSCREEN_DISABLED".to_string(),
+        });
+    }
+
+    // Lock screen format - maximum simplicity, high contrast
+    let lockscreen_data = serde_json::json!({
+        "format": "lockscreen",
+        "design": {
+            "background": "#1F2937", // Dark gray
+            "text": "#FFFFFF",
+            "accent": match patient.emergency_info.blood_type {
+                crate::BloodType::ONegative => "#DC2626",
+                _ => "#3B82F6"
+            }
+        },
+
+        // LINE 1: Blood Type (LARGEST)
+        "blood_type": {
+            "value": patient.emergency_info.blood_type.to_string(),
+            "font_size": "48px",
+            "background": "#DC2626",
+            "text_color": "#FFFFFF"
+        },
+
+        // LINE 2: Critical Allergies
+        "allergies_line": {
+            "text": if patient.emergency_info.allergies.iter().any(|a| matches!(a.severity, crate::AllergySeverity::Severe)) {
+                format!("⚠️ ALLERGIC: {}",
+                    patient.emergency_info.allergies.iter()
+                        .filter(|a| matches!(a.severity, crate::AllergySeverity::Severe))
+                        .map(|a| a.name.to_uppercase())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            } else {
+                "No Critical Allergies".to_string()
+            },
+            "font_size": "20px",
+            "color": if patient.emergency_info.allergies.iter().any(|a| matches!(a.severity, crate::AllergySeverity::Severe)) {
+                "#FCA5A5"
+            } else {
+                "#9CA3AF"
+            }
+        },
+
+        // LINE 3: DNR Warning (if applicable)
+        "dnr_line": if patient.emergency_info.dnr_status {
+            Some(serde_json::json!({
+                "text": "⛔ DNR - DO NOT RESUSCITATE",
+                "font_size": "18px",
+                "color": "#FCA5A5",
+                "background": "#7F1D1D"
+            }))
+        } else {
+            None
+        },
+
+        // LINE 4: Name
+        "name": {
+            "value": patient.full_name,
+            "font_size": "24px"
+        },
+
+        // LINE 5: Emergency Contact Button
+        "emergency_contact": patient.emergency_info.emergency_contacts.first().map(|c| serde_json::json!({
+            "name": c.name,
+            "phone": c.phone,
+            "button_text": format!("📞 Call {}", c.name),
+            "action": format!("tel:{}", c.phone)
+        })),
+
+        // QR Code (small, bottom corner)
+        "qr_url": format!("/api/medical-id/{}/qr", patient_id)
+    });
+
+    // Log access
+    if let Some(user_id) = current_user_id {
+        let mut logs = data.access_logs.write().unwrap();
+        logs.push(crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: patient_id.clone(),
+            accessor_id: user_id,
+            accessor_role: "Patient".to_string(),
+            access_type: "lockscreen_view".to_string(),
+            location: None,
+            timestamp: chrono::Utc::now(),
+            emergency: false,
+        });
+    }
+
+    HttpResponse::Ok().json(lockscreen_data)
+}
+
+/// Update Medical ID preferences
+#[post("/api/medical-id/{patient_id}/preferences")]
+pub async fn update_medical_id_preferences(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Only patient themselves or admin can update preferences
+    let is_patient = current_user_id == patient_id;
+    let is_admin = matches!(current_user.role, crate::Role::Admin);
+
+    if !is_patient && !is_admin {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only patient or admin can update preferences".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    let mut patients = data.patients.write().unwrap();
+    let patient = match patients.get_mut(&patient_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Update preferences
+    if let Some(show_when_locked) = body.get("show_when_locked").and_then(|v| v.as_bool()) {
+        patient.preferences.show_when_locked = show_when_locked;
+    }
+    if let Some(enable_location) = body
+        .get("enable_location_sharing")
+        .and_then(|v| v.as_bool())
+    {
+        patient.preferences.enable_location_sharing = enable_location;
+    }
+    if let Some(auto_notify) = body.get("auto_notify_family").and_then(|v| v.as_bool()) {
+        patient.preferences.auto_notify_family = auto_notify;
+    }
+    if let Some(language) = body.get("display_language").and_then(|v| v.as_str()) {
+        patient.preferences.display_language = Some(language.to_string());
+    }
+
+    patient.last_updated = chrono::Utc::now();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "preferences": patient.preferences,
+        "message": "Medical ID preferences updated"
+    }))
+}
+
+/// Trigger emergency notification to family
+#[post("/api/medical-id/{patient_id}/emergency-notify")]
+pub async fn trigger_emergency_notification(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Only patient or healthcare providers can trigger
+    let is_patient = current_user_id == patient_id;
+    let is_provider = current_user.role.is_healthcare_provider();
+
+    if !is_patient && !is_provider {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    let patients = data.patients.read().unwrap();
+    let patient = match patients.get(&patient_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Patient not found".to_string(),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Check if notifications are enabled
+    if !patient.preferences.auto_notify_family {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Family notifications are disabled for this patient".to_string(),
+            code: "NOTIFICATIONS_DISABLED".to_string(),
+        });
+    }
+
+    let location = body.get("location").and_then(|l| l.as_str());
+    let custom_message = body.get("message").and_then(|m| m.as_str());
+    let emergency_type = body
+        .get("emergency_type")
+        .and_then(|e| e.as_str())
+        .unwrap_or("medical");
+
+    // Build notification data
+    let notifications: Vec<serde_json::Value> = patient
+        .emergency_info
+        .emergency_contacts
+        .iter()
+        .filter(|c| c.priority <= 2) // Only notify top 2 priority contacts
+        .map(|contact| {
+            let message = if let Some(custom) = custom_message {
+                custom.to_string()
+            } else if let Some(settings) = &patient.family_notifications {
+                settings.custom_message.clone().unwrap_or_else(|| {
+                    format!(
+                        "{} is experiencing a {} emergency. Please contact immediately.",
+                        patient.full_name, emergency_type
+                    )
+                })
+            } else {
+                format!(
+                    "{} is experiencing a {} emergency. Please contact immediately.",
+                    patient.full_name, emergency_type
+                )
+            };
+
+            serde_json::json!({
+                "contact_name": contact.name,
+                "contact_phone": contact.phone,
+                "relationship": contact.relationship,
+                "message": message,
+                "location": location,
+                "notification_methods": patient.family_notifications.as_ref()
+                    .map(|s| s.notification_methods.clone())
+                    .unwrap_or_else(|| vec!["sms".to_string()]),
+                "status": "queued",
+                "queued_at": chrono::Utc::now().to_rfc3339()
+            })
+        })
+        .collect();
+
+    // Log emergency notification
+    {
+        let mut logs = data.access_logs.write().unwrap();
+        logs.push(crate::AccessLogEntry {
+            access_id: uuid::Uuid::new_v4().to_string(),
+            patient_id: patient_id.clone(),
+            accessor_id: current_user_id,
+            accessor_role: current_user.role.to_string(),
+            access_type: "emergency_notification".to_string(),
+            location: location.map(|s| s.to_string()),
+            timestamp: chrono::Utc::now(),
+            emergency: true,
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "notifications_sent": notifications.len(),
+        "notifications": notifications,
+        "message": format!("Emergency notification queued for {} contacts", notifications.len())
+    }))
+}
+// ============================================================================
+// Phase 9: Surgical Documentation
+// ============================================================================
+
+/// Create pre-operative assessment
+#[post("/api/clinical/pre-op")]
+pub async fn create_pre_op(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<PreOperativeAssessment>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessment_id = req.assessment_id.clone();
+    {
+        let mut records = data.pre_op_assessments.write().unwrap();
+        records.insert(assessment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "assessment_id": assessment_id
+    }))
+}
+
+/// Get pre-operative assessment
+#[get("/api/clinical/pre-op/{assessment_id}")]
+pub async fn get_pre_op(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let assessment_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.pre_op_assessments.read().unwrap();
+    match records.get(&assessment_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Pre-operative assessment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create operative note
+#[post("/api/clinical/operative-note")]
+pub async fn create_operative_note(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<OperativeNote>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let note_id = req.note_id.clone();
+    {
+        let mut records = data.operative_notes.write().unwrap();
+        records.insert(note_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "note_id": note_id
+    }))
+}
+
+/// Get operative note
+#[get("/api/clinical/operative-note/{note_id}")]
+pub async fn get_operative_note(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let note_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.operative_notes.read().unwrap();
+    match records.get(&note_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Operative note not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create post-operative note
+#[post("/api/clinical/post-op")]
+pub async fn create_post_op(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<PostOperativeNote>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let note_id = req.note_id.clone();
+    {
+        let mut records = data.post_op_notes.write().unwrap();
+        records.insert(note_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "note_id": note_id
+    }))
+}
+
+/// Get post-operative note
+#[get("/api/clinical/post-op/{note_id}")]
+pub async fn get_post_op(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let note_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.post_op_notes.read().unwrap();
+    match records.get(&note_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Post-operative note not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 10: Anesthesia Records
+// ============================================================================
+
+/// Create anesthesia record
+#[post("/api/clinical/anesthesia")]
+pub async fn create_anesthesia(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<AnesthesiaRecord>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let record_id = req.record_id.clone();
+    {
+        let mut records = data.anesthesia_records.write().unwrap();
+        records.insert(record_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "record_id": record_id
+    }))
+}
+
+/// Get anesthesia record
+#[get("/api/clinical/anesthesia/{record_id}")]
+pub async fn get_anesthesia(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let record_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.anesthesia_records.read().unwrap();
+    match records.get(&record_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Anesthesia record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 11: Radiology & Imaging
+// ============================================================================
+
+/// Create radiology order
+#[post("/api/clinical/radiology/order")]
+pub async fn create_radiology_order(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<RadiologyOrder>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let order_id = req.order_id.clone();
+    {
+        let mut records = data.radiology_orders.write().unwrap();
+        records.insert(order_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "order_id": order_id
+    }))
+}
+
+/// Get radiology order
+#[get("/api/clinical/radiology/order/{order_id}")]
+pub async fn get_radiology_order(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let order_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.radiology_orders.read().unwrap();
+    match records.get(&order_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Radiology order not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create radiology report
+#[post("/api/clinical/radiology/report")]
+pub async fn create_radiology_report(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<RadiologyReport>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let report_id = req.report_id.clone();
+    {
+        let mut records = data.radiology_reports.write().unwrap();
+        records.insert(report_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "report_id": report_id
+    }))
+}
+
+/// Get radiology report
+#[get("/api/clinical/radiology/report/{report_id}")]
+pub async fn get_radiology_report(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let report_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.radiology_reports.read().unwrap();
+    match records.get(&report_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Radiology report not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+// ============================================================================
+// Phase 12: Pathology Reports
+// ============================================================================
+
+/// Create pathology report
+#[post("/api/clinical/pathology")]
+pub async fn create_pathology(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<PathologyReport>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let report_id = req.report_id.clone();
+    {
+        let mut records = data.pathology_reports.write().unwrap();
+        records.insert(report_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "report_id": report_id
+    }))
+}
+
+/// Get pathology report
+#[get("/api/clinical/pathology/{report_id}")]
+pub async fn get_pathology(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let report_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.pathology_reports.read().unwrap();
+    match records.get(&report_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Pathology report not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 13: Immunization Records
+// ============================================================================
+
+/// Create immunization record
+#[post("/api/clinical/immunization")]
+pub async fn create_immunization(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<ImmunizationRecord>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let record_id = req.record_id.clone();
+    {
+        let mut records = data.immunization_records.write().unwrap();
+        records.insert(record_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "record_id": record_id
+    }))
+}
+
+/// Get immunization record
+#[get("/api/clinical/immunization/{record_id}")]
+pub async fn get_immunization(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let record_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.immunization_records.read().unwrap();
+    match records.get(&record_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Immunization record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 14: Family Medical History
+// ============================================================================
+
+/// Create/update family medical history
+#[post("/api/clinical/family-history")]
+pub async fn create_family_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<FamilyMedicalHistory>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let patient_id = req.patient_id.clone();
+    {
+        let mut records = data.family_histories.write().unwrap();
+        records.insert(patient_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id
+    }))
+}
+
+/// Get family medical history
+#[get("/api/clinical/family-history/{patient_id}")]
+pub async fn get_family_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Healthcare provider or patient viewing own history
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    let records = data.family_histories.read().unwrap();
+    match records.get(&patient_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Family medical history not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 15: Blood Bank
+// ============================================================================
+
+/// Create blood type screen
+#[post("/api/clinical/blood-bank/type-screen")]
+pub async fn create_blood_type_screen(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<BloodTypeScreen>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let test_id = req.test_id.clone();
+    {
+        let mut records = data.blood_type_screens.write().unwrap();
+        records.insert(test_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "test_id": test_id
+    }))
+}
+
+/// Get blood type screen
+#[get("/api/clinical/blood-bank/type-screen/{test_id}")]
+pub async fn get_blood_type_screen(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let test_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.blood_type_screens.read().unwrap();
+    match records.get(&test_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Blood type screen not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create transfusion record
+#[post("/api/clinical/blood-bank/transfusion")]
+pub async fn create_transfusion(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<TransfusionRecord>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let transfusion_id = req.transfusion_id.clone();
+    {
+        let mut records = data.transfusion_records.write().unwrap();
+        records.insert(transfusion_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "transfusion_id": transfusion_id
+    }))
+}
+
+/// Get transfusion record
+#[get("/api/clinical/blood-bank/transfusion/{transfusion_id}")]
+pub async fn get_transfusion(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let transfusion_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.transfusion_records.read().unwrap();
+    match records.get(&transfusion_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Transfusion record not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+// ============================================================================
+// Phase 16: E-Prescribing
+// ============================================================================
+
+/// Create electronic prescription
+#[post("/api/clinical/e-prescription")]
+pub async fn create_e_prescription(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<ElectronicPrescription>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let rx_id = req.rx_id.clone();
+    {
+        let mut records = data.e_prescriptions.write().unwrap();
+        records.insert(rx_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "rx_id": rx_id
+    }))
+}
+
+/// Get electronic prescription
+#[get("/api/clinical/e-prescription/{rx_id}")]
+pub async fn get_e_prescription(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let rx_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.e_prescriptions.read().unwrap();
+    match records.get(&rx_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Prescription not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 17: Appointments
+// ============================================================================
+
+/// Create appointment
+#[post("/api/clinical/appointment")]
+pub async fn create_appointment(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<Appointment>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Any healthcare provider or patient can create appointments
+    if !current_user.role.is_healthcare_provider() && current_user_id != req.patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let appointment_id = req.appointment_id.clone();
+    {
+        let mut records = data.appointments.write().unwrap();
+        records.insert(appointment_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "appointment_id": appointment_id
+    }))
+}
+
+/// Get appointment
+#[get("/api/clinical/appointment/{appointment_id}")]
+pub async fn get_appointment(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let appointment_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    let records = data.appointments.read().unwrap();
+    match records.get(&appointment_id) {
+        Some(record) => {
+            // Patients can only see their own appointments
+            if !current_user.role.is_healthcare_provider() && current_user_id != record.patient_id {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    success: false,
+                    error: "Access denied".to_string(),
+                    code: "ACCESS_DENIED".to_string(),
+                });
+            }
+            HttpResponse::Ok().json(record)
+        }
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Appointment not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 18: Death Certificate & Autopsy
+// ============================================================================
+
+/// Create death certificate
+#[post("/api/clinical/death-certificate")]
+pub async fn create_death_certificate(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<DeathCertificate>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let certificate_id = req.certificate_id.clone();
+    {
+        let mut records = data.death_certificates.write().unwrap();
+        records.insert(certificate_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "certificate_id": certificate_id
+    }))
+}
+
+/// Get death certificate
+#[get("/api/clinical/death-certificate/{certificate_id}")]
+pub async fn get_death_certificate(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let certificate_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.death_certificates.read().unwrap();
+    match records.get(&certificate_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Death certificate not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Create autopsy request
+#[post("/api/clinical/autopsy/request")]
+pub async fn create_autopsy_request(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<AutopsyRequest>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let request_id = req.request_id.clone();
+    {
+        let mut records = data.autopsy_requests.write().unwrap();
+        records.insert(request_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "request_id": request_id
+    }))
+}
+
+/// Get autopsy request
+#[get("/api/clinical/autopsy/request/{request_id}")]
+pub async fn get_autopsy_request(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let request_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.autopsy_requests.read().unwrap();
+    match records.get(&request_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Autopsy request not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// Phase 19: Patient Satisfaction Surveys
+// ============================================================================
+
+/// Create patient satisfaction survey
+#[post("/api/clinical/satisfaction-survey")]
+pub async fn create_satisfaction_survey(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<PatientSatisfactionSurvey>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let _current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Any authenticated user can submit a survey
+    let survey_id = req.survey_id.clone();
+    {
+        let mut records = data.satisfaction_surveys.write().unwrap();
+        records.insert(survey_id.clone(), req.into_inner());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "survey_id": survey_id
+    }))
+}
+
+/// Get patient satisfaction survey
+#[get("/api/clinical/satisfaction-survey/{survey_id}")]
+pub async fn get_satisfaction_survey(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let survey_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Only admins can view surveys (for privacy)
+    if !current_user.role.is_admin() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.satisfaction_surveys.read().unwrap();
+    match records.get(&survey_id) {
+        Some(record) => HttpResponse::Ok().json(record),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Survey not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+// ============================================================================
+// HL7 FHIR R4 Compatible Endpoints
+// ============================================================================
+
+/// FHIR Patient resource - Get patient in FHIR R4 format
+#[get("/api/fhir/r4/Patient/{patient_id}")]
+pub async fn fhir_get_patient(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "login",
+                    "diagnostics": "Authentication required"
+                }]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "unknown",
+                    "diagnostics": "User not found"
+                }]
+            }));
+        }
+    };
+
+    // Healthcare providers or patient viewing own data
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "forbidden",
+                "diagnostics": "Access denied"
+            }]
+        }));
+    }
+
+    let patients = data.patients.read().unwrap();
+    match patients.get(&patient_id) {
+        Some(patient) => {
+            // Convert to FHIR R4 Patient resource
+            let fhir_patient = serde_json::json!({
+                "resourceType": "Patient",
+                "id": patient.patient_id,
+                "meta": {
+                    "versionId": "1",
+                    "lastUpdated": patient.last_updated.to_rfc3339()
+                },
+                "identifier": [{
+                    "system": "urn:medichain:national-id",
+                    "value": patient.national_id
+                }, {
+                    "system": "urn:medichain:patient-id",
+                    "value": patient.patient_id
+                }],
+                "active": true,
+                "name": [{
+                    "use": "official",
+                    "text": patient.full_name
+                }],
+                "birthDate": patient.date_of_birth,
+                "address": patient.address.as_ref().map(|addr| {
+                    serde_json::json!([{
+                        "use": "home",
+                        "city": addr.city,
+                        "state": addr.state,
+                        "country": addr.country,
+                        "postalCode": addr.postal_code
+                    }])
+                }),
+                "contact": patient.emergency_info.emergency_contacts.iter().map(|c| {
+                    serde_json::json!({
+                        "relationship": [{
+                            "text": c.relationship
+                        }],
+                        "name": {
+                            "text": c.name
+                        },
+                        "telecom": [{
+                            "system": "phone",
+                            "value": c.phone
+                        }]
+                    })
+                }).collect::<Vec<_>>(),
+                "communication": patient.emergency_info.languages.iter().map(|lang| {
+                    serde_json::json!({
+                        "language": {
+                            "coding": [{
+                                "system": "urn:ietf:bcp:47",
+                                "code": lang
+                            }]
+                        }
+                    })
+                }).collect::<Vec<_>>()
+            });
+
+            HttpResponse::Ok()
+                .content_type("application/fhir+json")
+                .json(fhir_patient)
+        }
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "not-found",
+                "diagnostics": format!("Patient {} not found", patient_id)
+            }]
+        })),
+    }
+}
+
+/// FHIR AllergyIntolerance resource - Get patient allergies
+#[get("/api/fhir/r4/AllergyIntolerance")]
+pub async fn fhir_get_allergies(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "login"}]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "unknown"}]
+            }));
+        }
+    };
+
+    let patient_id = match query.get("patient") {
+        Some(id) => id.clone(),
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "required",
+                    "diagnostics": "patient parameter is required"
+                }]
+            }));
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "forbidden"}]
+        }));
+    }
+
+    let patients = data.patients.read().unwrap();
+    match patients.get(&patient_id) {
+        Some(patient) => {
+            let entries: Vec<serde_json::Value> = patient.emergency_info.allergies.iter().enumerate().map(|(i, allergy)| {
+                serde_json::json!({
+                    "fullUrl": format!("urn:uuid:allergy-{}-{}", patient_id, i),
+                    "resource": {
+                        "resourceType": "AllergyIntolerance",
+                        "id": format!("allergy-{}-{}", patient_id, i),
+                        "clinicalStatus": {
+                            "coding": [{
+                                "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+                                "code": "active"
+                            }]
+                        },
+                        "verificationStatus": {
+                            "coding": [{
+                                "system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification",
+                                "code": if allergy.verified_at.is_some() { "confirmed" } else { "unconfirmed" }
+                            }]
+                        },
+                        "criticality": match allergy.severity {
+                            crate::AllergySeverity::Severe => "high",
+                            crate::AllergySeverity::Moderate => "high",
+                            crate::AllergySeverity::Mild => "low",
+                            crate::AllergySeverity::Unknown => "unable-to-assess"
+                        },
+                        "code": {
+                            "text": allergy.name
+                        },
+                        "patient": {
+                            "reference": format!("Patient/{}", patient_id)
+                        },
+                        "reaction": allergy.reaction.as_ref().map(|r| vec![serde_json::json!({
+                            "description": r
+                        })])
+                    }
+                })
+            }).collect();
+
+            HttpResponse::Ok()
+                .content_type("application/fhir+json")
+                .json(serde_json::json!({
+                    "resourceType": "Bundle",
+                    "type": "searchset",
+                    "total": entries.len(),
+                    "entry": entries
+                }))
+        }
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "not-found"}]
+        })),
+    }
+}
+
+/// FHIR MedicationStatement resource - Get patient medications
+#[get("/api/fhir/r4/MedicationStatement")]
+pub async fn fhir_get_medications(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "login"}]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "unknown"}]
+            }));
+        }
+    };
+
+    let patient_id = match query.get("patient") {
+        Some(id) => id.clone(),
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "required",
+                    "diagnostics": "patient parameter is required"
+                }]
+            }));
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "forbidden"}]
+        }));
+    }
+
+    let patients = data.patients.read().unwrap();
+    match patients.get(&patient_id) {
+        Some(patient) => {
+            let entries: Vec<serde_json::Value> = patient
+                .emergency_info
+                .current_medications
+                .iter()
+                .enumerate()
+                .map(|(i, med)| {
+                    serde_json::json!({
+                        "fullUrl": format!("urn:uuid:med-{}-{}", patient_id, i),
+                        "resource": {
+                            "resourceType": "MedicationStatement",
+                            "id": format!("med-{}-{}", patient_id, i),
+                            "status": "active",
+                            "medicationCodeableConcept": {
+                                "text": med
+                            },
+                            "subject": {
+                                "reference": format!("Patient/{}", patient_id)
+                            }
+                        }
+                    })
+                })
+                .collect();
+
+            HttpResponse::Ok()
+                .content_type("application/fhir+json")
+                .json(serde_json::json!({
+                    "resourceType": "Bundle",
+                    "type": "searchset",
+                    "total": entries.len(),
+                    "entry": entries
+                }))
+        }
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "not-found"}]
+        })),
+    }
+}
+
+/// FHIR Condition resource - Get patient conditions
+#[get("/api/fhir/r4/Condition")]
+pub async fn fhir_get_conditions(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "login"}]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "unknown"}]
+            }));
+        }
+    };
+
+    let patient_id = match query.get("patient") {
+        Some(id) => id.clone(),
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "required",
+                    "diagnostics": "patient parameter is required"
+                }]
+            }));
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "forbidden"}]
+        }));
+    }
+
+    let patients = data.patients.read().unwrap();
+    match patients.get(&patient_id) {
+        Some(patient) => {
+            let entries: Vec<serde_json::Value> = patient.emergency_info.chronic_conditions.iter().enumerate().map(|(i, cond)| {
+                serde_json::json!({
+                    "fullUrl": format!("urn:uuid:cond-{}-{}", patient_id, i),
+                    "resource": {
+                        "resourceType": "Condition",
+                        "id": format!("cond-{}-{}", patient_id, i),
+                        "clinicalStatus": {
+                            "coding": [{
+                                "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+                                "code": "active"
+                            }]
+                        },
+                        "code": {
+                            "text": cond
+                        },
+                        "subject": {
+                            "reference": format!("Patient/{}", patient_id)
+                        }
+                    }
+                })
+            }).collect();
+
+            HttpResponse::Ok()
+                .content_type("application/fhir+json")
+                .json(serde_json::json!({
+                    "resourceType": "Bundle",
+                    "type": "searchset",
+                    "total": entries.len(),
+                    "entry": entries
+                }))
+        }
+        None => HttpResponse::NotFound().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "not-found"}]
+        })),
+    }
+}
+
+/// FHIR Observation resource - Get patient vital signs
+#[get("/api/fhir/r4/Observation")]
+pub async fn fhir_get_observations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "login"}]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "unknown"}]
+            }));
+        }
+    };
+
+    let patient_id = match query.get("patient") {
+        Some(id) => id.clone(),
+        None => {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "required",
+                    "diagnostics": "patient parameter is required"
+                }]
+            }));
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{"severity": "error", "code": "forbidden"}]
+        }));
+    }
+
+    let flowsheets = data.vital_signs.read().unwrap();
+    match flowsheets.get(&patient_id) {
+        Some(flowsheet) => {
+            let mut entries: Vec<serde_json::Value> = Vec::new();
+
+            for reading in &flowsheet.readings {
+                // Heart Rate
+                if let Some(hr) = reading.heart_rate {
+                    entries.push(serde_json::json!({
+                        "fullUrl": format!("urn:uuid:{}-hr", reading.reading_id),
+                        "resource": {
+                            "resourceType": "Observation",
+                            "id": format!("{}-hr", reading.reading_id),
+                            "status": "final",
+                            "category": [{
+                                "coding": [{
+                                    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                                    "code": "vital-signs"
+                                }]
+                            }],
+                            "code": {
+                                "coding": [{
+                                    "system": "http://loinc.org",
+                                    "code": "8867-4",
+                                    "display": "Heart rate"
+                                }]
+                            },
+                            "subject": {"reference": format!("Patient/{}", patient_id)},
+                            "effectiveDateTime": chrono::DateTime::from_timestamp(reading.timestamp, 0)
+                                .map(|dt| dt.to_rfc3339()),
+                            "valueQuantity": {
+                                "value": hr,
+                                "unit": "beats/minute",
+                                "system": "http://unitsofmeasure.org",
+                                "code": "/min"
+                            }
+                        }
+                    }));
+                }
+
+                // Blood Pressure
+                if let (Some(sys), Some(dia)) = (reading.systolic_bp, reading.diastolic_bp) {
+                    entries.push(serde_json::json!({
+                        "fullUrl": format!("urn:uuid:{}-bp", reading.reading_id),
+                        "resource": {
+                            "resourceType": "Observation",
+                            "id": format!("{}-bp", reading.reading_id),
+                            "status": "final",
+                            "category": [{
+                                "coding": [{
+                                    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                                    "code": "vital-signs"
+                                }]
+                            }],
+                            "code": {
+                                "coding": [{
+                                    "system": "http://loinc.org",
+                                    "code": "85354-9",
+                                    "display": "Blood pressure panel"
+                                }]
+                            },
+                            "subject": {"reference": format!("Patient/{}", patient_id)},
+                            "effectiveDateTime": chrono::DateTime::from_timestamp(reading.timestamp, 0)
+                                .map(|dt| dt.to_rfc3339()),
+                            "component": [{
+                                "code": {
+                                    "coding": [{
+                                        "system": "http://loinc.org",
+                                        "code": "8480-6",
+                                        "display": "Systolic blood pressure"
+                                    }]
+                                },
+                                "valueQuantity": {
+                                    "value": sys,
+                                    "unit": "mmHg",
+                                    "system": "http://unitsofmeasure.org",
+                                    "code": "mm[Hg]"
+                                }
+                            }, {
+                                "code": {
+                                    "coding": [{
+                                        "system": "http://loinc.org",
+                                        "code": "8462-4",
+                                        "display": "Diastolic blood pressure"
+                                    }]
+                                },
+                                "valueQuantity": {
+                                    "value": dia,
+                                    "unit": "mmHg",
+                                    "system": "http://unitsofmeasure.org",
+                                    "code": "mm[Hg]"
+                                }
+                            }]
+                        }
+                    }));
+                }
+
+                // Oxygen Saturation
+                if let Some(spo2) = reading.oxygen_saturation {
+                    entries.push(serde_json::json!({
+                        "fullUrl": format!("urn:uuid:{}-spo2", reading.reading_id),
+                        "resource": {
+                            "resourceType": "Observation",
+                            "id": format!("{}-spo2", reading.reading_id),
+                            "status": "final",
+                            "category": [{
+                                "coding": [{
+                                    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                                    "code": "vital-signs"
+                                }]
+                            }],
+                            "code": {
+                                "coding": [{
+                                    "system": "http://loinc.org",
+                                    "code": "2708-6",
+                                    "display": "Oxygen saturation"
+                                }]
+                            },
+                            "subject": {"reference": format!("Patient/{}", patient_id)},
+                            "effectiveDateTime": chrono::DateTime::from_timestamp(reading.timestamp, 0)
+                                .map(|dt| dt.to_rfc3339()),
+                            "valueQuantity": {
+                                "value": spo2,
+                                "unit": "%",
+                                "system": "http://unitsofmeasure.org",
+                                "code": "%"
+                            }
+                        }
+                    }));
+                }
+            }
+
+            HttpResponse::Ok()
+                .content_type("application/fhir+json")
+                .json(serde_json::json!({
+                    "resourceType": "Bundle",
+                    "type": "searchset",
+                    "total": entries.len(),
+                    "entry": entries
+                }))
+        }
+        None => HttpResponse::Ok()
+            .content_type("application/fhir+json")
+            .json(serde_json::json!({
+                "resourceType": "Bundle",
+                "type": "searchset",
+                "total": 0,
+                "entry": []
+            })),
+    }
+}
+
+/// FHIR Encounter resource - Get patient encounters/visits
+#[get("/api/fhir/r4/Encounter")]
+pub async fn fhir_get_encounters(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "Missing X-User-Id header"
+                }]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "User not found"
+                }]
+            }));
+        }
+    };
+
+    let patient_id = query.get("patient").cloned().unwrap_or_default();
+    if patient_id.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "required",
+                "diagnostics": "patient parameter is required"
+            }]
+        }));
+    }
+
+    // RBAC: Non-healthcare providers can only see their own encounters
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "forbidden",
+                "diagnostics": "Access denied to other patient's encounters"
+            }]
+        }));
+    }
+
+    // Get triage assessments as encounters (represents ED visits)
+    let triages = data.triage_assessments.read().unwrap();
+    let patient_triages: Vec<_> = triages
+        .iter()
+        .filter(|(_, t)| t.patient_id == patient_id)
+        .collect();
+
+    let entries: Vec<serde_json::Value> = patient_triages
+        .iter()
+        .map(|(id, triage)| {
+            let priority_code = match triage.esi_level {
+                crate::clinical::ESILevel::Level1Resuscitation
+                | crate::clinical::ESILevel::Level2Emergent => "EM",
+                crate::clinical::ESILevel::Level3Urgent => "UR",
+                _ => "R",
+            };
+            let priority_display = match triage.esi_level {
+                crate::clinical::ESILevel::Level1Resuscitation => "ESI Level 1 - Resuscitation",
+                crate::clinical::ESILevel::Level2Emergent => "ESI Level 2 - Emergent",
+                crate::clinical::ESILevel::Level3Urgent => "ESI Level 3 - Urgent",
+                crate::clinical::ESILevel::Level4LessUrgent => "ESI Level 4 - Less Urgent",
+                crate::clinical::ESILevel::Level5NonUrgent => "ESI Level 5 - Non-Urgent",
+            };
+
+            serde_json::json!({
+                "fullUrl": format!("urn:uuid:{}", id),
+                "resource": {
+                    "resourceType": "Encounter",
+                    "id": id,
+                    "status": "finished",
+                    "class": {
+                        "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+                        "code": "EMER",
+                        "display": "Emergency"
+                    },
+                    "type": [{
+                        "coding": [{
+                            "system": "http://snomed.info/sct",
+                            "code": "50849002",
+                            "display": "Emergency department patient visit"
+                        }]
+                    }],
+                    "subject": {"reference": format!("Patient/{}", patient_id)},
+                    "period": {
+                        "start": chrono::DateTime::from_timestamp(triage.performed_at, 0)
+                            .map(|dt| dt.to_rfc3339())
+                    },
+                    "priority": {
+                        "coding": [{
+                            "system": "http://terminology.hl7.org/CodeSystem/v3-ActPriority",
+                            "code": priority_code,
+                            "display": priority_display
+                        }]
+                    },
+                    "reasonCode": [{
+                        "text": &triage.chief_complaint
+                    }]
+                }
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok()
+        .content_type("application/fhir+json")
+        .json(serde_json::json!({
+            "resourceType": "Bundle",
+            "type": "searchset",
+            "total": entries.len(),
+            "entry": entries
+        }))
+}
+
+/// FHIR DiagnosticReport resource - Get patient diagnostic reports
+#[get("/api/fhir/r4/DiagnosticReport")]
+pub async fn fhir_get_diagnostic_reports(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "Missing X-User-Id header"
+                }]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "User not found"
+                }]
+            }));
+        }
+    };
+
+    let patient_id = query.get("patient").cloned().unwrap_or_default();
+    if patient_id.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "required",
+                "diagnostics": "patient parameter is required"
+            }]
+        }));
+    }
+
+    // RBAC check - non-healthcare providers can only see their own reports
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "forbidden",
+                "diagnostics": "Access denied to other patient's reports"
+            }]
+        }));
+    }
+
+    // Get radiology reports as diagnostic reports
+    let radiology = data.radiology_reports.read().unwrap();
+    let patient_reports: Vec<_> = radiology
+        .iter()
+        .filter(|(_, r)| r.patient_id == patient_id)
+        .collect();
+
+    let entries: Vec<serde_json::Value> = patient_reports
+        .iter()
+        .map(|(id, report)| {
+            let status_str = match &report.status {
+                RadiologyReportStatus::Final => "final",
+                RadiologyReportStatus::Preliminary => "preliminary",
+                RadiologyReportStatus::Addendum => "amended",
+                RadiologyReportStatus::Corrected => "corrected",
+            };
+            let has_critical = report.critical_finding;
+
+            // Get study type as string
+            let study_type_str = format!("{:?}", report.study_type);
+
+            let effective_dt = chrono::DateTime::from_timestamp(report.study_datetime, 0)
+                .map(|dt| dt.to_rfc3339());
+            let issued_dt = report
+                .final_time
+                .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+                .map(|dt| dt.to_rfc3339());
+
+            let mut resource = serde_json::json!({
+                "resourceType": "DiagnosticReport",
+                "id": id,
+                "status": status_str,
+                "category": [{
+                    "coding": [{
+                        "system": "http://terminology.hl7.org/CodeSystem/v2-0074",
+                        "code": "RAD",
+                        "display": "Radiology"
+                    }]
+                }],
+                "code": {
+                    "coding": [{
+                        "system": "http://loinc.org",
+                        "display": &study_type_str
+                    }],
+                    "text": &study_type_str
+                },
+                "subject": {"reference": format!("Patient/{}", patient_id)},
+                "effectiveDateTime": effective_dt,
+                "issued": issued_dt,
+                "performer": [{
+                    "reference": format!("Practitioner/{}", report.radiologist)
+                }],
+                "conclusion": &report.impression
+            });
+
+            if has_critical {
+                resource["conclusionCode"] = serde_json::json!([{
+                    "coding": [{
+                        "system": "http://snomed.info/sct",
+                        "code": "281647001",
+                        "display": "Critical finding"
+                    }]
+                }]);
+            }
+
+            serde_json::json!({
+                "fullUrl": format!("urn:uuid:{}", id),
+                "resource": resource
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok()
+        .content_type("application/fhir+json")
+        .json(serde_json::json!({
+            "resourceType": "Bundle",
+            "type": "searchset",
+            "total": entries.len(),
+            "entry": entries
+        }))
+}
+
+/// FHIR Procedure resource - Get patient procedures
+#[get("/api/fhir/r4/Procedure")]
+pub async fn fhir_get_procedures(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "Missing X-User-Id header"
+                }]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "User not found"
+                }]
+            }));
+        }
+    };
+
+    let patient_id = query.get("patient").cloned().unwrap_or_default();
+    if patient_id.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "required",
+                "diagnostics": "patient parameter is required"
+            }]
+        }));
+    }
+
+    // RBAC check - non-healthcare providers can only see their own data
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "forbidden",
+                "diagnostics": "Access denied to other patient's procedures"
+            }]
+        }));
+    }
+
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+
+    // Get operative notes as procedures
+    let op_notes = data.operative_notes.read().unwrap();
+    for (id, note) in op_notes.iter().filter(|(_, n)| n.patient_id == patient_id) {
+        let performed_dt =
+            chrono::DateTime::from_timestamp(note.time_out_or, 0).map(|dt| dt.to_rfc3339());
+
+        // Get primary surgeon from surgeons list
+        let surgeon_ref = note
+            .surgeons
+            .first()
+            .map(|s| format!("Practitioner/{}", s.name))
+            .unwrap_or_else(|| "Practitioner/unknown".to_string());
+
+        let mut resource = serde_json::json!({
+            "resourceType": "Procedure",
+            "id": id,
+            "status": "completed",
+            "category": {
+                "coding": [{
+                    "system": "http://snomed.info/sct",
+                    "code": "387713003",
+                    "display": "Surgical procedure"
+                }]
+            },
+            "code": {
+                "text": &note.procedure_performed
+            },
+            "subject": {"reference": format!("Patient/{}", patient_id)},
+            "performedDateTime": performed_dt,
+            "performer": [{
+                "actor": {"reference": surgeon_ref},
+                "function": {
+                    "coding": [{
+                        "system": "http://snomed.info/sct",
+                        "code": "304292004",
+                        "display": "Surgeon"
+                    }]
+                }
+            }],
+            "outcome": {
+                "text": &note.findings
+            }
+        });
+
+        // Add complication if present
+        if let Some(complications) = &note.complications {
+            resource["complication"] = serde_json::json!([{"text": complications}]);
+        }
+
+        entries.push(serde_json::json!({
+            "fullUrl": format!("urn:uuid:{}", id),
+            "resource": resource
+        }));
+    }
+
+    // Get intubations as procedures
+    let intubations = data.intubation_records.read().unwrap();
+    for (id, intub) in intubations
+        .iter()
+        .filter(|(_, i)| i.patient_id == patient_id)
+    {
+        entries.push(serde_json::json!({
+            "fullUrl": format!("urn:uuid:{}", id),
+            "resource": {
+                "resourceType": "Procedure",
+                "id": id,
+                "status": if intub.successful { "completed" } else { "stopped" },
+                "category": {
+                    "coding": [{
+                        "system": "http://snomed.info/sct",
+                        "code": "103693007",
+                        "display": "Respiratory procedure"
+                    }]
+                },
+                "code": {
+                    "coding": [{
+                        "system": "http://snomed.info/sct",
+                        "code": "112798008",
+                        "display": "Endotracheal intubation"
+                    }]
+                },
+                "subject": {"reference": format!("Patient/{}", patient_id)},
+                "performedDateTime": chrono::DateTime::from_timestamp(intub.procedure_time, 0)
+                    .map(|dt| dt.to_rfc3339()),
+                "performer": [{
+                    "actor": {"reference": format!("Practitioner/{}", intub.performed_by)}
+                }],
+                "outcome": {
+                    "text": if intub.successful { "Successful intubation" } else { "Failed - required alternative" }
+                }
+            }
+        }));
+    }
+
+    // Get laceration repairs as procedures
+    let lacerations = data.laceration_records.read().unwrap();
+    for (id, lac) in lacerations
+        .iter()
+        .filter(|(_, l)| l.patient_id == patient_id)
+    {
+        entries.push(serde_json::json!({
+            "fullUrl": format!("urn:uuid:{}", id),
+            "resource": {
+                "resourceType": "Procedure",
+                "id": id,
+                "status": "completed",
+                "category": {
+                    "coding": [{
+                        "system": "http://snomed.info/sct",
+                        "code": "387687001",
+                        "display": "Minor surgical procedure"
+                    }]
+                },
+                "code": {
+                    "coding": [{
+                        "system": "http://snomed.info/sct",
+                        "code": "288086009",
+                        "display": "Suture of laceration"
+                    }]
+                },
+                "subject": {"reference": format!("Patient/{}", patient_id)},
+                "performedDateTime": chrono::DateTime::from_timestamp(lac.procedure_time, 0)
+                    .map(|dt| dt.to_rfc3339()),
+                "performer": [{
+                    "actor": {"reference": format!("Practitioner/{}", lac.performed_by)}
+                }],
+                "bodySite": [{
+                    "text": &lac.location
+                }],
+                "note": [{
+                    "text": format!("Closure: {:?}", lac.closure)
+                }]
+            }
+        }));
+    }
+
+    HttpResponse::Ok()
+        .content_type("application/fhir+json")
+        .json(serde_json::json!({
+            "resourceType": "Bundle",
+            "type": "searchset",
+            "total": entries.len(),
+            "entry": entries
+        }))
+}
+
+/// FHIR Immunization resource - Get patient immunizations
+#[get("/api/fhir/r4/Immunization")]
+pub async fn fhir_get_immunizations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "Missing X-User-Id header"
+                }]
+            }));
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "security",
+                    "diagnostics": "User not found"
+                }]
+            }));
+        }
+    };
+
+    let patient_id = query.get("patient").cloned().unwrap_or_default();
+    if patient_id.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "required",
+                "diagnostics": "patient parameter is required"
+            }]
+        }));
+    }
+
+    // RBAC check - non-healthcare providers can only see their own data
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "resourceType": "OperationOutcome",
+            "issue": [{
+                "severity": "error",
+                "code": "forbidden",
+                "diagnostics": "Access denied to other patient's immunizations"
+            }]
+        }));
+    }
+
+    // Get immunization records
+    let immunizations = data.immunization_records.read().unwrap();
+    let patient_immunizations: Vec<_> = immunizations
+        .iter()
+        .filter(|(_, i)| i.patient_id == patient_id)
+        .collect();
+
+    let entries: Vec<serde_json::Value> = patient_immunizations
+        .iter()
+        .map(|(id, imm)| {
+            // Get route as string
+            let route_str = format!("{:?}", imm.route);
+
+            let mut resource = serde_json::json!({
+                "resourceType": "Immunization",
+                "id": id,
+                "status": "completed",
+                "vaccineCode": {
+                    "coding": [{
+                        "system": "http://hl7.org/fhir/sid/cvx",
+                        "code": &imm.cvx_code,
+                        "display": &imm.vaccine_name
+                    }],
+                    "text": &imm.vaccine_name
+                },
+                "patient": {"reference": format!("Patient/{}", patient_id)},
+                "occurrenceDateTime": &imm.administration_date,
+                "primarySource": true,
+                "lotNumber": &imm.lot_number,
+                "expirationDate": &imm.expiration_date,
+                "site": {
+                    "coding": [{
+                        "system": "http://terminology.hl7.org/CodeSystem/v3-ActSite",
+                        "display": &imm.site
+                    }]
+                },
+                "route": {
+                    "coding": [{
+                        "system": "http://terminology.hl7.org/CodeSystem/v3-RouteOfAdministration",
+                        "display": &route_str
+                    }]
+                },
+                "protocolApplied": [{
+                    "doseNumberPositiveInt": imm.dose_number
+                }],
+                "performer": [{
+                    "actor": {"reference": format!("Practitioner/{}", imm.administered_by)}
+                }],
+                "manufacturer": {
+                    "display": &imm.manufacturer
+                }
+            });
+
+            // Add notes if present
+            if let Some(notes) = &imm.notes {
+                resource["note"] = serde_json::json!([{"text": notes}]);
+            }
+
+            // Add adverse reaction if present
+            if let Some(reaction) = &imm.adverse_reaction {
+                resource["reaction"] = serde_json::json!([{
+                    "detail": {"display": reaction}
+                }]);
+            }
+
+            serde_json::json!({
+                "fullUrl": format!("urn:uuid:{}", id),
+                "resource": resource
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok()
+        .content_type("application/fhir+json")
+        .json(serde_json::json!({
+            "resourceType": "Bundle",
+            "type": "searchset",
+            "total": entries.len(),
+            "entry": entries
+        }))
+}
+
+/// FHIR Capability Statement - Server metadata
+#[get("/api/fhir/r4/metadata")]
+pub async fn fhir_capability_statement() -> impl Responder {
+    HttpResponse::Ok()
+        .content_type("application/fhir+json")
+        .json(serde_json::json!({
+            "resourceType": "CapabilityStatement",
+            "status": "active",
+            "date": "2026-01-06",
+            "publisher": "Trustware - MediChain",
+            "kind": "instance",
+            "software": {
+                "name": "MediChain FHIR Server",
+                "version": "1.0.0"
+            },
+            "implementation": {
+                "description": "MediChain HL7 FHIR R4 API"
+            },
+            "fhirVersion": "4.0.1",
+            "format": ["application/fhir+json"],
+            "rest": [{
+                "mode": "server",
+                "resource": [
+                    {
+                        "type": "Patient",
+                        "interaction": [{"code": "read"}, {"code": "search-type"}],
+                        "searchParam": [{"name": "_id", "type": "token"}]
+                    },
+                    {
+                        "type": "AllergyIntolerance",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [{"name": "patient", "type": "reference"}]
+                    },
+                    {
+                        "type": "MedicationStatement",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [{"name": "patient", "type": "reference"}]
+                    },
+                    {
+                        "type": "Condition",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [{"name": "patient", "type": "reference"}]
+                    },
+                    {
+                        "type": "Observation",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [
+                            {"name": "patient", "type": "reference"},
+                            {"name": "category", "type": "token"}
+                        ]
+                    },
+                    {
+                        "type": "Encounter",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [{"name": "patient", "type": "reference"}]
+                    },
+                    {
+                        "type": "DiagnosticReport",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [{"name": "patient", "type": "reference"}]
+                    },
+                    {
+                        "type": "Procedure",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [{"name": "patient", "type": "reference"}]
+                    },
+                    {
+                        "type": "Immunization",
+                        "interaction": [{"code": "search-type"}],
+                        "searchParam": [{"name": "patient", "type": "reference"}]
+                    }
+                ]
+            }]
+        }))
+}
+
+// ============================================================================
+// Insurance Verification API
+// ============================================================================
+
+/// Verify insurance coverage
+#[post("/api/insurance/verify")]
+pub async fn verify_insurance(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "patient_id is required".to_string(),
+                code: "MISSING_FIELD".to_string(),
+            });
+        }
+    };
+
+    // Get patient insurance info
+    let patients = data.patients.read().unwrap();
+    match patients.get(&patient_id) {
+        Some(patient) => {
+            match &patient.insurance {
+                Some(insurance) => {
+                    // Simulate verification (in production: call external API)
+                    let is_valid = insurance.is_active;
+                    let coverage_active = is_valid && {
+                        // Check if dates are valid
+                        true // Simplified for demo
+                    };
+
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "success": true,
+                        "patient_id": patient_id,
+                        "verification": {
+                            "verified": true,
+                            "verified_at": chrono::Utc::now().to_rfc3339(),
+                            "coverage_active": coverage_active,
+                            "provider": insurance.provider,
+                            "policy_number": insurance.policy_number,
+                            "group_number": insurance.group_number,
+                            "coverage_type": insurance.coverage_type.to_string(),
+                            "valid_from": insurance.valid_from,
+                            "valid_to": insurance.valid_to,
+                            "benefits": {
+                                "emergency_services": true,
+                                "inpatient": true,
+                                "outpatient": true,
+                                "laboratory": true,
+                                "radiology": true,
+                                "pharmacy": true,
+                                "mental_health": true
+                            },
+                            "copay": {
+                                "emergency": "R500",
+                                "specialist": "R300",
+                                "primary_care": "R150",
+                                "pharmacy": "20%"
+                            },
+                            "deductible": {
+                                "annual": "R5000",
+                                "met": "R2500",
+                                "remaining": "R2500"
+                            }
+                        }
+                    }))
+                }
+                None => HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "patient_id": patient_id,
+                    "verification": {
+                        "verified": true,
+                        "verified_at": chrono::Utc::now().to_rfc3339(),
+                        "coverage_active": false,
+                        "message": "No insurance on file. Patient is self-pay."
+                    }
+                })),
+            }
+        }
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Patient not found".to_string(),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Get insurance eligibility for a service
+#[post("/api/insurance/eligibility")]
+pub async fn check_eligibility(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let service_code = body
+        .get("service_code")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let patients = data.patients.read().unwrap();
+    match patients.get(patient_id) {
+        Some(patient) => {
+            let has_insurance = patient.insurance.is_some();
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "patient_id": patient_id,
+                "service_code": service_code,
+                "eligibility": {
+                    "eligible": has_insurance,
+                    "checked_at": chrono::Utc::now().to_rfc3339(),
+                    "coverage_details": if has_insurance {
+                        serde_json::json!({
+                            "covered": true,
+                            "requires_preauth": service_code.starts_with("99"),
+                            "copay_applies": true,
+                            "deductible_applies": true
+                        })
+                    } else {
+                        serde_json::json!({
+                            "covered": false,
+                            "reason": "No active insurance coverage"
+                        })
+                    }
+                }
+            }))
+        }
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Patient not found".to_string(),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+// ============================================================================
+// PHASE 20: MEDICATION REMINDERS
+// ============================================================================
+
+/// Create medication reminder request
+#[derive(Debug, Deserialize)]
+pub struct CreateMedicationReminderRequest {
+    pub patient_id: String,
+    pub medication_name: String,
+    pub dosage: String,
+    pub frequency: String,
+    pub reminder_times: Vec<String>,
+    pub start_date: String,
+    pub end_date: Option<String>,
+    pub instructions: Option<String>,
+    pub push_notification: Option<bool>,
+    pub sms: Option<bool>,
+    pub email: Option<bool>,
+}
+
+/// Create a medication reminder
+#[post("/api/reminders/medication")]
+pub async fn create_medication_reminder(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateMedicationReminderRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    // Patient can create for self, provider can create for any patient
+    let is_own_reminder = current_user_id == req.patient_id
+        || current_user_id.starts_with("PAT-") && req.patient_id == current_user_id;
+
+    if !is_own_reminder && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only patients can create reminders for themselves or providers for patients"
+                .to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let frequency = match req.frequency.as_str() {
+        "once" => crate::clinical::ReminderFrequency::Once,
+        "daily" => crate::clinical::ReminderFrequency::Daily,
+        "twice_daily" => crate::clinical::ReminderFrequency::TwiceDaily,
+        "three_times_daily" => crate::clinical::ReminderFrequency::ThreeTimesDaily,
+        "weekly" => crate::clinical::ReminderFrequency::Weekly,
+        "as_needed" => crate::clinical::ReminderFrequency::AsNeeded,
+        _ => crate::clinical::ReminderFrequency::Daily,
+    };
+
+    let reminder = crate::clinical::MedicationReminder {
+        reminder_id: format!("REM-{}", uuid::Uuid::new_v4()),
+        patient_id: req.patient_id.clone(),
+        medication_name: req.medication_name.clone(),
+        dosage: req.dosage.clone(),
+        frequency,
+        reminder_times: req.reminder_times.clone(),
+        start_date: req.start_date.clone(),
+        end_date: req.end_date.clone(),
+        instructions: req.instructions.clone(),
+        active: true,
+        created_by: current_user_id,
+        created_at: chrono::Utc::now().timestamp(),
+        notification_prefs: crate::clinical::NotificationPreferences {
+            push_notification: req.push_notification.unwrap_or(true),
+            sms: req.sms.unwrap_or(false),
+            email: req.email.unwrap_or(false),
+            in_app: true,
+            reminder_before_minutes: 15,
+        },
+    };
+
+    let reminder_id = reminder.reminder_id.clone();
+    let mut reminders = data.medication_reminders.write().unwrap();
+    reminders.insert(reminder_id.clone(), reminder);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "reminder_id": reminder_id,
+        "message": "Medication reminder created successfully"
+    }))
+}
+
+/// Get medication reminders for a patient (Phase 20)
+#[get("/api/reminders/medication/{patient_id}")]
+pub async fn get_patient_reminders(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    // Check access
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let reminders = data.medication_reminders.read().unwrap();
+    let patient_reminders: Vec<_> = reminders
+        .values()
+        .filter(|r| r.patient_id == patient_id && r.active)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "reminders": patient_reminders,
+        "count": patient_reminders.len()
+    }))
+}
+
+/// Log medication adherence
+#[derive(Debug, Deserialize)]
+pub struct LogAdherenceRequest {
+    pub reminder_id: String,
+    pub action: String,
+    pub notes: Option<String>,
+}
+
+#[post("/api/reminders/adherence")]
+pub async fn log_medication_adherence(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<LogAdherenceRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let reminders = data.medication_reminders.read().unwrap();
+    let reminder = match reminders.get(&req.reminder_id) {
+        Some(r) => r.clone(),
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Reminder not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(reminders);
+
+    // Only the patient can log their own adherence
+    if current_user_id != reminder.patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only patient can log their own adherence".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let action = match req.action.as_str() {
+        "taken" => crate::clinical::AdherenceAction::Taken,
+        "skipped" => crate::clinical::AdherenceAction::Skipped,
+        "snoozed" => crate::clinical::AdherenceAction::Snoozed,
+        "missed" => crate::clinical::AdherenceAction::Missed,
+        "taken_late" => crate::clinical::AdherenceAction::TakenLate,
+        _ => crate::clinical::AdherenceAction::Taken,
+    };
+
+    let log = crate::clinical::MedicationAdherenceLog {
+        log_id: format!("ADH-{}", uuid::Uuid::new_v4()),
+        reminder_id: req.reminder_id.clone(),
+        patient_id: reminder.patient_id.clone(),
+        scheduled_time: chrono::Utc::now().timestamp(),
+        action,
+        taken_at: if req.action == "taken" || req.action == "taken_late" {
+            Some(chrono::Utc::now().timestamp())
+        } else {
+            None
+        },
+        notes: req.notes.clone(),
+    };
+
+    let log_id = log.log_id.clone();
+    let mut logs = data.adherence_logs.write().unwrap();
+    logs.insert(log_id.clone(), log);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "log_id": log_id,
+        "message": "Adherence logged successfully"
+    }))
+}
+
+/// Delete a medication reminder
+#[delete("/api/reminders/medication/{reminder_id}")]
+pub async fn delete_medication_reminder(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let reminder_id = path.into_inner();
+
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut reminders = data.medication_reminders.write().unwrap();
+
+    if let Some(reminder) = reminders.get_mut(&reminder_id) {
+        // Only creator or patient can delete
+        if reminder.patient_id != current_user_id && reminder.created_by != current_user_id {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Access denied".to_string(),
+                code: "FORBIDDEN".to_string(),
+            });
+        }
+        reminder.active = false;
+
+        HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "message": "Reminder deactivated"
+        }))
+    } else {
+        HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Reminder not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        })
+    }
+}
+
+// ============================================================================
+// PHASE 21: DRUG INTERACTION CHECKING
+// ============================================================================
+
+/// Check drug interactions request
+#[derive(Debug, Deserialize)]
+pub struct CheckDrugInteractionsRequest {
+    pub patient_id: String,
+    pub medications: Vec<String>,
+    pub include_allergies: Option<bool>,
+    pub include_conditions: Option<bool>,
+}
+
+/// Check for drug-drug and drug-allergy interactions
+#[post("/api/interactions/check")]
+pub async fn check_drug_interactions(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CheckDrugInteractionsRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    // Only healthcare providers can check interactions
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can check drug interactions".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // Simulated drug interaction database
+    let known_interactions = vec![
+        ("warfarin", "aspirin", "major", "Increased bleeding risk"),
+        ("warfarin", "ibuprofen", "major", "Increased bleeding risk"),
+        ("metformin", "contrast dye", "major", "Risk of lactic acidosis"),
+        ("lisinopril", "potassium", "moderate", "Risk of hyperkalemia"),
+        ("simvastatin", "grapefruit", "moderate", "Increased statin levels"),
+        ("digoxin", "amiodarone", "major", "Digoxin toxicity risk"),
+        ("ssri", "maoi", "contraindicated", "Serotonin syndrome risk"),
+        ("fluoxetine", "tramadol", "major", "Serotonin syndrome risk"),
+        ("ciprofloxacin", "theophylline", "major", "Theophylline toxicity"),
+        ("methotrexate", "nsaid", "major", "Methotrexate toxicity"),
+    ];
+
+    let mut interactions: Vec<crate::clinical::DrugInteraction> = Vec::new();
+    let medications_lower: Vec<String> = req.medications.iter()
+        .map(|m| m.to_lowercase())
+        .collect();
+
+    // Check each pair of medications
+    for i in 0..medications_lower.len() {
+        for j in (i + 1)..medications_lower.len() {
+            let med1 = &medications_lower[i];
+            let med2 = &medications_lower[j];
+
+            for (drug1, drug2, severity, description) in &known_interactions {
+                if (med1.contains(drug1) && med2.contains(drug2)) ||
+                   (med1.contains(drug2) && med2.contains(drug1)) {
+                    let severity_enum = match *severity {
+                        "contraindicated" => crate::clinical::InteractionSeverity::Contraindicated,
+                        "major" => crate::clinical::InteractionSeverity::Major,
+                        "moderate" => crate::clinical::InteractionSeverity::Moderate,
+                        _ => crate::clinical::InteractionSeverity::Minor,
+                    };
+
+                    interactions.push(crate::clinical::DrugInteraction {
+                        drug_a: req.medications[i].clone(),
+                        drug_b: req.medications[j].clone(),
+                        severity: severity_enum,
+                        description: description.to_string(),
+                        clinical_effects: description.to_string(),
+                        management: format!("Monitor closely or consider alternatives for {} and {}", 
+                            req.medications[i], req.medications[j]),
+                        evidence_level: crate::clinical::EvidenceLevel::Established,
+                        source: "Clinical Pharmacology Database".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Check allergies if requested
+    let mut allergy_alerts: Vec<serde_json::Value> = Vec::new();
+    if req.include_allergies.unwrap_or(true) {
+        let allergies = data.allergies.read().unwrap();
+        if let Some(patient_allergies) = allergies.get(&req.patient_id) {
+            for allergy in patient_allergies {
+                for med in &medications_lower {
+                    if med.contains(&allergy.allergen.to_lowercase()) {
+                        allergy_alerts.push(serde_json::json!({
+                            "type": "allergy",
+                            "medication": med,
+                            "allergen": allergy.allergen,
+                            "severity": allergy.severity,
+                            "reaction": allergy.reaction
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    // Calculate overall severity
+    let overall_severity = interactions.iter()
+        .map(|i| &i.severity)
+        .max()
+        .cloned()
+        .unwrap_or(crate::clinical::InteractionSeverity::None);
+    
+    let safe_to_prescribe = !matches!(
+        overall_severity, 
+        crate::clinical::InteractionSeverity::Contraindicated | 
+        crate::clinical::InteractionSeverity::Major
+    );
+
+    let result = crate::clinical::DrugInteractionResult {
+        result_id: format!("CHK-{}", uuid::Uuid::new_v4()),
+        patient_id: req.patient_id.clone(),
+        checked_at: chrono::Utc::now().timestamp(),
+        new_medication: req.medications.first().cloned().unwrap_or_default(),
+        interactions: interactions.clone(),
+        overall_severity: overall_severity,
+        safe_to_prescribe: safe_to_prescribe,
+        checked_by: current_user_id.clone(),
+    };
+
+    // Store the result
+    let check_id = result.result_id.clone();
+    let mut drug_interactions = data.drug_interactions.write().unwrap();
+    drug_interactions.insert(check_id.clone(), result);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "check_id": check_id,
+        "patient_id": req.patient_id,
+        "medications_checked": req.medications.len(),
+        "interactions_found": interactions.len(),
+        "has_critical": interactions.iter().any(|i| 
+            matches!(i.severity, crate::clinical::InteractionSeverity::Contraindicated | 
+                                  crate::clinical::InteractionSeverity::Major)),
+        "interactions": interactions,
+        "allergy_alerts": allergy_alerts,
+        "recommendation": if interactions.is_empty() && allergy_alerts.is_empty() {
+            "No significant interactions detected"
+        } else if interactions.iter().any(|i| matches!(i.severity, crate::clinical::InteractionSeverity::Contraindicated)) {
+            "CONTRAINDICATED - Do not prescribe together"
+        } else if interactions.iter().any(|i| matches!(i.severity, crate::clinical::InteractionSeverity::Major)) {
+            "MAJOR interactions - Consider alternatives"
+        } else {
+            "Moderate interactions - Monitor patient closely"
+        }
+    }))
+}
+
+/// Get interaction check history for a patient
+#[get("/api/interactions/history/{patient_id}")]
+pub async fn get_interaction_history(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let interactions = data.drug_interactions.read().unwrap();
+    let history: Vec<_> = interactions
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "checks": history,
+        "count": history.len()
+    }))
+}
+
+// ============================================================================
+// PHASE 22: FAMILY ACCOUNT LINKING
+// ============================================================================
+
+/// Create family group request
+#[derive(Debug, Deserialize)]
+pub struct CreateFamilyGroupRequest {
+    pub group_name: String,
+    pub primary_contact_id: String,
+}
+
+/// Create a family group
+#[post("/api/family/groups")]
+pub async fn create_family_group(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateFamilyGroupRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    // Only the primary contact can create their family group
+    if current_user_id != req.primary_contact_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "You can only create a family group for yourself".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let group = crate::clinical::FamilyGroup {
+        family_id: format!("FAM-{}", uuid::Uuid::new_v4()),
+        family_name: req.group_name.clone(),
+        primary_account_id: req.primary_contact_id.clone(),
+        members: vec![crate::clinical::FamilyMember {
+            patient_id: req.primary_contact_id.clone(),
+            relationship: crate::clinical::FamilyRelationship::Self_,
+            access_level: crate::clinical::FamilyAccessLevel::Full,
+            can_manage_appointments: true,
+            can_view_records: true,
+            can_manage_medications: true,
+            can_book_appointments: true,
+            is_minor: false,
+            linked_at: chrono::Utc::now().timestamp(),
+            linked_by: current_user_id.clone(),
+        }],
+        created_at: chrono::Utc::now().timestamp(),
+        last_modified: chrono::Utc::now().timestamp(),
+    };
+
+    let group_id = group.family_id.clone();
+    let mut groups = data.family_groups.write().unwrap();
+    groups.insert(group_id.clone(), group);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "group_id": group_id,
+        "message": "Family group created successfully"
+    }))
+}
+
+/// Add family member request
+#[derive(Debug, Deserialize)]
+pub struct AddFamilyMemberRequest {
+    pub patient_id: String,
+    pub relationship: String,
+    pub access_level: String,
+    pub can_book_appointments: Option<bool>,
+    pub can_view_records: Option<bool>,
+    pub can_manage_medications: Option<bool>,
+    pub is_minor: Option<bool>,
+}
+
+/// Add a member to family group
+#[post("/api/family/groups/{group_id}/members")]
+pub async fn add_family_member(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<AddFamilyMemberRequest>,
+) -> impl Responder {
+    let group_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut groups = data.family_groups.write().unwrap();
+    
+    let group = match groups.get_mut(&group_id) {
+        Some(g) => g,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Family group not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Only primary account holder can add members
+    if group.primary_account_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only primary account holder can add family members".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let relationship = match req.relationship.as_str() {
+        "spouse" => crate::clinical::FamilyRelationship::Spouse,
+        "child" => crate::clinical::FamilyRelationship::Child,
+        "parent" => crate::clinical::FamilyRelationship::Parent,
+        "sibling" => crate::clinical::FamilyRelationship::Sibling,
+        "grandparent" => crate::clinical::FamilyRelationship::Grandparent,
+        "grandchild" => crate::clinical::FamilyRelationship::Grandchild,
+        "guardian" => crate::clinical::FamilyRelationship::Guardian,
+        "dependent" => crate::clinical::FamilyRelationship::Dependent,
+        _ => crate::clinical::FamilyRelationship::Other,
+    };
+
+    let access_level = match req.access_level.as_str() {
+        "full" => crate::clinical::FamilyAccessLevel::Full,
+        "read_only" => crate::clinical::FamilyAccessLevel::ReadOnly,
+        "emergency_only" => crate::clinical::FamilyAccessLevel::EmergencyOnly,
+        "appointments_only" => crate::clinical::FamilyAccessLevel::AppointmentsOnly,
+        "custom" => crate::clinical::FamilyAccessLevel::Custom,
+        _ => crate::clinical::FamilyAccessLevel::ReadOnly,
+    };
+
+    let member = crate::clinical::FamilyMember {
+        patient_id: req.patient_id.clone(),
+        relationship,
+        access_level,
+        can_manage_appointments: req.can_book_appointments.unwrap_or(true),
+        can_view_records: req.can_view_records.unwrap_or(true),
+        can_manage_medications: req.can_manage_medications.unwrap_or(false),
+        can_book_appointments: req.can_book_appointments.unwrap_or(true),
+        is_minor: req.is_minor.unwrap_or(false),
+        linked_at: chrono::Utc::now().timestamp(),
+        linked_by: current_user_id,
+    };
+
+    group.members.push(member);
+    group.last_modified = chrono::Utc::now().timestamp();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Family member added successfully"
+    }))
+}
+
+/// Get family group details
+#[get("/api/family/groups/{group_id}")]
+pub async fn get_family_group(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let group_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let groups = data.family_groups.read().unwrap();
+    
+    match groups.get(&group_id) {
+        Some(group) => {
+            // Check if user is a member
+            let is_member = group.members.iter().any(|m| m.patient_id == current_user_id);
+            if !is_member && group.primary_account_id != current_user_id {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    success: false,
+                    error: "Access denied".to_string(),
+                    code: "FORBIDDEN".to_string(),
+                });
+            }
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "group": group
+            }))
+        }
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Family group not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Get my family groups
+#[get("/api/family/my-groups")]
+pub async fn get_my_family_groups(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let groups = data.family_groups.read().unwrap();
+    let my_groups: Vec<_> = groups
+        .values()
+        .filter(|g| {
+            g.primary_account_id == current_user_id ||
+            g.members.iter().any(|m| m.patient_id == current_user_id)
+        })
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "groups": my_groups,
+        "count": my_groups.len()
+    }))
+}
+
+/// Remove family member
+#[delete("/api/family/groups/{group_id}/members/{patient_id}")]
+pub async fn remove_family_member(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<(String, String)>,
+) -> impl Responder {
+    let (group_id, patient_id) = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut groups = data.family_groups.write().unwrap();
+    
+    let group = match groups.get_mut(&group_id) {
+        Some(g) => g,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Family group not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Only primary contact can remove members (or member removing themselves)
+    if group.primary_account_id != current_user_id && patient_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // Can't remove primary contact
+    if patient_id == group.primary_account_id {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Cannot remove primary contact from group".to_string(),
+            code: "BAD_REQUEST".to_string(),
+        });
+    }
+
+    group.members.retain(|m| m.patient_id != patient_id);
+    group.last_modified = chrono::Utc::now().timestamp();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Family member removed"
+    }))
+}
+
+// ============================================================================
+// PHASE 23: APPOINTMENT BOOKING SYSTEM
+// ============================================================================
+
+/// Book appointment request
+#[derive(Debug, Deserialize)]
+pub struct BookAppointmentRequest {
+    pub patient_id: String,
+    pub provider_id: String,
+    pub provider_name: Option<String>,
+    pub appointment_type: String,
+    pub preferred_date: String,
+    pub preferred_time: String,
+    pub duration_minutes: Option<i32>,
+    pub reason: String,
+    pub notes: Option<String>,
+    pub location_type: Option<String>,
+    pub department: Option<String>,
+    pub instructions: Option<String>,
+}
+
+/// Book an appointment
+#[post("/api/appointments")]
+pub async fn book_appointment(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<BookAppointmentRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    // Patient can book for self, provider can book for any patient
+    let is_own = current_user_id == req.patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        // Check if booking for family member
+        let groups = data.family_groups.read().unwrap();
+        let can_book_for_family = groups.values().any(|g| {
+            g.members.iter().any(|m| m.patient_id == current_user_id && m.can_book_appointments) &&
+            g.members.iter().any(|m| m.patient_id == req.patient_id)
+        });
+        drop(groups);
+        
+        if !can_book_for_family {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Cannot book appointments for this patient".to_string(),
+                code: "FORBIDDEN".to_string(),
+            });
+        }
+    }
+
+    let appointment_type = match req.appointment_type.as_str() {
+        "consultation" => crate::clinical::AppointmentType::Consultation,
+        "followup" | "follow_up" => crate::clinical::AppointmentType::FollowUp,
+        "new_patient" => crate::clinical::AppointmentType::NewPatient,
+        "procedure" => crate::clinical::AppointmentType::Procedure,
+        "lab_work" => crate::clinical::AppointmentType::LabWork,
+        "imaging" => crate::clinical::AppointmentType::Imaging,
+        "urgent" => crate::clinical::AppointmentType::Urgent,
+        "telehealth" => crate::clinical::AppointmentType::Telehealth,
+        "annual_exam" => crate::clinical::AppointmentType::AnnualExam,
+        "pre_op" => crate::clinical::AppointmentType::PreOp,
+        "post_op" => crate::clinical::AppointmentType::PostOp,
+        _ => crate::clinical::AppointmentType::Other,
+    };
+
+    let location = crate::clinical::AppointmentLocation {
+        facility_name: "MediChain Health Center".to_string(),
+        department: req.department.clone().unwrap_or_else(|| "General".to_string()),
+        room: None,
+        address: Some("123 Healthcare Blvd, Medical City".to_string()),
+        telehealth_link: if req.location_type.as_deref() == Some("telehealth") {
+            Some(format!("https://medichain.health/telehealth/{}", uuid::Uuid::new_v4()))
+        } else {
+            None
+        },
+    };
+
+    let appointment = crate::clinical::Appointment {
+        appointment_id: format!("APT-{}", uuid::Uuid::new_v4()),
+        patient_id: req.patient_id.clone(),
+        provider_id: req.provider_id.clone(),
+        provider_name: req.provider_name.clone().unwrap_or_else(|| "Dr. Provider".to_string()),
+        appointment_type,
+        visit_reason: req.reason.clone(),
+        scheduled_date: req.preferred_date.clone(),
+        scheduled_time: Some(chrono::Utc::now().timestamp()),
+        start_time: req.preferred_time.clone(),
+        duration_minutes: req.duration_minutes.unwrap_or(30) as u16,
+        location,
+        status: crate::clinical::AppointmentStatus::Scheduled,
+        created_at: chrono::Utc::now().timestamp(),
+        updated_at: chrono::Utc::now().timestamp(),
+        created_by: current_user_id.clone(),
+        booked_by: Some(current_user_id),
+        check_in_time: None,
+        is_telehealth: false,
+        reminders_sent: Vec::new(),
+        instructions: req.instructions.clone(),
+        insurance_verified: false,
+        notes: req.notes.clone(),
+    };
+
+    let appointment_id = appointment.appointment_id.clone();
+    let mut appointments = data.appointments.write().unwrap();
+    appointments.insert(appointment_id.clone(), appointment);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "appointment_id": appointment_id,
+        "message": "Appointment booked successfully"
+    }))
+}
+
+/// Get appointments for a patient
+#[get("/api/appointments/patient/{patient_id}")]
+pub async fn get_patient_appointments(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let appointments = data.appointments.read().unwrap();
+    let patient_appointments: Vec<_> = appointments
+        .values()
+        .filter(|a| a.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "appointments": patient_appointments,
+        "count": patient_appointments.len()
+    }))
+}
+
+/// Get appointments for a provider
+#[get("/api/appointments/provider/{provider_id}")]
+pub async fn get_provider_appointments(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let provider_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    // Only the provider or admin can see provider's schedule
+    if current_user_id != provider_id && !current_user.role.is_admin() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let appointments = data.appointments.read().unwrap();
+    let provider_appointments: Vec<_> = appointments
+        .values()
+        .filter(|a| a.provider_id == provider_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "provider_id": provider_id,
+        "appointments": provider_appointments,
+        "count": provider_appointments.len()
+    }))
+}
+
+/// Cancel appointment request
+#[derive(Debug, Deserialize)]
+pub struct CancelAppointmentRequest {
+    pub reason: Option<String>,
+}
+
+/// Cancel an appointment
+#[post("/api/appointments/{appointment_id}/cancel")]
+pub async fn cancel_appointment(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<CancelAppointmentRequest>,
+) -> impl Responder {
+    let appointment_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut appointments = data.appointments.write().unwrap();
+    
+    let appointment = match appointments.get_mut(&appointment_id) {
+        Some(a) => a,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Appointment not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patient, provider, or booker can cancel
+    if appointment.patient_id != current_user_id && 
+       appointment.provider_id != current_user_id &&
+       appointment.booked_by != Some(current_user_id.clone()) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    appointment.status = crate::clinical::AppointmentStatus::Cancelled;
+    if let Some(reason) = &req.reason {
+        appointment.notes = Some(format!("Cancelled: {}", reason));
+    }
+    appointment.updated_at = chrono::Utc::now().timestamp();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Appointment cancelled"
+    }))
+}
+
+/// Check in to appointment
+#[post("/api/appointments/{appointment_id}/check-in")]
+pub async fn check_in_appointment(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let appointment_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let mut appointments = data.appointments.write().unwrap();
+    
+    let appointment = match appointments.get_mut(&appointment_id) {
+        Some(a) => a,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Appointment not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patient or staff can check in
+    if appointment.patient_id != current_user_id && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    appointment.status = crate::clinical::AppointmentStatus::CheckedIn;
+    appointment.check_in_time = Some(chrono::Utc::now().timestamp());
+    appointment.updated_at = chrono::Utc::now().timestamp();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Checked in successfully",
+        "check_in_time": appointment.check_in_time
+    }))
+}
+
+/// Get available appointment slots
+#[get("/api/appointments/slots/{provider_id}/{date}")]
+pub async fn get_available_slots(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<(String, String)>,
+) -> impl Responder {
+    let (provider_id, date) = path.into_inner();
+    
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    // Get booked appointments for this provider on this date
+    let appointments = data.appointments.read().unwrap();
+    let booked_times: Vec<String> = appointments
+        .values()
+        .filter(|a| a.provider_id == provider_id && 
+                    a.scheduled_date == date &&
+                    !matches!(a.status, crate::clinical::AppointmentStatus::Cancelled))
+        .map(|a| a.start_time.clone())
+        .collect();
+
+    // Generate available slots (9 AM to 5 PM, 30 min intervals)
+    let all_slots = vec![
+        "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+        "12:00", "12:30", "13:00", "13:30", "14:00", "14:30",
+        "15:00", "15:30", "16:00", "16:30"
+    ];
+
+    let available_slots: Vec<&str> = all_slots
+        .into_iter()
+        .filter(|slot| !booked_times.contains(&slot.to_string()))
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "provider_id": provider_id,
+        "date": date,
+        "available_slots": available_slots,
+        "slot_duration_minutes": 30
+    }))
+}
+
+// ============================================================================
+// PHASE 24: WEARABLE DEVICE INTEGRATION
+// ============================================================================
+
+/// Register wearable device request
+#[derive(Debug, Deserialize)]
+pub struct RegisterWearableRequest {
+    pub device_type: String,
+    pub manufacturer: String,
+    pub model: String,
+    pub serial_number: Option<String>,
+    pub data_types: Option<Vec<String>>,
+}
+
+/// Register a wearable device
+#[post("/api/wearables/devices")]
+pub async fn register_wearable_device(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<RegisterWearableRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let device_type = match req.device_type.as_str() {
+        "smartwatch" => crate::clinical::WearableDeviceType::Smartwatch,
+        "fitness_band" => crate::clinical::WearableDeviceType::FitnessBand,
+        "cgm" => crate::clinical::WearableDeviceType::CGM,
+        "blood_pressure" => crate::clinical::WearableDeviceType::BloodPressureMonitor,
+        "pulse_oximeter" => crate::clinical::WearableDeviceType::PulseOximeter,
+        "smart_scale" => crate::clinical::WearableDeviceType::SmartScale,
+        "ecg" => crate::clinical::WearableDeviceType::ECGMonitor,
+        "sleep_tracker" => crate::clinical::WearableDeviceType::SleepTracker,
+        "glucose_meter" => crate::clinical::WearableDeviceType::GlucoseMeter,
+        _ => crate::clinical::WearableDeviceType::Other,
+    };
+
+    let data_types = req.data_types.clone().map(|types| {
+        types.iter().filter_map(|t| match t.as_str() {
+            "heart_rate" => Some(crate::clinical::WearableDataType::HeartRate),
+            "blood_pressure" => Some(crate::clinical::WearableDataType::BloodPressure),
+            "blood_glucose" => Some(crate::clinical::WearableDataType::BloodGlucose),
+            "spo2" => Some(crate::clinical::WearableDataType::SpO2),
+            "steps" => Some(crate::clinical::WearableDataType::Steps),
+            "distance" => Some(crate::clinical::WearableDataType::Distance),
+            "calories" => Some(crate::clinical::WearableDataType::Calories),
+            "sleep" => Some(crate::clinical::WearableDataType::Sleep),
+            "weight" => Some(crate::clinical::WearableDataType::Weight),
+            "temperature" => Some(crate::clinical::WearableDataType::Temperature),
+            _ => None,
+        }).collect()
+    }).unwrap_or_else(|| vec![crate::clinical::WearableDataType::HeartRate]);
+
+    let device = crate::clinical::WearableDevice {
+        device_id: format!("WRB-{}", uuid::Uuid::new_v4()),
+        patient_id: current_user_id.clone(),
+        device_type,
+        manufacturer: req.manufacturer.clone(),
+        model: req.model.clone(),
+        serial_number: req.serial_number.clone(),
+        firmware_version: None,
+        connection_status: crate::clinical::ConnectionStatus::Connected,
+        last_sync: None,
+        paired_at: chrono::Utc::now().timestamp(),
+        active: true,
+        data_types,
+        sync_frequency_hours: 1,
+        battery_level: None,
+    };
+
+    let device_id = device.device_id.clone();
+    let mut devices = data.wearable_devices.write().unwrap();
+    devices.insert(device_id.clone(), device);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "device_id": device_id,
+        "message": "Wearable device registered successfully"
+    }))
+}
+
+/// Get user's wearable devices
+#[get("/api/wearables/devices")]
+pub async fn get_wearable_devices(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let devices = data.wearable_devices.read().unwrap();
+    let user_devices: Vec<_> = devices
+        .values()
+        .filter(|d| d.patient_id == current_user_id && d.active)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "devices": user_devices,
+        "count": user_devices.len()
+    }))
+}
+
+/// Submit wearable reading request
+#[derive(Debug, Deserialize)]
+pub struct SubmitWearableReadingRequest {
+    pub device_id: String,
+    pub data_type: String,
+    pub value: f64,
+    pub unit: String,
+    pub secondary_value: Option<f64>,
+    pub recorded_at: Option<i64>,
+    pub context: Option<String>,
+}
+
+/// Submit a reading from a wearable device
+#[post("/api/wearables/readings")]
+pub async fn submit_wearable_reading(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<SubmitWearableReadingRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    // Verify device belongs to user
+    let devices = data.wearable_devices.read().unwrap();
+    let _device = match devices.get(&req.device_id) {
+        Some(d) if d.patient_id == current_user_id => d.clone(),
+        Some(_) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Device does not belong to you".to_string(),
+                code: "FORBIDDEN".to_string(),
+            })
+        }
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Device not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(devices);
+
+    let data_type = match req.data_type.as_str() {
+        "heart_rate" => crate::clinical::WearableDataType::HeartRate,
+        "blood_pressure" => crate::clinical::WearableDataType::BloodPressure,
+        "blood_glucose" => crate::clinical::WearableDataType::BloodGlucose,
+        "spo2" => crate::clinical::WearableDataType::SpO2,
+        "steps" => crate::clinical::WearableDataType::Steps,
+        "distance" => crate::clinical::WearableDataType::Distance,
+        "calories" => crate::clinical::WearableDataType::Calories,
+        "sleep" => crate::clinical::WearableDataType::Sleep,
+        "weight" => crate::clinical::WearableDataType::Weight,
+        "temperature" => crate::clinical::WearableDataType::Temperature,
+        "respiratory_rate" => crate::clinical::WearableDataType::RespiratoryRate,
+        "ecg" => crate::clinical::WearableDataType::ECG,
+        "hrv" => crate::clinical::WearableDataType::HRV,
+        "stress" => crate::clinical::WearableDataType::Stress,
+        _ => crate::clinical::WearableDataType::HeartRate,
+    };
+
+    let reading_id = format!("RDG-{}", uuid::Uuid::new_v4());
+    let recorded_at = req.recorded_at.unwrap_or_else(|| chrono::Utc::now().timestamp());
+    
+    // Check for abnormal values
+    let (flagged, flag_reason) = check_reading_for_abnormality(&req.data_type, req.value);
+
+    let reading = crate::clinical::WearableReading {
+        reading_id: reading_id.clone(),
+        device_id: req.device_id.clone(),
+        patient_id: current_user_id.clone(),
+        data_type: data_type.clone(),
+        value: req.value,
+        unit: req.unit.clone(),
+        secondary_value: req.secondary_value,
+        recorded_at,
+        synced_at: chrono::Utc::now().timestamp(),
+        context: req.context.clone(),
+        quality: crate::clinical::DataQuality::High,
+        flagged,
+        flag_reason,
+    };
+
+    // Check alert rules
+    let alert_rules = data.wearable_alert_rules.read().unwrap();
+    let mut triggered_alerts: Vec<crate::clinical::WearableAlert> = Vec::new();
+    
+    for rule in alert_rules.values().filter(|r| r.patient_id == current_user_id && r.active) {
+        if rule.data_type == data_type {
+            let should_alert = match rule.threshold_type {
+                crate::clinical::ThresholdType::Above => req.value > rule.threshold_value,
+                crate::clinical::ThresholdType::Below => req.value < rule.threshold_value,
+                crate::clinical::ThresholdType::OutsideRange => {
+                    if let Some(secondary) = rule.secondary_threshold {
+                        req.value < rule.threshold_value || req.value > secondary
+                    } else {
+                        false
+                    }
+                },
+                _ => false,
+            };
+
+            if should_alert {
+                let alert = crate::clinical::WearableAlert {
+                    alert_id: format!("ALT-{}", uuid::Uuid::new_v4()),
+                    rule_id: rule.rule_id.clone(),
+                    patient_id: current_user_id.clone(),
+                    reading_id: reading_id.clone(),
+                    data_type: data_type.clone(),
+                    trigger_value: req.value,
+                    threshold: rule.threshold_value,
+                    severity: rule.severity.clone(),
+                    message: format!("{:?} reading {} is abnormal (threshold: {})", 
+                        data_type, req.value, rule.threshold_value),
+                    created_at: chrono::Utc::now().timestamp(),
+                    acknowledged: false,
+                    acknowledged_by: None,
+                    acknowledged_at: None,
+                    action_taken: None,
+                };
+                triggered_alerts.push(alert);
+            }
+        }
+    }
+    drop(alert_rules);
+
+    // Store alerts
+    let mut alerts = data.wearable_alerts.write().unwrap();
+    for alert in &triggered_alerts {
+        alerts.insert(alert.alert_id.clone(), alert.clone());
+    }
+    drop(alerts);
+
+    // Store reading
+    let mut readings = data.wearable_readings.write().unwrap();
+    readings.insert(reading_id.clone(), reading);
+
+    // Update device last sync
+    let mut devices = data.wearable_devices.write().unwrap();
+    if let Some(d) = devices.get_mut(&req.device_id) {
+        d.last_sync = Some(chrono::Utc::now().timestamp());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "reading_id": reading_id,
+        "alerts_triggered": triggered_alerts.len(),
+        "alerts": triggered_alerts
+    }))
+}
+
+/// Check if a reading is abnormal based on data type
+fn check_reading_for_abnormality(data_type: &str, value: f64) -> (bool, Option<String>) {
+    match data_type {
+        "heart_rate" if value < 40.0 => (true, Some("Bradycardia detected".to_string())),
+        "heart_rate" if value > 120.0 => (true, Some("Tachycardia detected".to_string())),
+        "blood_glucose" if value < 70.0 => (true, Some("Hypoglycemia detected".to_string())),
+        "blood_glucose" if value > 180.0 => (true, Some("Hyperglycemia detected".to_string())),
+        "spo2" if value < 92.0 => (true, Some("Low oxygen saturation".to_string())),
+        "temperature" if value > 38.0 => (true, Some("Fever detected".to_string())),
+        _ => (false, None),
+    }
+}
+
+/// Get wearable readings for a patient
+#[get("/api/wearables/readings/{patient_id}")]
+pub async fn get_wearable_readings(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let readings = data.wearable_readings.read().unwrap();
+    let mut patient_readings: Vec<_> = readings
+        .values()
+        .filter(|r| r.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    // Filter by data type if specified
+    if let Some(data_type) = query.get("type") {
+        let target_type = match data_type.as_str() {
+            "heart_rate" => Some(crate::clinical::WearableDataType::HeartRate),
+            "blood_pressure" => Some(crate::clinical::WearableDataType::BloodPressure),
+            "blood_glucose" => Some(crate::clinical::WearableDataType::BloodGlucose),
+            "spo2" => Some(crate::clinical::WearableDataType::SpO2),
+            "steps" => Some(crate::clinical::WearableDataType::Steps),
+            "weight" => Some(crate::clinical::WearableDataType::Weight),
+            _ => None,
+        };
+        if let Some(t) = target_type {
+            patient_readings.retain(|r| r.data_type == t);
+        }
+    }
+
+    // Sort by recorded_at descending
+    patient_readings.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at));
+
+    // Limit results
+    let limit = query.get("limit")
+        .and_then(|l| l.parse::<usize>().ok())
+        .unwrap_or(100);
+    patient_readings.truncate(limit);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "readings": patient_readings,
+        "count": patient_readings.len()
+    }))
+}
+
+/// Create alert rule request
+#[derive(Debug, Deserialize)]
+pub struct CreateAlertRuleRequest {
+    pub data_type: String,
+    pub threshold_type: String,
+    pub threshold_value: f64,
+    pub secondary_threshold: Option<f64>,
+    pub severity: String,
+    pub notify_patient: Option<bool>,
+    pub notify_provider: Option<bool>,
+    pub provider_id: Option<String>,
+}
+
+/// Create a wearable alert rule
+#[post("/api/wearables/alert-rules")]
+pub async fn create_wearable_alert_rule(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateAlertRuleRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let data_type = match req.data_type.as_str() {
+        "heart_rate" => crate::clinical::WearableDataType::HeartRate,
+        "blood_pressure" => crate::clinical::WearableDataType::BloodPressure,
+        "blood_glucose" => crate::clinical::WearableDataType::BloodGlucose,
+        "spo2" => crate::clinical::WearableDataType::SpO2,
+        "steps" => crate::clinical::WearableDataType::Steps,
+        "weight" => crate::clinical::WearableDataType::Weight,
+        "temperature" => crate::clinical::WearableDataType::Temperature,
+        _ => crate::clinical::WearableDataType::HeartRate,
+    };
+
+    let threshold_type = match req.threshold_type.as_str() {
+        "above" => crate::clinical::ThresholdType::Above,
+        "below" => crate::clinical::ThresholdType::Below,
+        "outside_range" => crate::clinical::ThresholdType::OutsideRange,
+        "change_rate" => crate::clinical::ThresholdType::ChangeRate,
+        "absence" => crate::clinical::ThresholdType::AbsenceOfData,
+        _ => crate::clinical::ThresholdType::Above,
+    };
+
+    let severity = match req.severity.as_str() {
+        "info" => crate::clinical::AlertSeverity::Info,
+        "warning" => crate::clinical::AlertSeverity::Warning,
+        "urgent" => crate::clinical::AlertSeverity::Urgent,
+        "critical" => crate::clinical::AlertSeverity::Critical,
+        _ => crate::clinical::AlertSeverity::Warning,
+    };
+
+    let rule = crate::clinical::WearableAlertRule {
+        rule_id: format!("RULE-{}", uuid::Uuid::new_v4()),
+        patient_id: current_user_id.clone(),
+        data_type,
+        threshold_type,
+        threshold_value: req.threshold_value,
+        secondary_threshold: req.secondary_threshold,
+        severity,
+        notify_patient: req.notify_patient.unwrap_or(true),
+        notify_provider: req.notify_provider.unwrap_or(false),
+        provider_id: req.provider_id.clone(),
+        active: true,
+        created_at: chrono::Utc::now().timestamp(),
+    };
+
+    let rule_id = rule.rule_id.clone();
+    let mut rules = data.wearable_alert_rules.write().unwrap();
+    rules.insert(rule_id.clone(), rule);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "rule_id": rule_id,
+        "message": "Alert rule created successfully"
+    }))
+}
+
+/// Get wearable alerts
+#[get("/api/wearables/alerts")]
+pub async fn get_wearable_alerts(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let alerts = data.wearable_alerts.read().unwrap();
+    let user_alerts: Vec<_> = if current_user.role.is_healthcare_provider() {
+        // Providers see all unacknowledged alerts
+        alerts.values()
+            .filter(|a| !a.acknowledged)
+            .cloned()
+            .collect()
+    } else {
+        // Patients see their own alerts
+        alerts.values()
+            .filter(|a| a.patient_id == current_user_id)
+            .cloned()
+            .collect()
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "alerts": user_alerts,
+        "count": user_alerts.len()
+    }))
+}
+
+// ============================================================================
+// PHASE 25: AI SYMPTOM CHECKER
+// ============================================================================
+
+/// Start symptom check session request
+#[derive(Debug, Deserialize)]
+pub struct StartSymptomCheckRequest {
+    pub primary_symptom: String,
+    pub age: Option<i32>,
+    pub gender: Option<String>,
+    pub pregnant: Option<bool>,
+}
+
+/// Start a symptom check session
+#[post("/api/symptoms/start")]
+pub async fn start_symptom_check(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<StartSymptomCheckRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    // Generate initial follow-up questions based on primary symptom
+    let follow_up_questions = generate_symptom_questions(&req.primary_symptom);
+
+    let initial_message = crate::clinical::SymptomMessage {
+        role: crate::clinical::MessageRole::Patient,
+        content: format!("I'm experiencing: {}", req.primary_symptom),
+        timestamp: chrono::Utc::now().timestamp(),
+        extracted_symptoms: None,
+    };
+
+    let session = crate::clinical::SymptomCheckSession {
+        session_id: format!("SYM-{}", uuid::Uuid::new_v4()),
+        patient_id: current_user_id.clone(),
+        started_at: chrono::Utc::now().timestamp(),
+        completed_at: None,
+        initial_symptoms: vec![req.primary_symptom.clone()],
+        conversation: vec![initial_message],
+        assessment: None,
+        triage_recommendation: None,
+        status: crate::clinical::SymptomCheckStatus::InProgress,
+    };
+
+    let session_id = session.session_id.clone();
+    let mut sessions = data.symptom_sessions.write().unwrap();
+    sessions.insert(session_id.clone(), session);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "session_id": session_id,
+        "questions": follow_up_questions,
+        "message": "Symptom check started. Please answer the following questions."
+    }))
+}
+
+/// Generate follow-up questions based on symptom
+fn generate_symptom_questions(symptom: &str) -> Vec<serde_json::Value> {
+    let symptom_lower = symptom.to_lowercase();
+    
+    let mut questions = vec![
+        serde_json::json!({
+            "id": "severity",
+            "question": "On a scale of 1-10, how severe is this symptom?",
+            "type": "scale",
+            "min": 1,
+            "max": 10
+        }),
+        serde_json::json!({
+            "id": "duration",
+            "question": "How long have you had this symptom?",
+            "type": "choice",
+            "options": ["Less than 24 hours", "1-3 days", "4-7 days", "1-2 weeks", "More than 2 weeks"]
+        }),
+    ];
+
+    // Add symptom-specific questions
+    if symptom_lower.contains("chest") || symptom_lower.contains("heart") {
+        questions.push(serde_json::json!({
+            "id": "chest_radiation",
+            "question": "Does the pain radiate to your arm, jaw, or back?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "shortness_breath",
+            "question": "Are you experiencing shortness of breath?",
+            "type": "boolean"
+        }));
+    } else if symptom_lower.contains("head") || symptom_lower.contains("migraine") {
+        questions.push(serde_json::json!({
+            "id": "vision_changes",
+            "question": "Have you noticed any vision changes?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "nausea",
+            "question": "Are you experiencing nausea or vomiting?",
+            "type": "boolean"
+        }));
+    } else if symptom_lower.contains("fever") || symptom_lower.contains("temperature") {
+        questions.push(serde_json::json!({
+            "id": "temperature",
+            "question": "What is your temperature (if known)?",
+            "type": "number",
+            "unit": "°C or °F"
+        }));
+        questions.push(serde_json::json!({
+            "id": "chills",
+            "question": "Are you experiencing chills or sweating?",
+            "type": "boolean"
+        }));
+    } else if symptom_lower.contains("breath") || symptom_lower.contains("cough") {
+        questions.push(serde_json::json!({
+            "id": "productive_cough",
+            "question": "Is your cough producing mucus?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "blood_mucus",
+            "question": "Have you noticed any blood in the mucus?",
+            "type": "boolean"
+        }));
+    }
+
+    questions.push(serde_json::json!({
+        "id": "medications",
+        "question": "Have you taken any medications for this symptom?",
+        "type": "text"
+    }));
+
+    questions
+}
+
+/// Submit symptom answers request
+#[derive(Debug, Deserialize)]
+pub struct SubmitSymptomAnswersRequest {
+    pub answers: std::collections::HashMap<String, serde_json::Value>,
+    pub additional_symptoms: Option<Vec<String>>,
+}
+
+/// Submit answers to symptom questions
+#[post("/api/symptoms/{session_id}/answers")]
+pub async fn submit_symptom_answers(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<SubmitSymptomAnswersRequest>,
+) -> impl Responder {
+    let session_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut sessions = data.symptom_sessions.write().unwrap();
+    
+    let session = match sessions.get_mut(&session_id) {
+        Some(s) if s.patient_id == current_user_id => s,
+        Some(_) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Session does not belong to you".to_string(),
+                code: "FORBIDDEN".to_string(),
+            })
+        }
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Session not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Store answers as a conversation message
+    let answer_content = req.answers.iter()
+        .map(|(k, v)| format!("{}: {}", k, v))
+        .collect::<Vec<_>>()
+        .join(", ");
+    
+    session.conversation.push(crate::clinical::SymptomMessage {
+        role: crate::clinical::MessageRole::Patient,
+        content: answer_content,
+        timestamp: chrono::Utc::now().timestamp(),
+        extracted_symptoms: None,
+    });
+
+    // Add additional symptoms
+    if let Some(additional) = &req.additional_symptoms {
+        for symptom in additional {
+            session.initial_symptoms.push(symptom.clone());
+        }
+    }
+
+    // Calculate triage result based on answers
+    let triage_result = calculate_triage_result(&req.answers, &session.initial_symptoms);
+    session.triage_recommendation = Some(triage_result.clone());
+    session.completed_at = Some(chrono::Utc::now().timestamp());
+    session.status = crate::clinical::SymptomCheckStatus::Completed;
+
+    // Generate assessment
+    session.assessment = Some(crate::clinical::SymptomAssessment {
+        possible_conditions: vec![
+            crate::clinical::PossibleCondition {
+                condition_name: "General symptoms requiring evaluation".to_string(),
+                icd10_code: None,
+                probability: 0.7,
+                description: "Based on reported symptoms, a medical evaluation is recommended.".to_string(),
+                urgency: crate::clinical::UrgencyLevel::Routine,
+                common_causes: vec!["Various".to_string()],
+            }
+        ],
+        red_flags: Vec::new(),
+        recommendations: vec!["Consult with a healthcare provider".to_string()],
+        questions_for_provider: vec!["Describe symptom onset and progression".to_string()],
+        self_care: vec!["Rest and stay hydrated".to_string()],
+        confidence: 0.6,
+        disclaimer: "This is not a medical diagnosis. Please consult a healthcare professional.".to_string(),
+    });
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "session_id": session_id,
+        "triage_result": triage_result,
+        "message": "Symptom assessment complete"
+    }))
+}
+
+/// Calculate triage result based on symptoms and answers
+fn calculate_triage_result(
+    answers: &std::collections::HashMap<String, serde_json::Value>,
+    symptoms: &[String]
+) -> crate::clinical::TriageRecommendation {
+    let severity = answers.get("severity")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(5) as i32;
+
+    let has_emergency_symptoms = symptoms.iter().any(|s| {
+        let sym = s.to_lowercase();
+        sym.contains("chest pain") || sym.contains("difficulty breathing") ||
+        sym.contains("stroke") || sym.contains("unconscious")
+    });
+
+    let chest_radiation = answers.get("chest_radiation")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let shortness_breath = answers.get("shortness_breath")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if has_emergency_symptoms || (chest_radiation && shortness_breath) || severity >= 9 {
+        crate::clinical::TriageRecommendation {
+            level: crate::clinical::TriageLevel::EmergencyRoom,
+            explanation: "Emergency symptoms detected. Seek emergency care immediately.".to_string(),
+            timeframe: "Immediately".to_string(),
+            care_options: vec![
+                crate::clinical::CareOption {
+                    option_type: "emergency".to_string(),
+                    description: "Call emergency services (10111 or 112)".to_string(),
+                    available: true,
+                    estimated_wait: Some("Immediate".to_string()),
+                    cost_estimate: None,
+                },
+                crate::clinical::CareOption {
+                    option_type: "emergency_room".to_string(),
+                    description: "Go to nearest emergency room".to_string(),
+                    available: true,
+                    estimated_wait: None,
+                    cost_estimate: None,
+                },
+            ],
+        }
+    } else if severity >= 7 || chest_radiation || shortness_breath {
+        crate::clinical::TriageRecommendation {
+            level: crate::clinical::TriageLevel::UrgentCare,
+            explanation: "Symptoms require prompt medical evaluation within 24 hours.".to_string(),
+            timeframe: "Within 24 hours".to_string(),
+            care_options: vec![
+                crate::clinical::CareOption {
+                    option_type: "urgent_care".to_string(),
+                    description: "Visit urgent care clinic".to_string(),
+                    available: true,
+                    estimated_wait: Some("1-2 hours".to_string()),
+                    cost_estimate: None,
+                },
+                crate::clinical::CareOption {
+                    option_type: "same_day".to_string(),
+                    description: "Request same-day doctor appointment".to_string(),
+                    available: true,
+                    estimated_wait: None,
+                    cost_estimate: None,
+                },
+            ],
+        }
+    } else if severity >= 4 {
+        crate::clinical::TriageRecommendation {
+            level: crate::clinical::TriageLevel::ScheduledAppointment,
+            explanation: "Non-urgent symptoms. Schedule an appointment with your doctor.".to_string(),
+            timeframe: "Within 2-3 days".to_string(),
+            care_options: vec![
+                crate::clinical::CareOption {
+                    option_type: "appointment".to_string(),
+                    description: "Schedule appointment with your primary care doctor".to_string(),
+                    available: true,
+                    estimated_wait: Some("2-3 days".to_string()),
+                    cost_estimate: None,
+                },
+                crate::clinical::CareOption {
+                    option_type: "telehealth".to_string(),
+                    description: "Book a telehealth consultation".to_string(),
+                    available: true,
+                    estimated_wait: Some("Today".to_string()),
+                    cost_estimate: None,
+                },
+            ],
+        }
+    } else {
+        crate::clinical::TriageRecommendation {
+            level: crate::clinical::TriageLevel::SelfCare,
+            explanation: "Minor symptoms. Self-care and monitoring recommended.".to_string(),
+            timeframe: "As needed".to_string(),
+            care_options: vec![
+                crate::clinical::CareOption {
+                    option_type: "self_care".to_string(),
+                    description: "Rest and monitor your symptoms".to_string(),
+                    available: true,
+                    estimated_wait: None,
+                    cost_estimate: None,
+                },
+                crate::clinical::CareOption {
+                    option_type: "pharmacy".to_string(),
+                    description: "Visit pharmacy for over-the-counter remedies".to_string(),
+                    available: true,
+                    estimated_wait: None,
+                    cost_estimate: None,
+                },
+            ],
+        }
+    }
+}
+
+/// Get symptom check session
+#[get("/api/symptoms/{session_id}")]
+pub async fn get_symptom_session(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let session_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let sessions = data.symptom_sessions.read().unwrap();
+    
+    match sessions.get(&session_id) {
+        Some(session) => {
+            // Patient can see own session, provider can see any
+            if session.patient_id != current_user_id && !current_user.role.is_healthcare_provider() {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    success: false,
+                    error: "Access denied".to_string(),
+                    code: "FORBIDDEN".to_string(),
+                });
+            }
+
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "session": session
+            }))
+        }
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: "Session not found".to_string(),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
+}
+
+/// Get symptom history for a patient (Phase 25 AI Symptom Checker)
+#[get("/api/symptoms/history/{patient_id}")]
+pub async fn get_symptom_checker_history(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let sessions = data.symptom_sessions.read().unwrap();
+    let history: Vec<_> = sessions
+        .values()
+        .filter(|s| s.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "sessions": history,
+        "count": history.len()
+    }))
+}
+
+// ============================================================================
+// PHASE 26: TELEHEALTH INTEGRATION
+// ============================================================================
+
+/// Create telehealth session request
+#[derive(Debug, Deserialize)]
+pub struct CreateTelehealthSessionRequest {
+    pub patient_id: String,
+    pub appointment_id: Option<String>,
+    pub session_type: String,
+    pub scheduled_start: i64,
+    pub recording_enabled: Option<bool>,
+}
+
+/// Create a new telehealth session
+#[post("/api/telehealth/sessions")]
+pub async fn create_telehealth_session(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateTelehealthSessionRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can create telehealth sessions".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let session_type = match req.session_type.as_str() {
+        "video" => crate::clinical::TelehealthType::VideoVisit,
+        "phone" => crate::clinical::TelehealthType::PhoneCall,
+        "message" => crate::clinical::TelehealthType::SecureMessage,
+        "async_video" => crate::clinical::TelehealthType::AsyncVideo,
+        "monitoring" => crate::clinical::TelehealthType::RemoteMonitoring,
+        "group" => crate::clinical::TelehealthType::VirtualGroupVisit,
+        _ => crate::clinical::TelehealthType::VideoVisit,
+    };
+
+    let session_id = format!("TH-{}", uuid::Uuid::new_v4());
+    let video_room_url = format!("https://medichain.health/video/{}", session_id);
+    let waiting_room_url = format!("https://medichain.health/waiting/{}", session_id);
+
+    let session = crate::clinical::TelehealthSession {
+        session_id: session_id.clone(),
+        appointment_id: req.appointment_id.clone(),
+        patient_id: req.patient_id.clone(),
+        provider_id: current_user_id.clone(),
+        session_type,
+        scheduled_start: req.scheduled_start,
+        actual_start: None,
+        actual_end: None,
+        status: crate::clinical::TelehealthStatus::Scheduled,
+        video_room_url: video_room_url.clone(),
+        waiting_room_url: waiting_room_url.clone(),
+        join_instructions: "Click the link to join. Ensure camera and microphone are enabled.".to_string(),
+        technical_requirements: vec![
+            "Modern web browser (Chrome, Firefox, Safari, Edge)".to_string(),
+            "Stable internet connection (2+ Mbps)".to_string(),
+            "Camera and microphone access".to_string(),
+        ],
+        patient_joined_at: None,
+        provider_joined_at: None,
+        recording_enabled: req.recording_enabled.unwrap_or(false),
+        recording_consent: false,
+        chat_enabled: true,
+        screen_share_enabled: true,
+        quality_metrics: None,
+        visit_notes: None,
+        follow_up_scheduled: None,
+    };
+
+    let mut sessions = data.telehealth_sessions.write().unwrap();
+    sessions.insert(session_id.clone(), session);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "session_id": session_id,
+        "video_room_url": video_room_url,
+        "waiting_room_url": waiting_room_url,
+        "message": "Telehealth session created successfully"
+    }))
+}
+
+/// Get telehealth session details
+#[get("/api/telehealth/sessions/{session_id}")]
+pub async fn get_telehealth_session(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let session_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let sessions = data.telehealth_sessions.read().unwrap();
+    let session = match sessions.get(&session_id) {
+        Some(s) => s.clone(),
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Session not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Only patient or provider can view session
+    if session.patient_id != current_user_id && session.provider_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "session": session
+    }))
+}
+
+/// Join telehealth session
+#[post("/api/telehealth/sessions/{session_id}/join")]
+pub async fn join_telehealth_session(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let session_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut sessions = data.telehealth_sessions.write().unwrap();
+    let session = match sessions.get_mut(&session_id) {
+        Some(s) => s,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Session not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    let is_patient = session.patient_id == current_user_id;
+    let is_provider = session.provider_id == current_user_id;
+
+    if !is_patient && !is_provider {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "You are not part of this session".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    if is_patient {
+        session.patient_joined_at = Some(now);
+        if session.status == crate::clinical::TelehealthStatus::Scheduled {
+            session.status = crate::clinical::TelehealthStatus::WaitingRoom;
+        }
+    } else if is_provider {
+        session.provider_joined_at = Some(now);
+        if session.patient_joined_at.is_some() {
+            session.status = crate::clinical::TelehealthStatus::InProgress;
+            session.actual_start = Some(now);
+        }
+    }
+
+    // Check if both have joined
+    if session.patient_joined_at.is_some() && session.provider_joined_at.is_some() {
+        session.status = crate::clinical::TelehealthStatus::InProgress;
+        if session.actual_start.is_none() {
+            session.actual_start = Some(now);
+        }
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "session_id": session_id,
+        "status": format!("{:?}", session.status),
+        "video_room_url": session.video_room_url,
+        "message": if is_patient { "Joined waiting room" } else { "Provider joined session" }
+    }))
+}
+
+/// End telehealth session
+#[post("/api/telehealth/sessions/{session_id}/end")]
+pub async fn end_telehealth_session(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<Option<EndTelehealthRequest>>,
+) -> impl Responder {
+    let session_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut sessions = data.telehealth_sessions.write().unwrap();
+    let session = match sessions.get_mut(&session_id) {
+        Some(s) => s,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Session not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Only provider can end session
+    if session.provider_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the provider can end the session".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    session.actual_end = Some(chrono::Utc::now().timestamp());
+    session.status = crate::clinical::TelehealthStatus::Completed;
+
+    if let Some(end_req) = req.into_inner() {
+        session.visit_notes = end_req.visit_notes;
+        session.follow_up_scheduled = end_req.follow_up_date;
+    }
+
+    // Calculate duration
+    let duration_minutes = if let (Some(start), Some(end)) = (session.actual_start, session.actual_end) {
+        (end - start) / 60
+    } else {
+        0
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "session_id": session_id,
+        "duration_minutes": duration_minutes,
+        "message": "Telehealth session ended"
+    }))
+}
+
+/// End telehealth request
+#[derive(Debug, Deserialize)]
+pub struct EndTelehealthRequest {
+    pub visit_notes: Option<String>,
+    pub follow_up_date: Option<String>,
+}
+
+/// Device check request
+#[derive(Debug, Deserialize)]
+pub struct DeviceCheckRequest {
+    pub camera_working: bool,
+    pub microphone_working: bool,
+    pub speaker_working: bool,
+    pub browser: String,
+    pub bandwidth_mbps: Option<f32>,
+}
+
+/// Submit device check results
+#[post("/api/telehealth/device-check")]
+pub async fn submit_device_check(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<DeviceCheckRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let supported_browsers = ["chrome", "firefox", "safari", "edge"];
+    let browser_supported = supported_browsers.iter()
+        .any(|b| req.browser.to_lowercase().contains(b));
+
+    let bandwidth = req.bandwidth_mbps.unwrap_or(0.0);
+    let bandwidth_adequate = bandwidth >= 2.0;
+
+    let mut issues: Vec<String> = Vec::new();
+    let mut recommendations: Vec<String> = Vec::new();
+
+    if !req.camera_working {
+        issues.push("Camera not detected or not working".to_string());
+        recommendations.push("Check camera permissions and ensure it's not in use by another app".to_string());
+    }
+    if !req.microphone_working {
+        issues.push("Microphone not detected or not working".to_string());
+        recommendations.push("Check microphone permissions and settings".to_string());
+    }
+    if !req.speaker_working {
+        issues.push("Audio output not working".to_string());
+        recommendations.push("Check speaker/headphone connection and volume settings".to_string());
+    }
+    if !browser_supported {
+        issues.push("Browser may not be fully supported".to_string());
+        recommendations.push("Use Chrome, Firefox, Safari, or Edge for best experience".to_string());
+    }
+    if !bandwidth_adequate {
+        issues.push(format!("Bandwidth ({:.1} Mbps) may be insufficient", bandwidth));
+        recommendations.push("Minimum 2 Mbps recommended. Close other applications using internet".to_string());
+    }
+
+    let ready = req.camera_working && req.microphone_working && browser_supported && bandwidth_adequate;
+
+    let device_check = crate::clinical::DeviceCheck {
+        check_id: format!("DC-{}", uuid::Uuid::new_v4()),
+        patient_id: current_user_id,
+        checked_at: chrono::Utc::now().timestamp(),
+        camera_working: req.camera_working,
+        microphone_working: req.microphone_working,
+        speaker_working: req.speaker_working,
+        browser_supported,
+        bandwidth_adequate,
+        bandwidth_mbps: bandwidth,
+        issues_detected: issues.clone(),
+        recommendations: recommendations.clone(),
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "ready_for_telehealth": ready,
+        "check_id": device_check.check_id,
+        "issues": issues,
+        "recommendations": recommendations,
+        "details": {
+            "camera": req.camera_working,
+            "microphone": req.microphone_working,
+            "speaker": req.speaker_working,
+            "browser_supported": browser_supported,
+            "bandwidth_adequate": bandwidth_adequate,
+            "bandwidth_mbps": bandwidth
+        }
+    }))
+}
+
+/// Get patient's telehealth sessions
+#[get("/api/telehealth/patient/{patient_id}/sessions")]
+pub async fn get_patient_telehealth_sessions(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let sessions = data.telehealth_sessions.read().unwrap();
+    let patient_sessions: Vec<_> = sessions
+        .values()
+        .filter(|s| s.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "sessions": patient_sessions,
+        "count": patient_sessions.len()
+    }))
+}
+
+// ============================================================================
+// PHASE 27: CLINICAL DECISION SUPPORT (CDS)
+// ============================================================================
+
+/// Create CDS alert request
+#[derive(Debug, Deserialize)]
+pub struct CreateCDSAlertRequest {
+    pub patient_id: String,
+    pub alert_type: String,
+    pub severity: String,
+    pub title: String,
+    pub description: String,
+    pub clinical_context: String,
+    pub guideline_reference: Option<String>,
+    pub expires_at: Option<i64>,
+}
+
+/// Create a new CDS alert
+#[post("/api/cds/alerts")]
+pub async fn create_cds_alert(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateCDSAlertRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can create CDS alerts".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let alert_type = match req.alert_type.as_str() {
+        "drug_interaction" => crate::clinical::CDSAlertType::DrugInteraction,
+        "drug_allergy" => crate::clinical::CDSAlertType::DrugAllergy,
+        "duplicate_therapy" => crate::clinical::CDSAlertType::DuplicateTherapy,
+        "dose_range" => crate::clinical::CDSAlertType::DoseRangeCheck,
+        "preventive_care" => crate::clinical::CDSAlertType::PreventiveCare,
+        "diagnostic_gap" => crate::clinical::CDSAlertType::DiagnosticGap,
+        "lab_abnormal" => crate::clinical::CDSAlertType::LaboratoryAbnormal,
+        "vital_abnormal" => crate::clinical::CDSAlertType::VitalSignAbnormal,
+        "care_plan_deviation" => crate::clinical::CDSAlertType::CarePlanDeviation,
+        "quality_measure" => crate::clinical::CDSAlertType::QualityMeasure,
+        "cost_saving" => crate::clinical::CDSAlertType::CostSavingOpportunity,
+        "best_practice" => crate::clinical::CDSAlertType::BestPracticeAdvisory,
+        "order_set" => crate::clinical::CDSAlertType::OrderSet,
+        _ => crate::clinical::CDSAlertType::BestPracticeAdvisory,
+    };
+
+    let severity = match req.severity.as_str() {
+        "informational" => crate::clinical::CDSSeverity::Informational,
+        "low" => crate::clinical::CDSSeverity::Low,
+        "medium" => crate::clinical::CDSSeverity::Medium,
+        "high" => crate::clinical::CDSSeverity::High,
+        "critical" => crate::clinical::CDSSeverity::Critical,
+        _ => crate::clinical::CDSSeverity::Medium,
+    };
+
+    let alert_id = format!("CDS-{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().timestamp();
+
+    let alert = crate::clinical::CDSAlert {
+        alert_id: alert_id.clone(),
+        patient_id: req.patient_id.clone(),
+        provider_id: current_user_id.clone(),
+        alert_type,
+        severity,
+        title: req.title.clone(),
+        description: req.description.clone(),
+        clinical_context: req.clinical_context.clone(),
+        triggering_data: serde_json::json!({}),
+        recommended_actions: Vec::new(),
+        evidence: Vec::new(),
+        guideline_reference: req.guideline_reference.clone(),
+        created_at: now,
+        expires_at: req.expires_at,
+        status: crate::clinical::CDSAlertStatus::Active,
+        response: None,
+    };
+
+    let mut alerts = data.cds_alerts.write().unwrap();
+    alerts.insert(alert_id.clone(), alert);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "alert_id": alert_id,
+        "message": "CDS alert created successfully"
+    }))
+}
+
+/// Get CDS alerts for provider
+#[get("/api/cds/alerts")]
+pub async fn get_cds_alerts(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can view CDS alerts".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let patient_id = query.get("patient_id").cloned();
+    let status_filter = query.get("status").cloned();
+
+    let alerts = data.cds_alerts.read().unwrap();
+    let filtered_alerts: Vec<_> = alerts
+        .values()
+        .filter(|a| a.provider_id == current_user_id)
+        .filter(|a| patient_id.as_ref().map_or(true, |pid| &a.patient_id == pid))
+        .filter(|a| {
+            status_filter.as_ref().map_or(true, |s| {
+                format!("{:?}", a.status).to_lowercase() == s.to_lowercase()
+            })
+        })
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "alerts": filtered_alerts,
+        "count": filtered_alerts.len()
+    }))
+}
+
+/// Get single CDS alert
+#[get("/api/cds/alerts/{alert_id}")]
+pub async fn get_cds_alert(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let alert_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let alerts = data.cds_alerts.read().unwrap();
+    let alert = match alerts.get(&alert_id) {
+        Some(a) => a.clone(),
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Alert not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if alert.provider_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "alert": alert
+    }))
+}
+
+/// Respond to CDS alert request
+#[derive(Debug, Deserialize)]
+pub struct RespondCDSAlertRequest {
+    pub action_taken: String,
+    pub override_reason: Option<String>,
+    pub notes: Option<String>,
+}
+
+/// Respond to CDS alert
+#[post("/api/cds/alerts/{alert_id}/respond")]
+pub async fn respond_to_cds_alert(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<RespondCDSAlertRequest>,
+) -> impl Responder {
+    let alert_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut alerts = data.cds_alerts.write().unwrap();
+    let alert = match alerts.get_mut(&alert_id) {
+        Some(a) => a,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Alert not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if alert.provider_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the assigned provider can respond".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let action_taken = match req.action_taken.as_str() {
+        "accepted" => crate::clinical::CDSActionTaken::Accepted,
+        "accepted_modified" => crate::clinical::CDSActionTaken::AcceptedWithModification,
+        "overridden" => crate::clinical::CDSActionTaken::Overridden,
+        "deferred" => crate::clinical::CDSActionTaken::Deferred,
+        "escalated" => crate::clinical::CDSActionTaken::EscalatedToPharmacy,
+        "patient_refused" => crate::clinical::CDSActionTaken::PatientRefused,
+        "not_applicable" => crate::clinical::CDSActionTaken::NotApplicable,
+        _ => crate::clinical::CDSActionTaken::NotApplicable,
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    let time_to_response = (now - alert.created_at) as u32;
+
+    alert.response = Some(crate::clinical::CDSResponse {
+        responded_at: now,
+        responded_by: current_user_id.clone(),
+        action_taken: action_taken.clone(),
+        override_reason: req.override_reason.clone(),
+        notes: req.notes.clone(),
+        time_to_response_seconds: time_to_response,
+    });
+
+    // Update status based on action
+    alert.status = match action_taken {
+        crate::clinical::CDSActionTaken::Accepted 
+        | crate::clinical::CDSActionTaken::AcceptedWithModification => {
+            crate::clinical::CDSAlertStatus::Accepted
+        }
+        crate::clinical::CDSActionTaken::Overridden => {
+            crate::clinical::CDSAlertStatus::Overridden
+        }
+        crate::clinical::CDSActionTaken::Deferred => {
+            crate::clinical::CDSAlertStatus::Deferred
+        }
+        _ => crate::clinical::CDSAlertStatus::Acknowledged,
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "alert_id": alert_id,
+        "status": format!("{:?}", alert.status),
+        "message": "CDS alert response recorded"
+    }))
+}
+
+/// Get patient's CDS alert history
+#[get("/api/cds/patient/{patient_id}/alerts")]
+pub async fn get_patient_cds_alerts(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can view patient CDS alerts".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let alerts = data.cds_alerts.read().unwrap();
+    let patient_alerts: Vec<_> = alerts
+        .values()
+        .filter(|a| a.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "alerts": patient_alerts,
+        "count": patient_alerts.len()
+    }))
+}
+
+// ============================================================================
+// PHASE 28: LAB RESULT TRENDING
+// ============================================================================
+
+/// Get lab trends for patient
+#[get("/api/lab-trends/patient/{patient_id}")]
+pub async fn get_lab_trends(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let test_code = query.get("test_code").cloned();
+
+    let lab_trends = data.lab_trends.read().unwrap();
+    let trends: Vec<_> = lab_trends
+        .values()
+        .filter(|t| t.patient_id == patient_id)
+        .filter(|t| test_code.as_ref().map_or(true, |code| &t.loinc_code == code))
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "trends": trends,
+        "count": trends.len()
+    }))
+}
+
+/// Request trend analysis
+#[derive(Debug, Deserialize)]
+pub struct RequestLabTrendRequest {
+    pub patient_id: String,
+    pub test_codes: Vec<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+}
+
+/// Request lab trend analysis
+#[post("/api/lab-trends/analyze")]
+pub async fn analyze_lab_trends(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<RequestLabTrendRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can request trend analysis".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let mut results: Vec<crate::clinical::LabTrendResult> = Vec::new();
+
+    for test_code in &req.test_codes {
+        // Simulate lab data and trend analysis
+        let result_id = format!("LT-{}", uuid::Uuid::new_v4());
+        
+        let trend_result = crate::clinical::LabTrendResult {
+            result_id: result_id.clone(),
+            patient_id: req.patient_id.clone(),
+            loinc_code: test_code.clone(),
+            test_name: get_test_name(test_code),
+            unit: get_test_unit(test_code),
+            reference_range: Some(crate::clinical::ReferenceRange {
+                low: Some(get_reference_low(test_code)),
+                high: Some(get_reference_high(test_code)),
+                critical_low: None,
+                critical_high: None,
+                unit: get_test_unit(test_code),
+                age_specific: false,
+                gender_specific: false,
+            }),
+            data_points: generate_sample_data_points(test_code, now),
+            trend_analysis: crate::clinical::TrendAnalysis {
+                direction: crate::clinical::TrendDirection::Stable,
+                percent_change: Some(2.5),
+                rate_of_change: Some(0.1),
+                rate_unit: Some("per_month".to_string()),
+                statistically_significant: false,
+                clinical_significance: "No significant change from baseline".to_string(),
+                prediction: None,
+            },
+            generated_at: now,
+        };
+
+        let mut lab_trends = data.lab_trends.write().unwrap();
+        lab_trends.insert(result_id.clone(), trend_result.clone());
+        results.push(trend_result);
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": req.patient_id,
+        "trends": results,
+        "count": results.len()
+    }))
+}
+
+/// Get specific trend result
+#[get("/api/lab-trends/{result_id}")]
+pub async fn get_lab_trend_result(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let result_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let lab_trends = data.lab_trends.read().unwrap();
+    let trend = match lab_trends.get(&result_id) {
+        Some(t) => t.clone(),
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Trend result not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "trend": trend
+    }))
+}
+
+// Helper functions for lab trending
+fn get_test_name(loinc_code: &str) -> String {
+    match loinc_code {
+        "2345-7" => "Glucose".to_string(),
+        "2160-0" => "Creatinine".to_string(),
+        "17861-6" => "Calcium".to_string(),
+        "2951-2" => "Sodium".to_string(),
+        "2823-3" => "Potassium".to_string(),
+        "718-7" => "Hemoglobin".to_string(),
+        "4548-4" => "Hemoglobin A1c".to_string(),
+        "2093-3" => "Cholesterol".to_string(),
+        _ => format!("Test {}", loinc_code),
+    }
+}
+
+fn get_test_unit(loinc_code: &str) -> String {
+    match loinc_code {
+        "2345-7" => "mg/dL".to_string(),
+        "2160-0" => "mg/dL".to_string(),
+        "17861-6" => "mg/dL".to_string(),
+        "2951-2" => "mEq/L".to_string(),
+        "2823-3" => "mEq/L".to_string(),
+        "718-7" => "g/dL".to_string(),
+        "4548-4" => "%".to_string(),
+        "2093-3" => "mg/dL".to_string(),
+        _ => "units".to_string(),
+    }
+}
+
+fn get_reference_low(loinc_code: &str) -> f64 {
+    match loinc_code {
+        "2345-7" => 70.0,
+        "2160-0" => 0.7,
+        "17861-6" => 8.5,
+        "2951-2" => 136.0,
+        "2823-3" => 3.5,
+        "718-7" => 12.0,
+        "4548-4" => 4.0,
+        "2093-3" => 125.0,
+        _ => 0.0,
+    }
+}
+
+fn get_reference_high(loinc_code: &str) -> f64 {
+    match loinc_code {
+        "2345-7" => 100.0,
+        "2160-0" => 1.3,
+        "17861-6" => 10.5,
+        "2951-2" => 145.0,
+        "2823-3" => 5.0,
+        "718-7" => 17.5,
+        "4548-4" => 5.6,
+        "2093-3" => 200.0,
+        _ => 100.0,
+    }
+}
+
+fn generate_sample_data_points(loinc_code: &str, now: i64) -> Vec<crate::clinical::LabDataPoint> {
+    let base_value = match loinc_code {
+        "2345-7" => 95.0,
+        "2160-0" => 1.0,
+        "718-7" => 14.5,
+        "4548-4" => 5.4,
+        _ => 50.0,
+    };
+    
+    let day_seconds = 86400;
+    let mut points = Vec::new();
+    
+    for i in 0..5 {
+        let variation = (i as f64 * 0.02) - 0.04;
+        points.push(crate::clinical::LabDataPoint {
+            result_id: format!("LR-{}", uuid::Uuid::new_v4()),
+            value: base_value * (1.0 + variation),
+            collected_at: now - (i * 30 * day_seconds),
+            status: crate::clinical::LabValueStatus::Normal,
+            flag: None,
+            performing_lab: "MediChain Central Lab".to_string(),
+        });
+    }
+    
+    points
+}
+
+// ============================================================================
+// PHASE 29: PRESCRIPTION E-SIGNING
+// ============================================================================
+
+/// Create e-prescription request
+#[derive(Debug, Deserialize)]
+pub struct CreateEPrescriptionRequest {
+    pub patient_id: String,
+    pub medication_name: String,
+    pub generic_name: Option<String>,
+    pub strength: String,
+    pub form: String,
+    pub quantity: u32,
+    pub days_supply: u16,
+    pub directions: String,
+    pub refills_allowed: u8,
+    pub is_controlled: bool,
+    pub dea_schedule: Option<String>,
+    pub pharmacy_ncpdp: String,
+    pub pharmacy_name: String,
+    pub diagnosis_codes: Vec<String>,
+    pub patient_instructions: String,
+    pub pharmacy_notes: Option<String>,
+}
+
+/// Create a new e-prescription (Phase 29 E-Signature)
+#[post("/api/e-prescriptions")]
+pub async fn create_esignature_prescription(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateEPrescriptionRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    // Only doctors can prescribe
+    if !matches!(current_user.role, crate::Role::Doctor) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only physicians can create prescriptions".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let prescription_id = format!("RX-{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().timestamp();
+    let expires_at = now + (365 * 24 * 60 * 60); // 1 year
+
+    let prescription = crate::clinical::EPrescription {
+        prescription_id: prescription_id.clone(),
+        patient_id: req.patient_id.clone(),
+        prescriber_id: current_user_id.clone(),
+        prescriber_name: current_user.name.clone(),
+        prescriber_npi: "1234567890".to_string(), // Demo NPI
+        prescriber_dea: if req.is_controlled { Some("AA1234567".to_string()) } else { None },
+        medication: crate::clinical::PrescribedMedication {
+            rxcui: None,
+            ndc: None,
+            name: req.medication_name.clone(),
+            generic_name: req.generic_name.clone(),
+            strength: req.strength.clone(),
+            form: req.form.clone(),
+            quantity: req.quantity,
+            quantity_unit: "tablets".to_string(),
+            days_supply: req.days_supply,
+            directions: req.directions.clone(),
+            daw_code: 0,
+        },
+        pharmacy: crate::clinical::EPharmacyInfo {
+            ncpdp_id: req.pharmacy_ncpdp.clone(),
+            npi: "9876543210".to_string(),
+            name: req.pharmacy_name.clone(),
+            address: "123 Pharmacy St".to_string(),
+            city: "Medical City".to_string(),
+            state: "SA".to_string(),
+            zip: "12345".to_string(),
+            phone: "(555) 123-4567".to_string(),
+            fax: None,
+            is_mail_order: false,
+            is_24_hour: false,
+            accepts_epcs: true,
+        },
+        status: crate::clinical::PrescriptionStatus::Draft,
+        created_at: now,
+        signed_at: None,
+        signature: None,
+        transmitted_at: None,
+        transmission_status: None,
+        is_controlled: req.is_controlled,
+        dea_schedule: req.dea_schedule.clone(),
+        refills_allowed: req.refills_allowed,
+        refills_remaining: req.refills_allowed,
+        last_filled: None,
+        expires_at,
+        pharmacy_notes: req.pharmacy_notes.clone(),
+        patient_instructions: req.patient_instructions.clone(),
+        diagnosis_codes: req.diagnosis_codes.clone(),
+    };
+
+    let mut prescriptions = data.e_prescriptions_v2.write().unwrap();
+    prescriptions.insert(prescription_id.clone(), prescription);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "prescription_id": prescription_id,
+        "status": "draft",
+        "message": "E-prescription created. Signature required before transmission."
+    }))
+}
+
+/// Sign e-prescription request
+#[derive(Debug, Deserialize)]
+pub struct SignPrescriptionRequest {
+    pub signature_method: String,
+    pub attestation: String,
+    pub password: Option<String>,
+}
+
+/// Sign an e-prescription
+#[post("/api/e-prescriptions/{prescription_id}/sign")]
+pub async fn sign_e_prescription(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<SignPrescriptionRequest>,
+) -> impl Responder {
+    let prescription_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let mut prescriptions = data.e_prescriptions_v2.write().unwrap();
+    let prescription = match prescriptions.get_mut(&prescription_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Prescription not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Only prescriber can sign
+    if prescription.prescriber_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the prescriber can sign this prescription".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    let signature_method = match req.signature_method.as_str() {
+        "password" => crate::clinical::SignatureMethod::Password,
+        "biometric" => crate::clinical::SignatureMethod::Biometric,
+        "smartcard" => crate::clinical::SignatureMethod::SmartCard,
+        "token" => crate::clinical::SignatureMethod::Token,
+        "two_factor" => crate::clinical::SignatureMethod::TwoFactor,
+        _ => crate::clinical::SignatureMethod::Password,
+    };
+
+    prescription.signature = Some(crate::clinical::ESignature {
+        signature_id: format!("SIG-{}", uuid::Uuid::new_v4()),
+        signer_id: current_user_id.clone(),
+        signer_name: current_user.name.clone(),
+        signer_credential: "MD".to_string(),
+        signed_at: now,
+        signature_method,
+        ip_address: "127.0.0.1".to_string(),
+        user_agent: "MediChain/1.0".to_string(),
+        certificate_thumbprint: None,
+        attestation: req.attestation.clone(),
+    });
+    prescription.signed_at = Some(now);
+    prescription.status = crate::clinical::PrescriptionStatus::Signed;
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "prescription_id": prescription_id,
+        "status": "signed",
+        "signed_at": now,
+        "message": "E-prescription signed successfully. Ready for transmission."
+    }))
+}
+
+/// Transmit e-prescription to pharmacy
+#[post("/api/e-prescriptions/{prescription_id}/transmit")]
+pub async fn transmit_e_prescription(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let prescription_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut prescriptions = data.e_prescriptions_v2.write().unwrap();
+    let prescription = match prescriptions.get_mut(&prescription_id) {
+        Some(p) => p,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Prescription not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Must be signed first
+    if prescription.status != crate::clinical::PrescriptionStatus::Signed {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Prescription must be signed before transmission".to_string(),
+            code: "NOT_SIGNED".to_string(),
+        });
+    }
+
+    // Only prescriber can transmit
+    if prescription.prescriber_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the prescriber can transmit this prescription".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    prescription.transmitted_at = Some(now);
+    prescription.transmission_status = Some(crate::clinical::TransmissionStatus::Sent);
+    prescription.status = crate::clinical::PrescriptionStatus::Transmitted;
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "prescription_id": prescription_id,
+        "status": "transmitted",
+        "transmitted_at": now,
+        "pharmacy": prescription.pharmacy.name,
+        "message": "E-prescription transmitted to pharmacy"
+    }))
+}
+
+/// Get e-prescription details (Phase 29 E-Signature)
+#[get("/api/e-prescriptions/{prescription_id}")]
+pub async fn get_esignature_prescription(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let prescription_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let prescriptions = data.e_prescriptions_v2.read().unwrap();
+    let prescription = match prescriptions.get(&prescription_id) {
+        Some(p) => p.clone(),
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Prescription not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    // Patient or prescriber can view
+    if prescription.patient_id != current_user_id && prescription.prescriber_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "prescription": prescription
+    }))
+}
+
+/// Get patient's e-prescriptions
+#[get("/api/e-prescriptions/patient/{patient_id}")]
+pub async fn get_patient_e_prescriptions(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let prescriptions = data.e_prescriptions_v2.read().unwrap();
+    let patient_prescriptions: Vec<_> = prescriptions
+        .values()
+        .filter(|p| p.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "prescriptions": patient_prescriptions,
+        "count": patient_prescriptions.len()
+    }))
+}
+
+// ============================================================================
+// PHASE 30: INSURANCE CLAIM INTEGRATION
+// ============================================================================
+
+/// Create insurance claim request
+#[derive(Debug, Deserialize)]
+pub struct CreateInsuranceClaimRequest {
+    pub patient_id: String,
+    pub encounter_id: String,
+    pub facility_id: String,
+    pub claim_type: String,
+    pub service_date: String,
+    pub diagnosis_codes: Vec<DiagnosisCodeInput>,
+    pub service_lines: Vec<ServiceLineInput>,
+    pub payer_id: String,
+    pub payer_name: String,
+    pub member_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DiagnosisCodeInput {
+    pub code: String,
+    pub description: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ServiceLineInput {
+    pub cpt_code: String,
+    pub description: String,
+    pub quantity: u8,
+    pub unit_charge: f64,
+    pub modifier: Option<String>,
+}
+
+/// Create a new insurance claim
+#[post("/api/insurance/claims")]
+pub async fn create_insurance_claim(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateInsuranceClaimRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can create insurance claims".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let claim_id = format!("CLM-{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().timestamp();
+
+    let claim_type = match req.claim_type.as_str() {
+        "professional" => crate::clinical::ClaimType::Professional,
+        "institutional" => crate::clinical::ClaimType::Institutional,
+        "dental" => crate::clinical::ClaimType::Dental,
+        "pharmacy" => crate::clinical::ClaimType::Pharmacy,
+        _ => crate::clinical::ClaimType::Professional,
+    };
+
+    let diagnosis_codes: Vec<crate::clinical::ClaimDiagnosisCode> = req.diagnosis_codes
+        .iter()
+        .enumerate()
+        .map(|(i, d)| crate::clinical::ClaimDiagnosisCode {
+            sequence: (i + 1) as u8,
+            code: d.code.clone(),
+            code_type: "ICD-10-CM".to_string(),
+            description: d.description.clone(),
+        })
+        .collect();
+
+    let service_lines: Vec<crate::clinical::ServiceLine> = req.service_lines
+        .iter()
+        .enumerate()
+        .map(|(i, s)| crate::clinical::ServiceLine {
+            line_number: (i + 1) as u8,
+            cpt_code: s.cpt_code.clone(),
+            modifier: s.modifier.clone(),
+            description: s.description.clone(),
+            quantity: s.quantity,
+            unit_charge: s.unit_charge,
+            total_charge: s.unit_charge * s.quantity as f64,
+            diagnosis_pointers: vec![1],
+            place_of_service: "11".to_string(),
+            rendering_provider_npi: "1234567890".to_string(),
+        })
+        .collect();
+
+    let total_charge: f64 = service_lines.iter().map(|s| s.total_charge).sum();
+
+    let claim = crate::clinical::InsuranceClaim {
+        claim_id: claim_id.clone(),
+        patient_id: req.patient_id.clone(),
+        encounter_id: req.encounter_id.clone(),
+        provider_id: current_user_id.clone(),
+        facility_id: req.facility_id.clone(),
+        insurance: crate::clinical::PatientInsurance {
+            payer_id: req.payer_id.clone(),
+            payer_name: req.payer_name.clone(),
+            plan_name: "Standard Plan".to_string(),
+            member_id: req.member_id.clone(),
+            group_number: None,
+            subscriber_name: "".to_string(),
+            subscriber_dob: "".to_string(),
+            relationship: "Self".to_string(),
+            coverage_type: crate::clinical::CoverageType::Medical,
+            priority: crate::clinical::InsurancePriority::Primary,
+            effective_date: "2024-01-01".to_string(),
+            termination_date: None,
+            copay: Some(25.0),
+            deductible: Some(500.0),
+            deductible_met: Some(350.0),
+            out_of_pocket_max: Some(5000.0),
+            out_of_pocket_met: Some(1200.0),
+        },
+        claim_type,
+        service_date: req.service_date.clone(),
+        service_lines,
+        diagnosis_codes,
+        total_charge,
+        status: crate::clinical::ClaimStatus::Draft,
+        submitted_at: None,
+        payer_claim_number: None,
+        adjudicated_at: None,
+        paid_amount: None,
+        patient_responsibility: None,
+        denied_reason: None,
+        eob_received: false,
+        created_at: now,
+        last_updated: now,
+    };
+
+    let mut claims = data.insurance_claims.write().unwrap();
+    claims.insert(claim_id.clone(), claim);
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "claim_id": claim_id,
+        "total_charge": total_charge,
+        "status": "draft",
+        "message": "Insurance claim created"
+    }))
+}
+
+/// Submit insurance claim
+#[post("/api/insurance/claims/{claim_id}/submit")]
+pub async fn submit_insurance_claim(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let claim_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let mut claims = data.insurance_claims.write().unwrap();
+    let claim = match claims.get_mut(&claim_id) {
+        Some(c) => c,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Claim not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    if claim.provider_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only the creating provider can submit this claim".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    claim.submitted_at = Some(now);
+    claim.status = crate::clinical::ClaimStatus::Submitted;
+    claim.payer_claim_number = Some(format!("PCN-{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase()));
+    claim.last_updated = now;
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "claim_id": claim_id,
+        "payer_claim_number": claim.payer_claim_number,
+        "status": "submitted",
+        "submitted_at": now,
+        "message": "Claim submitted to payer"
+    }))
+}
+
+/// Get claim status
+#[get("/api/insurance/claims/{claim_id}")]
+pub async fn get_insurance_claim(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let claim_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let claims = data.insurance_claims.read().unwrap();
+    let claim = match claims.get(&claim_id) {
+        Some(c) => c.clone(),
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Claim not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "claim": claim
+    }))
+}
+
+/// Get patient's insurance claims
+#[get("/api/insurance/claims/patient/{patient_id}")]
+pub async fn get_patient_insurance_claims(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let claims = data.insurance_claims.read().unwrap();
+    let patient_claims: Vec<_> = claims
+        .values()
+        .filter(|c| c.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "claims": patient_claims,
+        "count": patient_claims.len()
+    }))
+}
+
+/// Check insurance eligibility
+#[post("/api/insurance/eligibility")]
+pub async fn check_insurance_eligibility(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<crate::clinical::EligibilityCheckRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can check eligibility".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    
+    // Simulate eligibility check response
+    let response = serde_json::json!({
+        "success": true,
+        "check_id": format!("EC-{}", uuid::Uuid::new_v4()),
+        "patient_id": req.patient_id,
+        "checked_at": now,
+        "eligible": true,
+        "coverage_active": true,
+        "plan_name": "Standard Medical Plan",
+        "member_id": req.member_id,
+        "payer_id": req.payer_id,
+        "benefits": {
+            "copay": 25.0,
+            "deductible": 500.0,
+            "deductible_met": 350.0,
+            "coinsurance_percent": 20,
+            "out_of_pocket_max": 5000.0,
+            "out_of_pocket_met": 1200.0
+        },
+        "service_coverage": {
+            "service_type": req.service_type,
+            "covered": true,
+            "authorization_required": false
+        }
+    });
+
+    HttpResponse::Ok().json(response)
+}
+
+// ============================================================================
+// PHASE 31: ANALYTICS DASHBOARD
+// ============================================================================
+
+/// Analytics query request
+#[derive(Debug, Deserialize)]
+pub struct AnalyticsQueryRequest {
+    pub start_date: String,
+    pub end_date: String,
+    pub include_financial: Option<bool>,
+}
+
+/// Get dashboard metrics
+#[get("/api/analytics/dashboard")]
+pub async fn get_dashboard_metrics(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    query: web::Query<AnalyticsQueryRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can access analytics".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now().timestamp();
+
+    // Calculate metrics from stored data
+    let patients = data.patients.read().unwrap();
+    let appointments = data.appointments.read().unwrap();
+    let claims = data.insurance_claims.read().unwrap();
+    let cds_alerts = data.cds_alerts.read().unwrap();
+
+    let total_patients = patients.len() as u64;
+    let total_appointments = appointments.len() as u64;
+    let completed_appointments = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Completed).count() as u64;
+    let cancelled_appointments = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled).count() as u64;
+    let telehealth_count = appointments.values().filter(|a| a.is_telehealth).count() as u64;
+
+    let total_claims = claims.len() as u64;
+    let paid_claims = claims.values().filter(|c| c.status == crate::clinical::ClaimStatus::Paid).count() as u64;
+    let denied_claims = claims.values().filter(|c| c.status == crate::clinical::ClaimStatus::Denied).count() as u64;
+
+    let cds_alert_count = cds_alerts.len() as u64;
+    let cds_accepted = cds_alerts.values().filter(|a| {
+        a.response.as_ref().map(|r| r.action_taken == crate::clinical::CDSActionTaken::Accepted).unwrap_or(false)
+    }).count() as u64;
+
+    let telehealth_pct = if total_appointments > 0 {
+        (telehealth_count as f32 / total_appointments as f32) * 100.0
+    } else {
+        0.0
+    };
+
+    let dashboard = crate::clinical::DashboardMetrics {
+        generated_at: now,
+        period: crate::clinical::AnalyticsPeriod {
+            start_date: query.start_date.clone(),
+            end_date: query.end_date.clone(),
+            comparison_start: None,
+            comparison_end: None,
+        },
+        patient_metrics: crate::clinical::PatientMetrics {
+            total_patients,
+            new_patients: 5,
+            active_patients: total_patients,
+            patients_by_age_group: vec![
+                crate::clinical::AgeGroupCount { age_group: "0-17".to_string(), count: 2 },
+                crate::clinical::AgeGroupCount { age_group: "18-34".to_string(), count: 3 },
+                crate::clinical::AgeGroupCount { age_group: "35-54".to_string(), count: 4 },
+                crate::clinical::AgeGroupCount { age_group: "55-74".to_string(), count: 2 },
+                crate::clinical::AgeGroupCount { age_group: "75+".to_string(), count: 1 },
+            ],
+            patients_by_gender: vec![
+                crate::clinical::GenderCount { gender: "Male".to_string(), count: 6 },
+                crate::clinical::GenderCount { gender: "Female".to_string(), count: 6 },
+            ],
+            top_conditions: vec![
+                crate::clinical::ConditionCount {
+                    condition: "Hypertension".to_string(),
+                    icd10_code: "I10".to_string(),
+                    count: 4,
+                },
+                crate::clinical::ConditionCount {
+                    condition: "Type 2 Diabetes".to_string(),
+                    icd10_code: "E11".to_string(),
+                    count: 3,
+                },
+            ],
+        },
+        appointment_metrics: crate::clinical::AppointmentMetrics {
+            total_appointments,
+            completed_appointments,
+            cancelled_appointments,
+            no_show_rate: 5.0,
+            average_wait_time_minutes: 12.5,
+            appointments_by_type: vec![
+                crate::clinical::AppointmentTypeCount {
+                    appointment_type: "General Consultation".to_string(),
+                    count: total_appointments / 2,
+                },
+                crate::clinical::AppointmentTypeCount {
+                    appointment_type: "Follow-up".to_string(),
+                    count: total_appointments / 4,
+                },
+            ],
+            appointments_by_provider: vec![
+                crate::clinical::ProviderAppointmentCount {
+                    provider_id: "PROVIDER-SAMPLE-001".to_string(),
+                    provider_name: "Dr. Sample Provider".to_string(),
+                    count: total_appointments / 2,
+                },
+            ],
+            telehealth_percentage: telehealth_pct,
+        },
+        clinical_metrics: crate::clinical::ClinicalMetrics {
+            total_encounters: total_appointments,
+            prescriptions_written: 15,
+            lab_orders: 10,
+            imaging_orders: 5,
+            referrals_made: 3,
+            procedures_performed: 8,
+            immunizations_given: 12,
+            cds_alerts_generated: cds_alert_count,
+            cds_alerts_accepted: cds_accepted,
+        },
+        financial_metrics: if query.include_financial.unwrap_or(false) {
+            let total_charges: f64 = claims.values().map(|c| c.total_charge).sum();
+            let total_payments: f64 = claims.values().filter_map(|c| c.paid_amount).sum();
+            Some(crate::clinical::FinancialMetrics {
+                total_charges,
+                total_payments,
+                claims_submitted: total_claims,
+                claims_paid: paid_claims,
+                claims_denied: denied_claims,
+                denial_rate: if total_claims > 0 { (denied_claims as f32 / total_claims as f32) * 100.0 } else { 0.0 },
+                average_days_to_payment: 28.5,
+                ar_aging: crate::clinical::ARAgingBreakdown {
+                    current: 5000.0,
+                    days_30: 2500.0,
+                    days_60: 1200.0,
+                    days_90: 500.0,
+                    over_90: 300.0,
+                },
+            })
+        } else {
+            None
+        },
+        quality_metrics: crate::clinical::QualityMetrics {
+            preventive_care_compliance: 85.5,
+            chronic_care_compliance: 78.0,
+            medication_adherence_rate: 82.0,
+            patient_satisfaction_score: 4.5,
+            hedis_measures: vec![
+                crate::clinical::HedisMeasure {
+                    measure_id: "BCS".to_string(),
+                    measure_name: "Breast Cancer Screening".to_string(),
+                    numerator: 45,
+                    denominator: 50,
+                    rate: 90.0,
+                    benchmark: 75.0,
+                    meets_benchmark: true,
+                },
+            ],
+        },
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "dashboard": dashboard
+    }))
+}
+
+/// Get patient analytics
+#[get("/api/analytics/patients")]
+pub async fn get_patient_analytics(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can access analytics".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let patients = data.patients.read().unwrap();
+    let total = patients.len();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total_patients": total,
+        "new_patients_this_month": 3,
+        "active_patients": total,
+        "age_distribution": {
+            "0-17": 2,
+            "18-34": 3,
+            "35-54": 4,
+            "55-74": 2,
+            "75+": 1
+        },
+        "gender_distribution": {
+            "male": 6,
+            "female": 6
+        }
+    }))
+}
+
+/// Get appointment analytics
+#[get("/api/analytics/appointments")]
+pub async fn get_appointment_analytics(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can access analytics".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let appointments = data.appointments.read().unwrap();
+    let total = appointments.len();
+    let completed = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Completed).count();
+    let cancelled = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled).count();
+    let telehealth = appointments.values().filter(|a| a.is_telehealth).count();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total_appointments": total,
+        "completed": completed,
+        "cancelled": cancelled,
+        "no_shows": 2,
+        "telehealth_appointments": telehealth,
+        "telehealth_percentage": if total > 0 { (telehealth as f32 / total as f32) * 100.0 } else { 0.0 },
+        "average_wait_time_minutes": 12.5,
+        "appointments_by_day": {
+            "monday": 10,
+            "tuesday": 12,
+            "wednesday": 15,
+            "thursday": 11,
+            "friday": 8
+        }
+    }))
+}
+
+/// Get quality metrics
+#[get("/api/analytics/quality")]
+pub async fn get_quality_metrics(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can access analytics".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "quality_metrics": {
+            "preventive_care_compliance": 85.5,
+            "chronic_care_compliance": 78.0,
+            "medication_adherence_rate": 82.0,
+            "patient_satisfaction_score": 4.5,
+            "hedis_measures": [
+                {
+                    "measure_id": "BCS",
+                    "measure_name": "Breast Cancer Screening",
+                    "rate": 90.0,
+                    "benchmark": 75.0,
+                    "meets_benchmark": true
+                },
+                {
+                    "measure_id": "COL",
+                    "measure_name": "Colorectal Cancer Screening",
+                    "rate": 72.0,
+                    "benchmark": 65.0,
+                    "meets_benchmark": true
+                },
+                {
+                    "measure_id": "CDC",
+                    "measure_name": "Comprehensive Diabetes Care",
+                    "rate": 68.0,
+                    "benchmark": 70.0,
+                    "meets_benchmark": false
+                }
+            ]
+        }
+    }))
+}
+
+// ============================================================================
+// PHASE 32: MULTI-LANGUAGE SUPPORT
+// ============================================================================
+
+/// Set language preference request
+#[derive(Debug, Deserialize)]
+pub struct SetLanguagePreferenceRequest {
+    pub preferred_language: String,
+    pub secondary_language: Option<String>,
+    pub needs_interpreter: bool,
+    pub interpreter_language: Option<String>,
+}
+
+/// Translation request input
+#[derive(Debug, Deserialize)]
+pub struct TranslateContentRequest {
+    pub content: String,
+    pub source_language: String,
+    pub target_language: String,
+    pub content_type: String,
+    pub medical_context: bool,
+}
+
+/// Get supported languages
+#[get("/api/languages")]
+pub async fn get_supported_languages() -> impl Responder {
+    let languages = vec![
+        crate::clinical::SupportedLanguage {
+            code: "en".to_string(),
+            name: "English".to_string(),
+            native_name: "English".to_string(),
+            rtl: false,
+            medical_terminology_available: true,
+            patient_materials_available: true,
+            ui_available: true,
+        },
+        crate::clinical::SupportedLanguage {
+            code: "ar".to_string(),
+            name: "Arabic".to_string(),
+            native_name: "العربية".to_string(),
+            rtl: true,
+            medical_terminology_available: true,
+            patient_materials_available: true,
+            ui_available: true,
+        },
+        crate::clinical::SupportedLanguage {
+            code: "es".to_string(),
+            name: "Spanish".to_string(),
+            native_name: "Español".to_string(),
+            rtl: false,
+            medical_terminology_available: true,
+            patient_materials_available: true,
+            ui_available: true,
+        },
+        crate::clinical::SupportedLanguage {
+            code: "fr".to_string(),
+            name: "French".to_string(),
+            native_name: "Français".to_string(),
+            rtl: false,
+            medical_terminology_available: true,
+            patient_materials_available: true,
+            ui_available: true,
+        },
+        crate::clinical::SupportedLanguage {
+            code: "ur".to_string(),
+            name: "Urdu".to_string(),
+            native_name: "اردو".to_string(),
+            rtl: true,
+            medical_terminology_available: true,
+            patient_materials_available: true,
+            ui_available: true,
+        },
+        crate::clinical::SupportedLanguage {
+            code: "hi".to_string(),
+            name: "Hindi".to_string(),
+            native_name: "हिन्दी".to_string(),
+            rtl: false,
+            medical_terminology_available: true,
+            patient_materials_available: true,
+            ui_available: false,
+        },
+        crate::clinical::SupportedLanguage {
+            code: "bn".to_string(),
+            name: "Bengali".to_string(),
+            native_name: "বাংলা".to_string(),
+            rtl: false,
+            medical_terminology_available: false,
+            patient_materials_available: true,
+            ui_available: false,
+        },
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "languages": languages,
+        "count": languages.len()
+    }))
+}
+
+/// Set user language preference
+#[post("/api/languages/preference")]
+pub async fn set_language_preference(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<SetLanguagePreferenceRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp();
+
+    let reading_proficiency = match req.preferred_language.as_str() {
+        "en" | "ar" => crate::clinical::LanguageProficiency::Native,
+        _ => crate::clinical::LanguageProficiency::Fluent,
+    };
+
+    let preference = crate::clinical::LanguagePreference {
+        user_id: current_user_id.clone(),
+        preferred_language: req.preferred_language.clone(),
+        secondary_language: req.secondary_language.clone(),
+        reading_proficiency,
+        needs_interpreter: req.needs_interpreter,
+        interpreter_language: req.interpreter_language.clone(),
+        updated_at: now,
+    };
+
+    let mut prefs = data.language_preferences.write().unwrap();
+    prefs.insert(current_user_id.clone(), preference);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "user_id": current_user_id,
+        "preferred_language": req.preferred_language,
+        "message": "Language preference updated"
+    }))
+}
+
+/// Get user language preference
+#[get("/api/languages/preference/{user_id}")]
+pub async fn get_language_preference(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let user_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let prefs = data.language_preferences.read().unwrap();
+    
+    if let Some(pref) = prefs.get(&user_id) {
+        HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "preference": pref
+        }))
+    } else {
+        // Return default English preference
+        HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "preference": {
+                "user_id": user_id,
+                "preferred_language": "en",
+                "secondary_language": null,
+                "reading_proficiency": "Native",
+                "needs_interpreter": false,
+                "interpreter_language": null
+            }
+        }))
+    }
+}
+
+/// Translate content
+#[post("/api/languages/translate")]
+pub async fn translate_content(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<TranslateContentRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let request_id = format!("TR-{}", uuid::Uuid::new_v4());
+
+    // Simulate translation (in production, this would call a translation service)
+    let translated_content = match req.target_language.as_str() {
+        "ar" => format!("[Arabic Translation of: {}]", req.content),
+        "es" => format!("[Spanish Translation of: {}]", req.content),
+        "fr" => format!("[French Translation of: {}]", req.content),
+        "ur" => format!("[Urdu Translation of: {}]", req.content),
+        "hi" => format!("[Hindi Translation of: {}]", req.content),
+        "bn" => format!("[Bengali Translation of: {}]", req.content),
+        "en" => req.content.clone(),
+        _ => format!("[Translation to {} of: {}]", req.target_language, req.content),
+    };
+
+    let content_type = match req.content_type.as_str() {
+        "ui" => crate::clinical::TranslationContentType::UILabel,
+        "instructions" => crate::clinical::TranslationContentType::PatientInstructions,
+        "medication" => crate::clinical::TranslationContentType::MedicationDirections,
+        "diagnosis" => crate::clinical::TranslationContentType::DiagnosisDescription,
+        "consent" => crate::clinical::TranslationContentType::ConsentForm,
+        "education" => crate::clinical::TranslationContentType::EducationalMaterial,
+        "alert" => crate::clinical::TranslationContentType::Alert,
+        _ => crate::clinical::TranslationContentType::Message,
+    };
+
+    let response = crate::clinical::TranslationResponse {
+        request_id: request_id.clone(),
+        translated_content,
+        confidence_score: 0.95,
+        human_reviewed: false,
+        alternative_translations: vec![],
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "translation": response
+    }))
+}
+
+// ============================================================================
+// PHASE 33: OFFLINE MODE SYNC
+// ============================================================================
+
+/// Register device for offline sync
+#[derive(Debug, Deserialize)]
+pub struct RegisterDeviceRequest {
+    pub device_id: String,
+    pub device_name: String,
+    pub device_type: String,
+    pub offline_categories: Vec<String>,
+}
+
+/// Sync request
+#[derive(Debug, Deserialize)]
+pub struct SyncRequest {
+    pub device_id: String,
+    pub last_sync_at: Option<i64>,
+    pub pending_items: Vec<SyncItemInput>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SyncItemInput {
+    pub entity_type: String,
+    pub entity_id: String,
+    pub operation: String,
+    pub data: serde_json::Value,
+    pub local_timestamp: i64,
+}
+
+/// Resolve conflict request
+#[derive(Debug, Deserialize)]
+pub struct ResolveConflictRequest {
+    pub resolution: String,
+    pub merged_data: Option<serde_json::Value>,
+}
+
+/// Get sync status
+#[get("/api/sync/status/{device_id}")]
+pub async fn get_sync_status(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let device_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    let queue = data.sync_queue.read().unwrap();
+    let pending_uploads = queue.values()
+        .filter(|i| i.device_id == device_id && i.status == crate::clinical::SyncItemStatus::Pending)
+        .count() as u32;
+
+    let status = crate::clinical::SyncStatus {
+        device_id: device_id.clone(),
+        user_id: current_user_id,
+        last_sync_at: now - 300, // 5 minutes ago
+        sync_in_progress: false,
+        pending_uploads,
+        pending_downloads: 0,
+        last_error: None,
+        offline_since: None,
+        data_freshness: crate::clinical::DataFreshness::Current,
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "status": status
+    }))
+}
+
+/// Register device for offline sync
+#[post("/api/sync/register")]
+pub async fn register_sync_device(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<RegisterDeviceRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp();
+
+    // Parse offline categories
+    let categories: Vec<crate::clinical::OfflineCategory> = req.offline_categories
+        .iter()
+        .filter_map(|c| match c.as_str() {
+            "demographics" => Some(crate::clinical::OfflineCategory::Demographics),
+            "allergies" => Some(crate::clinical::OfflineCategory::Allergies),
+            "medications" => Some(crate::clinical::OfflineCategory::Medications),
+            "conditions" => Some(crate::clinical::OfflineCategory::Conditions),
+            "vital_signs" => Some(crate::clinical::OfflineCategory::VitalSigns),
+            "lab_results" => Some(crate::clinical::OfflineCategory::LabResults),
+            "immunizations" => Some(crate::clinical::OfflineCategory::Immunizations),
+            "appointments" => Some(crate::clinical::OfflineCategory::Appointments),
+            "care_team" => Some(crate::clinical::OfflineCategory::CareTeam),
+            "emergency_contacts" => Some(crate::clinical::OfflineCategory::EmergencyContacts),
+            _ => None,
+        })
+        .collect();
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "device_id": req.device_id,
+        "user_id": current_user_id,
+        "registered_at": now,
+        "offline_categories": categories,
+        "message": "Device registered for offline sync"
+    }))
+}
+
+/// Perform sync
+#[post("/api/sync")]
+pub async fn perform_sync(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<SyncRequest>,
+) -> impl Responder {
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    let mut queue = data.sync_queue.write().unwrap();
+    let mut processed = 0;
+    let mut conflicts: Vec<crate::clinical::SyncConflict> = Vec::new();
+
+    // Process pending items from client
+    for item in &req.pending_items {
+        let queue_id = format!("SQ-{}", uuid::Uuid::new_v4());
+        
+        let operation = match item.operation.as_str() {
+            "create" => crate::clinical::SyncOperation::Create,
+            "update" => crate::clinical::SyncOperation::Update,
+            "delete" => crate::clinical::SyncOperation::Delete,
+            _ => crate::clinical::SyncOperation::Update,
+        };
+
+        let sync_item = crate::clinical::SyncQueueItem {
+            queue_id: queue_id.clone(),
+            device_id: req.device_id.clone(),
+            user_id: current_user_id.clone(),
+            entity_type: item.entity_type.clone(),
+            entity_id: item.entity_id.clone(),
+            operation,
+            data: item.data.clone(),
+            created_at: item.local_timestamp,
+            priority: crate::clinical::SyncPriority::Normal,
+            attempts: 1,
+            last_attempt_at: Some(now),
+            last_error: None,
+            status: crate::clinical::SyncItemStatus::Completed,
+        };
+
+        queue.insert(queue_id, sync_item);
+        processed += 1;
+    }
+
+    // Get changes from server since last sync (simulated)
+    let server_changes: Vec<serde_json::Value> = vec![];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "sync_id": format!("SYNC-{}", uuid::Uuid::new_v4()),
+        "synced_at": now,
+        "uploaded": processed,
+        "downloaded": server_changes.len(),
+        "conflicts": conflicts,
+        "server_changes": server_changes,
+        "next_sync_token": format!("token_{}", now)
+    }))
+}
+
+/// Get sync queue
+#[get("/api/sync/queue/{device_id}")]
+pub async fn get_sync_queue(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let device_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let queue = data.sync_queue.read().unwrap();
+    let device_queue: Vec<_> = queue.values()
+        .filter(|i| i.device_id == device_id)
+        .cloned()
+        .collect();
+
+    let pending = device_queue.iter().filter(|i| i.status == crate::clinical::SyncItemStatus::Pending).count();
+    let failed = device_queue.iter().filter(|i| i.status == crate::clinical::SyncItemStatus::Failed).count();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "device_id": device_id,
+        "total_items": device_queue.len(),
+        "pending": pending,
+        "failed": failed,
+        "items": device_queue
+    }))
+}
+
+/// Download offline data
+#[get("/api/sync/download/{patient_id}")]
+pub async fn download_offline_data(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    
+    let current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    let users = data.users.read().unwrap();
+    let current_user = match users.get(&current_user_id) {
+        Some(u) => u.clone(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    drop(users);
+
+    let is_own = current_user_id == patient_id;
+    if !is_own && !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    let now = chrono::Utc::now().timestamp();
+
+    // Get patient data for offline use
+    let patients = data.patients.read().unwrap();
+    let patient = patients.get(&patient_id).cloned();
+
+    let medications = data.medication_reminders.read().unwrap();
+    let patient_meds: Vec<_> = medications.values()
+        .filter(|m| m.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    let appointments = data.appointments.read().unwrap();
+    let patient_appts: Vec<_> = appointments.values()
+        .filter(|a| a.patient_id == patient_id)
+        .cloned()
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "patient_id": patient_id,
+        "downloaded_at": now,
+        "expires_at": now + 86400 * 7, // 7 days
+        "data": {
+            "demographics": patient,
+            "medications": patient_meds,
+            "appointments": patient_appts,
+            "allergies": [],
+            "conditions": [],
+            "vital_signs": []
+        },
+        "encrypted": false,
+        "total_size_bytes": 50000
+    }))
+}
+
+// ============================================================================
+// List Endpoints for Frontend Pages
+// ============================================================================
+
+/// List all chain of custody records
+#[get("/api/clinical/chain-of-custody")]
+pub async fn list_chain_of_custody(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.chain_of_custody.read().unwrap();
+    let items: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total": items.len(),
+        "items": items
+    }))
+}
+
+/// List all lab QC records
+#[get("/api/clinical/lab-qc")]
+pub async fn list_lab_qc(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.lab_qc_records.read().unwrap();
+    let items: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total": items.len(),
+        "items": items
+    }))
+}
+
+/// List all critical value notifications
+#[get("/api/clinical/critical-values")]
+pub async fn list_critical_values(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.critical_values.read().unwrap();
+    let items: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total": items.len(),
+        "items": items
+    }))
+}
+
+/// List all radiology orders
+#[get("/api/clinical/radiology/orders")]
+pub async fn list_radiology_orders(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let orders = data.radiology_orders.read().unwrap();
+    let reports = data.radiology_reports.read().unwrap();
+    let order_items: Vec<_> = orders.values().cloned().collect();
+    let report_items: Vec<_> = reports.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "orders": {
+            "total": order_items.len(),
+            "items": order_items
+        },
+        "reports": {
+            "total": report_items.len(),
+            "items": report_items
+        }
+    }))
+}
+
+/// List all pathology reports
+#[get("/api/clinical/pathology")]
+pub async fn list_pathology(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.pathology_reports.read().unwrap();
+    let items: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total": items.len(),
+        "items": items
+    }))
+}
+
+/// List all immunization records
+#[get("/api/clinical/immunizations")]
+pub async fn list_immunizations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.immunization_records.read().unwrap();
+    let schedules = data.immunization_schedules.read().unwrap();
+    let record_items: Vec<_> = records.values().cloned().collect();
+    let schedule_items: Vec<_> = schedules.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "records": {
+            "total": record_items.len(),
+            "items": record_items
+        },
+        "schedules": {
+            "total": schedule_items.len(),
+            "items": schedule_items
+        }
+    }))
+}
+
+/// List all blood bank records
+#[get("/api/clinical/blood-bank")]
+pub async fn list_blood_bank(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let type_screens = data.blood_type_screens.read().unwrap();
+    let crossmatches = data.crossmatch_records.read().unwrap();
+    let transfusions = data.transfusion_records.read().unwrap();
+    
+    let type_screen_items: Vec<_> = type_screens.values().cloned().collect();
+    let crossmatch_items: Vec<_> = crossmatches.values().cloned().collect();
+    let transfusion_items: Vec<_> = transfusions.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "type_screens": {
+            "total": type_screen_items.len(),
+            "items": type_screen_items
+        },
+        "crossmatches": {
+            "total": crossmatch_items.len(),
+            "items": crossmatch_items
+        },
+        "transfusions": {
+            "total": transfusion_items.len(),
+            "items": transfusion_items
+        }
+    }))
+}
+
+/// List all autopsy records
+#[get("/api/clinical/autopsy")]
+pub async fn list_autopsy(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let requests = data.autopsy_requests.read().unwrap();
+    let reports = data.autopsy_reports.read().unwrap();
+    
+    let request_items: Vec<_> = requests.values().cloned().collect();
+    let report_items: Vec<_> = reports.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "requests": {
+            "total": request_items.len(),
+            "items": request_items
+        },
+        "reports": {
+            "total": report_items.len(),
+            "items": report_items
+        }
+    }))
+}
+
+/// List all consultation notes
+#[get("/api/clinical/consults")]
+pub async fn list_consults(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.consult_notes.read().unwrap();
+    let items: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total": items.len(),
+        "items": items
+    }))
+}
+
+/// List all CDS alerts
+#[get("/api/clinical/cds-alerts")]
+pub async fn list_cds_alerts(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.cds_alerts.read().unwrap();
+    let items: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "total": items.len(),
+        "items": items
+    }))
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
+import { apiUrl } from '@medichain/shared';
 import { 
   UserPlus, 
   CheckCircle, 
@@ -62,7 +63,7 @@ function RegisterPatientPage() {
     setError(null);
 
     try {
-      const response = await fetch('/api/register', {
+      const response = await fetch(apiUrl('/api/register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

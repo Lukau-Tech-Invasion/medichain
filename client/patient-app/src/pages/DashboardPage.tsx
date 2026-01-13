@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { apiUrl } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 import {
   Heart,
   FileText,
@@ -12,6 +14,9 @@ import {
   Bell,
   Droplets,
   Pill,
+  Wifi,
+  WifiOff,
+  LogOut,
 } from 'lucide-react';
 
 interface PatientData {
@@ -23,6 +28,8 @@ interface PatientData {
   medications: string[];
   conditions: string[];
   lastVisit: string;
+  upcomingAppointments: number;
+  unreadMessages: number;
 }
 
 interface RecentActivity {
@@ -45,54 +52,138 @@ interface RecentActivity {
  * © 2025 Trustware. All rights reserved.
  */
 export function DashboardPage() {
+  const navigate = useNavigate();
+  const { patient, isAuthenticated, logout } = usePatientAuthStore();
   const [patientData, setPatientData] = useState<PatientData | null>(null);
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [apiConnected, setApiConnected] = useState(false);
+
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated || !patient) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, patient, navigate]);
 
   useEffect(() => {
-    // Load patient data
+    // Load patient data from API
     const loadData = async () => {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      if (!patient) {
+        setIsLoading(false);
+        return;
+      }
 
-      // Demo data
-      setPatientData({
-        patientId: 'PAT-001-DEMO',
-        name: 'John Doe',
-        healthId: 'MCHI-2026-DEMO-XXXX',
-        bloodType: 'O+',
-        allergies: ['Penicillin', 'Sulfa drugs'],
-        medications: ['Metformin 500mg', 'Lisinopril 10mg'],
-        conditions: ['Type 2 Diabetes', 'Hypertension'],
-        lastVisit: '2026-01-02',
-      });
+      try {
+        // Use health ID from authenticated patient
+        const patientId = patient.healthId;
+        
+        const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
+          headers: {
+            'X-User-Id': patient.walletAddress,
+            'X-Health-Id': patient.healthId,
+          },
+        });
 
-      setRecentActivity([
-        {
-          id: '1',
-          type: 'access',
-          description: 'Dr. Smith accessed your records',
-          timestamp: '2026-01-04T10:30:00Z',
-          accessor: 'Dr. Smith',
-        },
-        {
-          id: '2',
-          type: 'update',
-          description: 'Lab results added to your records',
-          timestamp: '2026-01-03T15:45:00Z',
-        },
-        {
-          id: '3',
-          type: 'consent',
-          description: 'Emergency access granted to City Hospital',
-          timestamp: '2026-01-02T09:15:00Z',
-        },
-      ]);
+        if (response.ok) {
+          const data = await response.json();
+          setApiConnected(true);
+          
+          setPatientData({
+            patientId: data.patient_id,
+            name: data.full_name || patient.fullName,
+            healthId: data.health_id || patient.healthId,
+            bloodType: formatBloodType(data.blood_type) || patient.bloodType || 'Unknown',
+            allergies: data.allergies || [],
+            medications: data.current_medications || [],
+            conditions: data.medical_conditions || [],
+            lastVisit: data.last_visit || new Date().toISOString().split('T')[0],
+            upcomingAppointments: data.upcoming_appointments || 0,
+            unreadMessages: data.unread_messages || 0,
+          });
 
-      setIsLoading(false);
+          // Fetch access logs for recent activity
+          const logsResponse = await fetch(`/api/access-logs/${patientId}`, {
+            headers: { 
+              'X-User-Id': patient.walletAddress,
+              'X-Health-Id': patient.healthId,
+            },
+          });
+          
+          if (logsResponse.ok) {
+            const logsData = await logsResponse.json();
+            const activities: RecentActivity[] = (logsData.logs || []).slice(0, 5).map((log: {
+              log_id: string;
+              action_type: string;
+              accessor_name: string;
+              accessed_at: string;
+            }) => ({
+              id: log.log_id,
+              type: log.action_type === 'view' ? 'access' : log.action_type === 'consent' ? 'consent' : 'update',
+              description: `${log.accessor_name} ${log.action_type === 'view' ? 'accessed your records' : log.action_type}`,
+              timestamp: log.accessed_at,
+              accessor: log.accessor_name,
+            }));
+            setRecentActivity(activities);
+          }
+        } else {
+          // API returned error - use local data from wallet
+          setApiConnected(false);
+          setPatientData({
+            patientId: patient.healthId,
+            name: patient.fullName,
+            healthId: patient.healthId,
+            bloodType: patient.bloodType || 'Unknown',
+            allergies: [],
+            medications: [],
+            conditions: [],
+            lastVisit: new Date().toISOString().split('T')[0],
+            upcomingAppointments: 0,
+            unreadMessages: 0,
+          });
+        }
+      } catch {
+        // API not available - use local data
+        setApiConnected(false);
+        if (patient) {
+          setPatientData({
+            patientId: patient.healthId,
+            name: patient.fullName,
+            healthId: patient.healthId,
+            bloodType: patient.bloodType || 'Unknown',
+            allergies: [],
+            medications: [],
+            conditions: [],
+            lastVisit: new Date().toISOString().split('T')[0],
+            upcomingAppointments: 0,
+            unreadMessages: 0,
+          });
+        }
+      } finally {
+        setIsLoading(false);
+      }
     };
 
-    loadData();
-  }, []);
+    if (patient) {
+      loadData();
+    }
+  }, [patient]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  const formatBloodType = (bt: string | undefined): string => {
+    if (!bt) return 'Unknown';
+    const map: Record<string, string> = {
+      'APositive': 'A+', 'ANegative': 'A-',
+      'BPositive': 'B+', 'BNegative': 'B-',
+      'ABPositive': 'AB+', 'ABNegative': 'AB-',
+      'OPositive': 'O+', 'ONegative': 'O-',
+    };
+    return map[bt] || bt;
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -130,16 +221,36 @@ export function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">
-            Hello, {patientData?.name.split(' ')[0]} 👋
+            Hello, {patient?.firstName || patientData?.name.split(' ')[0]} 👋
           </h1>
           <p className="text-neutral-600">
             Your health, your control
           </p>
         </div>
-        <button className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors">
-          <Bell className="w-6 h-6" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-emergency-400 rounded-full" />
-        </button>
+        <div className="flex items-center gap-3">
+          {/* API Status */}
+          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
+            apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+          }`}>
+            {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            {apiConnected ? 'Live' : 'Demo'}
+          </div>
+          <button className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors">
+            <Bell className="w-6 h-6" />
+            {(patientData?.unreadMessages || 0) > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-400 text-white text-xs rounded-full flex items-center justify-center">
+                {patientData?.unreadMessages}
+              </span>
+            )}
+          </button>
+          <button 
+            onClick={handleLogout}
+            className="p-2 text-neutral-600 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors"
+            title="Disconnect Wallet"
+          >
+            <LogOut className="w-6 h-6" />
+          </button>
+        </div>
       </div>
 
       {/* Health Status Card */}

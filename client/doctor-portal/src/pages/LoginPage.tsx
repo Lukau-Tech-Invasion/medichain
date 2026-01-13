@@ -1,34 +1,46 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../store';
-import { Shield, User, Lock, AlertCircle } from 'lucide-react';
+import { useAuthStore, type Role } from '../store';
+import { Shield, Wallet, AlertCircle, Loader2 } from 'lucide-react';
+import { FEATURES } from '@medichain/shared';
 
 /**
- * Demo users for hackathon presentation
+ * Demo roles for quick wallet generation (development only)
  */
-const DEMO_USERS = [
-  { userId: 'DOC-001', username: 'dr.smith', role: 'Doctor', label: '👨‍⚕️ Doctor' },
-  { userId: 'NURSE-001', username: 'nurse.johnson', role: 'Nurse', label: '👩‍⚕️ Nurse' },
-  { userId: 'ADMIN-001', username: 'admin', role: 'Admin', label: '🔐 Admin' },
-  { userId: 'LAB-001', username: 'lab.tech', role: 'LabTechnician', label: '🔬 Lab Tech' },
+const DEMO_ROLES: { role: Role; label: string; icon: string }[] = [
+  { role: 'Doctor', label: 'Doctor', icon: '👨‍⚕️' },
+  { role: 'Nurse', label: 'Nurse', icon: '👩‍⚕️' },
+  { role: 'Admin', label: 'Admin', icon: '🔐' },
+  { role: 'LabTechnician', label: 'Lab Tech', icon: '🔬' },
+  { role: 'Pharmacist', label: 'Pharmacist', icon: '💊' },
 ];
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading, error } = useAuthStore();
-  const [userId, setUserId] = useState('');
+  const { login, loginWithDemoWallet, isLoading, error, clearError } = useAuthStore();
+  const [walletAddress, setWalletAddress] = useState('');
 
-  const handleLogin = async (e: React.FormEvent) => {
+  /**
+   * Login with an existing wallet address
+   */
+  const handleWalletLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = await login(userId);
+    clearError();
+    
+    if (!walletAddress.trim()) return;
+    
+    const success = await login(walletAddress.trim());
     if (success) {
       navigate('/dashboard');
     }
   };
 
-  const handleDemoLogin = async (demoUserId: string) => {
-    setUserId(demoUserId);
-    const success = await login(demoUserId);
+  /**
+   * Generate a demo wallet with specified role (development only)
+   */
+  const handleDemoLogin = async (role: Role) => {
+    clearError();
+    const success = await loginWithDemoWallet(role);
     if (success) {
       navigate('/dashboard');
     }
@@ -46,22 +58,25 @@ function LoginPage() {
           <p className="text-primary-100 mt-1">Doctor Portal</p>
         </div>
 
-        {/* Login Form */}
-        <form onSubmit={handleLogin} className="p-8">
+        {/* Wallet Login Form */}
+        <form onSubmit={handleWalletLogin} className="p-8">
           <div className="mb-6">
-            <label htmlFor="userId" className="block text-sm font-medium text-gray-700 mb-2">
-              <User size={16} className="inline mr-2" />
-              User ID
+            <label htmlFor="walletAddress" className="block text-sm font-medium text-gray-700 mb-2">
+              <Wallet size={16} className="inline mr-2" />
+              Wallet Address
             </label>
             <input
-              id="userId"
+              id="walletAddress"
               type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              placeholder="Enter your User ID"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              value={walletAddress}
+              onChange={(e) => setWalletAddress(e.target.value)}
+              placeholder="Enter your Substrate wallet address"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm"
               disabled={isLoading}
             />
+            <p className="mt-1 text-xs text-gray-500">
+              SS58 format (starts with 5...)
+            </p>
           </div>
 
           {error && (
@@ -73,39 +88,55 @@ function LoginPage() {
 
           <button
             type="submit"
-            disabled={isLoading || !userId.trim()}
+            disabled={isLoading || !walletAddress.trim()}
             className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            <Lock size={18} />
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {isLoading ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Connecting...
+              </>
+            ) : (
+              <>
+                <Wallet size={18} />
+                Connect Wallet
+              </>
+            )}
           </button>
         </form>
 
-        {/* Demo Users */}
-        <div className="px-8 pb-8">
-          <div className="relative mb-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200"></div>
+        {/* Demo Wallet Generation - Only shown in development mode */}
+        {FEATURES.DEMO_WALLET_GENERATION && (
+          <div className="px-8 pb-8">
+            <div className="relative mb-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">Demo Mode - Generate Wallet</span>
+              </div>
             </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Demo Login</span>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            {DEMO_USERS.map((user) => (
-              <button
-                key={user.userId}
-                onClick={() => handleDemoLogin(user.userId)}
-                disabled={isLoading}
-                className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-left disabled:opacity-50"
-              >
-                <span className="block text-sm font-medium">{user.label}</span>
-                <span className="block text-xs text-gray-500">{user.userId}</span>
-              </button>
-            ))}
+            <div className="grid grid-cols-2 gap-2">
+              {DEMO_ROLES.map(({ role, label, icon }) => (
+                <button
+                  key={role}
+                  onClick={() => handleDemoLogin(role)}
+                  disabled={isLoading}
+                  className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-left disabled:opacity-50"
+                >
+                  <span className="block text-lg">{icon}</span>
+                  <span className="block text-sm font-medium">{label}</span>
+                  <span className="block text-xs text-gray-500">Generate wallet</span>
+                </button>
+              ))}
+            </div>
+
+            <p className="mt-4 text-xs text-center text-gray-400">
+              Demo wallets are generated using Substrate sr25519 keypairs
+            </p>
           </div>
-        </div>
+        )}
 
         {/* Footer */}
         <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
