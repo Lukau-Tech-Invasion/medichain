@@ -2,6 +2,8 @@
 
 © 2025 Trustware. All rights reserved.
 
+> Updated: 2026-01-28 — See `docs/PROJECT_STATUS_FOR_PRESENTATION.md` for current implementation notes and presentation summary.
+
 ## Overview
 
 MediChain REST API provides secure access to patient identity, medical records, and access control functionality. All endpoints implement role-based access control (RBAC).
@@ -395,6 +397,32 @@ Get demo information and available endpoints.
   ]
 }
 ```
+
+---
+
+## Canonical API Notes (Implementation Truth)
+
+This section documents implementation details discovered during a repo audit to keep `docs/api.md` aligned with the source.
+
+- Base URL: `http://localhost:8080` (API server default in `api/`)
+- The server expects wallet-based authentication via the `X-User-Id` header (SS58 address). See `docs/DEV_AUTH.md` for developer guidance.
+- There are two health endpoints present in code: `/api/health` and `/api/health/detailed` (use `/api/health/detailed` for richer diagnostics).
+- Some client call-sites use a legacy route `/api/access/logs` while canonical server handlers use `/api/access-logs/{patient_id}`; both are supported by the API to preserve backward compatibility.
+- Demo and seeding endpoints exist (`/api/demo`, `/api/auth/demo-login`) and are used by client apps in development. These endpoints are gated to development in server configuration but may be enabled by environment or seed scripts.
+
+### Important Headers
+
+- `X-User-Id` (required for authenticated requests): SS58 wallet address of the caller.
+- `X-Provider-Role` (recommended for provider-scoped requests): role name such as `Doctor`, `Nurse`, `LabTechnician`, `Pharmacist`.
+- `X-Health-Id` (optional): patient health ID used by client apps when making patient-scoped requests.
+
+### Demo & Seed Guidance (short)
+
+- Demo users are provided in `api/data/demo_users.json` and seeded by `api` startup or seed scripts. Use `docs/DEV_AUTH.md` for step-by-step developer guidance to enable demo seeds safely.
+
+---
+
+*This file was augmented by the docs-sync audit on 2026-01-28.*
 
 ---
 
