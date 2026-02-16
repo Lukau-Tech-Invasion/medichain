@@ -158,7 +158,7 @@ function TriagePage() {
     
     const fetchPatients = async () => {
       try {
-        const response = await fetch(`${apiUrl}/api/patients/list`, {
+        const response = await fetch(apiUrl('/api/patients'), {
           headers: { 
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role,
@@ -166,7 +166,8 @@ function TriagePage() {
         });
         if (response.ok) {
           const data = await response.json();
-          setPatients(data.patients);
+          const patientArray = Array.isArray(data) ? data : (data.data || []);
+          setPatients(patientArray);
           setApiConnected(true);
         }
       } catch (err) {
@@ -185,7 +186,7 @@ function TriagePage() {
     const fetchTriageQueue = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`${apiUrl}/api/clinical/triage/queue`, {
+        const response = await fetch(apiUrl('/api/clinical/triage/queue'), {
           headers: { 
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role,
@@ -206,9 +207,9 @@ function TriagePage() {
 
   // Filter patients based on search
   const filteredPatients = patients.filter(p =>
-    p.full_name.toLowerCase().includes(patientSearch.toLowerCase()) ||
-    p.patient_id.toLowerCase().includes(patientSearch.toLowerCase()) ||
-    p.health_id.toLowerCase().includes(patientSearch.toLowerCase())
+    (p.full_name?.toLowerCase() || '').includes(patientSearch.toLowerCase()) ||
+    (p.patient_id?.toLowerCase() || '').includes(patientSearch.toLowerCase()) ||
+    (p.health_id?.toLowerCase() || '').includes(patientSearch.toLowerCase())
   );
 
   // Check for critical vital signs
@@ -247,7 +248,7 @@ function TriagePage() {
     setSuccess(null);
 
     try {
-      const response = await fetch(`${apiUrl}/api/clinical/triage`, {
+      const response = await fetch(apiUrl('/api/clinical/triage'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -486,11 +487,12 @@ function TriagePage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {/* Heart Rate */}
               <div>
-                <label className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-heart-rate" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Heart size={14} className="text-red-500" />
                   Heart Rate (bpm)
                 </label>
                 <input
+                  id="triage-heart-rate"
                   type="number"
                   value={vitalSigns.heart_rate ?? ''}
                   onChange={(e) => updateVitalSign('heart_rate', e.target.value)}
@@ -505,11 +507,12 @@ function TriagePage() {
               
               {/* Respiratory Rate */}
               <div>
-                <label className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-respiratory-rate" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Wind size={14} className="text-blue-500" />
                   Resp. Rate (bpm)
                 </label>
                 <input
+                  id="triage-respiratory-rate"
                   type="number"
                   value={vitalSigns.respiratory_rate ?? ''}
                   onChange={(e) => updateVitalSign('respiratory_rate', e.target.value)}
@@ -524,11 +527,12 @@ function TriagePage() {
               
               {/* Blood Pressure */}
               <div>
-                <label className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-bp-systolic" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Activity size={14} className="text-purple-500" />
                   BP Systolic (mmHg)
                 </label>
                 <input
+                  id="triage-bp-systolic"
                   type="number"
                   value={vitalSigns.bp_systolic ?? ''}
                   onChange={(e) => updateVitalSign('bp_systolic', e.target.value)}
@@ -542,10 +546,11 @@ function TriagePage() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-bp-diastolic" className="block text-sm font-medium text-gray-700 mb-1">
                   BP Diastolic (mmHg)
                 </label>
                 <input
+                  id="triage-bp-diastolic"
                   type="number"
                   value={vitalSigns.bp_diastolic ?? ''}
                   onChange={(e) => updateVitalSign('bp_diastolic', e.target.value)}
@@ -556,11 +561,12 @@ function TriagePage() {
               
               {/* Temperature */}
               <div>
-                <label className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-temperature" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Thermometer size={14} className="text-orange-500" />
                   Temperature (°C)
                 </label>
                 <input
+                  id="triage-temperature"
                   type="number"
                   step="0.1"
                   value={vitalSigns.temperature_celsius ?? ''}
@@ -576,11 +582,12 @@ function TriagePage() {
               
               {/* O2 Saturation */}
               <div>
-                <label className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-oxygen-saturation" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Droplet size={14} className="text-cyan-500" />
                   O2 Saturation (%)
                 </label>
                 <input
+                  id="triage-oxygen-saturation"
                   type="number"
                   value={vitalSigns.oxygen_saturation ?? ''}
                   onChange={(e) => updateVitalSign('oxygen_saturation', e.target.value)}
@@ -595,10 +602,11 @@ function TriagePage() {
               
               {/* Pain Scale */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-pain-scale" className="block text-sm font-medium text-gray-700 mb-1">
                   Pain Scale (0-10)
                 </label>
                 <input
+                  id="triage-pain-scale"
                   type="number"
                   min="0"
                   max="10"
@@ -611,10 +619,11 @@ function TriagePage() {
               
               {/* GCS */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-gcs-score" className="block text-sm font-medium text-gray-700 mb-1">
                   GCS Score (3-15)
                 </label>
                 <input
+                  id="triage-gcs-score"
                   type="number"
                   min="3"
                   max="15"
@@ -631,10 +640,11 @@ function TriagePage() {
               
               {/* Blood Glucose */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-blood-glucose" className="block text-sm font-medium text-gray-700 mb-1">
                   Blood Glucose (mg/dL)
                 </label>
                 <input
+                  id="triage-blood-glucose"
                   type="number"
                   value={vitalSigns.blood_glucose ?? ''}
                   onChange={(e) => updateVitalSign('blood_glucose', e.target.value)}
@@ -645,10 +655,11 @@ function TriagePage() {
               
               {/* Weight */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-weight" className="block text-sm font-medium text-gray-700 mb-1">
                   Weight (kg)
                 </label>
                 <input
+                  id="triage-weight"
                   type="number"
                   step="0.1"
                   value={vitalSigns.weight_kg ?? ''}

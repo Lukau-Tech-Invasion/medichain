@@ -83,7 +83,7 @@ function PatientSearchPage() {
     const fetchPatients = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`${apiUrl}/api/patients/list`, {
+        const response = await fetch(apiUrl('/api/patients'), {
           headers: {
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role,
@@ -97,8 +97,11 @@ function PatientSearchPage() {
         const data = await response.json();
         setApiConnected(true);
         
+        // Handle paginated response
+        const patientArray = Array.isArray(data) ? data : (data.data || []);
+        
         // Transform API response to Patient format
-        const transformedPatients: Patient[] = data.patients.map((p: ApiPatient) => ({
+        const transformedPatients: Patient[] = patientArray.map((p: ApiPatient) => ({
           patientId: p.patient_id,
           healthId: p.health_id,
           fullName: p.full_name,
@@ -136,10 +139,10 @@ function PatientSearchPage() {
     
     const results = patients.filter(
       p => 
-        p.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.patientId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.nationalHealthId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.healthId.toLowerCase().includes(searchQuery.toLowerCase())
+        (p.fullName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+        (p.patientId?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+        (p.nationalHealthId?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+        (p.healthId?.toLowerCase() || '').includes(searchQuery.toLowerCase())
     );
     
     // Convert Patient to EmergencyInfo format for store
@@ -182,7 +185,7 @@ function PatientSearchPage() {
   // Apply filters
   const filteredPatients = patients.filter(p => {
     if (filterBloodType !== 'all' && p.bloodType !== filterBloodType) return false;
-    if (filterGender !== 'all' && p.gender.toLowerCase() !== filterGender) return false;
+    if (filterGender !== 'all' && (p.gender?.toLowerCase() || '') !== filterGender) return false;
     return true;
   });
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import { getPatients } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -79,6 +80,7 @@ const psychiatricDiagnoses = [
 
 const PsychPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [assessments, setAssessments] = useState<PsychAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
@@ -156,7 +158,7 @@ const PsychPage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient) {
-      alert('Please select a patient');
+      showWarning('Please select a patient');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -181,7 +183,7 @@ const PsychPage: React.FC = () => {
       notes
     };
     setAssessments([newAssessment, ...assessments]);
-    alert('Psychiatric assessment saved!');
+    showSuccess('Psychiatric assessment saved!');
   };
 
   return (
@@ -230,10 +232,11 @@ const PsychPage: React.FC = () => {
           <div className="space-y-6">
             {/* Patient Selection */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3 flex items-center gap-2">
+              <label htmlFor="psych-patient" className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> Patient
-              </h2>
+              </label>
               <select
+                id="psych-patient"
                 value={selectedPatient}
                 onChange={e => setSelectedPatient(e.target.value)}
                 className="w-full border rounded p-2"
@@ -247,16 +250,18 @@ const PsychPage: React.FC = () => {
 
             {/* Chief Complaint & HPI */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Chief Complaint</h2>
+              <label htmlFor="psych-chief-complaint" className="font-semibold mb-3 block">Chief Complaint</label>
               <input
+                id="psych-chief-complaint"
                 type="text"
                 value={chiefComplaint}
                 onChange={e => setChiefComplaint(e.target.value)}
                 className="w-full border rounded p-2 mb-4"
                 placeholder="Patient's main concern..."
               />
-              <h2 className="font-semibold mb-3">History of Present Illness</h2>
+              <label htmlFor="psych-hpi" className="font-semibold mb-3 block">History of Present Illness</label>
               <textarea
+                id="psych-hpi"
                 value={hpi}
                 onChange={e => setHpi(e.target.value)}
                 className="w-full border rounded p-2 h-24"
@@ -294,8 +299,9 @@ const PsychPage: React.FC = () => {
                     </label>
                   ))}
                   <div className="flex items-center gap-2 mt-2">
-                    <span>Prior attempts:</span>
+                    <label htmlFor="psych-prior-attempts">Prior attempts:</label>
                     <input
+                      id="psych-prior-attempts"
                       type="number"
                       value={suicideRisk.priorAttempts}
                       onChange={e => setSuicideRisk({ ...suicideRisk, priorAttempts: Number(e.target.value) })}
@@ -352,8 +358,9 @@ const PsychPage: React.FC = () => {
                   { key: 'judgment', label: 'Judgment' }
                 ].map(field => (
                   <div key={field.key}>
-                    <label className="text-sm text-gray-600">{field.label}</label>
+                    <label htmlFor={`psych-mse-${field.key}`} className="text-sm text-gray-600">{field.label}</label>
                     <input
+                      id={`psych-mse-${field.key}`}
                       type="text"
                       value={mse[field.key as keyof MentalStatusExam] as string}
                       onChange={e => setMse({ ...mse, [field.key]: e.target.value })}
@@ -362,8 +369,8 @@ const PsychPage: React.FC = () => {
                   </div>
                 ))}
                 <div className="md:col-span-2">
-                  <label className="text-sm text-gray-600">Thought Content (select all that apply)</label>
-                  <div className="flex flex-wrap gap-2 mt-1">
+                  <label id="psych-thought-content-label" className="text-sm text-gray-600">Thought Content (select all that apply)</label>
+                  <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-thought-content-label">
                     {['SI', 'HI', 'Paranoia', 'Delusions', 'Obsessions', 'Phobias'].map(item => (
                       <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.thoughtContent.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
                         <input
@@ -384,8 +391,8 @@ const PsychPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="text-sm text-gray-600">Perceptions</label>
-                  <div className="flex flex-wrap gap-2 mt-1">
+                  <label id="psych-perceptions-label" className="text-sm text-gray-600">Perceptions</label>
+                  <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-perceptions-label">
                     {['AVH', 'VH', 'AH', 'Illusions', 'Derealization', 'Depersonalization'].map(item => (
                       <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.perceptions.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
                         <input
@@ -482,8 +489,9 @@ const PsychPage: React.FC = () => {
             {/* Legal Status & Disposition */}
             <div className="grid md:grid-cols-2 gap-6">
               <div className="bg-white rounded-lg shadow p-4">
-                <h2 className="font-semibold mb-3">Legal Status</h2>
+                <label htmlFor="psych-legal-status" className="font-semibold mb-3 block">Legal Status</label>
                 <select
+                  id="psych-legal-status"
                   value={legalStatus}
                   onChange={e => setLegalStatus(e.target.value as LegalStatus)}
                   className="w-full border rounded p-2"
@@ -496,8 +504,9 @@ const PsychPage: React.FC = () => {
                 </select>
               </div>
               <div className="bg-white rounded-lg shadow p-4">
-                <h2 className="font-semibold mb-3">Disposition</h2>
+                <label htmlFor="psych-disposition" className="font-semibold mb-3 block">Disposition</label>
                 <select
+                  id="psych-disposition"
                   value={disposition}
                   onChange={e => setDisposition(e.target.value)}
                   className="w-full border rounded p-2"
@@ -539,8 +548,9 @@ const PsychPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Additional Notes</h2>
+              <label htmlFor="psych-notes" className="font-semibold mb-3 block">Additional Notes</label>
               <textarea
+                id="psych-notes"
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 className="w-full border rounded p-2 h-24"

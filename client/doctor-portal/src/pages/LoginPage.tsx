@@ -1,23 +1,46 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
-import { Shield, Wallet, AlertCircle, Loader2 } from 'lucide-react';
+import { Shield, Wallet, AlertCircle, Loader2, UserCircle } from 'lucide-react';
 import { FEATURES } from '@medichain/shared';
 
 /**
- * Demo roles for quick wallet generation (development only)
+ * Demo users with actual wallet addresses from the database
+ * These are pre-registered accounts for testing and hackathon demos
  */
-const DEMO_ROLES: { role: Role; label: string; icon: string }[] = [
-  { role: 'Doctor', label: 'Doctor', icon: '👨‍⚕️' },
-  { role: 'Nurse', label: 'Nurse', icon: '👩‍⚕️' },
-  { role: 'Admin', label: 'Admin', icon: '🔐' },
-  { role: 'LabTechnician', label: 'Lab Tech', icon: '🔬' },
-  { role: 'Pharmacist', label: 'Pharmacist', icon: '💊' },
+interface DemoUser {
+  username: string;
+  displayName: string;
+  role: Role;
+  walletAddress: string;
+  icon: string;
+  color: string;
+}
+
+const DEMO_USERS: DemoUser[] = [
+  // Administrators
+  { username: 'admin', displayName: 'System Admin', role: 'Admin', walletAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY', icon: '🔐', color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
+  { username: 'judge', displayName: 'Hackathon Judge', role: 'Admin', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y', icon: '⚖️', color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
+  // Doctors
+  { username: 'dr.mbeki', displayName: 'Dr. Thandi Mbeki', role: 'Doctor', walletAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', icon: '👨‍⚕️', color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
+  { username: 'dr.nkosi', displayName: 'Dr. Sipho Nkosi', role: 'Doctor', walletAddress: '5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw', icon: '👩‍⚕️', color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
+  { username: 'dr.khumalo', displayName: 'Dr. Zama Khumalo', role: 'Doctor', walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy', icon: '🩺', color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
+  // Nurses
+  { username: 'nurse.dlamini', displayName: 'Nurse Nomvula Dlamini', role: 'Nurse', walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL', icon: '👩‍⚕️', color: 'bg-green-100 border-green-300 hover:bg-green-200' },
+  { username: 'nurse.molefe', displayName: 'Nurse Kagiso Molefe', role: 'Nurse', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY', icon: '🏥', color: 'bg-green-100 border-green-300 hover:bg-green-200' },
+  // Lab Technician
+  { username: 'lab.mokoena', displayName: 'Lab Tech Lerato Mokoena', role: 'LabTechnician', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc', icon: '🔬', color: 'bg-amber-100 border-amber-300 hover:bg-amber-200' },
+  // Pharmacist
+  { username: 'pharm.sithole', displayName: 'Pharm. Bongani Sithole', role: 'Pharmacist', walletAddress: '5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW', icon: '💊', color: 'bg-pink-100 border-pink-300 hover:bg-pink-200' },
+  // Patients (linked to demo patient records)
+  { username: 'patient.mokoena', displayName: 'Thabo Mokoena (Patient)', role: 'Patient', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z', icon: '🧑', color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
+  { username: 'patient.dlamini', displayName: 'Nomvula Dlamini (Patient)', role: 'Patient', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ', icon: '👩', color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
+  { username: 'patient.nkosi', displayName: 'Sipho Nkosi (Patient)', role: 'Patient', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ', icon: '👨', color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
 ];
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { login, loginWithDemoWallet, isLoading, error, clearError } = useAuthStore();
+  const { login, isLoading, error, clearError } = useAuthStore();
   const [walletAddress, setWalletAddress] = useState('');
 
   /**
@@ -36,11 +59,11 @@ function LoginPage() {
   };
 
   /**
-   * Generate a demo wallet with specified role (development only)
+   * Quick login with a demo user's wallet address
    */
-  const handleDemoLogin = async (role: Role) => {
+  const handleDemoUserLogin = async (user: DemoUser) => {
     clearError();
-    const success = await loginWithDemoWallet(role);
+    const success = await login(user.walletAddress);
     if (success) {
       navigate('/dashboard');
     }
@@ -105,35 +128,38 @@ function LoginPage() {
           </button>
         </form>
 
-        {/* Demo Wallet Generation - Only shown in development mode */}
+        {/* Demo Users - Click to login instantly */}
         {FEATURES.DEMO_WALLET_GENERATION && (
-          <div className="px-8 pb-8">
+          <div className="px-6 pb-6">
             <div className="relative mb-4">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-gray-200"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Demo Mode - Generate Wallet</span>
+                <span className="px-2 bg-white text-gray-500 flex items-center gap-1">
+                  <UserCircle size={14} />
+                  Quick Login - Demo Users
+                </span>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              {DEMO_ROLES.map(({ role, label, icon }) => (
+            <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+              {DEMO_USERS.map((user) => (
                 <button
-                  key={role}
-                  onClick={() => handleDemoLogin(role)}
+                  key={user.username}
+                  onClick={() => handleDemoUserLogin(user)}
                   disabled={isLoading}
-                  className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-left disabled:opacity-50"
+                  className={`p-2 border rounded-lg transition-all text-left disabled:opacity-50 ${user.color}`}
                 >
-                  <span className="block text-lg">{icon}</span>
-                  <span className="block text-sm font-medium">{label}</span>
-                  <span className="block text-xs text-gray-500">Generate wallet</span>
+                  <span className="block text-xl text-center">{user.icon}</span>
+                  <span className="block text-xs font-semibold text-gray-800 truncate text-center">{user.displayName.split(' ').slice(-1)[0]}</span>
+                  <span className="block text-xs text-gray-600 text-center">{user.role}</span>
                 </button>
               ))}
             </div>
 
-            <p className="mt-4 text-xs text-center text-gray-400">
-              Demo wallets are generated using Substrate sr25519 keypairs
+            <p className="mt-3 text-xs text-center text-gray-400">
+              Click any user to instantly login with their wallet
             </p>
           </div>
         )}

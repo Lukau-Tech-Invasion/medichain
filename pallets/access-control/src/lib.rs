@@ -17,13 +17,19 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+
 pub mod mock;
 pub mod tests;
+pub mod weights;
 
 pub use pallet::*;
+pub use weights::WeightInfo;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::weights::WeightInfo;
     use frame_support::pallet_prelude::*;
     use frame_support::sp_runtime::Saturating;
     use frame_system::pallet_prelude::*;
@@ -106,6 +112,8 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// The overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// Weight information for extrinsics in this pallet
+        type WeightInfo: crate::weights::WeightInfo;
     }
 
     // ========================================================================
@@ -221,7 +229,7 @@ pub mod pallet {
         /// * `CannotAssignAdmin` - Admin role can only be set at genesis
         /// * `RoleAlreadyAssigned` - Account already has a role
         #[pallet::call_index(0)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(T::WeightInfo::assign_role())]
         pub fn assign_role(
             origin: OriginFor<T>,
             account: T::AccountId,
@@ -264,7 +272,7 @@ pub mod pallet {
         /// * `NoRoleToRevoke` - Account has no role
         /// * `CannotRevokeOwnRole` - Cannot revoke your own role
         #[pallet::call_index(1)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(T::WeightInfo::revoke_role())]
         pub fn revoke_role(origin: OriginFor<T>, account: T::AccountId) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
@@ -310,7 +318,7 @@ pub mod pallet {
         /// * `AccessAlreadyGranted` - Accessor already has active access
         /// * `TooManyAccesses` - Patient has maximum active accesses
         #[pallet::call_index(2)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(T::WeightInfo::grant_emergency_access())]
         pub fn grant_emergency_access(
             origin: OriginFor<T>,
             patient: T::AccountId,
@@ -371,7 +379,7 @@ pub mod pallet {
         /// * `AccessNotFound` - No active access found
         /// * `AlreadyRevoked` - Access already revoked
         #[pallet::call_index(3)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(T::WeightInfo::revoke_access())]
         pub fn revoke_access(
             origin: OriginFor<T>,
             patient: T::AccountId,
@@ -416,7 +424,7 @@ pub mod pallet {
         /// * `AccessNotFound` - No access record found
         /// * `AccessExpired` - Access hasn't expired yet (cannot clean)
         #[pallet::call_index(4)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(T::WeightInfo::cleanup_expired_access())]
         pub fn cleanup_expired_access(
             origin: OriginFor<T>,
             patient: T::AccountId,

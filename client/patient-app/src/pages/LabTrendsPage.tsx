@@ -13,8 +13,11 @@ import {
   Share2,
   Filter,
   BarChart3,
-  LineChart as LineChartIcon
+  LineChart as LineChartIcon,
+  Loader2
 } from 'lucide-react';
+import { getLabTrends } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 
 /**
  * LabTrendsPage
@@ -64,10 +67,97 @@ const LabTrendsPage: React.FC = () => {
   const [timeRange, setTimeRange] = useState<'3m' | '6m' | '1y' | '2y' | 'all'>('1y');
   const [labTrends, setLabTrends] = useState<LabTrend[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const { patient } = usePatientAuthStore();
 
   const categories = ['Metabolic Panel', 'Lipid Panel', 'CBC', 'Thyroid', 'Liver', 'Kidney'];
 
   useEffect(() => {
+    loadLabTrends();
+  }, [patient]);
+
+  const loadLabTrends = async () => {
+    setLoading(true);
+    
+    // Try to load from API first
+    if (patient?.walletAddress) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const response = await getLabTrends(patient.walletAddress) as any;
+        // API returns { success: true, trends: [...] }
+        if (response?.success && response?.trends && Array.isArray(response.trends) && response.trends.length > 0) {
+          // Transform API response to frontend format
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const transformed: LabTrend[] = response.trends.map((apiTrend: any) => {
+            // Map API data points to LabResult format
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const results: LabResult[] = (apiTrend.data_points || []).map((dp: any, idx: number) => {
+              const mapStatus = (status: string): ResultStatus => {
+                switch (status) {
+                  case 'CriticalLow': return 'critical-low';
+                  case 'CriticalHigh': return 'critical-high';
+                  case 'Low': return 'low';
+                  case 'High': return 'high';
+                  default: return 'normal';
+                }
+              };
+              return {
+                id: dp.result_id || `result-${idx}`,
+                testId: apiTrend.loinc_code,
+                value: dp.value,
+                date: new Date(dp.collected_at * 1000).toISOString().split('T')[0],
+                status: mapStatus(dp.status),
+                notes: dp.flag,
+                orderedBy: 'Provider',
+                lab: dp.performing_lab || 'Laboratory'
+              };
+            });
+
+            // Determine trend direction
+            const mapTrend = (direction: string): TrendDirection => {
+              if (direction === 'Increasing') return 'up';
+              if (direction === 'Decreasing') return 'down';
+              return 'stable';
+            };
+
+            // Create LabTest from API data
+            const test: LabTest = {
+              id: apiTrend.loinc_code,
+              name: apiTrend.test_name,
+              shortName: apiTrend.test_name.split(' ')[0],
+              category: 'General', // API doesn't provide category, default to General
+              unit: apiTrend.unit,
+              normalMin: apiTrend.reference_range?.low || 0,
+              normalMax: apiTrend.reference_range?.high || 100,
+              criticalMin: apiTrend.reference_range?.critical_low || 0,
+              criticalMax: apiTrend.reference_range?.critical_high || 999
+            };
+
+            const latestResult = results[0];
+            return {
+              test,
+              results,
+              trend: mapTrend(apiTrend.trend_analysis?.direction),
+              percentChange: apiTrend.trend_analysis?.percent_change || 0,
+              latestValue: latestResult?.value || 0,
+              latestStatus: latestResult?.status || 'normal'
+            };
+          });
+          setLabTrends(transformed);
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.warn('No lab trends from API, using demo data:', err);
+      }
+    }
+    
+    // Fallback to demo data
+    loadDemoData();
+    setLoading(false);
+  };
+
+  const loadDemoData = () => {
     // Sample lab tests and historical data
     const tests: LabTest[] = [
       { id: 'glucose', name: 'Glucose (Fasting)', shortName: 'Glucose', category: 'Metabolic Panel', unit: 'mg/dL', normalMin: 70, normalMax: 100, criticalMin: 50, criticalMax: 400 },
@@ -151,7 +241,7 @@ const LabTrendsPage: React.FC = () => {
     });
 
     setLabTrends(trends);
-  }, []);
+  };
 
   const getStatusColor = (status: ResultStatus) => {
     switch (status) {
@@ -291,6 +381,16 @@ const LabTrendsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Loading State */}
+      {loading && (
+        <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+            <span className="text-gray-600">Loading lab trends...</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">

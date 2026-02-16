@@ -3,6 +3,7 @@ import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { getPatients } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'combined';
 type ASAClass = '1' | '2' | '3' | '4' | '5' | '6' | '1E' | '2E' | '3E' | '4E' | '5E';
@@ -63,6 +64,7 @@ const complicationsList = [
 
 const AnesthesiaPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<AnesthesiaRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'record' | 'history'>('record');
@@ -108,7 +110,7 @@ const AnesthesiaPage: React.FC = () => {
 
   const addVital = () => {
     if (!newVital.time) {
-      alert('Please enter time');
+      showWarning('Please enter time');
       return;
     }
     setVitals([...vitals, { ...newVital }]);
@@ -117,7 +119,7 @@ const AnesthesiaPage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient) {
-      alert('Please select a patient');
+      showError('Please select a patient');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -133,7 +135,7 @@ const AnesthesiaPage: React.FC = () => {
       vitals, complications, notes
     };
     setRecords([record, ...records]);
-    alert('Anesthesia record saved!');
+    showSuccess('Anesthesia record saved!');
   };
 
   return (
@@ -176,8 +178,9 @@ const AnesthesiaPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="anes-patient" className="text-sm text-gray-600">Patient</label>
                   <select
+                    id="anes-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
@@ -189,8 +192,9 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Procedure</label>
+                  <label htmlFor="anes-procedure" className="text-sm text-gray-600">Procedure</label>
                   <input
+                    id="anes-procedure"
                     type="text"
                     value={procedure}
                     onChange={e => setProcedure(e.target.value)}
@@ -198,9 +202,8 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">ASA Class</label>
-                  <select
-                    value={asaClass}
+                  <label htmlFor="anes-asa-class" className="text-sm text-gray-600">ASA Class</label>
+                  <select                    id="anes-asa-class"                    value={asaClass}
                     onChange={e => setAsaClass(e.target.value as ASAClass)}
                     className="w-full border rounded p-2"
                   >
@@ -210,8 +213,9 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Anesthesia Type</label>
+                  <label htmlFor="anes-type" className="text-sm text-gray-600">Anesthesia Type</label>
                   <select
+                    id="anes-type"
                     value={anesthesiaType}
                     onChange={e => setAnesthesiaType(e.target.value as AnesthesiaType)}
                     className="w-full border rounded p-2"
@@ -233,8 +237,9 @@ const AnesthesiaPage: React.FC = () => {
               <h2 className="font-semibold mb-3">Airway Management</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Airway Type</label>
+                  <label htmlFor="anes-airway-type" className="text-sm text-gray-600">Airway Type</label>
                   <select
+                    id="anes-airway-type"
                     value={airwayType}
                     onChange={e => setAirwayType(e.target.value)}
                     className="w-full border rounded p-2"
@@ -243,8 +248,9 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Intubation Time</label>
+                  <label htmlFor="anes-intubation-time" className="text-sm text-gray-600">Intubation Time</label>
                   <input
+                    id="anes-intubation-time"
                     type="time"
                     value={intubationTime}
                     onChange={e => setIntubationTime(e.target.value)}
@@ -252,8 +258,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Extubation Time</label>
+                  <label htmlFor="anes-extubation-time" className="text-sm text-gray-600">Extubation Time</label>
                   <input
+                    id="anes-extubation-time"
                     type="time"
                     value={extubationTime}
                     onChange={e => setExtubationTime(e.target.value)}
@@ -270,8 +277,9 @@ const AnesthesiaPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Induction Agents</label>
+                  <label htmlFor="anes-induction-agents" className="text-sm text-gray-600">Induction Agents</label>
                   <input
+                    id="anes-induction-agents"
                     type="text"
                     value={inductionAgents}
                     onChange={e => setInductionAgents(e.target.value)}
@@ -280,8 +288,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Maintenance Agents</label>
+                  <label htmlFor="anes-maintenance-agents" className="text-sm text-gray-600">Maintenance Agents</label>
                   <input
+                    id="anes-maintenance-agents"
                     type="text"
                     value={maintenanceAgents}
                     onChange={e => setMaintenanceAgents(e.target.value)}
@@ -290,8 +299,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Analgesics</label>
+                  <label htmlFor="anes-analgesics" className="text-sm text-gray-600">Analgesics</label>
                   <input
+                    id="anes-analgesics"
                     type="text"
                     value={analgesics}
                     onChange={e => setAnalgesics(e.target.value)}
@@ -300,8 +310,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Muscle Relaxants</label>
+                  <label htmlFor="anes-relaxants" className="text-sm text-gray-600">Muscle Relaxants</label>
                   <input
+                    id="anes-relaxants"
                     type="text"
                     value={relaxants}
                     onChange={e => setRelaxants(e.target.value)}
@@ -310,8 +321,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Reversal Agents</label>
+                  <label htmlFor="anes-reversals" className="text-sm text-gray-600">Reversal Agents</label>
                   <input
+                    id="anes-reversals"
                     type="text"
                     value={reversals}
                     onChange={e => setReversals(e.target.value)}
@@ -320,8 +332,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Vasoactives</label>
+                  <label htmlFor="anes-vasoactives" className="text-sm text-gray-600">Vasoactives</label>
                   <input
+                    id="anes-vasoactives"
                     type="text"
                     value={vasoactives}
                     onChange={e => setVasoactives(e.target.value)}
@@ -330,8 +343,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Antiemetics</label>
+                  <label htmlFor="anes-antiemetics" className="text-sm text-gray-600">Antiemetics</label>
                   <input
+                    id="anes-antiemetics"
                     type="text"
                     value={antiemetics}
                     onChange={e => setAntiemetics(e.target.value)}
@@ -349,8 +363,9 @@ const AnesthesiaPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Crystalloids/Colloids</label>
+                  <label htmlFor="anes-fluids" className="text-sm text-gray-600">Crystalloids/Colloids</label>
                   <input
+                    id="anes-fluids"
                     type="text"
                     value={fluidsGiven}
                     onChange={e => setFluidsGiven(e.target.value)}
@@ -359,8 +374,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Blood Products</label>
+                  <label htmlFor="anes-blood-products" className="text-sm text-gray-600">Blood Products</label>
                   <input
+                    id="anes-blood-products"
                     type="text"
                     value={bloodProducts}
                     onChange={e => setBloodProducts(e.target.value)}
@@ -369,8 +385,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">EBL (mL)</label>
+                  <label htmlFor="anes-ebl" className="text-sm text-gray-600">EBL (mL)</label>
                   <input
+                    id="anes-ebl"
                     type="number"
                     value={ebl}
                     onChange={e => setEbl(Number(e.target.value))}
@@ -378,8 +395,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Urine Output (mL)</label>
+                  <label htmlFor="anes-urine-output" className="text-sm text-gray-600">Urine Output (mL)</label>
                   <input
+                    id="anes-urine-output"
                     type="number"
                     value={urineOutput}
                     onChange={e => setUrineOutput(Number(e.target.value))}
@@ -426,8 +444,9 @@ const AnesthesiaPage: React.FC = () => {
               )}
               <div className="grid grid-cols-8 gap-2 items-end">
                 <div>
-                  <label className="text-xs text-gray-600">Time</label>
+                  <label htmlFor="anes-vital-time" className="text-xs text-gray-600">Time</label>
                   <input
+                    id="anes-vital-time"
                     type="time"
                     value={newVital.time}
                     onChange={e => setNewVital({ ...newVital, time: e.target.value })}
@@ -435,8 +454,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">BP</label>
+                  <label htmlFor="anes-vital-bp" className="text-xs text-gray-600">BP</label>
                   <input
+                    id="anes-vital-bp"
                     type="text"
                     value={newVital.bp}
                     onChange={e => setNewVital({ ...newVital, bp: e.target.value })}
@@ -444,8 +464,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">HR</label>
+                  <label htmlFor="anes-vital-hr" className="text-xs text-gray-600">HR</label>
                   <input
+                    id="anes-vital-hr"
                     type="number"
                     value={newVital.hr}
                     onChange={e => setNewVital({ ...newVital, hr: Number(e.target.value) })}
@@ -453,8 +474,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">SpO2</label>
+                  <label htmlFor="anes-vital-spo2" className="text-xs text-gray-600">SpO2</label>
                   <input
+                    id="anes-vital-spo2"
                     type="number"
                     value={newVital.spo2}
                     onChange={e => setNewVital({ ...newVital, spo2: Number(e.target.value) })}
@@ -462,8 +484,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">EtCO2</label>
+                  <label htmlFor="anes-vital-etco2" className="text-xs text-gray-600">EtCO2</label>
                   <input
+                    id="anes-vital-etco2"
                     type="number"
                     value={newVital.etco2}
                     onChange={e => setNewVital({ ...newVital, etco2: Number(e.target.value) })}
@@ -471,8 +494,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">RR</label>
+                  <label htmlFor="anes-vital-rr" className="text-xs text-gray-600">RR</label>
                   <input
+                    id="anes-vital-rr"
                     type="number"
                     value={newVital.rr}
                     onChange={e => setNewVital({ ...newVital, rr: Number(e.target.value) })}
@@ -480,8 +504,9 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">FiO2%</label>
+                  <label htmlFor="anes-vital-fio2" className="text-xs text-gray-600">FiO2%</label>
                   <input
+                    id="anes-vital-fio2"
                     type="number"
                     value={newVital.fio2}
                     onChange={e => setNewVital({ ...newVital, fio2: Number(e.target.value) })}
@@ -519,8 +544,9 @@ const AnesthesiaPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Notes</h2>
+              <label htmlFor="anes-notes" className="font-semibold mb-3 block">Notes</label>
               <textarea
+                id="anes-notes"
                 value={notes}
                 onChange={e => setNotes2(e.target.value)}
                 className="w-full border rounded p-2 h-24"

@@ -103,11 +103,11 @@ function EmergencyProtocolsPage() {
     try {
       setLoading(true);
       const endpoints: Record<EmergencyType, string> = {
-        code_blue: `${apiUrl}/api/clinical/code-blue/${patientId}`,
-        trauma: `${apiUrl}/api/clinical/trauma/${patientId}`,
-        stroke: `${apiUrl}/api/clinical/stroke/${patientId}`,
-        cardiac: `${apiUrl}/api/clinical/cardiac-arrest/${patientId}`,
-        sepsis: `${apiUrl}/api/clinical/sepsis/${patientId}`,
+        code_blue: apiUrl(`/api/clinical/code-blue/${patientId}`),
+        trauma: apiUrl(`/api/clinical/trauma/${patientId}`),
+        stroke: apiUrl(`/api/clinical/stroke/${patientId}`),
+        cardiac: apiUrl(`/api/clinical/cardiac-arrest/${patientId}`),
+        sepsis: apiUrl(`/api/clinical/sepsis/${patientId}`),
       };
 
       const response = await fetch(endpoints[activeTab], {

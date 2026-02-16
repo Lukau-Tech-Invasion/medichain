@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createMar, getPatients } from '@medichain/shared';
+import { createMar, getPatients, getMar } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Pill,
@@ -130,8 +130,58 @@ export default function MARPage() {
     fetchData();
   }, [searchParams]);
 
-  const loadMedicationsForPatient = (_patientId: string) => {
-    // Simulate loading medications for demo
+  const loadMedicationsForPatient = async (patientId: string) => {
+    // Try to load medications from API first
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const marData = await getMar(patientId, today) as { entries?: MedicationOrder[] };
+      
+      if (marData && marData.entries && marData.entries.length > 0) {
+        // Use real API data
+        const orders: MedicationOrder[] = marData.entries.map((entry: MedicationOrder) => ({
+          id: entry.id || `MO-${Math.random().toString(36).substr(2, 9)}`,
+          medicationName: entry.medicationName,
+          dose: entry.dose,
+          route: (entry.route || 'PO') as MedicationRoute,
+          frequency: entry.frequency || 'Daily',
+          startDate: entry.startDate || today,
+          orderedBy: entry.orderedBy || 'Unknown',
+          prn: entry.prn || false,
+          highAlert: entry.highAlert || false,
+          instructions: entry.instructions,
+        }));
+        
+        setMedicationOrders(orders);
+        
+        // Generate scheduled medications for the day
+        const scheduled: ScheduledMedication[] = [];
+        orders.forEach(order => {
+          if (!order.prn) {
+            const times = getScheduledTimes(order.frequency);
+            times.forEach(time => {
+              scheduled.push({
+                id: `${order.id}-${time}`,
+                medicationName: order.medicationName,
+                dose: order.dose,
+                route: order.route,
+                frequency: order.frequency,
+                scheduledTime: time,
+                status: 'scheduled',
+                prn: false,
+                highAlert: order.highAlert
+              });
+            });
+          }
+        });
+        
+        setScheduledMeds(scheduled);
+        return;
+      }
+    } catch (err) {
+      console.warn('No MAR data from API, using demo data:', err);
+    }
+    
+    // Fallback to demo data if API returns nothing
     const sampleOrders: MedicationOrder[] = [
       {
         id: 'MO-001',
@@ -690,8 +740,9 @@ export default function MARPage() {
 
                 {adminForm.status === 'given' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Time Administered</label>
+                    <label htmlFor="mar-time-administered" className="block text-sm font-medium text-gray-700 mb-1">Time Administered</label>
                     <input
+                      id="mar-time-administered"
                       type="time"
                       value={adminForm.administeredTime}
                       onChange={(e) => setAdminForm({ ...adminForm, administeredTime: e.target.value })}
@@ -702,8 +753,9 @@ export default function MARPage() {
 
                 {adminForm.status === 'held' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Hold Reason</label>
+                    <label htmlFor="mar-hold-reason" className="block text-sm font-medium text-gray-700 mb-1">Hold Reason</label>
                     <select
+                      id="mar-hold-reason"
                       value={adminForm.holdReason}
                       onChange={(e) => setAdminForm({ ...adminForm, holdReason: e.target.value })}
                       className="w-full p-2 border border-gray-300 rounded-lg"
@@ -722,8 +774,9 @@ export default function MARPage() {
 
                 {selectedMed.prn && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">PRN Reason</label>
+                    <label htmlFor="mar-prn-reason" className="block text-sm font-medium text-gray-700 mb-1">PRN Reason</label>
                     <input
+                      id="mar-prn-reason"
                       type="text"
                       value={adminForm.prnReason}
                       onChange={(e) => setAdminForm({ ...adminForm, prnReason: e.target.value })}
@@ -734,8 +787,9 @@ export default function MARPage() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                  <label htmlFor="mar-notes" className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                   <textarea
+                    id="mar-notes"
                     value={adminForm.notes}
                     onChange={(e) => setAdminForm({ ...adminForm, notes: e.target.value })}
                     rows={2}

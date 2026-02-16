@@ -4,14 +4,19 @@ import {
   Search,
   User,
   Clock,
-  Edit
+  Edit,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * ProgressNotePage
  * 
  * Page for writing and viewing clinical progress notes.
  * Implements progress note list, note editor, and patient timeline.
+ * Data is fetched from the real API - no mock/seed data.
  */
 
 type NoteType = 'daily' | 'admission' | 'discharge' | 'procedure' | 'consultation' | 'transfer';
@@ -37,70 +42,65 @@ interface ProgressNote {
 }
 
 const ProgressNotePage: React.FC = () => {
+  const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'notes' | 'new' | 'timeline'>('notes');
   const [notes, setNotes] = useState<ProgressNote[]>([]);
   const [selectedNote, setSelectedNote] = useState<ProgressNote | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<NoteType | 'all'>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const now = new Date();
-    const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000);
-
-    setNotes([
-      {
-        id: 'PN-001',
-        patientId: 'PAT-001',
-        patientName: 'Abdullah Al-Mansouri',
-        mrn: '123456',
-        noteType: 'daily',
-        status: 'signed',
-        author: 'Dr. Khalid Rahman',
-        authorRole: 'Attending Physician',
-        createdAt: hoursAgo(4),
-        updatedAt: hoursAgo(4),
-        signedAt: hoursAgo(3),
-        subjective: 'Patient reports improvement in chest pain. Pain now 3/10, down from 7/10 yesterday. Able to sleep through the night without discomfort.',
-        objective: 'VS: BP 132/78, HR 72, RR 16, SpO2 98% RA. Cardiac: RRR, no murmurs. Lungs: CTA bilaterally. Abd: Soft, non-tender.',
-        assessment: '1. Acute coronary syndrome, improving\n2. Hypertension, controlled\n3. Type 2 DM, stable on current regimen',
-        plan: '1. Continue current cardiac medications\n2. Repeat troponins in AM\n3. Cardiology to evaluate for cath\n4. Continue telemetry monitoring'
-      },
-      {
-        id: 'PN-002',
-        patientId: 'PAT-002',
-        patientName: 'Fatima Hassan',
-        mrn: '234567',
-        noteType: 'admission',
-        status: 'draft',
-        author: 'Dr. Sarah Ahmed',
-        authorRole: 'Resident',
-        createdAt: hoursAgo(1),
-        updatedAt: hoursAgo(0.5),
-        subjective: 'Patient presents with 2-day history of fever, productive cough with yellow sputum, and shortness of breath. Denies chest pain, hemoptysis.',
-        objective: 'VS: T 38.9°C, BP 118/72, HR 98, RR 22, SpO2 92% RA. Lungs: Decreased breath sounds RLL with crackles. Cardiac: Tachycardic, regular rhythm.',
-        assessment: '1. Community-acquired pneumonia, likely bacterial\n2. Acute hypoxic respiratory failure\n3. Dehydration',
-        plan: '1. Start IV antibiotics (Ceftriaxone + Azithromycin)\n2. O2 supplementation to maintain SpO2 > 94%\n3. IV fluids\n4. Chest X-ray\n5. Blood cultures x2'
-      },
-      {
-        id: 'PN-003',
-        patientId: 'PAT-003',
-        patientName: 'Omar Khalil',
-        mrn: '345678',
-        noteType: 'procedure',
-        status: 'cosigned',
-        author: 'Dr. Yusuf Nasser',
-        authorRole: 'Interventional Cardiologist',
-        createdAt: hoursAgo(6),
-        updatedAt: hoursAgo(5),
-        signedAt: hoursAgo(5),
-        cosigner: 'Dr. Khalid Rahman',
-        subjective: 'Patient underwent planned cardiac catheterization for evaluation of chest pain and positive stress test.',
-        objective: 'Procedure: Cardiac catheterization via right radial artery approach. Findings: 70% stenosis of LAD, 50% stenosis of RCA. No significant disease in LCx. LV EF 55%.',
-        assessment: 'Significant single vessel CAD with LAD stenosis amenable to PCI',
-        plan: '1. PCI to LAD with DES planned for tomorrow\n2. Continue dual antiplatelet therapy\n3. Radial band removal in 2 hours\n4. NPO after midnight for procedure'
+    const fetchNotes = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const response = await fetch(apiUrl('/api/clinical/progress-notes'), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          // Transform API response to match ProgressNote interface
+          const transformedNotes: ProgressNote[] = (data.notes || []).map((note: Record<string, unknown>) => ({
+            id: note.note_id || note.id,
+            patientId: note.patient_id,
+            patientName: note.patient_name || 'Unknown Patient',
+            mrn: note.mrn || '',
+            noteType: (note.note_type || 'daily') as NoteType,
+            status: (note.status || 'draft') as NoteStatus,
+            author: note.author || note.created_by || '',
+            authorRole: note.author_role || 'Physician',
+            createdAt: new Date(note.created_at as string || Date.now()),
+            updatedAt: new Date(note.updated_at as string || Date.now()),
+            subjective: note.subjective as string || '',
+            objective: note.objective as string || '',
+            assessment: note.assessment as string || '',
+            plan: note.plan as string || '',
+            signedAt: note.signed_at ? new Date(note.signed_at as string) : undefined,
+            cosigner: note.cosigner as string | undefined,
+          }));
+          setNotes(transformedNotes);
+        } else {
+          setError('Failed to fetch progress notes');
+        }
+      } catch (err) {
+        setError('Cannot connect to API. Make sure the backend is running.');
+      } finally {
+        setLoading(false);
       }
-    ]);
-  }, []);
+    };
+
+    fetchNotes();
+  }, [user]);
 
   const getNoteTypeColor = (type: NoteType): string => {
     const colors: Record<NoteType, string> = {
@@ -147,21 +147,43 @@ const ProgressNotePage: React.FC = () => {
         <p className="text-indigo-100">Clinical documentation and patient timeline</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{notes.length}</p>
-          <p className="text-xs text-gray-500">Total Notes</p>
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading progress notes...</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-yellow-600">{notes.filter(n => n.status === 'draft').length}</p>
-          <p className="text-xs text-gray-500">Drafts</p>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+          </div>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-green-600">{notes.filter(n => n.status === 'signed' || n.status === 'cosigned').length}</p>
-          <p className="text-xs text-gray-500">Signed</p>
-        </div>
-      </div>
+      )}
+
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-gray-800">{notes.length}</p>
+              <p className="text-xs text-gray-500">Total Notes</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-yellow-600">{notes.filter(n => n.status === 'draft').length}</p>
+              <p className="text-xs text-gray-500">Drafts</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-green-600">{notes.filter(n => n.status === 'signed' || n.status === 'cosigned').length}</p>
+              <p className="text-xs text-gray-500">Signed</p>
+            </div>
+          </div>
 
       {/* Tabs */}
       <div className="bg-white border-b">
@@ -257,8 +279,8 @@ const ProgressNotePage: React.FC = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Patient *</label>
-                  <select className="w-full border rounded-lg px-3 py-2">
+                  <label htmlFor="progress-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                  <select id="progress-patient" className="w-full border rounded-lg px-3 py-2">
                     <option value="">Select patient...</option>
                     {notes.map(n => (
                       <option key={n.patientId} value={n.patientId}>{n.patientName}</option>
@@ -266,8 +288,8 @@ const ProgressNotePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Note Type *</label>
-                  <select className="w-full border rounded-lg px-3 py-2">
+                  <label htmlFor="progress-note-type" className="block text-sm font-medium mb-1">Note Type *</label>
+                  <select id="progress-note-type" className="w-full border rounded-lg px-3 py-2">
                     <option value="daily">Daily Progress</option>
                     <option value="admission">Admission</option>
                     <option value="discharge">Discharge</option>
@@ -279,8 +301,9 @@ const ProgressNotePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Subjective *</label>
+                <label htmlFor="progress-subjective" className="block text-sm font-medium mb-1">Subjective *</label>
                 <textarea
+                  id="progress-subjective"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
                   placeholder="Patient's complaints, symptoms, history..."
@@ -288,8 +311,9 @@ const ProgressNotePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Objective *</label>
+                <label htmlFor="progress-objective" className="block text-sm font-medium mb-1">Objective *</label>
                 <textarea
+                  id="progress-objective"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
                   placeholder="Vital signs, physical exam findings, lab results..."
@@ -297,8 +321,9 @@ const ProgressNotePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Assessment *</label>
+                <label htmlFor="progress-assessment" className="block text-sm font-medium mb-1">Assessment *</label>
                 <textarea
+                  id="progress-assessment"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={2}
                   placeholder="Diagnoses, clinical impression..."
@@ -306,8 +331,9 @@ const ProgressNotePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Plan *</label>
+                <label htmlFor="progress-plan" className="block text-sm font-medium mb-1">Plan *</label>
                 <textarea
+                  id="progress-plan"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
                   placeholder="Treatment plan, orders, follow-up..."
@@ -355,6 +381,8 @@ const ProgressNotePage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Note Detail Modal */}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getPatients, listConsults } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -79,6 +80,7 @@ interface Consult {
 
 const ConsultPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [consults, setConsults] = useState<Consult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -139,7 +141,7 @@ const ConsultPage: React.FC = () => {
 
   const handleRequestConsult = () => {
     if (!newConsult.patientId || !newConsult.reason || !newConsult.clinicalQuestion) {
-      alert('Please fill in required fields');
+      showWarning('Please fill in required fields');
       return;
     }
 
@@ -180,12 +182,12 @@ const ConsultPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    alert(`Consult ${consult.consultId} requested successfully`);
+    showSuccess(`Consult ${consult.consultId} requested successfully`);
   };
 
   const handleRespondToConsult = () => {
     if (!selectedConsult || !consultResponse.assessment || !consultResponse.recommendations) {
-      alert('Please fill in required response fields');
+      showWarning('Please fill in required response fields');
       return;
     }
 
@@ -214,7 +216,7 @@ const ConsultPage: React.FC = () => {
       followUp: '',
     });
     setSelectedConsult('');
-    alert('Consult response submitted successfully');
+    showSuccess('Consult response submitted successfully');
   };
 
   const getStatusBadge = (status: ConsultStatus) => {
@@ -329,10 +331,11 @@ const ConsultPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="consult-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="consult-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -342,8 +345,9 @@ const ConsultPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="consult-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
                 <select
+                  id="consult-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as ConsultStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -358,8 +362,9 @@ const ConsultPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Specialty</label>
+                <label htmlFor="consult-specialty-filter" className="block text-sm font-semibold text-gray-700 mb-2">Specialty</label>
                 <select
+                  id="consult-specialty-filter"
                   value={specialtyFilter}
                   onChange={(e) => setSpecialtyFilter(e.target.value as ConsultSpecialty | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -565,10 +570,11 @@ const ConsultPage: React.FC = () => {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="consult-assessment" className="block text-sm font-semibold text-gray-700 mb-2">
                     Assessment <span className="text-red-600">*</span>
                   </label>
                   <textarea
+                    id="consult-assessment"
                     value={consultResponse.assessment}
                     onChange={(e) => setConsultResponse({ ...consultResponse, assessment: e.target.value })}
                     placeholder="Your clinical assessment of the patient..."
@@ -578,10 +584,11 @@ const ConsultPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="consult-recommendations" className="block text-sm font-semibold text-gray-700 mb-2">
                     Recommendations <span className="text-red-600">*</span>
                   </label>
                   <textarea
+                    id="consult-recommendations"
                     value={consultResponse.recommendations}
                     onChange={(e) => setConsultResponse({ ...consultResponse, recommendations: e.target.value })}
                     placeholder="Numbered recommendations (e.g., 1. Start medication X, 2. Order test Y...)"
@@ -591,8 +598,9 @@ const ConsultPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Follow-Up Plan</label>
+                  <label htmlFor="consult-follow-up" className="block text-sm font-semibold text-gray-700 mb-2">Follow-Up Plan</label>
                   <textarea
+                    id="consult-follow-up"
                     value={consultResponse.followUp}
                     onChange={(e) => setConsultResponse({ ...consultResponse, followUp: e.target.value })}
                     placeholder="Follow-up instructions, when to call back, etc."
@@ -635,10 +643,11 @@ const ConsultPage: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="consult-patient" className="block text-sm font-semibold text-gray-700 mb-2">
                   Patient <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="consult-patient"
                   value={newConsult.patientId}
                   onChange={(e) => setNewConsult({ ...newConsult, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -653,10 +662,11 @@ const ConsultPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="consult-specialty" className="block text-sm font-semibold text-gray-700 mb-2">
                   Specialty <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="consult-specialty"
                   value={newConsult.specialty}
                   onChange={(e) => setNewConsult({ ...newConsult, specialty: e.target.value as ConsultSpecialty })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -688,10 +698,11 @@ const ConsultPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="consult-urgency" className="block text-sm font-semibold text-gray-700 mb-2">
                   Urgency <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="consult-urgency"
                   value={newConsult.urgency}
                   onChange={(e) => setNewConsult({ ...newConsult, urgency: e.target.value as ConsultUrgency })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -705,10 +716,11 @@ const ConsultPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label htmlFor="consult-reason" className="block text-sm font-semibold text-gray-700 mb-2">
                 Reason for Consult <span className="text-red-600">*</span>
               </label>
               <input
+                id="consult-reason"
                 type="text"
                 value={newConsult.reason}
                 onChange={(e) => setNewConsult({ ...newConsult, reason: e.target.value })}
@@ -718,10 +730,11 @@ const ConsultPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label htmlFor="consult-clinical-question" className="block text-sm font-semibold text-gray-700 mb-2">
                 Clinical Question <span className="text-red-600">*</span>
               </label>
               <textarea
+                id="consult-clinical-question"
                 value={newConsult.clinicalQuestion}
                 onChange={(e) => setNewConsult({ ...newConsult, clinicalQuestion: e.target.value })}
                 placeholder="Specific question for consultant (e.g., Rule out ACS, need cath recommendation...)"
@@ -731,8 +744,9 @@ const ConsultPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Relevant History</label>
+              <label htmlFor="consult-relevant-history" className="block text-sm font-semibold text-gray-700 mb-2">Relevant History</label>
               <textarea
+                id="consult-relevant-history"
                 value={newConsult.relevantHistory}
                 onChange={(e) => setNewConsult({ ...newConsult, relevantHistory: e.target.value })}
                 placeholder="Pertinent PMH, risk factors, etc."
@@ -743,8 +757,9 @@ const ConsultPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Current Medications</label>
+                <label htmlFor="consult-current-medications" className="block text-sm font-semibold text-gray-700 mb-2">Current Medications</label>
                 <textarea
+                  id="consult-current-medications"
                   value={newConsult.currentMedications}
                   onChange={(e) => setNewConsult({ ...newConsult, currentMedications: e.target.value })}
                   placeholder="List current medications"
@@ -754,8 +769,9 @@ const ConsultPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Vital Signs</label>
+                <label htmlFor="consult-vital-signs" className="block text-sm font-semibold text-gray-700 mb-2">Vital Signs</label>
                 <textarea
+                  id="consult-vital-signs"
                   value={newConsult.vitalSigns}
                   onChange={(e) => setNewConsult({ ...newConsult, vitalSigns: e.target.value })}
                   placeholder="BP, HR, RR, SpO2, Temp"
@@ -765,8 +781,9 @@ const ConsultPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Laboratory Results</label>
+                <label htmlFor="consult-lab-results" className="block text-sm font-semibold text-gray-700 mb-2">Laboratory Results</label>
                 <textarea
+                  id="consult-lab-results"
                   value={newConsult.labResults}
                   onChange={(e) => setNewConsult({ ...newConsult, labResults: e.target.value })}
                   placeholder="Pertinent lab values"
@@ -776,8 +793,9 @@ const ConsultPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Imaging Results</label>
+                <label htmlFor="consult-imaging-results" className="block text-sm font-semibold text-gray-700 mb-2">Imaging Results</label>
                 <textarea
+                  id="consult-imaging-results"
                   value={newConsult.imagingResults}
                   onChange={(e) => setNewConsult({ ...newConsult, imagingResults: e.target.value })}
                   placeholder="X-ray, CT, MRI, etc."
@@ -788,8 +806,9 @@ const ConsultPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Additional Notes</label>
+              <label htmlFor="consult-additional-notes" className="block text-sm font-semibold text-gray-700 mb-2">Additional Notes</label>
               <textarea
+                id="consult-additional-notes"
                 value={newConsult.notes}
                 onChange={(e) => setNewConsult({ ...newConsult, notes: e.target.value })}
                 placeholder="Any other relevant information..."

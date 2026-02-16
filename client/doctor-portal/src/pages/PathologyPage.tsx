@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import { getPatients, listPathology, createPathology } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
@@ -49,6 +50,7 @@ interface PathologySpecimen {
 
 const PathologyPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [specimens, setSpecimens] = useState<PathologySpecimen[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -115,7 +117,7 @@ const PathologyPage: React.FC = () => {
   const handleSubmitOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !collectionDate || !site || !clinician) {
-      alert('Please fill in all required fields');
+      showWarning('Please fill in all required fields');
       return;
     }
 
@@ -143,7 +145,7 @@ const PathologyPage: React.FC = () => {
     };
 
     setSpecimens([...specimens, newSpecimen]);
-    alert(`Pathology specimen ${newSpecimen.specimenId} submitted successfully`);
+    showSuccess(`Pathology specimen ${newSpecimen.specimenId} submitted successfully`);
 
     // Reset form
     setSelectedPatientId('');
@@ -180,11 +182,11 @@ const PathologyPage: React.FC = () => {
 
     if (finalizeReport) {
       if (!diagnosis || !microscopicDescription) {
-        alert('Diagnosis and microscopic description are required to finalize report');
+        showWarning('Diagnosis and microscopic description are required to finalize report');
         return;
       }
       if (isCritical && !communicatedTo) {
-        alert('Critical findings must be communicated before finalizing');
+        showWarning('Critical findings must be communicated before finalizing');
         return;
       }
     }
@@ -207,7 +209,7 @@ const PathologyPage: React.FC = () => {
     };
 
     setSpecimens(specimens.map(s => s.specimenId === selectedSpecimen.specimenId ? updatedSpecimen : s));
-    alert(`Report ${finalizeReport ? 'finalized' : 'saved as preliminary'} successfully`);
+    showSuccess(`Report ${finalizeReport ? 'finalized' : 'saved as preliminary'} successfully`);
     setActiveTab('worklist');
     setSelectedSpecimen(null);
   };
@@ -343,11 +345,12 @@ const PathologyPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-4 mb-4">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="path-search" className="block text-sm font-medium text-gray-700 mb-1">
                   <Search className="inline h-4 w-4 mr-1" />
                   Search
                 </label>
                 <input
+                  id="path-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -356,8 +359,9 @@ const PathologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <label htmlFor="path-status-filter" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select
+                  id="path-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -371,8 +375,9 @@ const PathologyPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <label htmlFor="path-type-filter" className="block text-sm font-medium text-gray-700 mb-1">Type</label>
                 <select
+                  id="path-type-filter"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -474,10 +479,11 @@ const PathologyPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Patient Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="path-patient" className="block text-sm font-medium text-gray-700 mb-1">
                   Patient <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="path-patient"
                   value={selectedPatientId}
                   onChange={(e) => setSelectedPatientId(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -494,10 +500,11 @@ const PathologyPage: React.FC = () => {
 
               {/* Specimen Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="path-specimen-type" className="block text-sm font-medium text-gray-700 mb-1">
                   Specimen Type <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="path-specimen-type"
                   value={specimenType}
                   onChange={(e) => setSpecimenType(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -513,10 +520,11 @@ const PathologyPage: React.FC = () => {
 
               {/* Collection Date/Time */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="path-collection-date" className="block text-sm font-medium text-gray-700 mb-1">
                   Collection Date <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="path-collection-date"
                   type="date"
                   value={collectionDate}
                   onChange={(e) => setCollectionDate(e.target.value)}
@@ -526,8 +534,9 @@ const PathologyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Collection Time</label>
+                <label htmlFor="path-collection-time" className="block text-sm font-medium text-gray-700 mb-1">Collection Time</label>
                 <input
+                  id="path-collection-time"
                   type="time"
                   value={collectionTime}
                   onChange={(e) => setCollectionTime(e.target.value)}
@@ -537,10 +546,11 @@ const PathologyPage: React.FC = () => {
 
               {/* Anatomical Site */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="path-site" className="block text-sm font-medium text-gray-700 mb-1">
                   Anatomical Site <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="path-site"
                   type="text"
                   value={site}
                   onChange={(e) => setSite(e.target.value)}
@@ -552,8 +562,9 @@ const PathologyPage: React.FC = () => {
 
               {/* Laterality */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Laterality</label>
+                <label htmlFor="path-laterality" className="block text-sm font-medium text-gray-700 mb-1">Laterality</label>
                 <select
+                  id="path-laterality"
                   value={laterality}
                   onChange={(e) => setLaterality(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -567,10 +578,11 @@ const PathologyPage: React.FC = () => {
 
               {/* Clinician */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="path-clinician" className="block text-sm font-medium text-gray-700 mb-1">
                   Ordering Clinician <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="path-clinician"
                   type="text"
                   value={clinician}
                   onChange={(e) => setClinician(e.target.value)}
@@ -582,8 +594,9 @@ const PathologyPage: React.FC = () => {
 
               {/* Priority */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                <label htmlFor="path-priority" className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
                 <select
+                  id="path-priority"
                   value={priority}
                   onChange={(e) => setPriority(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -596,8 +609,9 @@ const PathologyPage: React.FC = () => {
 
               {/* Container */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Container Type</label>
+                <label htmlFor="path-container" className="block text-sm font-medium text-gray-700 mb-1">Container Type</label>
                 <input
+                  id="path-container"
                   type="text"
                   value={container}
                   onChange={(e) => setContainer(e.target.value)}
@@ -608,8 +622,9 @@ const PathologyPage: React.FC = () => {
 
               {/* Fixative */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Fixative</label>
+                <label htmlFor="path-fixative" className="block text-sm font-medium text-gray-700 mb-1">Fixative</label>
                 <select
+                  id="path-fixative"
                   value={fixative}
                   onChange={(e) => setFixative(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -624,8 +639,9 @@ const PathologyPage: React.FC = () => {
 
               {/* Clinical History */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Clinical History</label>
+                <label htmlFor="path-clinical-history" className="block text-sm font-medium text-gray-700 mb-1">Clinical History</label>
                 <textarea
+                  id="path-clinical-history"
                   value={clinicalHistory}
                   onChange={(e) => setClinicalHistory(e.target.value)}
                   rows={3}
@@ -636,8 +652,9 @@ const PathologyPage: React.FC = () => {
 
               {/* Clinical Diagnosis */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Clinical Diagnosis</label>
+                <label htmlFor="path-clinical-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">Clinical Diagnosis</label>
                 <input
+                  id="path-clinical-diagnosis"
                   type="text"
                   value={clinicalDiagnosis}
                   onChange={(e) => setClinicalDiagnosis(e.target.value)}
@@ -744,8 +761,10 @@ const PathologyPage: React.FC = () => {
 
           {/* Gross Examination */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-bold mb-3">Gross Examination</h3>
+            <h3 id="path-gross-examination-heading" className="text-lg font-bold mb-3">Gross Examination</h3>
             <textarea
+              id="path-gross-description"
+              aria-labelledby="path-gross-examination-heading"
               value={grossDescription}
               onChange={(e) => setGrossDescription(e.target.value)}
               rows={6}
@@ -760,9 +779,10 @@ const PathologyPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Blocks */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tissue Blocks</label>
+                <label htmlFor="path-new-block" className="block text-sm font-medium text-gray-700 mb-2">Tissue Blocks</label>
                 <div className="flex space-x-2 mb-2">
                   <input
+                    id="path-new-block"
                     type="text"
                     value={newBlock}
                     onChange={(e) => setNewBlock(e.target.value)}
@@ -788,9 +808,10 @@ const PathologyPage: React.FC = () => {
 
               {/* Slides */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Slides</label>
+                <label htmlFor="path-new-slide" className="block text-sm font-medium text-gray-700 mb-2">Slides</label>
                 <div className="flex space-x-2 mb-2">
                   <input
+                    id="path-new-slide"
                     type="text"
                     value={newSlide}
                     onChange={(e) => setNewSlide(e.target.value)}
@@ -822,8 +843,8 @@ const PathologyPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Special Stains */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Special Stains</label>
-                <div className="space-y-2">
+                <label id="path-special-stains-label" className="block text-sm font-medium text-gray-700 mb-2">Special Stains</label>
+                <div className="space-y-2" role="group" aria-labelledby="path-special-stains-label">
                   {['PAS', 'PAS-D', 'Mucicarmine', 'Trichrome', 'Reticulin', 'Iron', 'Congo Red', 'AFB', 'GMS'].map((stain) => (
                     <label key={stain} className="flex items-center">
                       <input
@@ -840,8 +861,8 @@ const PathologyPage: React.FC = () => {
 
               {/* IHC Markers */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Immunohistochemistry (IHC)</label>
-                <div className="space-y-2">
+                <label id="path-ihc-markers-label" className="block text-sm font-medium text-gray-700 mb-2">Immunohistochemistry (IHC)</label>
+                <div className="space-y-2" role="group" aria-labelledby="path-ihc-markers-label">
                   {['CK7', 'CK20', 'ER', 'PR', 'HER2', 'Ki-67', 'CD20', 'CD3', 'CD45', 'S100', 'HMB45', 'Desmin'].map((marker) => (
                     <label key={marker} className="flex items-center">
                       <input
@@ -860,8 +881,10 @@ const PathologyPage: React.FC = () => {
 
           {/* Microscopic Examination */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-bold mb-3">Microscopic Examination</h3>
+            <h3 id="path-microscopic-examination-heading" className="text-lg font-bold mb-3">Microscopic Examination</h3>
             <textarea
+              id="path-microscopic-description"
+              aria-labelledby="path-microscopic-examination-heading"
               value={microscopicDescription}
               onChange={(e) => setMicroscopicDescription(e.target.value)}
               rows={8}
@@ -872,8 +895,10 @@ const PathologyPage: React.FC = () => {
 
           {/* Diagnosis */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-bold mb-3">Diagnosis</h3>
+            <h3 id="path-diagnosis-heading" className="text-lg font-bold mb-3">Diagnosis</h3>
             <textarea
+              id="path-diagnosis"
+              aria-labelledby="path-diagnosis-heading"
               value={diagnosis}
               onChange={(e) => setDiagnosis(e.target.value)}
               rows={4}
@@ -883,8 +908,9 @@ const PathologyPage: React.FC = () => {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">SNOMED Code</label>
+                <label htmlFor="path-snomed-code" className="block text-sm font-medium text-gray-700 mb-1">SNOMED Code</label>
                 <input
+                  id="path-snomed-code"
                   type="text"
                   value={snomedCode}
                   onChange={(e) => setSnomedCode(e.target.value)}
@@ -912,10 +938,11 @@ const PathologyPage: React.FC = () => {
             </div>
             {isCritical && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="path-communicated-to" className="block text-sm font-medium text-gray-700 mb-1">
                   Communicated To <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="path-communicated-to"
                   type="text"
                   value={communicatedTo}
                   onChange={(e) => setCommunicatedTo(e.target.value)}

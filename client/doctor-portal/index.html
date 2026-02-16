@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="MediChain Doctor Portal - Secure Emergency Medical Records Access" />
     <meta name="theme-color" content="#0ea5e9" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="MediChain" />
@@ -19,13 +20,57 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <!-- Service Worker Registration -->
+    <!-- Service Worker Registration with Force Update -->
     <script>
+      // Force clear old caches and localStorage on version mismatch
+      const APP_VERSION = 'v3';
+      const storedVersion = localStorage.getItem('medichain_app_version');
+      
+      if (storedVersion !== APP_VERSION) {
+        console.log('[MediChain] New version detected, clearing all caches...');
+        // Clear all localStorage except the version marker
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('medichain')) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+        
+        // Clear all caches
+        if ('caches' in window) {
+          caches.keys().then(names => {
+            names.forEach(name => {
+              console.log('[MediChain] Deleting cache:', name);
+              caches.delete(name);
+            });
+          });
+        }
+        
+        // Unregister old service workers
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(registrations => {
+            registrations.forEach(reg => {
+              console.log('[MediChain] Unregistering old SW:', reg.scope);
+              reg.unregister();
+            });
+          });
+        }
+        
+        localStorage.setItem('medichain_app_version', APP_VERSION);
+        // Reload to get fresh content
+        setTimeout(() => location.reload(), 100);
+      }
+      
+      // Register service worker
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
+          navigator.serviceWorker.register('/sw.js?v=' + APP_VERSION)
             .then(registration => {
               console.log('SW registered:', registration.scope);
+              // Check for updates
+              registration.update();
             })
             .catch(error => {
               console.log('SW registration failed:', error);

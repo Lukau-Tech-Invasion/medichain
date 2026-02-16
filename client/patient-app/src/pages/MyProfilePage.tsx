@@ -399,9 +399,10 @@ export function MyProfilePage() {
             <h3 className="font-medium text-neutral-900 mb-4">Add Emergency Contact</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Full Name *</label>
+                <label htmlFor="emergency-contact-name" className="block text-sm font-medium text-neutral-700 mb-1">Full Name *</label>
                 <input
                   type="text"
+                  id="emergency-contact-name"
                   value={newContact.name}
                   onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
                   className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
@@ -409,9 +410,10 @@ export function MyProfilePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Phone Number *</label>
+                <label htmlFor="emergency-contact-phone" className="block text-sm font-medium text-neutral-700 mb-1">Phone Number *</label>
                 <input
                   type="tel"
+                  id="emergency-contact-phone"
                   value={newContact.phone}
                   onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
                   className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
@@ -419,8 +421,9 @@ export function MyProfilePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-neutral-700 mb-1">Relationship *</label>
+                <label htmlFor="emergency-contact-relationship" className="block text-sm font-medium text-neutral-700 mb-1">Relationship *</label>
                 <select
+                  id="emergency-contact-relationship"
                   value={newContact.relationship}
                   onChange={(e) => setNewContact({ ...newContact, relationship: e.target.value })}
                   className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"

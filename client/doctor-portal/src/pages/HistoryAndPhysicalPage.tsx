@@ -19,8 +19,12 @@ import {
   CheckCircle,
   History,
   Scale,
-  Thermometer
+  Thermometer,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * HistoryAndPhysicalPage
@@ -83,6 +87,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
   const [selectedRecord, setSelectedRecord] = useState<HistoryAndPhysical | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['chief-complaint', 'vitals']));
   const [currentSection, setCurrentSection] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuthStore();
 
   // Form state
   const [formData, setFormData] = useState({
@@ -125,157 +132,45 @@ const HistoryAndPhysicalPage: React.FC = () => {
   ];
 
   useEffect(() => {
-    // Sample H&P records
-    setHpRecords([
-      {
-        id: 'HP-2024-00156',
-        patientId: 'PAT-12345',
-        patientName: 'Ahmed Al-Rashid',
-        mrn: '789012',
-        dateOfExam: new Date('2024-01-15'),
-        examType: 'admission',
-        chiefComplaint: 'Chest pain for 2 hours',
-        historyOfPresentIllness: 'Patient is a 58-year-old male presenting with substernal chest pain that started 2 hours ago while at rest. Pain is described as pressure-like, 7/10 in severity, radiating to left arm. Associated with diaphoresis and mild shortness of breath. Denies nausea or vomiting.',
-        pastMedicalHistory: ['Hypertension', 'Type 2 Diabetes Mellitus', 'Hyperlipidemia'],
-        pastSurgicalHistory: ['Appendectomy (2005)', 'Right knee arthroscopy (2018)'],
-        medications: ['Metformin 1000mg BID', 'Lisinopril 20mg daily', 'Atorvastatin 40mg daily', 'Aspirin 81mg daily'],
-        allergies: ['Penicillin - hives', 'Sulfa drugs - rash'],
-        socialHistory: {
-          smoking: 'Former smoker, quit 5 years ago (20 pack-years)',
-          alcohol: 'Social drinker, 1-2 drinks/week',
-          drugs: 'Denies illicit drug use',
-          occupation: 'Accountant',
-          exercise: 'Walks 30 minutes 3x/week'
-        },
-        familyHistory: ['Father - MI at age 62', 'Mother - Type 2 DM', 'Brother - Hypertension'],
-        reviewOfSystems: {
-          'General': 'abnormal',
-          'Cardiovascular': 'abnormal',
-          'Respiratory': 'abnormal',
-          'Neurological': 'normal',
-          'Gastrointestinal': 'normal'
-        },
-        vitalSigns: {
-          bloodPressure: '158/92',
-          heartRate: 98,
-          respiratoryRate: 18,
-          temperature: 98.6,
-          oxygenSaturation: 95,
-          height: '5\'10"',
-          weight: '198 lbs',
-          bmi: 28.4
-        },
-        physicalExam: {
-          'General': { status: 'abnormal', notes: 'Anxious, diaphoretic, in moderate distress' },
-          'Cardiovascular': { status: 'abnormal', notes: 'Regular rhythm, S4 gallop, no murmurs' },
-          'Respiratory': { status: 'normal', notes: 'Clear to auscultation bilaterally' },
-          'Abdomen': { status: 'normal', notes: 'Soft, non-tender, no organomegaly' }
-        },
-        assessment: 'Acute coronary syndrome - likely NSTEMI given clinical presentation, ECG changes, and elevated troponin',
-        plan: '1. Continue cardiac monitoring\n2. Serial troponins q6h\n3. Heparin drip per protocol\n4. Cardiology consult for possible catheterization\n5. Continue home medications except hold Metformin',
-        provider: 'Dr. Sarah Ahmed',
-        providerCredentials: 'MD, FACP',
-        status: 'signed',
-        signedAt: new Date('2024-01-15T14:30:00')
-      },
-      {
-        id: 'HP-2024-00155',
-        patientId: 'PAT-67890',
-        patientName: 'Fatima Hassan',
-        mrn: '456789',
-        dateOfExam: new Date('2024-01-14'),
-        examType: 'pre-operative',
-        chiefComplaint: 'Scheduled for cholecystectomy',
-        historyOfPresentIllness: '45-year-old female with symptomatic cholelithiasis presenting for pre-operative evaluation. Has had 3 episodes of biliary colic in past 6 months. Last episode 2 weeks ago. Ultrasound confirmed multiple gallstones.',
-        pastMedicalHistory: ['GERD', 'Obesity'],
-        pastSurgicalHistory: ['C-section x2'],
-        medications: ['Omeprazole 20mg daily'],
-        allergies: ['NKDA'],
-        socialHistory: {
-          smoking: 'Never smoker',
-          alcohol: 'Rare',
-          drugs: 'None',
-          occupation: 'Teacher',
-          exercise: 'Minimal'
-        },
-        familyHistory: ['Mother - Gallstones'],
-        reviewOfSystems: {
-          'General': 'normal',
-          'Gastrointestinal': 'abnormal',
-          'Cardiovascular': 'normal',
-          'Respiratory': 'normal'
-        },
-        vitalSigns: {
-          bloodPressure: '128/78',
-          heartRate: 72,
-          respiratoryRate: 16,
-          temperature: 98.2,
-          oxygenSaturation: 99,
-          height: '5\'4"',
-          weight: '185 lbs',
-          bmi: 31.8
-        },
-        physicalExam: {
-          'General': { status: 'normal', notes: 'Well-appearing, in no acute distress' },
-          'Cardiovascular': { status: 'normal', notes: 'Regular rate and rhythm, no murmurs' },
-          'Abdomen': { status: 'abnormal', notes: 'Obese, mild RUQ tenderness, negative Murphy sign' }
-        },
-        assessment: 'Symptomatic cholelithiasis, cleared for surgery with moderate anesthetic risk due to BMI',
-        plan: '1. Cleared for laparoscopic cholecystectomy\n2. NPO after midnight\n3. Continue home medications morning of surgery with sip of water',
-        provider: 'Dr. Mohammed Al-Faisal',
-        providerCredentials: 'MD, Internal Medicine',
-        status: 'complete'
-      },
-      {
-        id: 'HP-2024-00154',
-        patientName: 'Omar Khalil',
-        patientId: 'PAT-11223',
-        mrn: '334455',
-        dateOfExam: new Date('2024-01-14'),
-        examType: 'annual',
-        chiefComplaint: 'Annual physical examination',
-        historyOfPresentIllness: 'Established patient presenting for routine annual physical. No acute complaints. Reports overall good health.',
-        pastMedicalHistory: ['Mild hypertension - well controlled'],
-        pastSurgicalHistory: [],
-        medications: ['HCTZ 25mg daily', 'Vitamin D 2000 IU daily'],
-        allergies: ['NKDA'],
-        socialHistory: {
-          smoking: 'Never',
-          alcohol: 'Social',
-          drugs: 'None',
-          occupation: 'Engineer',
-          exercise: 'Regular - runs 5km 3x/week'
-        },
-        familyHistory: ['Father - Hypertension'],
-        reviewOfSystems: {
-          'General': 'normal',
-          'Cardiovascular': 'normal',
-          'Respiratory': 'normal',
-          'Neurological': 'normal'
-        },
-        vitalSigns: {
-          bloodPressure: '124/76',
-          heartRate: 68,
-          respiratoryRate: 14,
-          temperature: 98.4,
-          oxygenSaturation: 99,
-          height: '5\'11"',
-          weight: '172 lbs',
-          bmi: 24.0
-        },
-        physicalExam: {
-          'General': { status: 'normal', notes: 'Well-developed, well-nourished, in no distress' },
-          'Cardiovascular': { status: 'normal', notes: 'Regular rate and rhythm' },
-          'Respiratory': { status: 'normal', notes: 'Clear to auscultation' }
-        },
-        assessment: 'Healthy 42-year-old male. Hypertension well-controlled on current regimen.',
-        plan: '1. Continue current medications\n2. Routine labs: CBC, CMP, Lipid panel, HbA1c\n3. Colonoscopy referral at age 45\n4. Continue exercise regimen',
-        provider: 'Dr. Layla Ibrahim',
-        providerCredentials: 'MD, Family Medicine',
-        status: 'in-progress'
+    const fetchHpRecords = async () => {
+      if (!user?.walletAddress) {
+        setLoading(false);
+        return;
       }
-    ]);
-  }, []);
+      
+      try {
+        const response = await fetch(apiUrl('/api/clinical/history-physical'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            setHpRecords(data.map((record: HistoryAndPhysical & { dateOfExam: string; signedAt?: string }) => ({
+              ...record,
+              dateOfExam: new Date(record.dateOfExam),
+              signedAt: record.signedAt ? new Date(record.signedAt) : undefined
+            })));
+          }
+        } else if (response.status === 401) {
+          setError('Session expired. Please log in again.');
+        } else {
+          setError('Failed to load H&P records');
+        }
+      } catch (err) {
+        console.error('Failed to fetch H&P records:', err);
+        setError('Unable to connect to server');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchHpRecords();
+  }, [user]);
 
   const toggleSection = (section: string) => {
     const newExpanded = new Set(expandedSections);
@@ -351,58 +246,84 @@ const HistoryAndPhysicalPage: React.FC = () => {
         <p className="text-indigo-200">Document comprehensive patient evaluations</p>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="flex">
-          {(['list', 'new', 'templates'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize transition-colors ${
-                activeTab === tab
-                  ? 'text-indigo-700 border-b-2 border-indigo-700'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab === 'new' ? 'New H&P' : tab === 'list' ? 'H&P Records' : 'Templates'}
-            </button>
-          ))}
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading H&P records...</p>
         </div>
-      </div>
+      )}
 
-      {/* List Tab */}
-      {activeTab === 'list' && (
-        <div className="p-6">
-          {/* Search & Filter */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by patient name, ID, or MRN..."
-                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-              />
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+          </div>
+        </div>
+      )}
+
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Tabs */}
+          <div className="bg-white border-b">
+            <div className="flex">
+              {(['list', 'new', 'templates'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 py-4 text-sm font-medium capitalize transition-colors ${
+                    activeTab === tab
+                      ? 'text-indigo-700 border-b-2 border-indigo-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab === 'new' ? 'New H&P' : tab === 'list' ? 'H&P Records' : 'Templates'}
+                </button>
+              ))}
             </div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as HPStatus | 'all')}
-              className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="all">All Statuses</option>
-              <option value="in-progress">In Progress</option>
-              <option value="complete">Complete</option>
-              <option value="signed">Signed</option>
-              <option value="addendum">Addendum</option>
-            </select>
-            <button
-              onClick={() => setActiveTab('new')}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              New H&P
-            </button>
+          </div>
+
+          {/* List Tab */}
+          {activeTab === 'list' && (
+            <div className="p-6">
+              {/* Search & Filter */}
+              <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    id="hp-search"
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by patient name, ID, or MRN..."
+                    aria-label="Search by patient name, ID, or MRN"
+                    className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <label htmlFor="hp-status-filter" className="sr-only">Filter by status</label>
+                <select
+                  id="hp-status-filter"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as HPStatus | 'all')}
+                  className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="in-progress">In Progress</option>
+                  <option value="complete">Complete</option>
+                  <option value="signed">Signed</option>
+                  <option value="addendum">Addendum</option>
+                </select>
+                <button
+                  onClick={() => setActiveTab('new')}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  New H&P
+                </button>
           </div>
 
           {/* Records List */}
@@ -539,38 +460,42 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 {expandedSections.has('patient-info') && (
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Patient ID *</label>
+                      <label htmlFor="hp-patient-id" className="block text-sm font-medium text-gray-700 mb-1">Patient ID *</label>
                       <input
+                        id="hp-patient-id"
                         type="text"
                         className="w-full border rounded-lg px-3 py-2"
                         placeholder="Search or enter ID"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Patient Name</label>
-                      <input type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly />
+                      <label htmlFor="hp-patient-name" className="block text-sm font-medium text-gray-700 mb-1">Patient Name</label>
+                      <input id="hp-patient-name" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">MRN</label>
-                      <input type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly />
+                      <label htmlFor="hp-mrn" className="block text-sm font-medium text-gray-700 mb-1">MRN</label>
+                      <input id="hp-mrn" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly />
                     </div>
                     <div className="md:col-span-3">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Exam Type *</label>
-                      <div className="flex gap-3 flex-wrap">
-                        {['admission', 'annual', 'pre-operative', 'follow-up', 'consultation'].map(type => (
-                          <label key={type} className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="examType"
-                              value={type}
-                              checked={formData.examType === type}
-                              onChange={() => setFormData({ ...formData, examType: type as any })}
-                              className="text-indigo-600"
-                            />
-                            <span className="text-sm capitalize">{type.replace('-', ' ')}</span>
-                          </label>
-                        ))}
-                      </div>
+                      <fieldset>
+                        <legend className="block text-sm font-medium text-gray-700 mb-1">Exam Type *</legend>
+                        <div className="flex gap-3 flex-wrap">
+                          {['admission', 'annual', 'pre-operative', 'follow-up', 'consultation'].map(type => (
+                            <label key={type} htmlFor={`hp-exam-type-${type}`} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                id={`hp-exam-type-${type}`}
+                                type="radio"
+                                name="examType"
+                                value={type}
+                                checked={formData.examType === type}
+                                onChange={() => setFormData({ ...formData, examType: type as any })}
+                                className="text-indigo-600"
+                              />
+                              <span className="text-sm capitalize">{type.replace('-', ' ')}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
                     </div>
                   </div>
                 )}
@@ -595,8 +520,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 {expandedSections.has('chief-complaint') && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Chief Complaint *</label>
+                      <label htmlFor="hp-chief-complaint" className="block text-sm font-medium text-gray-700 mb-1">Chief Complaint *</label>
                       <input
+                        id="hp-chief-complaint"
                         type="text"
                         value={formData.chiefComplaint}
                         onChange={(e) => setFormData({ ...formData, chiefComplaint: e.target.value })}
@@ -605,8 +531,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">History of Present Illness *</label>
+                      <label htmlFor="hp-hpi" className="block text-sm font-medium text-gray-700 mb-1">History of Present Illness *</label>
                       <textarea
+                        id="hp-hpi"
                         value={formData.hpi}
                         onChange={(e) => setFormData({ ...formData, hpi: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-32"
@@ -636,55 +563,59 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 {expandedSections.has('history') && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Past Medical History</label>
+                      <label htmlFor="hp-pmh" className="block text-sm font-medium text-gray-700 mb-1">Past Medical History</label>
                       <textarea
+                        id="hp-pmh"
                         className="w-full border rounded-lg px-3 py-2 h-24"
                         placeholder="List chronic conditions, previous illnesses..."
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Past Surgical History</label>
+                      <label htmlFor="hp-psh" className="block text-sm font-medium text-gray-700 mb-1">Past Surgical History</label>
                       <textarea
+                        id="hp-psh"
                         className="w-full border rounded-lg px-3 py-2 h-20"
                         placeholder="List previous surgeries with dates..."
                       />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label htmlFor="hp-medications" className="block text-sm font-medium text-gray-700 mb-1">
                           <Pill className="w-4 h-4 inline mr-1" />
                           Current Medications
                         </label>
                         <textarea
+                          id="hp-medications"
                           className="w-full border rounded-lg px-3 py-2 h-24"
                           placeholder="List all current medications with dosages..."
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label htmlFor="hp-allergies" className="block text-sm font-medium text-gray-700 mb-1">
                           <AlertTriangle className="w-4 h-4 inline mr-1 text-red-500" />
                           Allergies
                         </label>
                         <textarea
+                          id="hp-allergies"
                           className="w-full border rounded-lg px-3 py-2 h-24"
                           placeholder="List allergies and reactions..."
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Social History</label>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <span id="hp-social-history-heading" className="block text-sm font-medium text-gray-700 mb-2">Social History</span>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="group" aria-labelledby="hp-social-history-heading">
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Tobacco Use</label>
-                          <select className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <label htmlFor="hp-tobacco" className="block text-xs text-gray-500 mb-1">Tobacco Use</label>
+                          <select id="hp-tobacco" className="w-full border rounded-lg px-3 py-2 text-sm">
                             <option value="never">Never</option>
                             <option value="former">Former</option>
                             <option value="current">Current</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Alcohol Use</label>
-                          <select className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <label htmlFor="hp-alcohol" className="block text-xs text-gray-500 mb-1">Alcohol Use</label>
+                          <select id="hp-alcohol" className="w-full border rounded-lg px-3 py-2 text-sm">
                             <option value="none">None</option>
                             <option value="social">Social</option>
                             <option value="moderate">Moderate</option>
@@ -692,8 +623,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">Illicit Drugs</label>
-                          <select className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <label htmlFor="hp-drugs" className="block text-xs text-gray-500 mb-1">Illicit Drugs</label>
+                          <select id="hp-drugs" className="w-full border rounded-lg px-3 py-2 text-sm">
                             <option value="none">None</option>
                             <option value="former">Former</option>
                             <option value="current">Current</option>
@@ -702,8 +633,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Family History</label>
+                      <label htmlFor="hp-family-history" className="block text-sm font-medium text-gray-700 mb-1">Family History</label>
                       <textarea
+                        id="hp-family-history"
                         className="w-full border rounded-lg px-3 py-2 h-20"
                         placeholder="Notable family medical history..."
                       />
@@ -731,36 +663,36 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 {expandedSections.has('vitals') && (
                   <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
-                      <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="120/80" />
+                      <label htmlFor="hp-blood-pressure" className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
+                      <input id="hp-blood-pressure" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="120/80" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Heart Rate</label>
-                      <input type="number" className="w-full border rounded-lg px-3 py-2" placeholder="72" />
+                      <label htmlFor="hp-heart-rate" className="block text-sm font-medium text-gray-700 mb-1">Heart Rate</label>
+                      <input id="hp-heart-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="72" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
-                      <input type="number" className="w-full border rounded-lg px-3 py-2" placeholder="16" />
+                      <label htmlFor="hp-respiratory-rate" className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
+                      <input id="hp-respiratory-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="16" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Temperature (°F)</label>
-                      <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="98.6" />
+                      <label htmlFor="hp-temperature" className="block text-sm font-medium text-gray-700 mb-1">Temperature (°F)</label>
+                      <input id="hp-temperature" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="98.6" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">SpO2 (%)</label>
-                      <input type="number" className="w-full border rounded-lg px-3 py-2" placeholder="98" />
+                      <label htmlFor="hp-spo2" className="block text-sm font-medium text-gray-700 mb-1">SpO2 (%)</label>
+                      <input id="hp-spo2" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="98" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Height</label>
-                      <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="5'10&quot;" />
+                      <label htmlFor="hp-height" className="block text-sm font-medium text-gray-700 mb-1">Height</label>
+                      <input id="hp-height" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="5'10&quot;" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Weight (lbs)</label>
-                      <input type="number" className="w-full border rounded-lg px-3 py-2" placeholder="175" />
+                      <label htmlFor="hp-weight" className="block text-sm font-medium text-gray-700 mb-1">Weight (lbs)</label>
+                      <input id="hp-weight" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="175" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">BMI (calc)</label>
-                      <input type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly placeholder="24.5" />
+                      <label htmlFor="hp-bmi" className="block text-sm font-medium text-gray-700 mb-1">BMI (calc)</label>
+                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly placeholder="24.5" />
                     </div>
                   </div>
                 )}
@@ -786,11 +718,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {systemsList.map(system => (
                       <div key={system} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <span className="text-sm font-medium text-gray-700">{system}</span>
-                        <div className="flex gap-2">
+                        <span id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`} className="text-sm font-medium text-gray-700">{system}</span>
+                        <div className="flex gap-2" role="radiogroup" aria-labelledby={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`}>
                           {['normal', 'abnormal'].map(status => (
-                            <label key={status} className="flex items-center gap-1 cursor-pointer">
-                              <input type="radio" name={`ros-${system}`} className="text-indigo-600" />
+                            <label key={status} htmlFor={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} className="flex items-center gap-1 cursor-pointer">
+                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-indigo-600" />
                               <span className="text-xs capitalize">{status === 'normal' ? 'Neg' : 'Pos'}</span>
                             </label>
                           ))}
@@ -822,17 +754,19 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     {['General', 'HEENT', 'Neck', 'Cardiovascular', 'Respiratory', 'Abdomen', 'Extremities', 'Neurological', 'Skin'].map(system => (
                       <div key={system} className="border rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
-                          <label className="font-medium text-gray-700">{system}</label>
-                          <div className="flex gap-3">
+                          <span id={`hp-pe-${system.toLowerCase()}-label`} className="font-medium text-gray-700">{system}</span>
+                          <div className="flex gap-3" role="radiogroup" aria-labelledby={`hp-pe-${system.toLowerCase()}-label`}>
                             {['normal', 'abnormal'].map(status => (
-                              <label key={status} className="flex items-center gap-1 cursor-pointer">
-                                <input type="radio" name={`pe-${system}`} className="text-indigo-600" />
+                              <label key={status} htmlFor={`hp-pe-${system.toLowerCase()}-${status}`} className="flex items-center gap-1 cursor-pointer">
+                                <input id={`hp-pe-${system.toLowerCase()}-${status}`} type="radio" name={`pe-${system}`} className="text-indigo-600" />
                                 <span className="text-sm capitalize">{status}</span>
                               </label>
                             ))}
                           </div>
                         </div>
+                        <label htmlFor={`hp-pe-${system.toLowerCase()}-findings`} className="sr-only">{system} Findings</label>
                         <textarea
+                          id={`hp-pe-${system.toLowerCase()}-findings`}
                           className="w-full border rounded px-3 py-2 text-sm"
                           placeholder="Findings..."
                           rows={2}
@@ -862,8 +796,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 {expandedSections.has('assessment') && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Assessment *</label>
+                      <label htmlFor="hp-assessment" className="block text-sm font-medium text-gray-700 mb-1">Assessment *</label>
                       <textarea
+                        id="hp-assessment"
                         value={formData.assessment}
                         onChange={(e) => setFormData({ ...formData, assessment: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-32"
@@ -871,8 +806,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Plan *</label>
+                      <label htmlFor="hp-plan" className="block text-sm font-medium text-gray-700 mb-1">Plan *</label>
                       <textarea
+                        id="hp-plan"
                         value={formData.plan}
                         onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-32"
@@ -926,6 +862,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
           </div>
         </div>
       )}
+      </>)}
 
       {/* Detail Modal */}
       {selectedRecord && (

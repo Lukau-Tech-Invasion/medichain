@@ -6,7 +6,10 @@ import {
   clearAuth as clearStoredAuth,
   getProviderAuth,
   debugLog,
-  IS_DEVELOPMENT
+  IS_DEVELOPMENT,
+  checkApiHealth,
+  isValidWalletAddress,
+  syncApiClientUserId
 } from '@medichain/shared';
 import type { Role as WalletRole } from '@medichain/shared';
 
@@ -39,6 +42,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  isConnected: boolean;
   
   // Actions
   login: (walletAddress: string) => Promise<boolean>;
@@ -46,7 +50,8 @@ interface AuthState {
   logout: () => void;
   setUser: (user: User) => void;
   clearError: () => void;
-  restoreSession: () => void;
+  restoreSession: () => Promise<boolean>;
+  checkConnection: () => Promise<boolean>;
 }
 
 /**
@@ -72,12 +77,33 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      isConnected: true,
+
+      /**
+       * Check API connection status
+       */
+      checkConnection: async () => {
+        try {
+          const healthy = await checkApiHealth();
+          set({ isConnected: healthy });
+          return healthy;
+        } catch {
+          set({ isConnected: false });
+          return false;
+        }
+      },
 
       /**
        * Login with a wallet address
        * Validates the wallet against the blockchain/API
        */
       login: async (walletAddress: string) => {
+        // Validate wallet address format
+        if (!isValidWalletAddress(walletAddress)) {
+          set({ error: 'Invalid wallet address format. Must be 48 characters starting with "5".' });
+          return false;
+        }
+
         set({ isLoading: true, error: null });
 
         try {
@@ -109,6 +135,9 @@ export const useAuthStore = create<AuthState>()(
               name: user.username,
             });
             
+            // Sync API client with new userId
+            syncApiClientUserId();
+            
             set({
               user,
               isAuthenticated: true,
@@ -122,13 +151,31 @@ export const useAuthStore = create<AuthState>()(
           
           throw new Error('Wallet not registered or authentication failed');
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Login failed';
+          let message = 'Login failed';
+          let isConnectionError = false;
+
+          if (error instanceof Error) {
+            // Check for network/connection errors
+            if (error.message === 'Failed to fetch' || 
+                error.name === 'TypeError' ||
+                error.message.includes('NetworkError') ||
+                error.message.includes('network')) {
+              message = 'Unable to connect to server. Please check if the API server is running.';
+              isConnectionError = true;
+            } else if (error.message.includes('timeout') || error.name === 'AbortError') {
+              message = 'Connection timed out. Please check your network.';
+              isConnectionError = true;
+            } else {
+              message = error.message;
+            }
+          }
           
           set({
             user: null,
             isAuthenticated: false,
             isLoading: false,
             error: message,
+            isConnected: !isConnectionError,
           });
           
           return false;
@@ -138,6 +185,7 @@ export const useAuthStore = create<AuthState>()(
       /**
        * Login with a demo wallet for development/testing
        * Creates a temporary wallet address with the specified role
+       * and registers it with the backend API
        */
       loginWithDemoWallet: async (role: Role, name?: string) => {
         if (!IS_DEVELOPMENT) {
@@ -151,20 +199,44 @@ export const useAuthStore = create<AuthState>()(
           const walletAddress = generateDemoAddress();
           const displayName = name || `Demo ${role}`;
           
+          // Register demo user with backend API
+          const response = await fetch(apiUrl('/api/auth/demo-login'), {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              wallet_address: walletAddress,
+              role: role,
+              name: displayName,
+            }),
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Failed to create demo user');
+          }
+          
+          const demoUser = await response.json();
+          
           const user: User = {
-            walletAddress,
-            userId: walletAddress,
-            username: displayName,
-            role,
+            walletAddress: demoUser.wallet_address || walletAddress,
+            userId: demoUser.wallet_address || walletAddress,
+            username: demoUser.name || displayName,
+            role: demoUser.role as Role || role,
             createdAt: new Date().toISOString(),
           };
           
-          // Store auth data
+          // Store auth data for subsequent API calls
           setProviderAuth({
             address: user.walletAddress,
             role: user.role,
             name: user.username,
           });
+          
+          // Sync API client with new userId
+          syncApiClientUserId();
           
           set({
             user,
@@ -173,9 +245,12 @@ export const useAuthStore = create<AuthState>()(
             error: null,
           });
           
-          debugLog('authStore', 'Created demo wallet:', { walletAddress, role });
+          debugLog('authStore', 'Created and registered demo wallet:', { walletAddress: user.walletAddress, role: user.role });
           return true;
         } catch (error) {
+          const message = error instanceof Error ? error.message : 'Failed to create demo wallet';
+          debugLog('authStore', 'Demo login failed:', message);
+          
           set({
             user: null,
             isAuthenticated: false,
@@ -188,6 +263,8 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         clearStoredAuth();
+        // Clear API client userId
+        syncApiClientUserId();
         set({
           user: null,
           isAuthenticated: false,
@@ -203,6 +280,8 @@ export const useAuthStore = create<AuthState>()(
           role: user.role,
           name: user.username,
         });
+        // Sync API client with new userId
+        syncApiClientUserId();
         set({
           user,
           isAuthenticated: true,
@@ -217,26 +296,107 @@ export const useAuthStore = create<AuthState>()(
       
       /**
        * Restore session from localStorage on app startup
+       * Validates the session against the API and re-registers if needed
+       * @returns true if session was restored successfully, false otherwise
        */
-      restoreSession: () => {
+      restoreSession: async (): Promise<boolean> => {
         const storedAuth = getProviderAuth();
-        if (storedAuth && !get().isAuthenticated) {
-          set({
-            user: {
-              walletAddress: storedAuth.address,
-              userId: storedAuth.address,
-              username: storedAuth.name,
-              role: storedAuth.role as Role,
-              createdAt: new Date().toISOString(),
-            },
-            isAuthenticated: true,
-          });
-          debugLog('authStore', 'Restored session from storage');
+        
+        if (!storedAuth) {
+          return false; // No stored auth
         }
+        
+        if (get().isAuthenticated) {
+          return true; // Already authenticated
+        }
+        
+        debugLog('authStore', 'Restoring session from storage...');
+        
+        // Try to validate the session with the API by checking if user exists
+        try {
+          const response = await fetch(apiUrl(`/api/auth/wallet/${storedAuth.address}`), {
+            headers: { 'Accept': 'application/json' },
+          });
+          
+          if (response.ok) {
+            // User exists in API, restore session
+            set({
+              user: {
+                walletAddress: storedAuth.address,
+                userId: storedAuth.address,
+                username: storedAuth.name,
+                role: storedAuth.role as Role,
+                createdAt: new Date().toISOString(),
+              },
+              isAuthenticated: true,
+            });
+            debugLog('authStore', 'Session validated and restored');
+            return true;
+          }
+        } catch {
+          debugLog('authStore', 'API not reachable during session restore');
+        }
+        
+        // User doesn't exist in API (server restarted) - try to re-register as demo user
+        debugLog('authStore', 'Session invalid, attempting re-registration...');
+        try {
+          const response = await fetch(apiUrl('/api/auth/demo-login'), {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              wallet_address: storedAuth.address,
+              role: storedAuth.role,
+              name: storedAuth.name,
+            }),
+          });
+          
+          if (response.ok) {
+            const demoUser = await response.json();
+            set({
+              user: {
+                walletAddress: demoUser.wallet_address || storedAuth.address,
+                userId: demoUser.wallet_address || storedAuth.address,
+                username: demoUser.name || storedAuth.name,
+                role: (demoUser.role || storedAuth.role) as Role,
+                createdAt: new Date().toISOString(),
+              },
+              isAuthenticated: true,
+            });
+            debugLog('authStore', 'Session re-registered successfully');
+            return true;
+          }
+        } catch {
+          debugLog('authStore', 'Failed to re-register session');
+        }
+        
+        // Could not restore or re-register, clear the session
+        debugLog('authStore', 'Clearing invalid session');
+        clearStoredAuth();
+        set({
+          user: null,
+          isAuthenticated: false,
+          error: null,
+        });
+        return false;
       },
     }),
     {
       name: 'medichain-provider-auth',
+      version: 3, // Increment to clear old demo wallet data
+      migrate: (persistedState, version) => {
+        // Clear old auth state from v1/v2 that had "Demo Doctor" etc
+        if (version < 3) {
+          console.log('[authStore] Migrating from old version - clearing old demo auth');
+          return {
+            user: null,
+            isAuthenticated: false,
+          };
+        }
+        return persistedState as { user: User | null; isAuthenticated: boolean };
+      },
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,

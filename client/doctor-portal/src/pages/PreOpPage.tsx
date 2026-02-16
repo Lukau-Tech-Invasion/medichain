@@ -443,8 +443,10 @@ export default function PreOpPage() {
                   Select Patient
                 </h2>
                 <div className="relative mb-4">
+                  <label htmlFor="preop-search-patients" className="sr-only">Search patients</label>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
+                    id="preop-search-patients"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -478,8 +480,9 @@ export default function PreOpPage() {
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Scheduled Procedure</label>
+                    <label htmlFor="preop-scheduled-procedure" className="block text-sm font-medium text-gray-700 mb-1">Scheduled Procedure</label>
                     <input
+                      id="preop-scheduled-procedure"
                       type="text"
                       value={scheduledSurgery}
                       onChange={(e) => setScheduledSurgery(e.target.value)}
@@ -488,8 +491,9 @@ export default function PreOpPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Surgeon</label>
+                    <label htmlFor="preop-surgeon" className="block text-sm font-medium text-gray-700 mb-1">Surgeon</label>
                     <input
+                      id="preop-surgeon"
                       type="text"
                       value={surgeon}
                       onChange={(e) => setSurgeon(e.target.value)}
@@ -499,8 +503,9 @@ export default function PreOpPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                      <label htmlFor="preop-scheduled-date" className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                       <input
+                        id="preop-scheduled-date"
                         type="date"
                         value={scheduledDate}
                         onChange={(e) => setScheduledDate(e.target.value)}
@@ -508,8 +513,9 @@ export default function PreOpPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                      <label htmlFor="preop-scheduled-time" className="block text-sm font-medium text-gray-700 mb-1">Time</label>
                       <input
+                        id="preop-scheduled-time"
                         type="time"
                         value={scheduledTime}
                         onChange={(e) => setScheduledTime(e.target.value)}
@@ -518,8 +524,9 @@ export default function PreOpPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Anesthesia Type</label>
+                    <label htmlFor="preop-anesthesia-type" className="block text-sm font-medium text-gray-700 mb-1">Anesthesia Type</label>
                     <select
+                      id="preop-anesthesia-type"
                       value={anesthesiaType}
                       onChange={(e) => setAnesthesiaType(e.target.value as AnesthesiaType)}
                       className="w-full p-2 border border-gray-300 rounded"
@@ -540,8 +547,9 @@ export default function PreOpPage() {
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Last Solid Food</label>
+                    <label htmlFor="preop-last-solid-food" className="block text-sm font-medium text-gray-700 mb-1">Last Solid Food</label>
                     <input
+                      id="preop-last-solid-food"
                       type="datetime-local"
                       value={npoStatus.lastSolid}
                       onChange={(e) => setNpoStatus(prev => ({ ...prev, lastSolid: e.target.value }))}
@@ -549,16 +557,18 @@ export default function PreOpPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Last Clear Liquid</label>
+                    <label htmlFor="preop-last-clear-liquid" className="block text-sm font-medium text-gray-700 mb-1">Last Clear Liquid</label>
                     <input
+                      id="preop-last-clear-liquid"
                       type="datetime-local"
                       value={npoStatus.lastClear}
                       onChange={(e) => setNpoStatus(prev => ({ ...prev, lastClear: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
                     />
                   </div>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label htmlFor="preop-npo-compliant" className="flex items-center space-x-2 cursor-pointer">
                     <input
+                      id="preop-npo-compliant"
                       type="checkbox"
                       checked={npoStatus.compliant}
                       onChange={() => setNpoStatus(prev => ({ ...prev, compliant: !prev.compliant }))}
@@ -600,8 +610,9 @@ export default function PreOpPage() {
                     </button>
                   ))}
                 </div>
-                <label className="flex items-center space-x-2 mt-4 cursor-pointer">
+                <label htmlFor="preop-asa-emergency" className="flex items-center space-x-2 mt-4 cursor-pointer">
                   <input
+                    id="preop-asa-emergency"
                     type="checkbox"
                     checked={asaEmergency}
                     onChange={() => setAsaEmergency(!asaEmergency)}
@@ -643,8 +654,9 @@ export default function PreOpPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mouth Opening</label>
+                    <label htmlFor="preop-mouth-opening" className="block text-sm font-medium text-gray-700 mb-1">Mouth Opening</label>
                     <select
+                      id="preop-mouth-opening"
                       value={airwayAssessment.mouthOpening}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
@@ -655,8 +667,9 @@ export default function PreOpPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Thyromental Distance</label>
+                    <label htmlFor="preop-thyromental-distance" className="block text-sm font-medium text-gray-700 mb-1">Thyromental Distance</label>
                     <select
+                      id="preop-thyromental-distance"
                       value={airwayAssessment.thyromental}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, thyromental: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
@@ -667,8 +680,9 @@ export default function PreOpPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Neck Mobility</label>
+                    <label htmlFor="preop-neck-mobility" className="block text-sm font-medium text-gray-700 mb-1">Neck Mobility</label>
                     <select
+                      id="preop-neck-mobility"
                       value={airwayAssessment.neckMobility}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, neckMobility: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
@@ -679,8 +693,9 @@ export default function PreOpPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Dentition</label>
+                    <label htmlFor="preop-dentition" className="block text-sm font-medium text-gray-700 mb-1">Dentition</label>
                     <select
+                      id="preop-dentition"
                       value={airwayAssessment.dentition}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, dentition: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
@@ -694,8 +709,9 @@ export default function PreOpPage() {
                 </div>
 
                 <div className="mt-4 grid grid-cols-3 gap-4">
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label htmlFor="preop-beard-present" className="flex items-center space-x-2 cursor-pointer">
                     <input
+                      id="preop-beard-present"
                       type="checkbox"
                       checked={airwayAssessment.beardPresent}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, beardPresent: !prev.beardPresent }))}
@@ -703,8 +719,9 @@ export default function PreOpPage() {
                     />
                     <span className="text-sm">Beard Present</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label htmlFor="preop-obese-neck" className="flex items-center space-x-2 cursor-pointer">
                     <input
+                      id="preop-obese-neck"
                       type="checkbox"
                       checked={airwayAssessment.obeseNeck}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, obeseNeck: !prev.obeseNeck }))}
@@ -712,8 +729,9 @@ export default function PreOpPage() {
                     />
                     <span className="text-sm">Obese Neck</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label htmlFor="preop-difficult-airway" className="flex items-center space-x-2 cursor-pointer">
                     <input
+                      id="preop-difficult-airway"
                       type="checkbox"
                       checked={airwayAssessment.difficultyPredicted}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, difficultyPredicted: !prev.difficultyPredicted }))}
@@ -733,8 +751,9 @@ export default function PreOpPage() {
                   </h3>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {medicalHistoryOptions.map(condition => (
-                      <label key={condition} className="flex items-center space-x-2 cursor-pointer">
+                      <label key={condition} htmlFor={`preop-history-${condition.toLowerCase().replace(/[\s/]+/g, '-')}`} className="flex items-center space-x-2 cursor-pointer">
                         <input
+                          id={`preop-history-${condition.toLowerCase().replace(/[\s/]+/g, '-')}`}
                           type="checkbox"
                           checked={medicalHistory.includes(condition)}
                           onChange={() => toggleMedicalHistory(condition)}
@@ -752,7 +771,9 @@ export default function PreOpPage() {
                     Allergies
                   </h3>
                   <div className="flex space-x-2 mb-2">
+                    <label htmlFor="preop-new-allergy" className="sr-only">Add allergy</label>
                     <input
+                      id="preop-new-allergy"
                       type="text"
                       value={newAllergy}
                       onChange={(e) => setNewAllergy(e.target.value)}
@@ -799,7 +820,9 @@ export default function PreOpPage() {
                     Current Medications
                   </h3>
                   <div className="flex space-x-2 mb-2">
+                    <label htmlFor="preop-new-medication" className="sr-only">Add medication</label>
                     <input
+                      id="preop-new-medication"
                       type="text"
                       value={newMedication}
                       onChange={(e) => setNewMedication(e.target.value)}
@@ -841,8 +864,9 @@ export default function PreOpPage() {
                   </h3>
                   <div className="max-h-32 overflow-y-auto space-y-1">
                     {holdMedicationOptions.map(med => (
-                      <label key={med} className="flex items-center space-x-2 cursor-pointer">
+                      <label key={med} htmlFor={`preop-hold-${med.toLowerCase().replace(/[\s()]+/g, '-')}`} className="flex items-center space-x-2 cursor-pointer">
                         <input
+                          id={`preop-hold-${med.toLowerCase().replace(/[\s()]+/g, '-')}`}
                           type="checkbox"
                           checked={holdMedications.includes(med)}
                           onChange={() => toggleHoldMedication(med)}
@@ -891,8 +915,9 @@ export default function PreOpPage() {
                       { key: 'anesthesiaConsent', label: 'Anesthesia Consent Signed' },
                       { key: 'bloodConsent', label: 'Blood Transfusion Consent' }
                     ].map(({ key, label }) => (
-                      <label key={key} className="flex items-center space-x-2 cursor-pointer">
+                      <label key={key} htmlFor={`preop-consent-${key}`} className="flex items-center space-x-2 cursor-pointer">
                         <input
+                          id={`preop-consent-${key}`}
                           type="checkbox"
                           checked={consents[key as keyof typeof consents]}
                           onChange={() => setConsents(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
@@ -907,8 +932,9 @@ export default function PreOpPage() {
 
               {/* Notes */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4">Additional Notes</h3>
+                <label htmlFor="preop-additional-notes" className="font-bold text-gray-900 mb-4 block">Additional Notes</label>
                 <textarea
+                  id="preop-additional-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Pre-operative concerns, special considerations, anesthesia plan notes..."
@@ -962,6 +988,7 @@ export default function PreOpPage() {
                 return (
                   <label
                     key={key}
+                    htmlFor={`preop-checklist-${key}`}
                     className={`flex items-center p-3 rounded-lg cursor-pointer border-2 transition-all ${
                       preOpChecklist[key]
                         ? 'bg-green-50 border-green-500'
@@ -971,6 +998,7 @@ export default function PreOpPage() {
                     }`}
                   >
                     <input
+                      id={`preop-checklist-${key}`}
                       type="checkbox"
                       checked={preOpChecklist[key]}
                       onChange={() => setPreOpChecklist(prev => ({ ...prev, [key]: !prev[key] }))}

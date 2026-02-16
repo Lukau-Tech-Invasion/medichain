@@ -13,8 +13,11 @@ import {
   Download,
   Phone,
   FileText,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
+import { getPatientInsuranceClaims } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 
 /**
  * InsurancePage
@@ -89,6 +92,8 @@ const InsurancePage: React.FC = () => {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadSide, setUploadSide] = useState<'front' | 'back'>('front');
   const [verifying, setVerifying] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { patient } = usePatientAuthStore();
 
   // New insurance form state
   const [newInsurance, setNewInsurance] = useState({
@@ -108,6 +113,39 @@ const InsurancePage: React.FC = () => {
   });
 
   useEffect(() => {
+    loadInsuranceData();
+  }, [patient]);
+
+  const loadInsuranceData = async () => {
+    setLoading(true);
+    
+    // Try to load from API first
+    if (patient?.walletAddress) {
+      try {
+        const apiClaims = await getPatientInsuranceClaims(patient.walletAddress) as InsuranceClaim[];
+        
+        if (apiClaims && Array.isArray(apiClaims) && apiClaims.length > 0) {
+          setClaims(apiClaims);
+        } else {
+          loadDemoClaims();
+        }
+        
+        // For insurance cards, we still need to load demo data since there's no API endpoint
+        loadDemoCards();
+        setLoading(false);
+        return;
+      } catch (err) {
+        console.warn('No insurance data from API, using demo data:', err);
+      }
+    }
+    
+    // Fallback to demo data
+    loadDemoCards();
+    loadDemoClaims();
+    setLoading(false);
+  };
+
+  const loadDemoCards = () => {
     // Load sample insurance data
     const sampleCards: InsuranceCard[] = [
       {
@@ -216,7 +254,10 @@ const InsurancePage: React.FC = () => {
         lastVerified: '2024-10-20'
       }
     ];
+    setInsuranceCards(sampleCards);
+  };
 
+  const loadDemoClaims = () => {
     const sampleClaims: InsuranceClaim[] = [
       {
         id: 'CLM-001',
@@ -284,9 +325,8 @@ const InsurancePage: React.FC = () => {
       }
     ];
 
-    setInsuranceCards(sampleCards);
     setClaims(sampleClaims);
-  }, []);
+  };
 
   const getTypeIcon = (type: InsuranceType) => {
     switch (type) {
@@ -419,6 +459,16 @@ const InsurancePage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Loading State */}
+      {loading && (
+        <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+            <span className="text-gray-600">Loading insurance information...</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -690,10 +740,11 @@ const InsurancePage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-type" className="block text-sm font-medium text-gray-700 mb-1">
                   Insurance Type <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="insurance-type"
                   value={newInsurance.type}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, type: e.target.value as InsuranceType }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -707,10 +758,11 @@ const InsurancePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-provider" className="block text-sm font-medium text-gray-700 mb-1">
                   Insurance Provider <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="insurance-provider"
                   type="text"
                   value={newInsurance.providerName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, providerName: e.target.value }))}
@@ -720,10 +772,11 @@ const InsurancePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-plan-name" className="block text-sm font-medium text-gray-700 mb-1">
                   Plan Name
                 </label>
                 <input
+                  id="insurance-plan-name"
                   type="text"
                   value={newInsurance.planName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, planName: e.target.value }))}
@@ -734,10 +787,11 @@ const InsurancePage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-member-id" className="block text-sm font-medium text-gray-700 mb-1">
                     Member ID <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="insurance-member-id"
                     type="text"
                     value={newInsurance.memberId}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, memberId: e.target.value }))}
@@ -746,10 +800,11 @@ const InsurancePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-group-number" className="block text-sm font-medium text-gray-700 mb-1">
                     Group Number
                   </label>
                   <input
+                    id="insurance-group-number"
                     type="text"
                     value={newInsurance.groupNumber}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, groupNumber: e.target.value }))}
@@ -760,10 +815,11 @@ const InsurancePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-subscriber-name" className="block text-sm font-medium text-gray-700 mb-1">
                   Subscriber Name
                 </label>
                 <input
+                  id="insurance-subscriber-name"
                   type="text"
                   value={newInsurance.subscriberName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, subscriberName: e.target.value }))}
@@ -774,10 +830,11 @@ const InsurancePage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-effective-date" className="block text-sm font-medium text-gray-700 mb-1">
                     Effective Date
                   </label>
                   <input
+                    id="insurance-effective-date"
                     type="date"
                     value={newInsurance.effectiveDate}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, effectiveDate: e.target.value }))}
@@ -785,10 +842,11 @@ const InsurancePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-customer-service" className="block text-sm font-medium text-gray-700 mb-1">
                     Customer Service #
                   </label>
                   <input
+                    id="insurance-customer-service"
                     type="tel"
                     value={newInsurance.customerServicePhone}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, customerServicePhone: e.target.value }))}
@@ -802,8 +860,9 @@ const InsurancePage: React.FC = () => {
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Cost Details (Optional)</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Primary Care Copay</label>
+                    <label htmlFor="insurance-copay-primary" className="block text-xs text-gray-500 mb-1">Primary Care Copay</label>
                     <input
+                      id="insurance-copay-primary"
                       type="number"
                       value={newInsurance.copayPrimary}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, copayPrimary: e.target.value }))}
@@ -811,8 +870,9 @@ const InsurancePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Specialist Copay</label>
+                    <label htmlFor="insurance-copay-specialist" className="block text-xs text-gray-500 mb-1">Specialist Copay</label>
                     <input
+                      id="insurance-copay-specialist"
                       type="number"
                       value={newInsurance.copaySpecialist}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, copaySpecialist: e.target.value }))}
@@ -820,8 +880,9 @@ const InsurancePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Annual Deductible</label>
+                    <label htmlFor="insurance-deductible" className="block text-xs text-gray-500 mb-1">Annual Deductible</label>
                     <input
+                      id="insurance-deductible"
                       type="number"
                       value={newInsurance.deductible}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, deductible: e.target.value }))}
@@ -829,8 +890,9 @@ const InsurancePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Out-of-Pocket Max</label>
+                    <label htmlFor="insurance-oop-max" className="block text-xs text-gray-500 mb-1">Out-of-Pocket Max</label>
                     <input
+                      id="insurance-oop-max"
                       type="number"
                       value={newInsurance.outOfPocketMax}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, outOfPocketMax: e.target.value }))}

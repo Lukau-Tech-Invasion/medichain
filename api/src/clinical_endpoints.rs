@@ -835,10 +835,7 @@ pub async fn get_mar(
 
 /// List all MAR records (for NursingPage)
 #[get("/api/nursing/mar")]
-pub async fn list_mar(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
         Some(u) => u,
         None => {
@@ -895,14 +892,17 @@ pub async fn administer_medication(
 
     // Extract administration details
     let mar_id = req.get("mar_id").and_then(|v| v.as_str()).unwrap_or("");
-    let status = req.get("status").and_then(|v| v.as_str()).unwrap_or("given");
-    
+    let status = req
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("given");
+
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "message": "Medication administered successfully",
         "mar_id": mar_id,
         "status": status,
-        "administered_by": current_user.user_id,
+        "administered_by": current_user.wallet_address,
         "administered_at": chrono::Utc::now().timestamp()
     }))
 }
@@ -986,10 +986,7 @@ pub async fn get_io(
 
 /// List all I/O records (for NursingPage)
 #[get("/api/nursing/intake-output")]
-pub async fn list_io(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_io(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
         Some(u) => u,
         None => {
@@ -1045,16 +1042,19 @@ pub async fn record_fluid(
     }
 
     let patient_id = req.get("patient_id").and_then(|v| v.as_str()).unwrap_or("");
-    let entry_type = req.get("entry_type").and_then(|v| v.as_str()).unwrap_or("intake");
+    let entry_type = req
+        .get("entry_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("intake");
     let amount_ml = req.get("amount_ml").and_then(|v| v.as_i64()).unwrap_or(0);
-    
+
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "message": "Fluid entry recorded successfully",
         "patient_id": patient_id,
         "entry_type": entry_type,
         "amount_ml": amount_ml,
-        "recorded_by": current_user.user_id,
+        "recorded_by": current_user.wallet_address,
         "recorded_at": chrono::Utc::now().timestamp()
     }))
 }
@@ -1137,10 +1137,7 @@ pub async fn get_care_plan(
 
 /// List all care plans (for NursingPage)
 #[get("/api/nursing/care-plans")]
-pub async fn list_care_plans(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_care_plans(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
         Some(u) => u,
         None => {
@@ -1243,6 +1240,36 @@ pub async fn get_wound(
             code: "NOT_FOUND".to_string(),
         }),
     }
+}
+
+/// List all wound assessments
+#[get("/api/clinical/wound-assessments")]
+pub async fn list_wound_assessments(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let assessments = data.wound_assessments.read().unwrap();
+    let wound_list: Vec<_> = assessments.values().cloned().collect();
+    HttpResponse::Ok().json(wound_list)
 }
 
 /// Create IV site assessment
@@ -1975,6 +2002,37 @@ pub async fn create_laceration(
     }))
 }
 
+/// List all laceration repairs (for healthcare providers)
+#[get("/api/clinical/laceration-repairs")]
+pub async fn list_laceration_repairs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can view laceration repairs".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.laceration_records.read().unwrap();
+    let repairs: Vec<clinical::LacerationRepair> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(repairs)
+}
+
 #[get("/api/clinical/laceration/{record_id}")]
 pub async fn get_laceration(
     data: web::Data<AppState>,
@@ -2323,6 +2381,34 @@ pub async fn get_specimen(
             code: "NOT_FOUND".to_string(),
         }),
     }
+}
+
+/// List all specimen collections
+#[get("/api/clinical/specimens")]
+pub async fn list_specimens(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let collections = data.specimen_collections.read().unwrap();
+    let specimens: Vec<_> = collections.values().cloned().collect();
+
+    HttpResponse::Ok().json(specimens)
 }
 
 /// Create chain of custody
@@ -2711,10 +2797,7 @@ pub async fn get_order(
 
 /// List all physician orders (for NursingPage and OrdersPage)
 #[get("/api/clinical/orders")]
-pub async fn list_orders(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_orders(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
         Some(u) => u,
         None => {
@@ -2821,10 +2904,7 @@ pub async fn get_discharge_summary(
 
 /// List all discharge summaries (for DischargePage)
 #[get("/api/clinical/discharges")]
-pub async fn list_discharges(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_discharges(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
         Some(u) => u,
         None => {
@@ -2884,13 +2964,13 @@ pub async fn approve_discharge(
     let mut summaries = data.discharge_summaries.write().unwrap();
     match summaries.get_mut(&summary_id) {
         Some(summary) => {
-            summary.signed_by = Some(current_user.user_id.clone());
+            summary.signed_by = Some(current_user.wallet_address.clone());
             summary.signature_time = Some(chrono::Utc::now().timestamp());
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "message": "Discharge approved",
                 "summary_id": summary_id,
-                "signed_by": current_user.user_id
+                "signed_by": current_user.wallet_address
             }))
         }
         None => HttpResponse::NotFound().json(ErrorResponse {
@@ -3779,6 +3859,104 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
             "total": code_blues_count + traumas_count + strokes_count + sepsis_count
         },
         "recent_access_logs": access_logs
+    }))
+}
+
+/// Pharmacist Dashboard - pending prescriptions, drug interactions, inventory
+#[get("/api/dashboard/pharmacist")]
+pub async fn pharmacist_dashboard(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !matches!(
+        current_user.role,
+        crate::Role::Pharmacist | crate::Role::Admin
+    ) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Pharmacist dashboard requires Pharmacist or Admin role".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get e-prescriptions from the v2 store (with signing workflow)
+    let prescriptions: Vec<_> = {
+        let rxs = data.e_prescriptions_v2.read().unwrap();
+        rxs.values().cloned().collect()
+    };
+
+    // Count prescriptions by status
+    let pending_fill = prescriptions
+        .iter()
+        .filter(|rx| {
+            matches!(
+                rx.status,
+                crate::clinical::PrescriptionStatus::Transmitted
+                    | crate::clinical::PrescriptionStatus::Received
+            )
+        })
+        .count();
+    let in_progress = prescriptions
+        .iter()
+        .filter(|rx| matches!(rx.status, crate::clinical::PrescriptionStatus::InProgress))
+        .count();
+    let completed_today = prescriptions
+        .iter()
+        .filter(|rx| {
+            matches!(
+                rx.status,
+                crate::clinical::PrescriptionStatus::Dispensed
+                    | crate::clinical::PrescriptionStatus::PartialFill
+            )
+        })
+        .count();
+
+    // Get prescriptions needing to be filled (transmitted or received)
+    let pending_prescriptions: Vec<_> = prescriptions
+        .iter()
+        .filter(|rx| {
+            matches!(
+                rx.status,
+                crate::clinical::PrescriptionStatus::Transmitted
+                    | crate::clinical::PrescriptionStatus::Received
+            )
+        })
+        .take(20)
+        .cloned()
+        .collect();
+
+    // Get drug interaction alerts - placeholder for now (would query drug interaction database)
+    let drug_interaction_alerts: Vec<String> = Vec::new();
+
+    // Get allergy alerts - placeholder for now (would cross-reference patient allergies)
+    let allergy_alerts: Vec<String> = Vec::new();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "role": "Pharmacist",
+        "prescriptions": {
+            "pending_fill": pending_fill,
+            "in_progress": in_progress,
+            "completed_today": completed_today,
+            "list": pending_prescriptions
+        },
+        "drug_interactions": drug_interaction_alerts,
+        "allergy_alerts": allergy_alerts,
+        "alerts": {
+            "pending_rx_count": pending_fill,
+            "interactions_count": drug_interaction_alerts.len(),
+            "allergy_alerts_count": allergy_alerts.len()
+        }
     }))
 }
 
@@ -5053,7 +5231,7 @@ pub async fn generate_barcode(
         "entity_type": entity_type,
         "entity_id": entity_id,
         "patient_id": patient_id,
-        "generated_by": current_user.user_id,
+        "generated_by": current_user.wallet_address,
         "generated_at": chrono::Utc::now().timestamp(),
         "status": "active",
         "scan_count": 0
@@ -5125,7 +5303,7 @@ pub async fn scan_barcode(
         "barcode_value": barcode_value,
         "entity_type": entity_type,
         "scan_time": chrono::Utc::now().timestamp(),
-        "scanned_by": current_user.user_id,
+        "scanned_by": current_user.wallet_address,
         "scanned_by_role": current_user.role.to_string(),
         "location": location,
         "status": "valid",
@@ -5222,6 +5400,69 @@ pub async fn track_barcode(
         "current_location": "Hematology Section",
         "total_scans": tracking_history.len()
     }))
+}
+
+/// Get user's barcode scan history
+#[get("/api/barcode/scan-history")]
+pub async fn get_barcode_scan_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Return sample scan history for the user
+    // In a production system, this would query the database for actual scan records
+    let scan_history: Vec<serde_json::Value> = vec![
+        serde_json::json!({
+            "id": format!("SCAN-{}", uuid::Uuid::new_v4()),
+            "type": "patient",
+            "barcode": "MCPAT-12345-001",
+            "name": "John Smith",
+            "details": "Room 101 - Admitted",
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "result": "success",
+            "message": "Patient verified"
+        }),
+        serde_json::json!({
+            "id": format!("SCAN-{}", uuid::Uuid::new_v4()),
+            "type": "medication",
+            "barcode": "MCMED-500-MET",
+            "name": "Metformin 500mg",
+            "details": "Lot: LOT-2026-001",
+            "timestamp": (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
+            "result": "success",
+            "message": "Medication verified"
+        }),
+        serde_json::json!({
+            "id": format!("SCAN-{}", uuid::Uuid::new_v4()),
+            "type": "specimen",
+            "barcode": "MCSP-CBC-001",
+            "name": "Blood Sample CBC",
+            "details": "Collection pending",
+            "timestamp": (chrono::Utc::now() - chrono::Duration::hours(4)).to_rfc3339(),
+            "result": "success",
+            "message": "Specimen tracked"
+        }),
+    ];
+
+    HttpResponse::Ok().json(scan_history)
 }
 
 // ============================================================================
@@ -9443,8 +9684,7 @@ pub async fn create_medication_reminder(
     drop(users);
 
     // Patient can create for self, provider can create for any patient
-    let is_own_reminder = current_user_id == req.patient_id
-        || current_user_id.starts_with("PAT-") && req.patient_id == current_user_id;
+    let is_own_reminder = current_user_id == req.patient_id;
 
     if !is_own_reminder && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -9687,7 +9927,337 @@ pub async fn delete_medication_reminder(
 // PHASE 21: DRUG INTERACTION CHECKING
 // ============================================================================
 
+/// Get drug database for lookup/search
+#[get("/api/drugs")]
+pub async fn get_drug_database(
+    _data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    // Validate user is authenticated
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    // Drug reference database (clinical formulary)
+    let drugs = vec![
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-001".to_string(),
+            name: "Warfarin".to_string(),
+            generic_name: "warfarin".to_string(),
+            brand_names: vec!["Coumadin".to_string(), "Jantoven".to_string()],
+            drug_class: "Anticoagulant".to_string(),
+            route: "oral".to_string(),
+            form: "tablet".to_string(),
+            common_doses: vec![
+                "1mg".to_string(),
+                "2mg".to_string(),
+                "2.5mg".to_string(),
+                "3mg".to_string(),
+                "4mg".to_string(),
+                "5mg".to_string(),
+                "6mg".to_string(),
+                "7.5mg".to_string(),
+                "10mg".to_string(),
+            ],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-002".to_string(),
+            name: "Aspirin".to_string(),
+            generic_name: "aspirin".to_string(),
+            brand_names: vec![
+                "Bayer".to_string(),
+                "Ecotrin".to_string(),
+                "Bufferin".to_string(),
+            ],
+            drug_class: "NSAID/Antiplatelet".to_string(),
+            route: "oral".to_string(),
+            form: "tablet".to_string(),
+            common_doses: vec!["81mg".to_string(), "325mg".to_string(), "500mg".to_string()],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-003".to_string(),
+            name: "Lisinopril".to_string(),
+            generic_name: "lisinopril".to_string(),
+            brand_names: vec!["Prinivil".to_string(), "Zestril".to_string()],
+            drug_class: "ACE Inhibitor".to_string(),
+            route: "oral".to_string(),
+            form: "tablet".to_string(),
+            common_doses: vec![
+                "2.5mg".to_string(),
+                "5mg".to_string(),
+                "10mg".to_string(),
+                "20mg".to_string(),
+                "40mg".to_string(),
+            ],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-004".to_string(),
+            name: "Metformin".to_string(),
+            generic_name: "metformin".to_string(),
+            brand_names: vec![
+                "Glucophage".to_string(),
+                "Fortamet".to_string(),
+                "Glumetza".to_string(),
+            ],
+            drug_class: "Biguanide".to_string(),
+            route: "oral".to_string(),
+            form: "tablet".to_string(),
+            common_doses: vec![
+                "500mg".to_string(),
+                "850mg".to_string(),
+                "1000mg".to_string(),
+            ],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-005".to_string(),
+            name: "Amoxicillin".to_string(),
+            generic_name: "amoxicillin".to_string(),
+            brand_names: vec!["Amoxil".to_string(), "Moxatag".to_string()],
+            drug_class: "Penicillin Antibiotic".to_string(),
+            route: "oral".to_string(),
+            form: "capsule".to_string(),
+            common_doses: vec![
+                "250mg".to_string(),
+                "500mg".to_string(),
+                "875mg".to_string(),
+            ],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-006".to_string(),
+            name: "Simvastatin".to_string(),
+            generic_name: "simvastatin".to_string(),
+            brand_names: vec!["Zocor".to_string()],
+            drug_class: "Statin".to_string(),
+            route: "oral".to_string(),
+            form: "tablet".to_string(),
+            common_doses: vec![
+                "5mg".to_string(),
+                "10mg".to_string(),
+                "20mg".to_string(),
+                "40mg".to_string(),
+                "80mg".to_string(),
+            ],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-007".to_string(),
+            name: "Omeprazole".to_string(),
+            generic_name: "omeprazole".to_string(),
+            brand_names: vec!["Prilosec".to_string(), "Losec".to_string()],
+            drug_class: "Proton Pump Inhibitor".to_string(),
+            route: "oral".to_string(),
+            form: "capsule".to_string(),
+            common_doses: vec!["10mg".to_string(), "20mg".to_string(), "40mg".to_string()],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-008".to_string(),
+            name: "Levothyroxine".to_string(),
+            generic_name: "levothyroxine".to_string(),
+            brand_names: vec![
+                "Synthroid".to_string(),
+                "Levoxyl".to_string(),
+                "Unithroid".to_string(),
+            ],
+            drug_class: "Thyroid Hormone".to_string(),
+            route: "oral".to_string(),
+            form: "tablet".to_string(),
+            common_doses: vec![
+                "25mcg".to_string(),
+                "50mcg".to_string(),
+                "75mcg".to_string(),
+                "88mcg".to_string(),
+                "100mcg".to_string(),
+                "112mcg".to_string(),
+                "125mcg".to_string(),
+                "137mcg".to_string(),
+                "150mcg".to_string(),
+            ],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-009".to_string(),
+            name: "Amlodipine".to_string(),
+            generic_name: "amlodipine".to_string(),
+            brand_names: vec!["Norvasc".to_string()],
+            drug_class: "Calcium Channel Blocker".to_string(),
+            route: "oral".to_string(),
+            form: "tablet".to_string(),
+            common_doses: vec!["2.5mg".to_string(), "5mg".to_string(), "10mg".to_string()],
+        },
+        crate::clinical::DrugReference {
+            drug_id: "DRUG-010".to_string(),
+            name: "Fluoxetine".to_string(),
+            generic_name: "fluoxetine".to_string(),
+            brand_names: vec!["Prozac".to_string(), "Sarafem".to_string()],
+            drug_class: "SSRI Antidepressant".to_string(),
+            route: "oral".to_string(),
+            form: "capsule".to_string(),
+            common_doses: vec![
+                "10mg".to_string(),
+                "20mg".to_string(),
+                "40mg".to_string(),
+                "60mg".to_string(),
+            ],
+        },
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "drugs": drugs,
+        "count": drugs.len()
+    }))
+}
+
+/// Get interaction database for reference/lookup
+#[get("/api/interactions")]
+pub async fn get_interaction_database(
+    _data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    // Validate user is authenticated
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
+        Some(id) => id.to_str().unwrap_or("").to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    // Reference interaction database
+    let interactions = vec![
+        serde_json::json!({
+            "interactionId": "INT-001",
+            "type": "drug-drug",
+            "severity": "major",
+            "drug1": "Warfarin",
+            "drug2": "Aspirin",
+            "title": "Warfarin + Aspirin: Increased Bleeding Risk",
+            "description": "Concurrent use of warfarin with aspirin significantly increases the risk of bleeding complications.",
+            "mechanism": "Additive anticoagulant and antiplatelet effects. Both drugs inhibit different pathways in hemostasis, leading to synergistic bleeding risk.",
+            "clinicalEffects": ["Increased risk of major bleeding (GI, intracranial)", "Prolonged bleeding time", "Elevated INR", "Easy bruising", "Hematuria or melena"],
+            "management": ["Avoid combination when possible", "If combination necessary, use lowest effective aspirin dose (81mg)", "Monitor INR more frequently (weekly initially)", "Watch for signs of bleeding", "Consider PPI for GI protection", "Educate patient on bleeding signs"],
+            "monitoring": ["INR every 1-2 weeks until stable", "CBC for anemia", "Stool guaiac for occult blood", "Monitor for bruising, bleeding gums"],
+            "alternatives": ["Use aspirin alone for cardiovascular protection if anticoagulation can be stopped", "Consider alternative anticoagulant if aspirin essential"],
+            "evidenceLevel": "A",
+            "references": ["Holbrook AM, et al. Arch Intern Med. 2005;165(10):1095-1106.", "Johnson SG, et al. Am Heart J. 2008;155(5):918-924."],
+            "onset": "Immediate (within days)",
+            "documentation": "Well-established",
+            "riskFactors": ["Age >65", "History of bleeding", "Renal impairment", "Peptic ulcer disease"]
+        }),
+        serde_json::json!({
+            "interactionId": "INT-002",
+            "type": "drug-drug",
+            "severity": "moderate",
+            "drug1": "Lisinopril",
+            "drug2": "Aspirin",
+            "title": "ACE Inhibitors + NSAIDs: Reduced Antihypertensive Effect",
+            "description": "NSAIDs may reduce the antihypertensive effect of ACE inhibitors and increase risk of renal impairment.",
+            "mechanism": "NSAIDs inhibit prostaglandin synthesis, which is important for ACE inhibitor-mediated vasodilation and natriuresis.",
+            "clinicalEffects": ["Reduced blood pressure control", "Increased risk of acute kidney injury", "Hyperkalemia", "Sodium and fluid retention"],
+            "management": ["Monitor blood pressure closely", "Check renal function and potassium", "Use lowest effective NSAID dose for shortest duration", "Consider alternative analgesic (acetaminophen)"],
+            "monitoring": ["Blood pressure weekly during NSAID therapy", "Serum creatinine and potassium baseline and after 1 week", "Volume status"],
+            "alternatives": ["Acetaminophen for pain", "Topical NSAIDs", "COX-2 selective inhibitor (caution still needed)"],
+            "evidenceLevel": "B",
+            "references": ["Fournier JP, et al. BMJ. 2012;344:e4128.", "Lapi F, et al. Drug Saf. 2013;36(10):899-918."],
+            "onset": "Days to weeks",
+            "documentation": "Established",
+            "riskFactors": ["Pre-existing renal disease", "Volume depletion", "Age >65", "Diabetes"]
+        }),
+        serde_json::json!({
+            "interactionId": "INT-003",
+            "type": "drug-drug",
+            "severity": "major",
+            "drug1": "Simvastatin",
+            "drug2": "Fluoxetine",
+            "title": "Simvastatin + Fluoxetine: Increased Statin Levels",
+            "description": "Fluoxetine inhibits CYP3A4, increasing simvastatin levels and risk of myopathy/rhabdomyolysis.",
+            "mechanism": "Fluoxetine is a moderate CYP3A4 inhibitor. Simvastatin is extensively metabolized by CYP3A4.",
+            "clinicalEffects": ["Increased simvastatin plasma concentrations", "Myalgia and muscle weakness", "Elevated creatine kinase (CK)", "Rhabdomyolysis (rare but serious)", "Acute kidney injury from myoglobinuria"],
+            "management": ["Reduce simvastatin dose (max 20mg daily with moderate CYP3A4 inhibitor)", "Monitor for muscle symptoms", "Check CK if symptoms develop", "Consider alternative statin not metabolized by CYP3A4 (rosuvastatin, pravastatin)"],
+            "monitoring": ["Baseline CK", "Patient education on myopathy symptoms", "CK if muscle pain/weakness", "Renal function"],
+            "alternatives": ["Switch to rosuvastatin or pravastatin", "Switch to alternative SSRI with less CYP3A4 inhibition (sertraline)"],
+            "evidenceLevel": "B",
+            "references": ["FDA Drug Safety Communication on Simvastatin", "Law M, Rudnicka AR. Am J Cardiovasc Drugs. 2006;6(6):343-348."],
+            "onset": "Days to weeks",
+            "documentation": "Established",
+            "riskFactors": ["High simvastatin dose", "Renal impairment", "Hypothyroidism", "Age >65", "Female gender"]
+        }),
+        serde_json::json!({
+            "interactionId": "INT-004",
+            "type": "drug-drug",
+            "severity": "moderate",
+            "drug1": "Metformin",
+            "drug2": "Lisinopril",
+            "title": "Metformin + ACE Inhibitors: Hypoglycemia Risk",
+            "description": "ACE inhibitors may enhance the hypoglycemic effect of metformin.",
+            "mechanism": "ACE inhibitors may improve insulin sensitivity and glucose uptake.",
+            "clinicalEffects": ["Increased risk of hypoglycemia", "Enhanced glucose-lowering effect", "Symptoms: tremor, sweating, confusion, tachycardia"],
+            "management": ["Monitor blood glucose more frequently when initiating ACE inhibitor", "Educate patient on hypoglycemia symptoms", "May need to adjust metformin or other antidiabetic dose", "Generally beneficial interaction for diabetic patients"],
+            "monitoring": ["Blood glucose daily initially", "HbA1c at 3 months", "Hypoglycemia symptoms"],
+            "alternatives": ["Generally continue both medications", "Adjust doses as needed based on glucose control"],
+            "evidenceLevel": "C",
+            "references": ["Paolisso G, et al. J Clin Invest. 1992;89(4):1295-1300."],
+            "onset": "Days to weeks",
+            "documentation": "Probable",
+            "riskFactors": ["Elderly", "Renal impairment", "Tight glycemic control", "Irregular meals"]
+        }),
+        serde_json::json!({
+            "interactionId": "INT-005",
+            "type": "drug-drug",
+            "severity": "moderate",
+            "drug1": "Levothyroxine",
+            "drug2": "Omeprazole",
+            "title": "Levothyroxine + PPIs: Reduced Levothyroxine Absorption",
+            "description": "PPIs increase gastric pH, which may reduce levothyroxine absorption.",
+            "mechanism": "Levothyroxine absorption is pH-dependent. Increased gastric pH from PPI reduces dissolution and absorption.",
+            "clinicalEffects": ["Reduced levothyroxine efficacy", "Elevated TSH", "Hypothyroid symptoms may recur"],
+            "management": ["Separate administration by at least 4 hours", "Take levothyroxine first thing in the morning on empty stomach", "Take PPI later in the day", "Monitor TSH 6-8 weeks after PPI initiation", "May need to increase levothyroxine dose"],
+            "monitoring": ["TSH and free T4 at 6-8 weeks", "Clinical symptoms of hypothyroidism"],
+            "alternatives": ["H2 antagonist instead of PPI if appropriate", "Antacids (though also affect absorption)"],
+            "evidenceLevel": "C",
+            "references": ["Centanni M, et al. N Engl J Med. 2006;354(17):1787-1795."],
+            "onset": "Weeks",
+            "documentation": "Probable",
+            "riskFactors": ["Marginal thyroid function", "High PPI dose", "Long-term PPI use"]
+        }),
+        serde_json::json!({
+            "interactionId": "INT-006",
+            "type": "drug-allergy",
+            "severity": "contraindicated",
+            "drug1": "Amoxicillin",
+            "allergen": "Penicillin",
+            "title": "Amoxicillin in Penicillin-Allergic Patients",
+            "description": "Absolute contraindication to use amoxicillin (a penicillin) in patients with documented penicillin allergy.",
+            "mechanism": "Cross-reactivity due to shared beta-lactam ring structure.",
+            "clinicalEffects": ["Immediate hypersensitivity reaction", "Urticaria, angioedema", "Bronchospasm", "Anaphylaxis (life-threatening)", "Stevens-Johnson syndrome (rare)"],
+            "management": ["DO NOT ADMINISTER", "Use alternative antibiotic class", "If beta-lactam essential, consider allergy testing and possible desensitization", "Update allergy list in medical record"],
+            "monitoring": ["N/A - do not use"],
+            "alternatives": ["Macrolides (azithromycin, clarithromycin)", "Fluoroquinolones (levofloxacin, moxifloxacin)", "Cephalosporins (use with caution, 1-10% cross-reactivity)"],
+            "evidenceLevel": "A",
+            "references": ["Joint Task Force on Practice Parameters. J Allergy Clin Immunol. 2010;125(3 Suppl 2):S126-137."],
+            "onset": "Immediate to hours",
+            "documentation": "Well-established",
+            "riskFactors": ["History of severe reaction", "Atopy", "Previous penicillin reaction"]
+        }),
+    ];
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "interactions": interactions,
+        "count": interactions.len()
+    }))
+}
+
 /// Check drug interactions request
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CheckDrugInteractionsRequest {
     pub patient_id: String,
@@ -9740,20 +10310,38 @@ pub async fn check_drug_interactions(
     let known_interactions = vec![
         ("warfarin", "aspirin", "major", "Increased bleeding risk"),
         ("warfarin", "ibuprofen", "major", "Increased bleeding risk"),
-        ("metformin", "contrast dye", "major", "Risk of lactic acidosis"),
-        ("lisinopril", "potassium", "moderate", "Risk of hyperkalemia"),
-        ("simvastatin", "grapefruit", "moderate", "Increased statin levels"),
+        (
+            "metformin",
+            "contrast dye",
+            "major",
+            "Risk of lactic acidosis",
+        ),
+        (
+            "lisinopril",
+            "potassium",
+            "moderate",
+            "Risk of hyperkalemia",
+        ),
+        (
+            "simvastatin",
+            "grapefruit",
+            "moderate",
+            "Increased statin levels",
+        ),
         ("digoxin", "amiodarone", "major", "Digoxin toxicity risk"),
         ("ssri", "maoi", "contraindicated", "Serotonin syndrome risk"),
         ("fluoxetine", "tramadol", "major", "Serotonin syndrome risk"),
-        ("ciprofloxacin", "theophylline", "major", "Theophylline toxicity"),
+        (
+            "ciprofloxacin",
+            "theophylline",
+            "major",
+            "Theophylline toxicity",
+        ),
         ("methotrexate", "nsaid", "major", "Methotrexate toxicity"),
     ];
 
     let mut interactions: Vec<crate::clinical::DrugInteraction> = Vec::new();
-    let medications_lower: Vec<String> = req.medications.iter()
-        .map(|m| m.to_lowercase())
-        .collect();
+    let medications_lower: Vec<String> = req.medications.iter().map(|m| m.to_lowercase()).collect();
 
     // Check each pair of medications
     for i in 0..medications_lower.len() {
@@ -9762,8 +10350,9 @@ pub async fn check_drug_interactions(
             let med2 = &medications_lower[j];
 
             for (drug1, drug2, severity, description) in &known_interactions {
-                if (med1.contains(drug1) && med2.contains(drug2)) ||
-                   (med1.contains(drug2) && med2.contains(drug1)) {
+                if (med1.contains(drug1) && med2.contains(drug2))
+                    || (med1.contains(drug2) && med2.contains(drug1))
+                {
                     let severity_enum = match *severity {
                         "contraindicated" => crate::clinical::InteractionSeverity::Contraindicated,
                         "major" => crate::clinical::InteractionSeverity::Major,
@@ -9777,8 +10366,10 @@ pub async fn check_drug_interactions(
                         severity: severity_enum,
                         description: description.to_string(),
                         clinical_effects: description.to_string(),
-                        management: format!("Monitor closely or consider alternatives for {} and {}", 
-                            req.medications[i], req.medications[j]),
+                        management: format!(
+                            "Monitor closely or consider alternatives for {} and {}",
+                            req.medications[i], req.medications[j]
+                        ),
                         evidence_level: crate::clinical::EvidenceLevel::Established,
                         source: "Clinical Pharmacology Database".to_string(),
                     });
@@ -9809,16 +10400,17 @@ pub async fn check_drug_interactions(
     }
 
     // Calculate overall severity
-    let overall_severity = interactions.iter()
+    let overall_severity = interactions
+        .iter()
         .map(|i| &i.severity)
         .max()
         .cloned()
         .unwrap_or(crate::clinical::InteractionSeverity::None);
-    
+
     let safe_to_prescribe = !matches!(
-        overall_severity, 
-        crate::clinical::InteractionSeverity::Contraindicated | 
-        crate::clinical::InteractionSeverity::Major
+        overall_severity,
+        crate::clinical::InteractionSeverity::Contraindicated
+            | crate::clinical::InteractionSeverity::Major
     );
 
     let result = crate::clinical::DrugInteractionResult {
@@ -9827,8 +10419,8 @@ pub async fn check_drug_interactions(
         checked_at: chrono::Utc::now().timestamp(),
         new_medication: req.medications.first().cloned().unwrap_or_default(),
         interactions: interactions.clone(),
-        overall_severity: overall_severity,
-        safe_to_prescribe: safe_to_prescribe,
+        overall_severity,
+        safe_to_prescribe,
         checked_by: current_user_id.clone(),
     };
 
@@ -9843,8 +10435,8 @@ pub async fn check_drug_interactions(
         "patient_id": req.patient_id,
         "medications_checked": req.medications.len(),
         "interactions_found": interactions.len(),
-        "has_critical": interactions.iter().any(|i| 
-            matches!(i.severity, crate::clinical::InteractionSeverity::Contraindicated | 
+        "has_critical": interactions.iter().any(|i|
+            matches!(i.severity, crate::clinical::InteractionSeverity::Contraindicated |
                                   crate::clinical::InteractionSeverity::Major)),
         "interactions": interactions,
         "allergy_alerts": allergy_alerts,
@@ -9868,7 +10460,7 @@ pub async fn get_interaction_history(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10006,7 +10598,7 @@ pub async fn add_family_member(
     req: web::Json<AddFamilyMemberRequest>,
 ) -> impl Responder {
     let group_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10019,7 +10611,7 @@ pub async fn add_family_member(
     };
 
     let mut groups = data.family_groups.write().unwrap();
-    
+
     let group = match groups.get_mut(&group_id) {
         Some(g) => g,
         None => {
@@ -10091,7 +10683,7 @@ pub async fn get_family_group(
     path: web::Path<String>,
 ) -> impl Responder {
     let group_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10104,11 +10696,14 @@ pub async fn get_family_group(
     };
 
     let groups = data.family_groups.read().unwrap();
-    
+
     match groups.get(&group_id) {
         Some(group) => {
             // Check if user is a member
-            let is_member = group.members.iter().any(|m| m.patient_id == current_user_id);
+            let is_member = group
+                .members
+                .iter()
+                .any(|m| m.patient_id == current_user_id);
             if !is_member && group.primary_account_id != current_user_id {
                 return HttpResponse::Forbidden().json(ErrorResponse {
                     success: false,
@@ -10151,8 +10746,8 @@ pub async fn get_my_family_groups(
     let my_groups: Vec<_> = groups
         .values()
         .filter(|g| {
-            g.primary_account_id == current_user_id ||
-            g.members.iter().any(|m| m.patient_id == current_user_id)
+            g.primary_account_id == current_user_id
+                || g.members.iter().any(|m| m.patient_id == current_user_id)
         })
         .cloned()
         .collect();
@@ -10172,7 +10767,7 @@ pub async fn remove_family_member(
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     let (group_id, patient_id) = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10185,7 +10780,7 @@ pub async fn remove_family_member(
     };
 
     let mut groups = data.family_groups.write().unwrap();
-    
+
     let group = match groups.get_mut(&group_id) {
         Some(g) => g,
         None => {
@@ -10237,6 +10832,7 @@ pub struct BookAppointmentRequest {
     pub appointment_type: String,
     pub preferred_date: String,
     pub preferred_time: String,
+    pub scheduled_at: Option<String>,
     pub duration_minutes: Option<i32>,
     pub reason: String,
     pub notes: Option<String>,
@@ -10282,11 +10878,13 @@ pub async fn book_appointment(
         // Check if booking for family member
         let groups = data.family_groups.read().unwrap();
         let can_book_for_family = groups.values().any(|g| {
-            g.members.iter().any(|m| m.patient_id == current_user_id && m.can_book_appointments) &&
-            g.members.iter().any(|m| m.patient_id == req.patient_id)
+            g.members
+                .iter()
+                .any(|m| m.patient_id == current_user_id && m.can_book_appointments)
+                && g.members.iter().any(|m| m.patient_id == req.patient_id)
         });
         drop(groups);
-        
+
         if !can_book_for_family {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 success: false,
@@ -10296,7 +10894,10 @@ pub async fn book_appointment(
         }
     }
 
-    let appointment_type = match req.appointment_type.as_str() {
+    // Normalize appointment_type (case-insensitive, accept hyphen/space)
+    let at_norm = req.appointment_type.to_lowercase().replace(['-', ' '], "_");
+
+    let appointment_type = match at_norm.as_str() {
         "consultation" => crate::clinical::AppointmentType::Consultation,
         "followup" | "follow_up" => crate::clinical::AppointmentType::FollowUp,
         "new_patient" => crate::clinical::AppointmentType::NewPatient,
@@ -10313,26 +10914,48 @@ pub async fn book_appointment(
 
     let location = crate::clinical::AppointmentLocation {
         facility_name: "MediChain Health Center".to_string(),
-        department: req.department.clone().unwrap_or_else(|| "General".to_string()),
+        department: req
+            .department
+            .clone()
+            .unwrap_or_else(|| "General".to_string()),
         room: None,
         address: Some("123 Healthcare Blvd, Medical City".to_string()),
         telehealth_link: if req.location_type.as_deref() == Some("telehealth") {
-            Some(format!("https://medichain.health/telehealth/{}", uuid::Uuid::new_v4()))
+            Some(format!(
+                "https://medichain.health/telehealth/{}",
+                uuid::Uuid::new_v4()
+            ))
         } else {
             None
         },
     };
+    // Determine scheduled date and start time: prefer `scheduled_at` if provided
+    let (scheduled_date, start_time) = if let Some(sched) = &req.scheduled_at {
+        if let Some((d, t)) = sched.split_once('T') {
+            (d.to_string(), Some(t.to_string()))
+        } else {
+            (sched.clone(), None)
+        }
+    } else {
+        (req.preferred_date.clone(), Some(req.preferred_time.clone()))
+    };
+
+    // Ensure `start_time` is a concrete String (Appointment expects String)
+    let start_time_str = start_time.clone().unwrap_or_default();
 
     let appointment = crate::clinical::Appointment {
         appointment_id: format!("APT-{}", uuid::Uuid::new_v4()),
         patient_id: req.patient_id.clone(),
         provider_id: req.provider_id.clone(),
-        provider_name: req.provider_name.clone().unwrap_or_else(|| "Dr. Provider".to_string()),
+        provider_name: req
+            .provider_name
+            .clone()
+            .unwrap_or_else(|| "Dr. Provider".to_string()),
         appointment_type,
         visit_reason: req.reason.clone(),
-        scheduled_date: req.preferred_date.clone(),
+        scheduled_date: scheduled_date.clone(),
         scheduled_time: Some(chrono::Utc::now().timestamp()),
-        start_time: req.preferred_time.clone(),
+        start_time: start_time_str,
         duration_minutes: req.duration_minutes.unwrap_or(30) as u16,
         location,
         status: crate::clinical::AppointmentStatus::Scheduled,
@@ -10341,7 +10964,7 @@ pub async fn book_appointment(
         created_by: current_user_id.clone(),
         booked_by: Some(current_user_id),
         check_in_time: None,
-        is_telehealth: false,
+        is_telehealth: req.location_type.as_deref() == Some("telehealth"),
         reminders_sent: Vec::new(),
         instructions: req.instructions.clone(),
         insurance_verified: false,
@@ -10367,7 +10990,7 @@ pub async fn get_patient_appointments(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10424,7 +11047,7 @@ pub async fn get_provider_appointments(
     path: web::Path<String>,
 ) -> impl Responder {
     let provider_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10488,7 +11111,7 @@ pub async fn cancel_appointment(
     req: web::Json<CancelAppointmentRequest>,
 ) -> impl Responder {
     let appointment_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10501,7 +11124,7 @@ pub async fn cancel_appointment(
     };
 
     let mut appointments = data.appointments.write().unwrap();
-    
+
     let appointment = match appointments.get_mut(&appointment_id) {
         Some(a) => a,
         None => {
@@ -10514,9 +11137,10 @@ pub async fn cancel_appointment(
     };
 
     // Patient, provider, or booker can cancel
-    if appointment.patient_id != current_user_id && 
-       appointment.provider_id != current_user_id &&
-       appointment.booked_by != Some(current_user_id.clone()) {
+    if appointment.patient_id != current_user_id
+        && appointment.provider_id != current_user_id
+        && appointment.booked_by != Some(current_user_id.clone())
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -10544,7 +11168,7 @@ pub async fn check_in_appointment(
     path: web::Path<String>,
 ) -> impl Responder {
     let appointment_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10570,7 +11194,7 @@ pub async fn check_in_appointment(
     drop(users);
 
     let mut appointments = data.appointments.write().unwrap();
-    
+
     let appointment = match appointments.get_mut(&appointment_id) {
         Some(a) => a,
         None => {
@@ -10610,7 +11234,7 @@ pub async fn get_available_slots(
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     let (provider_id, date) = path.into_inner();
-    
+
     let _current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -10626,17 +11250,18 @@ pub async fn get_available_slots(
     let appointments = data.appointments.read().unwrap();
     let booked_times: Vec<String> = appointments
         .values()
-        .filter(|a| a.provider_id == provider_id && 
-                    a.scheduled_date == date &&
-                    !matches!(a.status, crate::clinical::AppointmentStatus::Cancelled))
+        .filter(|a| {
+            a.provider_id == provider_id
+                && a.scheduled_date == date
+                && !matches!(a.status, crate::clinical::AppointmentStatus::Cancelled)
+        })
         .map(|a| a.start_time.clone())
         .collect();
 
     // Generate available slots (9 AM to 5 PM, 30 min intervals)
     let all_slots = vec![
-        "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-        "12:00", "12:30", "13:00", "13:30", "14:00", "14:30",
-        "15:00", "15:30", "16:00", "16:30"
+        "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30", "13:00", "13:30",
+        "14:00", "14:30", "15:00", "15:30", "16:00", "16:30",
     ];
 
     let available_slots: Vec<&str> = all_slots
@@ -10698,21 +11323,28 @@ pub async fn register_wearable_device(
         _ => crate::clinical::WearableDeviceType::Other,
     };
 
-    let data_types = req.data_types.clone().map(|types| {
-        types.iter().filter_map(|t| match t.as_str() {
-            "heart_rate" => Some(crate::clinical::WearableDataType::HeartRate),
-            "blood_pressure" => Some(crate::clinical::WearableDataType::BloodPressure),
-            "blood_glucose" => Some(crate::clinical::WearableDataType::BloodGlucose),
-            "spo2" => Some(crate::clinical::WearableDataType::SpO2),
-            "steps" => Some(crate::clinical::WearableDataType::Steps),
-            "distance" => Some(crate::clinical::WearableDataType::Distance),
-            "calories" => Some(crate::clinical::WearableDataType::Calories),
-            "sleep" => Some(crate::clinical::WearableDataType::Sleep),
-            "weight" => Some(crate::clinical::WearableDataType::Weight),
-            "temperature" => Some(crate::clinical::WearableDataType::Temperature),
-            _ => None,
-        }).collect()
-    }).unwrap_or_else(|| vec![crate::clinical::WearableDataType::HeartRate]);
+    let data_types = req
+        .data_types
+        .clone()
+        .map(|types| {
+            types
+                .iter()
+                .filter_map(|t| match t.as_str() {
+                    "heart_rate" => Some(crate::clinical::WearableDataType::HeartRate),
+                    "blood_pressure" => Some(crate::clinical::WearableDataType::BloodPressure),
+                    "blood_glucose" => Some(crate::clinical::WearableDataType::BloodGlucose),
+                    "spo2" => Some(crate::clinical::WearableDataType::SpO2),
+                    "steps" => Some(crate::clinical::WearableDataType::Steps),
+                    "distance" => Some(crate::clinical::WearableDataType::Distance),
+                    "calories" => Some(crate::clinical::WearableDataType::Calories),
+                    "sleep" => Some(crate::clinical::WearableDataType::Sleep),
+                    "weight" => Some(crate::clinical::WearableDataType::Weight),
+                    "temperature" => Some(crate::clinical::WearableDataType::Temperature),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| vec![crate::clinical::WearableDataType::HeartRate]);
 
     let device = crate::clinical::WearableDevice {
         device_id: format!("WRB-{}", uuid::Uuid::new_v4()),
@@ -10843,8 +11475,10 @@ pub async fn submit_wearable_reading(
     };
 
     let reading_id = format!("RDG-{}", uuid::Uuid::new_v4());
-    let recorded_at = req.recorded_at.unwrap_or_else(|| chrono::Utc::now().timestamp());
-    
+    let recorded_at = req
+        .recorded_at
+        .unwrap_or_else(|| chrono::Utc::now().timestamp());
+
     // Check for abnormal values
     let (flagged, flag_reason) = check_reading_for_abnormality(&req.data_type, req.value);
 
@@ -10867,8 +11501,11 @@ pub async fn submit_wearable_reading(
     // Check alert rules
     let alert_rules = data.wearable_alert_rules.read().unwrap();
     let mut triggered_alerts: Vec<crate::clinical::WearableAlert> = Vec::new();
-    
-    for rule in alert_rules.values().filter(|r| r.patient_id == current_user_id && r.active) {
+
+    for rule in alert_rules
+        .values()
+        .filter(|r| r.patient_id == current_user_id && r.active)
+    {
         if rule.data_type == data_type {
             let should_alert = match rule.threshold_type {
                 crate::clinical::ThresholdType::Above => req.value > rule.threshold_value,
@@ -10879,7 +11516,7 @@ pub async fn submit_wearable_reading(
                     } else {
                         false
                     }
-                },
+                }
                 _ => false,
             };
 
@@ -10893,8 +11530,10 @@ pub async fn submit_wearable_reading(
                     trigger_value: req.value,
                     threshold: rule.threshold_value,
                     severity: rule.severity.clone(),
-                    message: format!("{:?} reading {} is abnormal (threshold: {})", 
-                        data_type, req.value, rule.threshold_value),
+                    message: format!(
+                        "{:?} reading {} is abnormal (threshold: {})",
+                        data_type, req.value, rule.threshold_value
+                    ),
                     created_at: chrono::Utc::now().timestamp(),
                     acknowledged: false,
                     acknowledged_by: None,
@@ -10954,7 +11593,7 @@ pub async fn get_wearable_readings(
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -11015,7 +11654,8 @@ pub async fn get_wearable_readings(
     patient_readings.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at));
 
     // Limit results
-    let limit = query.get("limit")
+    let limit = query
+        .get("limit")
         .and_then(|l| l.parse::<usize>().ok())
         .unwrap_or(100);
     patient_readings.truncate(limit);
@@ -11146,13 +11786,15 @@ pub async fn get_wearable_alerts(
     let alerts = data.wearable_alerts.read().unwrap();
     let user_alerts: Vec<_> = if current_user.role.is_healthcare_provider() {
         // Providers see all unacknowledged alerts
-        alerts.values()
+        alerts
+            .values()
             .filter(|a| !a.acknowledged)
             .cloned()
             .collect()
     } else {
         // Patients see their own alerts
-        alerts.values()
+        alerts
+            .values()
             .filter(|a| a.patient_id == current_user_id)
             .cloned()
             .collect()
@@ -11170,6 +11812,7 @@ pub async fn get_wearable_alerts(
 // ============================================================================
 
 /// Start symptom check session request
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct StartSymptomCheckRequest {
     pub primary_symptom: String,
@@ -11233,7 +11876,7 @@ pub async fn start_symptom_check(
 /// Generate follow-up questions based on symptom
 fn generate_symptom_questions(symptom: &str) -> Vec<serde_json::Value> {
     let symptom_lower = symptom.to_lowercase();
-    
+
     let mut questions = vec![
         serde_json::json!({
             "id": "severity",
@@ -11323,7 +11966,7 @@ pub async fn submit_symptom_answers(
     req: web::Json<SubmitSymptomAnswersRequest>,
 ) -> impl Responder {
     let session_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -11336,7 +11979,7 @@ pub async fn submit_symptom_answers(
     };
 
     let mut sessions = data.symptom_sessions.write().unwrap();
-    
+
     let session = match sessions.get_mut(&session_id) {
         Some(s) if s.patient_id == current_user_id => s,
         Some(_) => {
@@ -11356,11 +11999,13 @@ pub async fn submit_symptom_answers(
     };
 
     // Store answers as a conversation message
-    let answer_content = req.answers.iter()
+    let answer_content = req
+        .answers
+        .iter()
         .map(|(k, v)| format!("{}: {}", k, v))
         .collect::<Vec<_>>()
         .join(", ");
-    
+
     session.conversation.push(crate::clinical::SymptomMessage {
         role: crate::clinical::MessageRole::Patient,
         content: answer_content,
@@ -11383,22 +12028,22 @@ pub async fn submit_symptom_answers(
 
     // Generate assessment
     session.assessment = Some(crate::clinical::SymptomAssessment {
-        possible_conditions: vec![
-            crate::clinical::PossibleCondition {
-                condition_name: "General symptoms requiring evaluation".to_string(),
-                icd10_code: None,
-                probability: 0.7,
-                description: "Based on reported symptoms, a medical evaluation is recommended.".to_string(),
-                urgency: crate::clinical::UrgencyLevel::Routine,
-                common_causes: vec!["Various".to_string()],
-            }
-        ],
+        possible_conditions: vec![crate::clinical::PossibleCondition {
+            condition_name: "General symptoms requiring evaluation".to_string(),
+            icd10_code: None,
+            probability: 0.7,
+            description: "Based on reported symptoms, a medical evaluation is recommended."
+                .to_string(),
+            urgency: crate::clinical::UrgencyLevel::Routine,
+            common_causes: vec!["Various".to_string()],
+        }],
         red_flags: Vec::new(),
         recommendations: vec!["Consult with a healthcare provider".to_string()],
         questions_for_provider: vec!["Describe symptom onset and progression".to_string()],
         self_care: vec!["Rest and stay hydrated".to_string()],
         confidence: 0.6,
-        disclaimer: "This is not a medical diagnosis. Please consult a healthcare professional.".to_string(),
+        disclaimer: "This is not a medical diagnosis. Please consult a healthcare professional."
+            .to_string(),
     });
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -11412,30 +12057,36 @@ pub async fn submit_symptom_answers(
 /// Calculate triage result based on symptoms and answers
 fn calculate_triage_result(
     answers: &std::collections::HashMap<String, serde_json::Value>,
-    symptoms: &[String]
+    symptoms: &[String],
 ) -> crate::clinical::TriageRecommendation {
-    let severity = answers.get("severity")
+    let severity = answers
+        .get("severity")
         .and_then(|v| v.as_i64())
         .unwrap_or(5) as i32;
 
     let has_emergency_symptoms = symptoms.iter().any(|s| {
         let sym = s.to_lowercase();
-        sym.contains("chest pain") || sym.contains("difficulty breathing") ||
-        sym.contains("stroke") || sym.contains("unconscious")
+        sym.contains("chest pain")
+            || sym.contains("difficulty breathing")
+            || sym.contains("stroke")
+            || sym.contains("unconscious")
     });
 
-    let chest_radiation = answers.get("chest_radiation")
+    let chest_radiation = answers
+        .get("chest_radiation")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let shortness_breath = answers.get("shortness_breath")
+    let shortness_breath = answers
+        .get("shortness_breath")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
     if has_emergency_symptoms || (chest_radiation && shortness_breath) || severity >= 9 {
         crate::clinical::TriageRecommendation {
             level: crate::clinical::TriageLevel::EmergencyRoom,
-            explanation: "Emergency symptoms detected. Seek emergency care immediately.".to_string(),
+            explanation: "Emergency symptoms detected. Seek emergency care immediately."
+                .to_string(),
             timeframe: "Immediately".to_string(),
             care_options: vec![
                 crate::clinical::CareOption {
@@ -11479,7 +12130,8 @@ fn calculate_triage_result(
     } else if severity >= 4 {
         crate::clinical::TriageRecommendation {
             level: crate::clinical::TriageLevel::ScheduledAppointment,
-            explanation: "Non-urgent symptoms. Schedule an appointment with your doctor.".to_string(),
+            explanation: "Non-urgent symptoms. Schedule an appointment with your doctor."
+                .to_string(),
             timeframe: "Within 2-3 days".to_string(),
             care_options: vec![
                 crate::clinical::CareOption {
@@ -11531,7 +12183,7 @@ pub async fn get_symptom_session(
     path: web::Path<String>,
 ) -> impl Responder {
     let session_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -11557,11 +12209,12 @@ pub async fn get_symptom_session(
     drop(users);
 
     let sessions = data.symptom_sessions.read().unwrap();
-    
+
     match sessions.get(&session_id) {
         Some(session) => {
             // Patient can see own session, provider can see any
-            if session.patient_id != current_user_id && !current_user.role.is_healthcare_provider() {
+            if session.patient_id != current_user_id && !current_user.role.is_healthcare_provider()
+            {
                 return HttpResponse::Forbidden().json(ErrorResponse {
                     success: false,
                     error: "Access denied".to_string(),
@@ -11590,7 +12243,7 @@ pub async fn get_symptom_checker_history(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -11637,6 +12290,476 @@ pub async fn get_symptom_checker_history(
         "sessions": history,
         "count": history.len()
     }))
+}
+
+/// Symptom analysis request for direct symptom-to-condition mapping
+#[derive(Debug, Deserialize)]
+pub struct AnalyzeSymptomsRequest {
+    pub symptoms: Vec<String>,
+    pub patient_age: Option<i32>,
+    pub patient_gender: Option<String>,
+    pub existing_conditions: Option<Vec<String>>,
+    pub current_medications: Option<Vec<String>>,
+}
+
+/// Possible condition from symptom analysis
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PossibleConditionResult {
+    pub condition_name: String,
+    pub probability: f32,
+    pub severity: String,
+    pub description: String,
+    pub icd10_code: Option<String>,
+}
+
+/// Direct symptom analysis endpoint - maps symptoms to possible conditions
+#[post("/api/symptoms/analyze")]
+pub async fn analyze_symptoms(
+    _data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    req: web::Json<AnalyzeSymptomsRequest>,
+) -> impl Responder {
+    // Validate user is authenticated
+    if http_req.headers().get("X-User-Id").is_none() {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Missing X-User-Id header".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        });
+    }
+
+    let symptoms = &req.symptoms;
+
+    if symptoms.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "At least one symptom is required".to_string(),
+            code: "INVALID_INPUT".to_string(),
+        });
+    }
+
+    // Extract patient context for enhanced analysis
+    let patient_age = req.patient_age;
+    let patient_gender = req.patient_gender.as_deref();
+    let existing_conditions = req.existing_conditions.as_ref();
+    let current_medications = req.current_medications.as_ref();
+
+    // Analyze symptoms with patient context
+    let (possible_conditions, mut triage_level, mut red_flags) =
+        analyze_symptom_combination(symptoms);
+
+    // Age-specific risk adjustments
+    let mut age_considerations = Vec::new();
+    if let Some(age) = patient_age {
+        if age >= 65 {
+            age_considerations
+                .push("Patient is 65+ years old - increased monitoring recommended".to_string());
+            // Elevate severity for cardiac/respiratory symptoms in elderly
+            if symptoms
+                .iter()
+                .any(|s| s.to_lowercase().contains("chest") || s.to_lowercase().contains("breath"))
+                && triage_level == "medium"
+            {
+                triage_level = "high".to_string();
+            }
+        } else if age < 12 {
+            age_considerations
+                .push("Pediatric patient - dosing and symptoms may differ from adults".to_string());
+        } else if age < 2 {
+            age_considerations
+                .push("Infant patient - lower threshold for emergency evaluation".to_string());
+            if triage_level == "low" {
+                triage_level = "medium".to_string();
+            }
+        }
+    }
+
+    // Gender-specific considerations
+    let mut gender_considerations = Vec::new();
+    if let Some(gender) = patient_gender {
+        let g = gender.to_lowercase();
+        if g == "female" || g == "f" {
+            if symptoms
+                .iter()
+                .any(|s| s.to_lowercase().contains("chest pain"))
+            {
+                gender_considerations
+                    .push("Note: Women may experience atypical heart attack symptoms".to_string());
+            }
+            if symptoms
+                .iter()
+                .any(|s| s.to_lowercase().contains("abdominal"))
+            {
+                gender_considerations
+                    .push("Consider gynecological causes for abdominal symptoms".to_string());
+            }
+        }
+    }
+
+    // Check for existing condition interactions
+    let mut condition_interactions = Vec::new();
+    if let Some(conditions) = existing_conditions {
+        for condition in conditions {
+            let c = condition.to_lowercase();
+            if c.contains("diabetes") {
+                condition_interactions
+                    .push("Patient has diabetes - monitor for diabetic complications".to_string());
+                if symptoms.iter().any(|s| {
+                    s.to_lowercase().contains("infection") || s.to_lowercase().contains("wound")
+                }) {
+                    red_flags.push(
+                        "Diabetic patients are at higher risk for infection complications"
+                            .to_string(),
+                    );
+                }
+            }
+            if c.contains("heart") || c.contains("cardiac") {
+                condition_interactions
+                    .push("Patient has cardiac history - elevated cardiac risk".to_string());
+                if symptoms.iter().any(|s| {
+                    s.to_lowercase().contains("chest") || s.to_lowercase().contains("palpitation")
+                }) && triage_level == "medium"
+                {
+                    triage_level = "high".to_string();
+                }
+            }
+            if (c.contains("asthma") || c.contains("copd"))
+                && symptoms.iter().any(|s| {
+                    s.to_lowercase().contains("cough") || s.to_lowercase().contains("wheez")
+                })
+            {
+                condition_interactions
+                    .push("Respiratory symptoms in patient with known lung disease".to_string());
+            }
+            if c.contains("hypertension")
+                && symptoms.iter().any(|s| {
+                    s.to_lowercase().contains("headache") || s.to_lowercase().contains("dizz")
+                })
+            {
+                condition_interactions
+                    .push("Consider blood pressure check for hypertensive patient".to_string());
+            }
+        }
+    }
+
+    // Check for medication-related considerations
+    let mut medication_warnings = Vec::new();
+    if let Some(medications) = current_medications {
+        for med in medications {
+            let m = med.to_lowercase();
+            if m.contains("warfarin") || m.contains("blood thinner") || m.contains("anticoagulant")
+            {
+                medication_warnings
+                    .push("Patient on anticoagulants - monitor for bleeding".to_string());
+                if symptoms.iter().any(|s| {
+                    s.to_lowercase().contains("bleed") || s.to_lowercase().contains("bruis")
+                }) {
+                    red_flags.push(
+                        "Bleeding symptoms in anticoagulated patient - urgent evaluation needed"
+                            .to_string(),
+                    );
+                    if triage_level != "critical" {
+                        triage_level = "high".to_string();
+                    }
+                }
+            }
+            if m.contains("insulin") || m.contains("metformin") {
+                medication_warnings
+                    .push("Patient on diabetes medication - check blood glucose".to_string());
+            }
+            if m.contains("immunosuppressant")
+                || m.contains("prednisone")
+                || m.contains("chemotherapy")
+            {
+                medication_warnings.push(
+                    "Immunocompromised patient - lower threshold for infection workup".to_string(),
+                );
+                if symptoms.iter().any(|s| s.to_lowercase().contains("fever")) {
+                    red_flags.push(
+                        "Fever in immunocompromised patient requires urgent evaluation".to_string(),
+                    );
+                    if triage_level == "low" || triage_level == "medium" {
+                        triage_level = "high".to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    // Generate recommendations based on triage level
+    let (triage_message, recommendations, self_care_advice, when_to_seek_care) =
+        generate_triage_recommendations(&triage_level, symptoms);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "possible_conditions": possible_conditions,
+        "triage_level": triage_level,
+        "triage_message": triage_message,
+        "recommendations": recommendations,
+        "red_flags": red_flags,
+        "self_care_advice": self_care_advice,
+        "when_to_seek_care": when_to_seek_care,
+        "patient_context": {
+            "age_considerations": age_considerations,
+            "gender_considerations": gender_considerations,
+            "condition_interactions": condition_interactions,
+            "medication_warnings": medication_warnings
+        },
+        "disclaimer": "This analysis is for informational purposes only and is not a medical diagnosis. Always consult a healthcare professional for proper medical advice, especially if symptoms are severe or persistent."
+    }))
+}
+
+/// Analyze symptom combinations to determine possible conditions
+fn analyze_symptom_combination(
+    symptoms: &[String],
+) -> (Vec<PossibleConditionResult>, String, Vec<String>) {
+    let mut conditions = Vec::new();
+    let mut red_flags = Vec::new();
+    let mut max_severity = "low";
+
+    let symptom_str = symptoms
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // Check for emergency symptoms first
+    if symptom_str.contains("chest pain") || symptom_str.contains("crushing chest") {
+        red_flags
+            .push("Chest pain can be a sign of heart attack - seek emergency care".to_string());
+        max_severity = "critical";
+        conditions.push(PossibleConditionResult {
+            condition_name: "Possible Cardiac Event".to_string(),
+            probability: 0.6,
+            severity: "critical".to_string(),
+            description: "Chest pain requires immediate medical evaluation".to_string(),
+            icd10_code: Some("R07.9".to_string()),
+        });
+    }
+
+    if symptom_str.contains("difficulty breathing") || symptom_str.contains("shortness of breath") {
+        red_flags.push("Difficulty breathing requires immediate attention".to_string());
+        if max_severity != "critical" {
+            max_severity = "high";
+        }
+        conditions.push(PossibleConditionResult {
+            condition_name: "Respiratory Distress".to_string(),
+            probability: 0.5,
+            severity: "high".to_string(),
+            description: "Breathing difficulties can have multiple causes requiring evaluation"
+                .to_string(),
+            icd10_code: Some("R06.0".to_string()),
+        });
+    }
+
+    if symptom_str.contains("stroke")
+        || symptom_str.contains("sudden numbness")
+        || (symptom_str.contains("face drooping") && symptom_str.contains("arm weakness"))
+    {
+        red_flags.push("STROKE WARNING: Call emergency services immediately".to_string());
+        max_severity = "critical";
+        conditions.push(PossibleConditionResult {
+            condition_name: "Possible Stroke".to_string(),
+            probability: 0.7,
+            severity: "critical".to_string(),
+            description: "Stroke symptoms require immediate emergency care".to_string(),
+            icd10_code: Some("I64".to_string()),
+        });
+    }
+
+    // Common symptom combinations
+    if symptom_str.contains("headache") {
+        if symptom_str.contains("fever") {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Viral Infection".to_string(),
+                probability: 0.7,
+                severity: "medium".to_string(),
+                description: "Headache with fever often indicates viral illness".to_string(),
+                icd10_code: Some("B34.9".to_string()),
+            });
+        } else if symptom_str.contains("nausea") || symptom_str.contains("light sensitivity") {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Migraine".to_string(),
+                probability: 0.65,
+                severity: "medium".to_string(),
+                description: "Classic migraine symptoms".to_string(),
+                icd10_code: Some("G43.9".to_string()),
+            });
+        } else {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Tension Headache".to_string(),
+                probability: 0.6,
+                severity: "low".to_string(),
+                description: "Common headache often related to stress or posture".to_string(),
+                icd10_code: Some("G44.2".to_string()),
+            });
+        }
+    }
+
+    if symptom_str.contains("cough") {
+        if symptom_str.contains("fever") && symptom_str.contains("fatigue") {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Upper Respiratory Infection".to_string(),
+                probability: 0.75,
+                severity: "low".to_string(),
+                description: "Common cold or flu-like illness".to_string(),
+                icd10_code: Some("J06.9".to_string()),
+            });
+        } else if symptom_str.contains("wheezing") {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Bronchitis or Asthma".to_string(),
+                probability: 0.6,
+                severity: "medium".to_string(),
+                description: "Airway inflammation requiring evaluation".to_string(),
+                icd10_code: Some("J40".to_string()),
+            });
+        }
+    }
+
+    if symptom_str.contains("stomach pain") || symptom_str.contains("abdominal pain") {
+        if symptom_str.contains("nausea") || symptom_str.contains("vomiting") {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Gastroenteritis".to_string(),
+                probability: 0.65,
+                severity: "low".to_string(),
+                description: "Stomach flu or food-related illness".to_string(),
+                icd10_code: Some("K52.9".to_string()),
+            });
+        }
+        if symptom_str.contains("right side") || symptom_str.contains("lower right") {
+            red_flags.push("Right-sided abdominal pain could indicate appendicitis".to_string());
+            if max_severity == "low" {
+                max_severity = "medium";
+            }
+        }
+    }
+
+    if symptom_str.contains("sore throat") {
+        if symptom_str.contains("fever") {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Pharyngitis".to_string(),
+                probability: 0.7,
+                severity: "low".to_string(),
+                description: "Throat infection, possibly viral or bacterial".to_string(),
+                icd10_code: Some("J02.9".to_string()),
+            });
+        } else {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Throat Irritation".to_string(),
+                probability: 0.6,
+                severity: "low".to_string(),
+                description: "May be due to allergies, dryness, or mild infection".to_string(),
+                icd10_code: Some("R07.0".to_string()),
+            });
+        }
+    }
+
+    if symptom_str.contains("fatigue") && symptom_str.contains("weight") {
+        conditions.push(PossibleConditionResult {
+            condition_name: "Metabolic or Thyroid Condition".to_string(),
+            probability: 0.4,
+            severity: "medium".to_string(),
+            description: "Unexplained fatigue with weight changes warrants evaluation".to_string(),
+            icd10_code: Some("E03.9".to_string()),
+        });
+    }
+
+    // If no specific conditions matched, add general assessment
+    if conditions.is_empty() {
+        conditions.push(PossibleConditionResult {
+            condition_name: "General Symptoms Requiring Evaluation".to_string(),
+            probability: 0.5,
+            severity: "low".to_string(),
+            description: "Symptoms should be evaluated by a healthcare provider".to_string(),
+            icd10_code: None,
+        });
+    }
+
+    // Determine triage level
+    let triage_level = match max_severity {
+        "critical" => "emergency",
+        "high" => "urgent_care",
+        "medium" => "schedule_appointment",
+        _ => "self_care",
+    };
+
+    (conditions, triage_level.to_string(), red_flags)
+}
+
+/// Generate triage recommendations
+fn generate_triage_recommendations(
+    triage_level: &str,
+    _symptoms: &[String],
+) -> (String, Vec<String>, Vec<String>, Vec<String>) {
+    match triage_level {
+        "emergency" => (
+            "Seek emergency medical care immediately".to_string(),
+            vec![
+                "Call emergency services (10111 or 112)".to_string(),
+                "Go to the nearest emergency room".to_string(),
+                "Do not drive yourself if experiencing severe symptoms".to_string(),
+            ],
+            vec![],
+            vec![
+                "Symptoms are severe or life-threatening".to_string(),
+                "You experience loss of consciousness".to_string(),
+            ],
+        ),
+        "urgent_care" => (
+            "Seek medical attention within 24 hours".to_string(),
+            vec![
+                "Visit an urgent care clinic today".to_string(),
+                "Call your doctor for same-day appointment".to_string(),
+                "Consider telehealth consultation".to_string(),
+            ],
+            vec![
+                "Rest and stay hydrated".to_string(),
+                "Take over-the-counter pain relievers as directed".to_string(),
+            ],
+            vec![
+                "Symptoms worsen significantly".to_string(),
+                "You develop new concerning symptoms".to_string(),
+                "Pain becomes severe".to_string(),
+            ],
+        ),
+        "schedule_appointment" => (
+            "Schedule an appointment with your doctor".to_string(),
+            vec![
+                "Schedule appointment within 2-3 days".to_string(),
+                "Consider telehealth if in-person unavailable".to_string(),
+                "Keep a symptom diary to share with your doctor".to_string(),
+            ],
+            vec![
+                "Get plenty of rest".to_string(),
+                "Stay well hydrated".to_string(),
+                "Use over-the-counter remedies as appropriate".to_string(),
+            ],
+            vec![
+                "Symptoms persist beyond a week".to_string(),
+                "Symptoms significantly worsen".to_string(),
+                "You develop fever above 38.5°C (101.3°F)".to_string(),
+            ],
+        ),
+        _ => (
+            "Self-care and monitoring recommended".to_string(),
+            vec![
+                "Monitor your symptoms".to_string(),
+                "Visit a pharmacy for OTC remedies if needed".to_string(),
+                "Schedule appointment if symptoms persist".to_string(),
+            ],
+            vec![
+                "Rest and take it easy".to_string(),
+                "Stay hydrated with water and clear fluids".to_string(),
+                "Use appropriate over-the-counter medications".to_string(),
+                "Get adequate sleep".to_string(),
+            ],
+            vec![
+                "Symptoms do not improve after 5-7 days".to_string(),
+                "Symptoms worsen instead of improving".to_string(),
+                "You develop new symptoms".to_string(),
+            ],
+        ),
+    }
 }
 
 // ============================================================================
@@ -11718,7 +12841,8 @@ pub async fn create_telehealth_session(
         status: crate::clinical::TelehealthStatus::Scheduled,
         video_room_url: video_room_url.clone(),
         waiting_room_url: waiting_room_url.clone(),
-        join_instructions: "Click the link to join. Ensure camera and microphone are enabled.".to_string(),
+        join_instructions: "Click the link to join. Ensure camera and microphone are enabled."
+            .to_string(),
         technical_requirements: vec![
             "Modern web browser (Chrome, Firefox, Safari, Edge)".to_string(),
             "Stable internet connection (2+ Mbps)".to_string(),
@@ -11755,7 +12879,7 @@ pub async fn get_telehealth_session(
     path: web::Path<String>,
 ) -> impl Responder {
     let session_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -11802,7 +12926,7 @@ pub async fn join_telehealth_session(
     path: web::Path<String>,
 ) -> impl Responder {
     let session_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -11877,7 +13001,7 @@ pub async fn end_telehealth_session(
     req: web::Json<Option<EndTelehealthRequest>>,
 ) -> impl Responder {
     let session_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -11919,11 +13043,12 @@ pub async fn end_telehealth_session(
     }
 
     // Calculate duration
-    let duration_minutes = if let (Some(start), Some(end)) = (session.actual_start, session.actual_end) {
-        (end - start) / 60
-    } else {
-        0
-    };
+    let duration_minutes =
+        if let (Some(start), Some(end)) = (session.actual_start, session.actual_end) {
+            (end - start) / 60
+        } else {
+            0
+        };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -11953,7 +13078,7 @@ pub struct DeviceCheckRequest {
 /// Submit device check results
 #[post("/api/telehealth/device-check")]
 pub async fn submit_device_check(
-    data: web::Data<crate::AppState>,
+    _data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     req: web::Json<DeviceCheckRequest>,
 ) -> impl Responder {
@@ -11969,7 +13094,8 @@ pub async fn submit_device_check(
     };
 
     let supported_browsers = ["chrome", "firefox", "safari", "edge"];
-    let browser_supported = supported_browsers.iter()
+    let browser_supported = supported_browsers
+        .iter()
         .any(|b| req.browser.to_lowercase().contains(b));
 
     let bandwidth = req.bandwidth_mbps.unwrap_or(0.0);
@@ -11980,7 +13106,8 @@ pub async fn submit_device_check(
 
     if !req.camera_working {
         issues.push("Camera not detected or not working".to_string());
-        recommendations.push("Check camera permissions and ensure it's not in use by another app".to_string());
+        recommendations
+            .push("Check camera permissions and ensure it's not in use by another app".to_string());
     }
     if !req.microphone_working {
         issues.push("Microphone not detected or not working".to_string());
@@ -11992,14 +13119,21 @@ pub async fn submit_device_check(
     }
     if !browser_supported {
         issues.push("Browser may not be fully supported".to_string());
-        recommendations.push("Use Chrome, Firefox, Safari, or Edge for best experience".to_string());
+        recommendations
+            .push("Use Chrome, Firefox, Safari, or Edge for best experience".to_string());
     }
     if !bandwidth_adequate {
-        issues.push(format!("Bandwidth ({:.1} Mbps) may be insufficient", bandwidth));
-        recommendations.push("Minimum 2 Mbps recommended. Close other applications using internet".to_string());
+        issues.push(format!(
+            "Bandwidth ({:.1} Mbps) may be insufficient",
+            bandwidth
+        ));
+        recommendations.push(
+            "Minimum 2 Mbps recommended. Close other applications using internet".to_string(),
+        );
     }
 
-    let ready = req.camera_working && req.microphone_working && browser_supported && bandwidth_adequate;
+    let ready =
+        req.camera_working && req.microphone_working && browser_supported && bandwidth_adequate;
 
     let device_check = crate::clinical::DeviceCheck {
         check_id: format!("DC-{}", uuid::Uuid::new_v4()),
@@ -12040,7 +13174,7 @@ pub async fn get_patient_telehealth_sessions(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -12249,11 +13383,11 @@ pub async fn get_cds_alerts(
     let filtered_alerts: Vec<_> = alerts
         .values()
         .filter(|a| a.provider_id == current_user_id)
-        .filter(|a| patient_id.as_ref().map_or(true, |pid| &a.patient_id == pid))
+        .filter(|a| patient_id.as_ref().is_none_or(|pid| &a.patient_id == pid))
         .filter(|a| {
-            status_filter.as_ref().map_or(true, |s| {
-                format!("{:?}", a.status).to_lowercase() == s.to_lowercase()
-            })
+            status_filter
+                .as_ref()
+                .is_none_or(|s| format!("{:?}", a.status).to_lowercase() == s.to_lowercase())
         })
         .cloned()
         .collect();
@@ -12273,7 +13407,7 @@ pub async fn get_cds_alert(
     path: web::Path<String>,
 ) -> impl Responder {
     let alert_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -12328,7 +13462,7 @@ pub async fn respond_to_cds_alert(
     req: web::Json<RespondCDSAlertRequest>,
 ) -> impl Responder {
     let alert_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -12385,16 +13519,12 @@ pub async fn respond_to_cds_alert(
 
     // Update status based on action
     alert.status = match action_taken {
-        crate::clinical::CDSActionTaken::Accepted 
+        crate::clinical::CDSActionTaken::Accepted
         | crate::clinical::CDSActionTaken::AcceptedWithModification => {
             crate::clinical::CDSAlertStatus::Accepted
         }
-        crate::clinical::CDSActionTaken::Overridden => {
-            crate::clinical::CDSAlertStatus::Overridden
-        }
-        crate::clinical::CDSActionTaken::Deferred => {
-            crate::clinical::CDSAlertStatus::Deferred
-        }
+        crate::clinical::CDSActionTaken::Overridden => crate::clinical::CDSAlertStatus::Overridden,
+        crate::clinical::CDSActionTaken::Deferred => crate::clinical::CDSAlertStatus::Deferred,
         _ => crate::clinical::CDSAlertStatus::Acknowledged,
     };
 
@@ -12414,7 +13544,7 @@ pub async fn get_patient_cds_alerts(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -12475,7 +13605,7 @@ pub async fn get_lab_trends(
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -12515,7 +13645,7 @@ pub async fn get_lab_trends(
     let trends: Vec<_> = lab_trends
         .values()
         .filter(|t| t.patient_id == patient_id)
-        .filter(|t| test_code.as_ref().map_or(true, |code| &t.loinc_code == code))
+        .filter(|t| test_code.as_ref().is_none_or(|code| &t.loinc_code == code))
         .cloned()
         .collect();
 
@@ -12528,6 +13658,7 @@ pub async fn get_lab_trends(
 }
 
 /// Request trend analysis
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct RequestLabTrendRequest {
     pub patient_id: String,
@@ -12581,7 +13712,7 @@ pub async fn analyze_lab_trends(
     for test_code in &req.test_codes {
         // Simulate lab data and trend analysis
         let result_id = format!("LT-{}", uuid::Uuid::new_v4());
-        
+
         let trend_result = crate::clinical::LabTrendResult {
             result_id: result_id.clone(),
             patient_id: req.patient_id.clone(),
@@ -12631,8 +13762,8 @@ pub async fn get_lab_trend_result(
     path: web::Path<String>,
 ) -> impl Responder {
     let result_id = path.into_inner();
-    
-    let current_user_id = match http_req.headers().get("X-User-Id") {
+
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -12726,10 +13857,10 @@ fn generate_sample_data_points(loinc_code: &str, now: i64) -> Vec<crate::clinica
         "4548-4" => 5.4,
         _ => 50.0,
     };
-    
+
     let day_seconds = 86400;
     let mut points = Vec::new();
-    
+
     for i in 0..5 {
         let variation = (i as f64 * 0.02) - 0.04;
         points.push(crate::clinical::LabDataPoint {
@@ -12741,7 +13872,7 @@ fn generate_sample_data_points(loinc_code: &str, now: i64) -> Vec<crate::clinica
             performing_lab: "MediChain Central Lab".to_string(),
         });
     }
-    
+
     points
 }
 
@@ -12820,7 +13951,11 @@ pub async fn create_esignature_prescription(
         prescriber_id: current_user_id.clone(),
         prescriber_name: current_user.name.clone(),
         prescriber_npi: "1234567890".to_string(), // Demo NPI
-        prescriber_dea: if req.is_controlled { Some("AA1234567".to_string()) } else { None },
+        prescriber_dea: if req.is_controlled {
+            Some("AA1234567".to_string())
+        } else {
+            None
+        },
         medication: crate::clinical::PrescribedMedication {
             rxcui: None,
             ndc: None,
@@ -12877,6 +14012,7 @@ pub async fn create_esignature_prescription(
 }
 
 /// Sign e-prescription request
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct SignPrescriptionRequest {
     pub signature_method: String,
@@ -12893,7 +14029,7 @@ pub async fn sign_e_prescription(
     req: web::Json<SignPrescriptionRequest>,
 ) -> impl Responder {
     let prescription_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -12981,7 +14117,7 @@ pub async fn transmit_e_prescription(
     path: web::Path<String>,
 ) -> impl Responder {
     let prescription_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -13046,7 +14182,7 @@ pub async fn get_esignature_prescription(
     path: web::Path<String>,
 ) -> impl Responder {
     let prescription_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -13093,7 +14229,7 @@ pub async fn get_patient_e_prescriptions(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -13226,7 +14362,8 @@ pub async fn create_insurance_claim(
         _ => crate::clinical::ClaimType::Professional,
     };
 
-    let diagnosis_codes: Vec<crate::clinical::ClaimDiagnosisCode> = req.diagnosis_codes
+    let diagnosis_codes: Vec<crate::clinical::ClaimDiagnosisCode> = req
+        .diagnosis_codes
         .iter()
         .enumerate()
         .map(|(i, d)| crate::clinical::ClaimDiagnosisCode {
@@ -13237,7 +14374,8 @@ pub async fn create_insurance_claim(
         })
         .collect();
 
-    let service_lines: Vec<crate::clinical::ServiceLine> = req.service_lines
+    let service_lines: Vec<crate::clinical::ServiceLine> = req
+        .service_lines
         .iter()
         .enumerate()
         .map(|(i, s)| crate::clinical::ServiceLine {
@@ -13318,7 +14456,7 @@ pub async fn submit_insurance_claim(
     path: web::Path<String>,
 ) -> impl Responder {
     let claim_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -13353,7 +14491,10 @@ pub async fn submit_insurance_claim(
     let now = chrono::Utc::now().timestamp();
     claim.submitted_at = Some(now);
     claim.status = crate::clinical::ClaimStatus::Submitted;
-    claim.payer_claim_number = Some(format!("PCN-{}", uuid::Uuid::new_v4().to_string()[..8].to_uppercase()));
+    claim.payer_claim_number = Some(format!(
+        "PCN-{}",
+        uuid::Uuid::new_v4().to_string()[..8].to_uppercase()
+    ));
     claim.last_updated = now;
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -13374,8 +14515,8 @@ pub async fn get_insurance_claim(
     path: web::Path<String>,
 ) -> impl Responder {
     let claim_id = path.into_inner();
-    
-    let current_user_id = match http_req.headers().get("X-User-Id") {
+
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -13412,7 +14553,7 @@ pub async fn get_patient_insurance_claims(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -13501,7 +14642,7 @@ pub async fn check_insurance_eligibility(
     }
 
     let now = chrono::Utc::now().timestamp();
-    
+
     // Simulate eligibility check response
     let response = serde_json::json!({
         "success": true,
@@ -13592,18 +14733,36 @@ pub async fn get_dashboard_metrics(
 
     let total_patients = patients.len() as u64;
     let total_appointments = appointments.len() as u64;
-    let completed_appointments = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Completed).count() as u64;
-    let cancelled_appointments = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled).count() as u64;
+    let completed_appointments = appointments
+        .values()
+        .filter(|a| a.status == crate::clinical::AppointmentStatus::Completed)
+        .count() as u64;
+    let cancelled_appointments = appointments
+        .values()
+        .filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled)
+        .count() as u64;
     let telehealth_count = appointments.values().filter(|a| a.is_telehealth).count() as u64;
 
     let total_claims = claims.len() as u64;
-    let paid_claims = claims.values().filter(|c| c.status == crate::clinical::ClaimStatus::Paid).count() as u64;
-    let denied_claims = claims.values().filter(|c| c.status == crate::clinical::ClaimStatus::Denied).count() as u64;
+    let paid_claims = claims
+        .values()
+        .filter(|c| c.status == crate::clinical::ClaimStatus::Paid)
+        .count() as u64;
+    let denied_claims = claims
+        .values()
+        .filter(|c| c.status == crate::clinical::ClaimStatus::Denied)
+        .count() as u64;
 
     let cds_alert_count = cds_alerts.len() as u64;
-    let cds_accepted = cds_alerts.values().filter(|a| {
-        a.response.as_ref().map(|r| r.action_taken == crate::clinical::CDSActionTaken::Accepted).unwrap_or(false)
-    }).count() as u64;
+    let cds_accepted = cds_alerts
+        .values()
+        .filter(|a| {
+            a.response
+                .as_ref()
+                .map(|r| r.action_taken == crate::clinical::CDSActionTaken::Accepted)
+                .unwrap_or(false)
+        })
+        .count() as u64;
 
     let telehealth_pct = if total_appointments > 0 {
         (telehealth_count as f32 / total_appointments as f32) * 100.0
@@ -13624,15 +14783,36 @@ pub async fn get_dashboard_metrics(
             new_patients: 5,
             active_patients: total_patients,
             patients_by_age_group: vec![
-                crate::clinical::AgeGroupCount { age_group: "0-17".to_string(), count: 2 },
-                crate::clinical::AgeGroupCount { age_group: "18-34".to_string(), count: 3 },
-                crate::clinical::AgeGroupCount { age_group: "35-54".to_string(), count: 4 },
-                crate::clinical::AgeGroupCount { age_group: "55-74".to_string(), count: 2 },
-                crate::clinical::AgeGroupCount { age_group: "75+".to_string(), count: 1 },
+                crate::clinical::AgeGroupCount {
+                    age_group: "0-17".to_string(),
+                    count: 2,
+                },
+                crate::clinical::AgeGroupCount {
+                    age_group: "18-34".to_string(),
+                    count: 3,
+                },
+                crate::clinical::AgeGroupCount {
+                    age_group: "35-54".to_string(),
+                    count: 4,
+                },
+                crate::clinical::AgeGroupCount {
+                    age_group: "55-74".to_string(),
+                    count: 2,
+                },
+                crate::clinical::AgeGroupCount {
+                    age_group: "75+".to_string(),
+                    count: 1,
+                },
             ],
             patients_by_gender: vec![
-                crate::clinical::GenderCount { gender: "Male".to_string(), count: 6 },
-                crate::clinical::GenderCount { gender: "Female".to_string(), count: 6 },
+                crate::clinical::GenderCount {
+                    gender: "Male".to_string(),
+                    count: 6,
+                },
+                crate::clinical::GenderCount {
+                    gender: "Female".to_string(),
+                    count: 6,
+                },
             ],
             top_conditions: vec![
                 crate::clinical::ConditionCount {
@@ -13663,13 +14843,11 @@ pub async fn get_dashboard_metrics(
                     count: total_appointments / 4,
                 },
             ],
-            appointments_by_provider: vec![
-                crate::clinical::ProviderAppointmentCount {
-                    provider_id: "PROVIDER-SAMPLE-001".to_string(),
-                    provider_name: "Dr. Sample Provider".to_string(),
-                    count: total_appointments / 2,
-                },
-            ],
+            appointments_by_provider: vec![crate::clinical::ProviderAppointmentCount {
+                provider_id: "PROVIDER-SAMPLE-001".to_string(),
+                provider_name: "Dr. Sample Provider".to_string(),
+                count: total_appointments / 2,
+            }],
             telehealth_percentage: telehealth_pct,
         },
         clinical_metrics: crate::clinical::ClinicalMetrics {
@@ -13692,7 +14870,11 @@ pub async fn get_dashboard_metrics(
                 claims_submitted: total_claims,
                 claims_paid: paid_claims,
                 claims_denied: denied_claims,
-                denial_rate: if total_claims > 0 { (denied_claims as f32 / total_claims as f32) * 100.0 } else { 0.0 },
+                denial_rate: if total_claims > 0 {
+                    (denied_claims as f32 / total_claims as f32) * 100.0
+                } else {
+                    0.0
+                },
                 average_days_to_payment: 28.5,
                 ar_aging: crate::clinical::ARAgingBreakdown {
                     current: 5000.0,
@@ -13710,17 +14892,15 @@ pub async fn get_dashboard_metrics(
             chronic_care_compliance: 78.0,
             medication_adherence_rate: 82.0,
             patient_satisfaction_score: 4.5,
-            hedis_measures: vec![
-                crate::clinical::HedisMeasure {
-                    measure_id: "BCS".to_string(),
-                    measure_name: "Breast Cancer Screening".to_string(),
-                    numerator: 45,
-                    denominator: 50,
-                    rate: 90.0,
-                    benchmark: 75.0,
-                    meets_benchmark: true,
-                },
-            ],
+            hedis_measures: vec![crate::clinical::HedisMeasure {
+                measure_id: "BCS".to_string(),
+                measure_name: "Breast Cancer Screening".to_string(),
+                numerator: 45,
+                denominator: 50,
+                rate: 90.0,
+                benchmark: 75.0,
+                meets_benchmark: true,
+            }],
         },
     };
 
@@ -13830,8 +15010,14 @@ pub async fn get_appointment_analytics(
 
     let appointments = data.appointments.read().unwrap();
     let total = appointments.len();
-    let completed = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Completed).count();
-    let cancelled = appointments.values().filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled).count();
+    let completed = appointments
+        .values()
+        .filter(|a| a.status == crate::clinical::AppointmentStatus::Completed)
+        .count();
+    let cancelled = appointments
+        .values()
+        .filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled)
+        .count();
     let telehealth = appointments.values().filter(|a| a.is_telehealth).count();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -13939,6 +15125,7 @@ pub struct SetLanguagePreferenceRequest {
 }
 
 /// Translation request input
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct TranslateContentRequest {
     pub content: String,
@@ -14078,8 +15265,8 @@ pub async fn get_language_preference(
     path: web::Path<String>,
 ) -> impl Responder {
     let user_id = path.into_inner();
-    
-    let current_user_id = match http_req.headers().get("X-User-Id") {
+
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -14091,7 +15278,7 @@ pub async fn get_language_preference(
     };
 
     let prefs = data.language_preferences.read().unwrap();
-    
+
     if let Some(pref) = prefs.get(&user_id) {
         HttpResponse::Ok().json(serde_json::json!({
             "success": true,
@@ -14116,11 +15303,11 @@ pub async fn get_language_preference(
 /// Translate content
 #[post("/api/languages/translate")]
 pub async fn translate_content(
-    data: web::Data<crate::AppState>,
+    _data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     req: web::Json<TranslateContentRequest>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -14142,10 +15329,13 @@ pub async fn translate_content(
         "hi" => format!("[Hindi Translation of: {}]", req.content),
         "bn" => format!("[Bengali Translation of: {}]", req.content),
         "en" => req.content.clone(),
-        _ => format!("[Translation to {} of: {}]", req.target_language, req.content),
+        _ => format!(
+            "[Translation to {} of: {}]",
+            req.target_language, req.content
+        ),
     };
 
-    let content_type = match req.content_type.as_str() {
+    let _content_type = match req.content_type.as_str() {
         "ui" => crate::clinical::TranslationContentType::UILabel,
         "instructions" => crate::clinical::TranslationContentType::PatientInstructions,
         "medication" => crate::clinical::TranslationContentType::MedicationDirections,
@@ -14175,6 +15365,7 @@ pub async fn translate_content(
 // ============================================================================
 
 /// Register device for offline sync
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct RegisterDeviceRequest {
     pub device_id: String,
@@ -14184,6 +15375,7 @@ pub struct RegisterDeviceRequest {
 }
 
 /// Sync request
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct SyncRequest {
     pub device_id: String,
@@ -14201,6 +15393,7 @@ pub struct SyncItemInput {
 }
 
 /// Resolve conflict request
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ResolveConflictRequest {
     pub resolution: String,
@@ -14215,7 +15408,7 @@ pub async fn get_sync_status(
     path: web::Path<String>,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -14229,8 +15422,11 @@ pub async fn get_sync_status(
 
     let now = chrono::Utc::now().timestamp();
     let queue = data.sync_queue.read().unwrap();
-    let pending_uploads = queue.values()
-        .filter(|i| i.device_id == device_id && i.status == crate::clinical::SyncItemStatus::Pending)
+    let pending_uploads = queue
+        .values()
+        .filter(|i| {
+            i.device_id == device_id && i.status == crate::clinical::SyncItemStatus::Pending
+        })
         .count() as u32;
 
     let status = crate::clinical::SyncStatus {
@@ -14254,7 +15450,7 @@ pub async fn get_sync_status(
 /// Register device for offline sync
 #[post("/api/sync/register")]
 pub async fn register_sync_device(
-    data: web::Data<crate::AppState>,
+    _data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     req: web::Json<RegisterDeviceRequest>,
 ) -> impl Responder {
@@ -14272,7 +15468,8 @@ pub async fn register_sync_device(
     let now = chrono::Utc::now().timestamp();
 
     // Parse offline categories
-    let categories: Vec<crate::clinical::OfflineCategory> = req.offline_categories
+    let categories: Vec<crate::clinical::OfflineCategory> = req
+        .offline_categories
         .iter()
         .filter_map(|c| match c.as_str() {
             "demographics" => Some(crate::clinical::OfflineCategory::Demographics),
@@ -14320,12 +15517,12 @@ pub async fn perform_sync(
     let now = chrono::Utc::now().timestamp();
     let mut queue = data.sync_queue.write().unwrap();
     let mut processed = 0;
-    let mut conflicts: Vec<crate::clinical::SyncConflict> = Vec::new();
+    let conflicts: Vec<crate::clinical::SyncConflict> = Vec::new();
 
     // Process pending items from client
     for item in &req.pending_items {
         let queue_id = format!("SQ-{}", uuid::Uuid::new_v4());
-        
+
         let operation = match item.operation.as_str() {
             "create" => crate::clinical::SyncOperation::Create,
             "update" => crate::clinical::SyncOperation::Update,
@@ -14376,8 +15573,8 @@ pub async fn get_sync_queue(
     path: web::Path<String>,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    
-    let current_user_id = match http_req.headers().get("X-User-Id") {
+
+    let _current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
@@ -14389,13 +15586,20 @@ pub async fn get_sync_queue(
     };
 
     let queue = data.sync_queue.read().unwrap();
-    let device_queue: Vec<_> = queue.values()
+    let device_queue: Vec<_> = queue
+        .values()
         .filter(|i| i.device_id == device_id)
         .cloned()
         .collect();
 
-    let pending = device_queue.iter().filter(|i| i.status == crate::clinical::SyncItemStatus::Pending).count();
-    let failed = device_queue.iter().filter(|i| i.status == crate::clinical::SyncItemStatus::Failed).count();
+    let pending = device_queue
+        .iter()
+        .filter(|i| i.status == crate::clinical::SyncItemStatus::Pending)
+        .count();
+    let failed = device_queue
+        .iter()
+        .filter(|i| i.status == crate::clinical::SyncItemStatus::Failed)
+        .count();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -14415,7 +15619,7 @@ pub async fn download_offline_data(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    
+
     let current_user_id = match http_req.headers().get("X-User-Id") {
         Some(id) => id.to_str().unwrap_or("").to_string(),
         None => {
@@ -14456,13 +15660,15 @@ pub async fn download_offline_data(
     let patient = patients.get(&patient_id).cloned();
 
     let medications = data.medication_reminders.read().unwrap();
-    let patient_meds: Vec<_> = medications.values()
+    let patient_meds: Vec<_> = medications
+        .values()
         .filter(|m| m.patient_id == patient_id)
         .cloned()
         .collect();
 
     let appointments = data.appointments.read().unwrap();
-    let patient_appts: Vec<_> = appointments.values()
+    let patient_appts: Vec<_> = appointments
+        .values()
         .filter(|a| a.patient_id == patient_id)
         .cloned()
         .collect();
@@ -14537,10 +15743,7 @@ pub async fn list_chain_of_custody(
 
 /// List all lab QC records
 #[get("/api/clinical/lab-qc")]
-pub async fn list_lab_qc(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_lab_qc(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
         None => {
@@ -14683,10 +15886,7 @@ pub async fn list_radiology_orders(
 
 /// List all pathology reports
 #[get("/api/clinical/pathology")]
-pub async fn list_pathology(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
         None => {
@@ -14783,10 +15983,7 @@ pub async fn list_immunizations(
 
 /// List all blood bank records
 #[get("/api/clinical/blood-bank")]
-pub async fn list_blood_bank(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
         None => {
@@ -14820,7 +16017,7 @@ pub async fn list_blood_bank(
     let type_screens = data.blood_type_screens.read().unwrap();
     let crossmatches = data.crossmatch_records.read().unwrap();
     let transfusions = data.transfusion_records.read().unwrap();
-    
+
     let type_screen_items: Vec<_> = type_screens.values().cloned().collect();
     let crossmatch_items: Vec<_> = crossmatches.values().cloned().collect();
     let transfusion_items: Vec<_> = transfusions.values().cloned().collect();
@@ -14844,10 +16041,7 @@ pub async fn list_blood_bank(
 
 /// List all autopsy records
 #[get("/api/clinical/autopsy")]
-pub async fn list_autopsy(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
         None => {
@@ -14880,7 +16074,7 @@ pub async fn list_autopsy(
 
     let requests = data.autopsy_requests.read().unwrap();
     let reports = data.autopsy_reports.read().unwrap();
-    
+
     let request_items: Vec<_> = requests.values().cloned().collect();
     let report_items: Vec<_> = reports.values().cloned().collect();
 
@@ -14899,10 +16093,7 @@ pub async fn list_autopsy(
 
 /// List all consultation notes
 #[get("/api/clinical/consults")]
-pub async fn list_consults(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
         None => {
@@ -14945,10 +16136,7 @@ pub async fn list_consults(
 
 /// List all CDS alerts
 #[get("/api/clinical/cds-alerts")]
-pub async fn list_cds_alerts(
-    data: web::Data<AppState>,
-    http_req: HttpRequest,
-) -> impl Responder {
+pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
         None => {
@@ -14987,4 +16175,230 @@ pub async fn list_cds_alerts(
         "total": items.len(),
         "items": items
     }))
+}
+
+// ============================================================================
+// ADDITIONAL FRONTEND-COMPATIBLE ENDPOINTS
+// ============================================================================
+
+/// Record vital signs (alias for /api/clinical/vitals for frontend compatibility)
+#[post("/api/clinical/vitals/record")]
+pub async fn record_vital_signs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_edit_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let patient_id = body
+        .get("patient_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if patient_id.is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id is required".to_string(),
+            code: "MISSING_FIELD".to_string(),
+        });
+    }
+
+    let reading = clinical::VitalSignsReading {
+        reading_id: format!("VS-{}", uuid::Uuid::new_v4()),
+        timestamp: chrono::Utc::now().timestamp(),
+        recorded_by: current_user.wallet_address.clone(),
+        heart_rate: body
+            .get("heart_rate")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u16),
+        respiratory_rate: body
+            .get("respiratory_rate")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u16),
+        systolic_bp: body
+            .get("blood_pressure_systolic")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u16),
+        diastolic_bp: body
+            .get("blood_pressure_diastolic")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u16),
+        temperature_celsius: body
+            .get("temperature_celsius")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32),
+        oxygen_saturation: body
+            .get("oxygen_saturation")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u16),
+        pain_scale: body
+            .get("pain_scale")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as u8),
+        notes: body
+            .get("notes")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+    };
+
+    // Store in vitals flowsheet
+    {
+        let mut flowsheets = data.vital_signs.write().unwrap();
+        let flowsheet = flowsheets.entry(patient_id.to_string()).or_insert_with(|| {
+            clinical::VitalSignsFlowsheet {
+                patient_id: patient_id.to_string(),
+                readings: Vec::new(),
+            }
+        });
+        flowsheet.readings.push(reading.clone());
+    }
+
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "reading_id": reading.reading_id,
+        "message": "Vital signs recorded successfully"
+    }))
+}
+
+/// List all progress notes
+#[get("/api/clinical/progress-notes")]
+pub async fn list_progress_notes(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let notes = data.progress_notes.read().unwrap();
+    let note_list: Vec<_> = notes.values().cloned().collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "notes": note_list,
+        "total": note_list.len()
+    }))
+}
+
+/// List all incident reports
+#[get("/api/clinical/incident-reports")]
+pub async fn list_incident_reports(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let reports = data.incident_reports.read().unwrap();
+    let report_list: Vec<_> = reports.values().cloned().collect();
+
+    HttpResponse::Ok().json(report_list)
+}
+
+/// List all intake/output records
+#[get("/api/clinical/intake-output")]
+pub async fn list_intake_output(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.io_records.read().unwrap();
+    let record_list: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(record_list)
+}
+
+/// List all AMA discharges (Against Medical Advice)
+#[get("/api/clinical/ama-discharges")]
+pub async fn list_ama_discharges(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Unauthorized".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let records = data.ama_discharges.read().unwrap();
+    let record_list: Vec<_> = records.values().cloned().collect();
+
+    HttpResponse::Ok().json(record_list)
 }

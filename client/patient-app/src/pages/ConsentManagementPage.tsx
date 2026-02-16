@@ -355,8 +355,10 @@ export function ConsentManagementPage() {
       {/* Search */}
       {activeTab !== 'requests' && (
         <div className="relative">
+          <label htmlFor="consent-search" className="sr-only">Search providers</label>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
           <input
+            id="consent-search"
             type="text"
             placeholder="Search providers..."
             value={searchQuery}

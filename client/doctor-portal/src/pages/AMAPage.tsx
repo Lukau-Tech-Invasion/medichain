@@ -13,8 +13,11 @@ import {
   Shield,
   ChevronRight,
   AlertCircle,
-  UserCheck
+  UserCheck,
+  Loader2
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * AMAPage
@@ -57,6 +60,9 @@ const AMAPage: React.FC = () => {
   const [selectedRecord, setSelectedRecord] = useState<AMARecord | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<AMAStatus | 'all'>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuthStore();
 
   // Form state
   const [formStep, setFormStep] = useState(1);
@@ -71,60 +77,43 @@ const AMAPage: React.FC = () => {
   const [witnessName, setWitnessName] = useState('');
 
   useEffect(() => {
-    // Sample AMA records
-    setRecords([
-      {
-        id: 'AMA-001',
-        patientId: 'PAT-1234',
-        patientName: 'John Smith',
-        mrn: 'MRN-789012',
-        dateCreated: new Date('2024-01-15T10:30:00'),
-        status: 'completed',
-        riskLevel: 'high',
-        provider: 'Dr. Sarah Chen',
-        diagnosis: 'Acute Appendicitis',
-        recommendedTreatment: 'Emergency appendectomy',
-        patientStatement: 'I understand the risks but choose to leave.',
-        patientSigned: true,
-        witnessSigned: true,
-        witnessName: 'Nurse Mary Johnson',
-        providerSigned: true
-      },
-      {
-        id: 'AMA-002',
-        patientId: 'PAT-5678',
-        patientName: 'Jane Doe',
-        mrn: 'MRN-345678',
-        dateCreated: new Date('2024-01-14T14:15:00'),
-        status: 'pending-signatures',
-        riskLevel: 'moderate',
-        provider: 'Dr. Michael Brown',
-        diagnosis: 'Pneumonia',
-        recommendedTreatment: 'IV antibiotics and observation',
-        patientStatement: 'I will follow up with my primary care doctor.',
-        patientSigned: true,
-        witnessSigned: false,
-        providerSigned: false
-      },
-      {
-        id: 'AMA-003',
-        patientId: 'PAT-9012',
-        patientName: 'Robert Wilson',
-        mrn: 'MRN-901234',
-        dateCreated: new Date('2024-01-13T08:45:00'),
-        status: 'draft',
-        riskLevel: 'low',
-        provider: 'Dr. Sarah Chen',
-        diagnosis: 'Minor laceration',
-        recommendedTreatment: 'Wound care and tetanus update',
-        patientStatement: '',
-        patientSigned: false,
-        witnessSigned: false,
-        providerSigned: false
+    const fetchAMARecords = async () => {
+      if (!user?.walletAddress) {
+        setError('User not authenticated');
+        setLoading(false);
+        return;
       }
-    ]);
 
-    // Default risk disclosures
+      try {
+        const response = await fetch(apiUrl('/api/clinical/ama-discharges'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch AMA records: ${response.status}`);
+        }
+
+        const data = await response.json();
+        // Convert date strings to Date objects
+        const amaRecords = data.map((r: AMARecord) => ({
+          ...r,
+          dateCreated: new Date(r.dateCreated)
+        }));
+        setRecords(amaRecords);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching AMA records:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load AMA records');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Default risk disclosures for new records
     setRiskDisclosures([
       { id: 'r1', category: 'General', risk: 'Condition may worsen without treatment', acknowledged: false },
       { id: 'r2', category: 'General', risk: 'Complications may become life-threatening', acknowledged: false },
@@ -133,7 +122,9 @@ const AMAPage: React.FC = () => {
       { id: 'r5', category: 'Medical', risk: 'May require emergency care in the future', acknowledged: false },
       { id: 'r6', category: 'Legal', risk: 'Insurance may not cover future related treatments', acknowledged: false }
     ]);
-  }, []);
+
+    fetchAMARecords();
+  }, [user]);
 
   const getStatusBadge = (status: AMAStatus) => {
     const styles = {
@@ -170,9 +161,9 @@ const AMAPage: React.FC = () => {
   };
 
   const filteredRecords = records.filter(r => {
-    const matchesSearch = r.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.mrn.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.id.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (r.patientName?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      (r.mrn?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      (r.id?.toLowerCase() || '').includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -196,57 +187,79 @@ const AMAPage: React.FC = () => {
         <p className="text-red-100">Document patient refusal of care and AMA discharges</p>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b sticky top-0 z-10">
-        <div className="flex">
-          {(['list', 'new'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => {
-                setActiveTab(tab);
-                if (tab === 'new') {
-                  setFormStep(1);
-                  setPatientId('');
-                  setPatientName('');
-                  setDiagnosis('');
-                  setRecommendedTreatment('');
-                  setPatientStatement('');
-                }
-              }}
-              className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
-                activeTab === tab
-                  ? 'text-red-600 border-b-2 border-red-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab === 'list' ? 'AMA Records' : 'New AMA Form'}
-            </button>
-          ))}
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-red-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading AMA records...</p>
         </div>
-      </div>
+      )}
 
-      <div className="p-4 sm:p-6">
-        {/* List Tab */}
-        {activeTab === 'list' && !selectedRecord && (
-          <div className="space-y-4">
-            {/* Search and Filter */}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by patient name, MRN, or ID..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as AMAStatus | 'all')}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              >
-                <option value="all">All Status</option>
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+          </div>
+        </div>
+      )}
+
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Tabs */}
+          <div className="bg-white border-b sticky top-0 z-10">
+            <div className="flex">
+              {(['list', 'new'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    setActiveTab(tab);
+                    if (tab === 'new') {
+                      setFormStep(1);
+                      setPatientId('');
+                      setPatientName('');
+                      setDiagnosis('');
+                      setRecommendedTreatment('');
+                      setPatientStatement('');
+                    }
+                  }}
+                  className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
+                    activeTab === tab
+                      ? 'text-red-600 border-b-2 border-red-600'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab === 'list' ? 'AMA Records' : 'New AMA Form'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-4 sm:p-6">
+            {/* List Tab */}
+            {activeTab === 'list' && !selectedRecord && (
+              <div className="space-y-4">
+                {/* Search and Filter */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search by patient name, MRN, or ID..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    />
+                  </div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as AMAStatus | 'all')}
+                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  >
+                    <option value="all">All Status</option>
                 <option value="draft">Draft</option>
                 <option value="pending-signatures">Pending Signatures</option>
                 <option value="completed">Completed</option>
@@ -469,10 +482,11 @@ const AMAPage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Patient Information</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-patient-id" className="block text-sm font-medium text-gray-700 mb-1">
                       Patient ID <span className="text-red-500">*</span>
                     </label>
                     <input
+                      id="ama-patient-id"
                       type="text"
                       value={patientId}
                       onChange={(e) => setPatientId(e.target.value)}
@@ -481,10 +495,11 @@ const AMAPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-patient-name" className="block text-sm font-medium text-gray-700 mb-1">
                       Patient Name <span className="text-red-500">*</span>
                     </label>
                     <input
+                      id="ama-patient-name"
                       type="text"
                       value={patientName}
                       onChange={(e) => setPatientName(e.target.value)}
@@ -493,10 +508,11 @@ const AMAPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-mrn" className="block text-sm font-medium text-gray-700 mb-1">
                       MRN <span className="text-red-500">*</span>
                     </label>
                     <input
+                      id="ama-mrn"
                       type="text"
                       value={mrn}
                       onChange={(e) => setMrn(e.target.value)}
@@ -526,10 +542,11 @@ const AMAPage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Medical Details</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">
                       Diagnosis <span className="text-red-500">*</span>
                     </label>
                     <input
+                      id="ama-diagnosis"
                       type="text"
                       value={diagnosis}
                       onChange={(e) => setDiagnosis(e.target.value)}
@@ -538,10 +555,11 @@ const AMAPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-recommended-treatment" className="block text-sm font-medium text-gray-700 mb-1">
                       Recommended Treatment <span className="text-red-500">*</span>
                     </label>
                     <textarea
+                      id="ama-recommended-treatment"
                       value={recommendedTreatment}
                       onChange={(e) => setRecommendedTreatment(e.target.value)}
                       rows={3}
@@ -632,10 +650,11 @@ const AMAPage: React.FC = () => {
                   ))}
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="ama-patient-statement" className="block text-sm font-medium text-gray-700 mb-1">
                     Patient Statement (optional)
                   </label>
                   <textarea
+                    id="ama-patient-statement"
                     value={patientStatement}
                     onChange={(e) => setPatientStatement(e.target.value)}
                     rows={3}
@@ -695,7 +714,9 @@ const AMAPage: React.FC = () => {
                       </div>
                       <span className="text-red-500 text-sm">Required</span>
                     </div>
+                    <label htmlFor="ama-witness-name" className="sr-only">Witness name</label>
                     <input
+                      id="ama-witness-name"
                       type="text"
                       value={witnessName}
                       onChange={(e) => setWitnessName(e.target.value)}
@@ -767,7 +788,9 @@ const AMAPage: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

@@ -130,7 +130,7 @@ function NursingPage() {
   const fetchPatients = async () => {
     if (!user) return;
     try {
-      const response = await fetch(apiUrl('/api/patients/list'), {
+      const response = await fetch(apiUrl('/api/patients'), {
         headers: { 
           'X-User-Id': user.walletAddress,
           'X-Provider-Role': user.role,
@@ -138,7 +138,8 @@ function NursingPage() {
       });
       if (response.ok) {
         const data = await response.json();
-        setPatients(data.patients.map((p: { patient_id: string; full_name: string }) => ({
+        const patientArray = Array.isArray(data) ? data : (data.data || []);
+        setPatients(patientArray.map((p: { patient_id: string; full_name: string }) => ({
           id: p.patient_id,
           name: p.full_name,
         })));
@@ -445,30 +446,41 @@ function NursingPage() {
                   Quick Entry
                 </h3>
                 <div className="grid grid-cols-5 gap-4">
-                  <select
-                    value={selectedPatient}
-                    onChange={(e) => setSelectedPatient(e.target.value)}
-                    className="px-3 py-2 border border-gray-200 rounded-lg"
-                  >
-                    <option value="">Select Patient</option>
+                  <div>
+                    <label htmlFor="nursing-patient-select" className="sr-only">Select Patient</label>
+                    <select
+                      id="nursing-patient-select"
+                      value={selectedPatient}
+                      onChange={(e) => setSelectedPatient(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                    >
+                      <option value="">Select Patient</option>
                     {patients.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
-                  </select>
-                  <select
-                    value={newFluidEntry.type}
-                    onChange={(e) => setNewFluidEntry({ ...newFluidEntry, type: e.target.value })}
-                    className="px-3 py-2 border border-gray-200 rounded-lg"
-                  >
-                    <option value="intake">Intake</option>
-                    <option value="output">Output</option>
-                  </select>
-                  <select
-                    value={newFluidEntry.fluidType}
-                    onChange={(e) => setNewFluidEntry({ ...newFluidEntry, fluidType: e.target.value })}
-                    className="px-3 py-2 border border-gray-200 rounded-lg"
-                  >
-                    {newFluidEntry.type === 'intake' ? (
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="nursing-entry-type" className="sr-only">Entry Type</label>
+                    <select
+                      id="nursing-entry-type"
+                      value={newFluidEntry.type}
+                      onChange={(e) => setNewFluidEntry({ ...newFluidEntry, type: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                    >
+                      <option value="intake">Intake</option>
+                      <option value="output">Output</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="nursing-fluid-type" className="sr-only">Fluid Type</label>
+                    <select
+                      id="nursing-fluid-type"
+                      value={newFluidEntry.fluidType}
+                      onChange={(e) => setNewFluidEntry({ ...newFluidEntry, fluidType: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                    >
+                      {newFluidEntry.type === 'intake' ? (
                       <>
                         <option value="Oral">Oral</option>
                         <option value="IV">IV Fluids</option>
@@ -484,14 +496,20 @@ function NursingPage() {
                         <option value="Blood Loss">Blood Loss</option>
                       </>
                     )}
-                  </select>
-                  <input
-                    type="number"
-                    value={newFluidEntry.amount}
-                    onChange={(e) => setNewFluidEntry({ ...newFluidEntry, amount: parseInt(e.target.value) || 0 })}
-                    placeholder="Amount (mL)"
-                    className="px-3 py-2 border border-gray-200 rounded-lg"
-                  />
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="nursing-amount" className="sr-only">Amount (mL)</label>
+                    <input
+                      id="nursing-amount"
+                      type="number"
+                      value={newFluidEntry.amount}
+                      onChange={(e) => setNewFluidEntry({ ...newFluidEntry, amount: parseInt(e.target.value) || 0 })}
+                      placeholder="Amount (mL)"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                      aria-label="Amount in milliliters"
+                    />
+                  </div>
                   <button
                     onClick={recordFluid}
                     disabled={saving}

@@ -186,8 +186,10 @@ const LanguageSettingsPage: React.FC = () => {
       {/* Search */}
       <div className="px-4 mb-4">
         <div className="relative">
+          <label htmlFor="lang-search" className="sr-only">Search languages</label>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
+            id="lang-search"
             type="text"
             placeholder="Search languages..."
             value={searchTerm}
@@ -273,10 +275,11 @@ const LanguageSettingsPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-4 space-y-4">
             {/* Date Format */}
             <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="lang-date-format" className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
                 <Calendar className="w-4 h-4" /> Date Format
               </label>
               <select
+                id="lang-date-format"
                 value={regionalSettings.dateFormat}
                 onChange={(e) => setRegionalSettings(prev => ({ ...prev, dateFormat: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -320,10 +323,11 @@ const LanguageSettingsPage: React.FC = () => {
 
             {/* First Day of Week */}
             <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="lang-first-day" className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
                 <Calendar className="w-4 h-4" /> First Day of Week
               </label>
               <select
+                id="lang-first-day"
                 value={regionalSettings.firstDayOfWeek}
                 onChange={(e) => setRegionalSettings(prev => ({ ...prev, firstDayOfWeek: e.target.value as any }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"

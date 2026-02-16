@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import { getNoteTemplates } from '@medichain/shared';
 import { FileText, Plus, Search, Edit, Copy, Trash2, User, Clock, FileCheck, Clipboard, RefreshCw, AlertCircle } from 'lucide-react';
 
@@ -37,6 +38,7 @@ interface NoteTemplate {
  */
 const NoteTemplatesPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showWarning } = useToastActions();
   const [templates, setTemplates] = useState<NoteTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +88,7 @@ const NoteTemplatesPage: React.FC = () => {
 
   const handleCreateTemplate = () => {
     if (!newTemplate.name || !newTemplate.description || !newTemplate.sections?.length) {
-      alert('Please fill all required fields and add at least one section');
+      showWarning('Please fill all required fields and add at least one section');
       return;
     }
 
@@ -118,12 +120,12 @@ const NoteTemplatesPage: React.FC = () => {
       isActive: true,
     });
     setActiveTab('all');
-    alert('Template created successfully!');
+    showSuccess('Template created successfully!');
   };
 
   const handleAddSectionToTemplate = () => {
     if (!newSection.title || !newSection.content) {
-      alert('Please enter section title and content');
+      showWarning('Please enter section title and content');
       return;
     }
 
@@ -167,7 +169,7 @@ const NoteTemplatesPage: React.FC = () => {
     };
 
     setTemplates([...templates, duplicated]);
-    alert('Template duplicated successfully!');
+    showSuccess('Template duplicated successfully!');
   };
 
   const handleDeleteTemplate = (templateId: string) => {
@@ -277,10 +279,11 @@ const NoteTemplatesPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-6">
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Search templates</label>
+                <label htmlFor="notetmpl-search" className="block text-sm font-medium text-gray-700 mb-2">Search templates</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="notetmpl-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -290,8 +293,9 @@ const NoteTemplatesPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Filter by type</label>
+                <label htmlFor="notetmpl-filter-type" className="block text-sm font-medium text-gray-700 mb-2">Filter by type</label>
                 <select
+                  id="notetmpl-filter-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value as TemplateType | 'all')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -456,10 +460,11 @@ const NoteTemplatesPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="notetmpl-name" className="block text-sm font-medium text-gray-700 mb-2">
                   Template Name <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="notetmpl-name"
                   type="text"
                   value={newTemplate.name}
                   onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
@@ -468,10 +473,11 @@ const NoteTemplatesPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="notetmpl-type" className="block text-sm font-medium text-gray-700 mb-2">
                   Template Type <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="notetmpl-type"
                   value={newTemplate.type}
                   onChange={(e) => setNewTemplate({ ...newTemplate, type: e.target.value as TemplateType })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -489,10 +495,11 @@ const NoteTemplatesPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="notetmpl-category" className="block text-sm font-medium text-gray-700 mb-2">
                   Category <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="notetmpl-category"
                   value={newTemplate.category}
                   onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value as TemplateCategory })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -506,8 +513,9 @@ const NoteTemplatesPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tags</label>
+                <label htmlFor="notetmpl-tags" className="block text-sm font-medium text-gray-700 mb-2">Tags</label>
                 <input
+                  id="notetmpl-tags"
                   type="text"
                   value={newTemplate.tags?.join(', ')}
                   onChange={(e) => setNewTemplate({ ...newTemplate, tags: e.target.value.split(',').map(t => t.trim()) })}
@@ -518,10 +526,11 @@ const NoteTemplatesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="notetmpl-description" className="block text-sm font-medium text-gray-700 mb-2">
                 Description <span className="text-red-600">*</span>
               </label>
               <textarea
+                id="notetmpl-description"
                 value={newTemplate.description}
                 onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
                 placeholder="Brief description of when to use this template..."
@@ -566,8 +575,9 @@ const NoteTemplatesPage: React.FC = () => {
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Section Title</label>
+                      <label htmlFor="notetmpl-section-title" className="block text-sm font-medium text-gray-700 mb-1">Section Title</label>
                       <input
+                        id="notetmpl-section-title"
                         type="text"
                         value={newSection.title}
                         onChange={(e) => setNewSection({ ...newSection, title: e.target.value })}
@@ -576,8 +586,9 @@ const NoteTemplatesPage: React.FC = () => {
                       />
                     </div>
                     <div className="flex items-end">
-                      <label className="flex items-center gap-2 cursor-pointer">
+                      <label htmlFor="notetmpl-section-required" className="flex items-center gap-2 cursor-pointer">
                         <input
+                          id="notetmpl-section-required"
                           type="checkbox"
                           checked={newSection.required}
                           onChange={(e) => setNewSection({ ...newSection, required: e.target.checked })}
@@ -588,8 +599,9 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Section Content</label>
+                    <label htmlFor="notetmpl-section-content" className="block text-sm font-medium text-gray-700 mb-1">Section Content</label>
                     <textarea
+                      id="notetmpl-section-content"
                       value={newSection.content}
                       onChange={(e) => setNewSection({ ...newSection, content: e.target.value })}
                       placeholder="Enter the template text for this section..."

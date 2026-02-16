@@ -1,281 +1,252 @@
-import { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store';
+import { useSidebarData } from '@medichain/shared';
 import {
-  Home,
-  AlertTriangle,
-  Users,
-  UserPlus,
-  FileText,
-  Settings,
   LogOut,
   Shield,
   Activity,
-  FlaskConical,
   ChevronDown,
   ChevronRight,
-  Stethoscope,
-  Heart,
-  Pill,
-  Scissors,
-  TestTube,
-  Image,
-  UserCog,
-  Calendar,
-  ClipboardList,
-  Siren,
-  Thermometer,
-  Baby,
-  Brain,
-  Flame,
-  Droplets,
-  FileCheck,
-  BarChart3,
+  Menu,
+  X,
+  ChevronLeft,
+  Bell,
+  RefreshCw,
 } from 'lucide-react';
+import CommandPalette from './CommandPalette';
+import {
+  getNavForRole,
+  getThemeForRole,
+  getDefaultExpandedSections,
+  getQuickActionsForRole,
+  type NavSection,
+  type NavItem,
+  type Role,
+} from '../config/navigation';
 
-/**
- * Navigation item definition
- */
-interface NavItem {
-  to: string;
-  label: string;
-  icon: React.ReactNode;
-  roles?: string[];
+// =============================================================================
+// Types
+// =============================================================================
+
+interface NavSectionProps {
+  section: NavSection;
+  isExpanded: boolean;
+  onToggle: () => void;
+  theme: ReturnType<typeof getThemeForRole>;
+  isCollapsed: boolean;
+  getBadgeCount: (itemId: string) => number | null;
+  onMobileClose?: () => void;
 }
 
-interface NavSection {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
-  items: NavItem[];
-  roles?: string[];
+interface NavItemProps {
+  item: NavItem;
+  theme: ReturnType<typeof getThemeForRole>;
+  isCollapsed: boolean;
+  badgeCount: number | null;
+  onMobileClose?: () => void;
 }
 
-/**
- * Navigation sections with organized menu items
- */
-const NAV_SECTIONS: NavSection[] = [
-  {
-    id: 'main',
-    label: 'Main',
-    icon: <Home size={20} />,
-    items: [
-      { to: '/dashboard', label: 'Dashboard', icon: <Home size={18} /> },
-      { to: '/patients', label: 'Patient Search', icon: <Users size={18} /> },
-      { to: '/register', label: 'Register Patient', icon: <UserPlus size={18} />, roles: ['Admin', 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist'] },
-      { to: '/appointments', label: 'Appointments', icon: <Calendar size={18} /> },
-    ],
-  },
-  {
-    id: 'clinical',
-    label: 'Clinical Documentation',
-    icon: <ClipboardList size={20} />,
-    items: [
-      { to: '/triage', label: 'Triage', icon: <Thermometer size={18} /> },
-      { to: '/soap', label: 'SOAP Notes', icon: <FileText size={18} /> },
-      { to: '/vitals', label: 'Vital Signs', icon: <Activity size={18} /> },
-      { to: '/progress-note', label: 'Progress Notes', icon: <FileText size={18} /> },
-      { to: '/history-physical', label: 'H&P', icon: <Stethoscope size={18} /> },
-      { to: '/discharge', label: 'Discharge', icon: <FileCheck size={18} /> },
-      { to: '/consult', label: 'Consult', icon: <Users size={18} /> },
-      { to: '/ama', label: 'AMA', icon: <FileText size={18} /> },
-    ],
-  },
-  {
-    id: 'emergency',
-    label: 'Emergency Protocols',
-    icon: <Siren size={20} />,
-    items: [
-      { to: '/emergency', label: 'Emergency Access', icon: <AlertTriangle size={18} /> },
-      { to: '/emergency-protocols', label: 'Protocols Hub', icon: <Siren size={18} /> },
-      { to: '/code-blue', label: 'Code Blue', icon: <Heart size={18} /> },
-      { to: '/trauma', label: 'Trauma', icon: <AlertTriangle size={18} /> },
-      { to: '/stroke', label: 'Stroke', icon: <Brain size={18} /> },
-      { to: '/cardiac', label: 'Cardiac', icon: <Heart size={18} /> },
-      { to: '/sepsis', label: 'Sepsis', icon: <Thermometer size={18} /> },
-      { to: '/mci', label: 'MCI Triage', icon: <Users size={18} /> },
-    ],
-  },
-  {
-    id: 'nursing',
-    label: 'Nursing',
-    icon: <Stethoscope size={20} />,
-    items: [
-      { to: '/nursing', label: 'Nursing Hub', icon: <Stethoscope size={18} /> },
-      { to: '/mar', label: 'MAR', icon: <Pill size={18} /> },
-      { to: '/care-plan', label: 'Care Plan', icon: <ClipboardList size={18} /> },
-      { to: '/nursing-care-plan', label: 'Nursing Care Plan', icon: <ClipboardList size={18} /> },
-      { to: '/intake-output', label: 'I/O', icon: <Droplets size={18} /> },
-      { to: '/wound-care', label: 'Wound Care', icon: <Flame size={18} /> },
-      { to: '/iv-site', label: 'IV Site', icon: <Droplets size={18} /> },
-      { to: '/shift-handoff', label: 'Shift Handoff', icon: <FileText size={18} /> },
-      { to: '/fall-risk', label: 'Fall Risk', icon: <AlertTriangle size={18} /> },
-      { to: '/incident-report', label: 'Incident Report', icon: <FileText size={18} /> },
-    ],
-    roles: ['Admin', 'Doctor', 'Nurse'],
-  },
-  {
-    id: 'medications',
-    label: 'Medications & Orders',
-    icon: <Pill size={20} />,
-    items: [
-      { to: '/orders', label: 'Orders', icon: <ClipboardList size={18} /> },
-      { to: '/e-prescribe', label: 'E-Prescribe', icon: <Pill size={18} /> },
-      { to: '/medication-admin', label: 'Med Admin', icon: <Pill size={18} /> },
-      { to: '/drug-interactions', label: 'Drug Interactions', icon: <AlertTriangle size={18} /> },
-    ],
-    roles: ['Admin', 'Doctor', 'Nurse', 'Pharmacist'],
-  },
-  {
-    id: 'specialty',
-    label: 'Specialty',
-    icon: <Baby size={20} />,
-    items: [
-      { to: '/burn', label: 'Burn', icon: <Flame size={18} /> },
-      { to: '/psych', label: 'Psych', icon: <Brain size={18} /> },
-      { to: '/toxicology', label: 'Toxicology', icon: <FlaskConical size={18} /> },
-      { to: '/pediatrics', label: 'Pediatrics', icon: <Baby size={18} /> },
-      { to: '/obstetrics', label: 'Obstetrics', icon: <Heart size={18} /> },
-    ],
-    roles: ['Admin', 'Doctor', 'Nurse'],
-  },
-  {
-    id: 'procedures',
-    label: 'Procedures',
-    icon: <Scissors size={20} />,
-    items: [
-      { to: '/intubation', label: 'Intubation', icon: <Activity size={18} /> },
-      { to: '/laceration-repair', label: 'Laceration Repair', icon: <Scissors size={18} /> },
-      { to: '/splint', label: 'Splint/Cast', icon: <Scissors size={18} /> },
-    ],
-    roles: ['Admin', 'Doctor'],
-  },
-  {
-    id: 'surgical',
-    label: 'Surgical',
-    icon: <Scissors size={20} />,
-    items: [
-      { to: '/pre-op', label: 'Pre-Op', icon: <FileText size={18} /> },
-      { to: '/operative-note', label: 'Operative Note', icon: <FileText size={18} /> },
-      { to: '/post-op', label: 'Post-Op', icon: <FileText size={18} /> },
-      { to: '/anesthesia', label: 'Anesthesia', icon: <Activity size={18} /> },
-    ],
-    roles: ['Admin', 'Doctor'],
-  },
-  {
-    id: 'lab',
-    label: 'Lab & Diagnostics',
-    icon: <TestTube size={20} />,
-    items: [
-      { to: '/lab-results', label: 'Lab Results', icon: <FlaskConical size={18} /> },
-      { to: '/specimen', label: 'Specimen', icon: <TestTube size={18} /> },
-      { to: '/chain-of-custody', label: 'Chain of Custody', icon: <FileText size={18} /> },
-      { to: '/lab-qc', label: 'Lab QC', icon: <FileCheck size={18} /> },
-      { to: '/critical-value', label: 'Critical Values', icon: <AlertTriangle size={18} /> },
-      { to: '/blood-bank', label: 'Blood Bank', icon: <Droplets size={18} /> },
-    ],
-    roles: ['Admin', 'Doctor', 'Nurse', 'LabTechnician'],
-  },
-  {
-    id: 'imaging',
-    label: 'Imaging & Radiology',
-    icon: <Image size={20} />,
-    items: [
-      { to: '/imaging', label: 'Imaging', icon: <Image size={18} /> },
-      { to: '/radiology', label: 'Radiology', icon: <Image size={18} /> },
-      { to: '/pathology', label: 'Pathology', icon: <TestTube size={18} /> },
-    ],
-    roles: ['Admin', 'Doctor', 'Nurse'],
-  },
-  {
-    id: 'health',
-    label: 'Health Maintenance',
-    icon: <Heart size={20} />,
-    items: [
-      { to: '/immunization', label: 'Immunizations', icon: <Activity size={18} /> },
-      { to: '/family-history', label: 'Family History', icon: <Users size={18} /> },
-    ],
-  },
-  {
-    id: 'admin',
-    label: 'Administration',
-    icon: <UserCog size={20} />,
-    items: [
-      { to: '/admin', label: 'Admin Dashboard', icon: <Home size={18} /> },
-      { to: '/user-management', label: 'User Management', icon: <UserCog size={18} /> },
-      { to: '/order-sets', label: 'Order Sets', icon: <ClipboardList size={18} /> },
-      { to: '/note-templates', label: 'Note Templates', icon: <FileText size={18} /> },
-      { to: '/barcode', label: 'Barcode Scanner', icon: <FileCheck size={18} /> },
-      { to: '/analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
-      { to: '/cds-alerts', label: 'CDS Alerts', icon: <AlertTriangle size={18} /> },
-      { to: '/access-logs', label: 'Access Logs', icon: <FileText size={18} /> },
-      { to: '/death-certificate', label: 'Death Certificate', icon: <FileText size={18} /> },
-      { to: '/autopsy', label: 'Autopsy', icon: <FileText size={18} /> },
-    ],
-    roles: ['Admin'],
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    icon: <Settings size={20} />,
-    items: [
-      { to: '/settings', label: 'Settings', icon: <Settings size={18} /> },
-    ],
-  },
-];
+// =============================================================================
+// Badge Mapping
+// =============================================================================
 
 /**
- * Collapsible navigation section component
+ * Maps navigation item IDs to their corresponding badge keys from the API
  */
+const BADGE_MAPPINGS: Record<string, string> = {
+  // Doctor badges
+  'pending-labs': 'pendingLabApprovals',
+  'critical-labs': 'criticalValues',
+  'code-blue': 'codeBlues',
+  
+  // Nurse badges
+  'vitals': 'vitalsDue',
+  'medication-admin': 'medsDue',
+  'wound-care': 'woundsToAssess',
+  'iv-management': 'ivsToCheck',
+  
+  // Lab Tech badges
+  'test-queue': 'pendingTests',
+  'critical-values': 'criticalLabValues',
+  'specimen-rejection': 'rejectionsToday',
+  
+  // Pharmacist badges
+  'pending-rx': 'pendingRx',
+  'drug-interactions': 'drugInteractions',
+  'allergy-alerts': 'allergyAlerts',
+  
+  // Universal badges
+  'notifications': 'unreadNotifications',
+  'messages': 'unreadMessages',
+};
+
+// =============================================================================
+// Navigation Item Component
+// =============================================================================
+
+function NavItemComponent({
+  item,
+  theme,
+  isCollapsed,
+  badgeCount,
+  onMobileClose,
+}: NavItemProps) {
+  const ItemIcon = item.icon;
+  const baseColor = (() => {
+    try {
+      return theme.bg.replace(/^bg-/, '').replace(/-\d+$/, '');
+    } catch {
+      return 'gray';
+    }
+  })();
+
+  const priorityDotClass = `w-2 h-2 rounded-full bg-${baseColor}-500`;
+  
+  return (
+    <li>
+      <NavLink
+        to={item.to}
+        onClick={onMobileClose}
+        title={isCollapsed ? item.label : undefined}
+        className={({ isActive }) =>
+          `flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 text-sm group relative ${
+            isActive
+              ? `${theme.activeBg} ${theme.activeText} font-medium border-l-4 border-${baseColor}-500 pl-2`
+              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+          } ${isCollapsed ? 'justify-center' : ''}`
+        }
+      >
+        <ItemIcon size={18} className="flex-shrink-0" />
+        
+        {/* Label - hidden when collapsed */}
+        {!isCollapsed && (
+          <span className="truncate">{item.label}</span>
+        )}
+        
+        {/* Badge count */}
+        {badgeCount !== null && badgeCount > 0 && (
+          <span className={`
+            ${isCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'}
+            min-w-[20px] h-5 px-1.5 flex items-center justify-center
+            text-xs font-medium rounded-full
+            ${item.priority === 'high' ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'}
+          `}>
+            {badgeCount > 99 ? '99+' : badgeCount}
+          </span>
+        )}
+        
+        {/* Priority indicator (if no badge) */}
+          {(badgeCount === null || badgeCount === 0) && item.priority === 'high' && (
+          <span className={`${isCollapsed ? 'absolute top-1 right-1' : 'ml-auto'} ${priorityDotClass}`} />
+        )}
+        
+        {/* Tooltip for collapsed mode */}
+        {isCollapsed && (
+          <div className="
+            absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded
+            opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50
+            transition-opacity duration-200
+          ">
+            {item.label}
+            {badgeCount !== null && badgeCount > 0 && ` (${badgeCount})`}
+          </div>
+        )}
+      </NavLink>
+    </li>
+  );
+}
+
+// =============================================================================
+// Navigation Section Component
+// =============================================================================
+
 function NavSectionComponent({ 
   section, 
   isExpanded, 
-  onToggle, 
-  userRole 
-}: { 
-  section: NavSection; 
-  isExpanded: boolean; 
-  onToggle: () => void;
-  userRole?: string;
-}) {
-  // Filter items based on user role
-  const visibleItems = section.items.filter((item) => {
-    if (!item.roles) return true;
-    return userRole && item.roles.includes(userRole);
-  });
+  onToggle,
+  theme,
+  isCollapsed,
+  getBadgeCount,
+  onMobileClose,
+}: NavSectionProps) {
+  const SectionIcon = section.icon;
+  const isCollapsible = section.collapsible !== false;
 
-  if (visibleItems.length === 0) return null;
+  // Calculate total badges for section (when collapsed)
+  const sectionBadgeTotal = useMemo(() => {
+    if (!isCollapsed) return 0;
+    return section.items.reduce((total, item) => {
+      const count = getBadgeCount(item.id);
+      return total + (count || 0);
+    }, 0);
+  }, [isCollapsed, section.items, getBadgeCount]);
+
+  // In collapsed mode, show only section icons as nav items
+  if (isCollapsed) {
+    return (
+      <div className="mb-2">
+        <NavLink
+          to={section.items[0]?.to || '/'}
+          onClick={onMobileClose}
+          title={section.label}
+          className={({ isActive }) =>
+            `flex items-center justify-center p-3 rounded-lg transition-all duration-200 group relative ${
+              isActive
+                ? `${theme.activeBg} ${theme.activeText}`
+                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            }`
+          }
+        >
+          <SectionIcon size={20} />
+          
+          {/* Section badge total */}
+          {sectionBadgeTotal > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 flex items-center justify-center text-xs font-medium rounded-full bg-red-500 text-white">
+              {sectionBadgeTotal > 99 ? '99+' : sectionBadgeTotal}
+            </span>
+          )}
+          
+          {/* Tooltip */}
+          <div className="
+            absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded
+            opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50
+            transition-opacity duration-200
+          ">
+            {section.label}
+          </div>
+        </NavLink>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-1">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors text-sm font-medium"
-      >
-        <div className="flex items-center gap-2">
-          {section.icon}
-          <span>{section.label}</span>
-        </div>
-        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-      </button>
-      {isExpanded && (
-        <ul className="ml-4 mt-1 space-y-1">
-          {visibleItems.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                className={({ isActive }) =>
-                  `flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm ${
-                    isActive
-                      ? 'bg-primary-50 text-primary-700 font-medium'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                  }`
-                }
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </NavLink>
-            </li>
+      {isCollapsible ? (
+        <button
+          onClick={onToggle}
+          className="w-full flex items-center justify-between px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors text-sm font-medium"
+          aria-expanded={isExpanded}
+        >
+          <div className="flex items-center gap-2">
+            <SectionIcon size={20} />
+            <span>{section.label}</span>
+          </div>
+          {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </button>
+      ) : null}
+      
+      {(isExpanded || !isCollapsible) && (
+        <ul className={`${isCollapsible ? 'ml-4 mt-1' : ''} space-y-1`}>
+          {section.items.map((item) => (
+            <NavItemComponent
+              key={item.id}
+              item={item}
+              theme={theme}
+              isCollapsed={false}
+              badgeCount={getBadgeCount(item.id)}
+              onMobileClose={onMobileClose}
+            />
           ))}
         </ul>
       )}
@@ -283,13 +254,80 @@ function NavSectionComponent({
   );
 }
 
+// =============================================================================
+// Main Layout Component
+// =============================================================================
+
 /**
- * Main layout with collapsible sidebar navigation
+ * Main layout with responsive role-based collapsible sidebar navigation
+ * 
+ * Week 2 Features:
+ * - Collapsible sidebar (w-64 → w-16 mini mode)
+ * - Mobile hamburger menu with overlay
+ * - Real-time badge counts from API
+ * - Smooth transitions and animations
  */
 function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuthStore();
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['main']));
+  
+  // Sidebar state
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  
+  // Get role-specific configuration
+  const userRole = (user?.role as Role) || 'Doctor';
+  const theme = useMemo(() => getThemeForRole(userRole), [userRole]);
+  const navigation = useMemo(() => getNavForRole(userRole), [userRole]);
+  const defaultExpanded = useMemo(() => getDefaultExpandedSections(userRole), [userRole]);
+  
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(defaultExpanded);
+
+  // Fetch real-time sidebar data from API
+  const { badges, recentPatients, isLoading: isBadgesLoading, refetch: refetchBadges } = useSidebarData(
+    userRole,
+    30000 // Refresh every 30 seconds
+  );
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setIsMobileOpen(false);
+  }, [location.pathname]);
+
+  // Close mobile menu on escape key
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, []);
+
+  // Open command palette with Ctrl/Cmd+K
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  // Get badge count for a specific nav item
+  const getBadgeCount = useCallback((itemId: string): number | null => {
+    const badgeKey = BADGE_MAPPINGS[itemId];
+    if (!badgeKey) return null;
+    const count = badges[badgeKey as keyof typeof badges];
+    return typeof count === 'number' ? count : null;
+  }, [badges]);
+
+  
 
   const handleLogout = () => {
     logout();
@@ -308,69 +346,227 @@ function Layout() {
     });
   };
 
-  // Filter sections based on user role
-  const visibleSections = NAV_SECTIONS.filter((section) => {
-    if (!section.roles) return true;
-    return user && section.roles.includes(user.role);
-  });
+  const toggleCollapse = () => {
+    setIsCollapsed(prev => !prev);
+  };
 
-  return (
-    <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white shadow-lg flex flex-col overflow-hidden">
-        {/* Logo */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary-600 rounded-lg flex items-center justify-center">
-              <Shield className="text-white" size={24} />
+  const closeMobileMenu = () => {
+    setIsMobileOpen(false);
+  };
+
+  // Get portal title based on role
+  const portalTitle = useMemo(() => {
+    switch (userRole) {
+      case 'Admin': return 'Admin Portal';
+      case 'Doctor': return 'Doctor Portal';
+      case 'Nurse': return 'Nurse Portal';
+      case 'LabTechnician': return 'Lab Portal';
+      case 'Pharmacist': return 'Pharmacy Portal';
+      default: return 'Healthcare Portal';
+    }
+  }, [userRole]);
+
+  // Calculate total unread count for mobile header badge
+  const totalUnread = badges.unreadNotifications + badges.unreadMessages;
+
+  // Sidebar content (reused for both desktop and mobile)
+  const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => (
+    <>
+      {/* Skip link for keyboard users */}
+      {!isMobile && (
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-16 focus:left-4 focus:z-50 px-2 py-1 bg-white rounded shadow">
+          Skip to main content
+        </a>
+      )}
+      {/* Logo with role-based gradient */}
+      <div className={`p-4 bg-gradient-to-r ${theme.bgGradient}`}>
+        <div className="flex items-center gap-3">
+          <div className={`${isCollapsed && !isMobile ? 'w-8 h-8' : 'w-10 h-10'} bg-white/20 rounded-lg flex items-center justify-center transition-all duration-200`}>
+            <Shield className="text-white" size={isCollapsed && !isMobile ? 20 : 24} />
+          </div>
+          {(!isCollapsed || isMobile) && (
+            <div className="flex-1 min-w-0">
+              <h1 className="font-bold text-lg text-white">MediChain</h1>
+              <span className="text-xs text-white/80">{portalTitle}</span>
             </div>
-            <div>
-              <h1 className="font-bold text-lg gradient-text">MediChain</h1>
-              <p className="text-xs text-gray-500">Doctor Portal</p>
-            </div>
+          )}
+          {/* Mobile close button */}
+          {isMobile && (
+            <button
+              onClick={closeMobileMenu}
+              className="p-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="text-white" size={20} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Role Badge & Collapse Toggle */}
+      <div className={`px-4 py-2 border-b border-gray-100 flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'justify-between'}`}>
+        {(!isCollapsed || isMobile) && (
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${theme.bgLight} ${theme.text}`}>
+            {user?.role || 'Unknown Role'}
+          </span>
+        )}
+        {/* Desktop collapse toggle */}
+        {!isMobile && (
+          <button
+            onClick={toggleCollapse}
+            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700"
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <ChevronLeft size={18} className={`transition-transform duration-200 ${isCollapsed ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+      </div>
+
+      {/* Navigation */}
+      <nav role="navigation" aria-label="Sidebar navigation" className="flex-1 p-3 overflow-y-auto scrollbar-hide">
+        {navigation.map((section) => (
+          <NavSectionComponent
+            key={section.id}
+            section={section}
+            isExpanded={expandedSections.has(section.id)}
+            onToggle={() => toggleSection(section.id)}
+            theme={theme}
+            isCollapsed={isCollapsed && !isMobile}
+            getBadgeCount={getBadgeCount}
+            onMobileClose={isMobile ? closeMobileMenu : undefined}
+          />
+        ))}
+      </nav>
+
+      {/* Quick Actions */}
+      {(!isCollapsed || isMobile) && (
+        <div className="px-3 py-3 border-t border-gray-100">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Quick Actions</span>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {getQuickActionsForRole(userRole).map(action => (
+              <button
+                key={action.id}
+                onClick={() => { navigate(action.to); if (isMobile) closeMobileMenu(); }}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm bg-white border hover:bg-gray-50 ${theme.hoverBg}`}
+                aria-label={action.label}
+              >
+                <action.icon size={14} />
+                <span className="hidden sm:inline">{action.label}</span>
+              </button>
+            ))}
           </div>
         </div>
+      )}
 
-        {/* Navigation */}
-        <nav className="flex-1 p-3 overflow-y-auto">
-          {visibleSections.map((section) => (
-            <NavSectionComponent
-              key={section.id}
-              section={section}
-              isExpanded={expandedSections.has(section.id)}
-              onToggle={() => toggleSection(section.id)}
-              userRole={user?.role}
-            />
-          ))}
-        </nav>
-
-        {/* User info & logout */}
-        <div className="p-3 border-t border-gray-200">
-          <div className="flex items-center gap-3 mb-3 px-2">
-            <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-              <Activity className="text-primary-600" size={20} />
+      {/* User info & logout */}
+      <div className="p-3 border-t border-gray-200">
+        {(!isCollapsed || isMobile) ? (
+          <>
+            <div className="flex items-center gap-3 mb-3 px-2">
+              <div className={`w-10 h-10 ${theme.bgLight} rounded-full flex items-center justify-center`}>
+                <Activity className={theme.textLight} size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm text-gray-900 truncate">
+                  {user?.username || 'User'}
+                </p>
+                <p className="text-xs text-gray-500">{user?.role}</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm text-gray-900 truncate">
-                {user?.username || 'User'}
-              </p>
-              <p className="text-xs text-gray-500">{user?.role}</p>
-            </div>
-          </div>
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            >
+              <LogOut size={18} />
+              <span>Logout</span>
+            </button>
+          </>
+        ) : (
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-lg transition-colors"
+            className="w-full flex items-center justify-center p-3 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors group relative"
+            title="Logout"
           >
             <LogOut size={18} />
-            <span>Logout</span>
+            <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
+              Logout
+            </div>
           </button>
+        )}
+      </div>
+    </>
+  );
+
+  return (
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+      {/* Mobile Header */}
+      <div className="fixed top-0 left-0 right-0 h-14 bg-white dark:bg-gray-800 shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
+        <button
+          onClick={() => setIsMobileOpen(true)}
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          aria-label="Open menu"
+        >
+          <Menu size={24} className="text-gray-700 dark:text-gray-200" />
+        </button>
+        
+        <div className="flex items-center gap-2">
+          <Shield className={theme.textLight} size={24} />
+          <span className="font-bold text-gray-900 dark:text-white">MediChain</span>
         </div>
+        
+        <button
+          onClick={() => navigate('/notifications')}
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative"
+          aria-label="Notifications"
+        >
+          <Bell size={24} className="text-gray-700" />
+          {totalUnread > 0 && (
+            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+              {totalUnread > 9 ? '9+' : totalUnread}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={closeMobileMenu}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Mobile Sidebar */}
+      <aside
+        className={`
+          fixed inset-y-0 left-0 w-72 bg-white dark:bg-gray-800 shadow-xl z-50 flex flex-col
+          transform transition-transform duration-300 ease-in-out lg:hidden
+          ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
+        `}
+      >
+        <SidebarContent isMobile />
+      </aside>
+
+      {/* Desktop Sidebar */}
+      <aside
+        className={`
+          hidden lg:flex flex-col bg-white dark:bg-gray-800 shadow-lg overflow-hidden
+          transition-all duration-300 ease-in-out
+          ${isCollapsed ? 'w-16' : 'w-64'}
+        `}
+      >
+        <SidebarContent />
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-gray-100 dark:bg-gray-900">
         <Outlet />
       </main>
+      <CommandPalette open={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />
     </div>
   );
 }

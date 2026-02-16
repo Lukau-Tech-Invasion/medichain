@@ -59,7 +59,7 @@ function LabResultsPage() {
     setIsLoading(true);
     try {
       const statusParam = filterStatus === 'all' ? '' : `?status=${filterStatus}`;
-      const response = await fetch(`/api/lab/submissions${statusParam}`, {
+      const response = await fetch(apiUrl(`/api/lab/submissions${statusParam}`), {
         headers: {
           'X-User-Id': user?.userId || '',
         },
@@ -84,7 +84,7 @@ function LabResultsPage() {
   const handleApprove = async (submissionId: string) => {
     setIsReviewing(submissionId);
     try {
-      const response = await fetch(`/api/lab/submissions/${submissionId}/review`, {
+      const response = await fetch(apiUrl(`/api/lab/submissions/${submissionId}/review`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -117,7 +117,7 @@ function LabResultsPage() {
     
     setIsReviewing(submissionId);
     try {
-      const response = await fetch(`/api/lab/submissions/${submissionId}/review`, {
+      const response = await fetch(apiUrl(`/api/lab/submissions/${submissionId}/review`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -250,8 +250,10 @@ function LabResultsPage() {
         <div className="flex flex-col md:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
+            <label htmlFor="labresults-search" className="sr-only">Search lab results</label>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input
+              id="labresults-search"
               type="text"
               placeholder="Search by patient name, ID, or test name..."
               value={searchQuery}
@@ -262,8 +264,10 @@ function LabResultsPage() {
           
           {/* Status Filter */}
           <div className="flex items-center gap-2">
-            <Filter size={20} className="text-gray-400" />
+            <label htmlFor="labresults-status-filter" className="sr-only">Filter by status</label>
+            <Filter size={20} className="text-gray-400" aria-hidden="true" />
             <select
+              id="labresults-status-filter"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
               className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -458,10 +462,11 @@ function LabResultsPage() {
               <XCircle className="text-red-500" size={24} />
               Reject Lab Result
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
+            <label htmlFor="labresults-rejection-reason" className="text-sm text-gray-600 mb-4 block">
               Please provide a reason for rejecting this lab submission. The lab technician will be notified.
-            </p>
+            </label>
             <textarea
+              id="labresults-rejection-reason"
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
               placeholder="Enter rejection reason..."

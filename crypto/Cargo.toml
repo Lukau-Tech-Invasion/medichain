@@ -10,3 +10,9 @@ zeroize = { version = "1.6", features = ["derive"] }
 rand = "0.8"
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
+
+# Substrate cryptography for wallet signature verification (SEC-005)
+sp-core = { version = "38.0.0", default-features = false, features = ["std"] }
+ss58-registry = "1.50.0"
+bs58 = "0.5"
+blake2 = "0.10"

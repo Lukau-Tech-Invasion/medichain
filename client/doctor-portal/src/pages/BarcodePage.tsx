@@ -14,8 +14,11 @@ import {
   FlashlightOff,
   History,
   Barcode,
-  Activity
+  Activity,
+  Loader2
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * BarcodePage
@@ -68,60 +71,47 @@ const BarcodePage: React.FC = () => {
   const [lastScan, setLastScan] = useState<ScannedItem | null>(null);
   const [manualEntry, setManualEntry] = useState('');
   const [isScanning, setIsScanning] = useState(false);
+  const [loading, setLoading] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { user } = useAuthStore();
 
   useEffect(() => {
-    // Sample scan history
-    setScanHistory([
-      {
-        id: 'scan-001',
-        type: 'patient',
-        barcode: 'PAT-12345678',
-        name: 'John Smith',
-        details: 'Room 205A • MRN: 789012',
-        timestamp: new Date(Date.now() - 5 * 60 * 1000),
-        result: 'success'
-      },
-      {
-        id: 'scan-002',
-        type: 'medication',
-        barcode: 'NDC-12345-678-90',
-        name: 'Amoxicillin 500mg',
-        details: 'Verified for John Smith',
-        timestamp: new Date(Date.now() - 10 * 60 * 1000),
-        result: 'success'
-      },
-      {
-        id: 'scan-003',
-        type: 'medication',
-        barcode: 'NDC-98765-432-10',
-        name: 'Metformin 1000mg',
-        details: 'Wrong patient - check order',
-        timestamp: new Date(Date.now() - 15 * 60 * 1000),
-        result: 'error',
-        message: 'Medication not ordered for this patient'
-      },
-      {
-        id: 'scan-004',
-        type: 'equipment',
-        barcode: 'EQP-IV-PUMP-001',
-        name: 'IV Infusion Pump',
-        details: 'Serial: IVP-2024-00123',
-        timestamp: new Date(Date.now() - 30 * 60 * 1000),
-        result: 'success'
+    // Fetch scan history from API - start with empty state
+    const fetchScanHistory = async () => {
+      if (!user?.walletAddress) {
+        setLoading(false);
+        return;
       }
-    ]);
-
-    // Sample current patient
-    setCurrentPatient({
-      id: 'PAT-12345678',
-      name: 'John Smith',
-      dob: '1975-03-15',
-      mrn: '789012',
-      room: '205A',
-      allergies: ['Penicillin', 'Sulfa']
-    });
-  }, []);
+      
+      try {
+        const response = await fetch(apiUrl('/api/barcode/scan-history'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            setScanHistory(data.map((item: { id: string; type: ScanMode; barcode: string; name: string; details: string; timestamp: string; result: ScanResult; message?: string }) => ({
+              ...item,
+              timestamp: new Date(item.timestamp)
+            })));
+          }
+        }
+        // If endpoint doesn't exist yet, just start with empty history
+      } catch {
+        // API not available - start with empty history
+        console.log('Barcode scan history API not available');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchScanHistory();
+  }, [user]);
 
   const startCamera = async () => {
     try {
@@ -146,67 +136,82 @@ const BarcodePage: React.FC = () => {
     setIsCameraActive(false);
   };
 
-  const simulateScan = () => {
+  const simulateScan = async () => {
+    if (!user?.walletAddress) {
+      console.error('User not authenticated');
+      return;
+    }
+    
     setIsScanning(true);
     
-    setTimeout(() => {
-      setIsScanning(false);
+    try {
+      // Call the barcode scan API endpoint
+      const response = await fetch(apiUrl('/api/barcode/scan'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role || 'Doctor',
+        },
+        body: JSON.stringify({
+          barcode: manualEntry || `SCAN-${Date.now()}`,
+          scanMode,
+          currentPatientId: currentPatient?.id || null,
+        }),
+      });
       
-      const mockScans: Record<ScanMode, ScannedItem> = {
-        patient: {
-          id: `scan-${Date.now()}`,
-          type: 'patient',
-          barcode: 'PAT-87654321',
-          name: 'Jane Doe',
-          details: 'Room 301B • MRN: 345678',
-          timestamp: new Date(),
-          result: 'success'
-        },
-        medication: {
-          id: `scan-${Date.now()}`,
-          type: 'medication',
-          barcode: 'NDC-55555-123-45',
-          name: 'Lisinopril 10mg',
-          details: 'Verified for current patient',
-          timestamp: new Date(),
-          result: currentPatient ? 'success' : 'warning',
-          message: currentPatient ? undefined : 'No patient selected'
-        },
-        equipment: {
-          id: `scan-${Date.now()}`,
-          type: 'equipment',
-          barcode: 'EQP-MONITOR-042',
-          name: 'Vital Signs Monitor',
-          details: 'Serial: VSM-2024-00042',
-          timestamp: new Date(),
-          result: 'success'
-        },
-        specimen: {
-          id: `scan-${Date.now()}`,
-          type: 'specimen',
-          barcode: 'SPEC-BLD-20240115-001',
-          name: 'Blood Sample',
-          details: 'Type: CBC • Collected: 10:30 AM',
-          timestamp: new Date(),
-          result: 'success'
+      if (response.ok) {
+        const scanResult = await response.json();
+        const newScan: ScannedItem = {
+          id: scanResult.id || `scan-${Date.now()}`,
+          type: scanMode,
+          barcode: scanResult.barcode || manualEntry,
+          name: scanResult.name || 'Unknown',
+          details: scanResult.details || '',
+          timestamp: new Date(scanResult.timestamp || Date.now()),
+          result: scanResult.result || 'success',
+          message: scanResult.message,
+        };
+        
+        setLastScan(newScan);
+        setScanHistory(prev => [newScan, ...prev]);
+        
+        // If scanning a patient, set as current patient
+        if (scanMode === 'patient' && scanResult.patient) {
+          setCurrentPatient(scanResult.patient);
         }
-      };
-
-      const newScan = mockScans[scanMode];
-      setLastScan(newScan);
-      setScanHistory(prev => [newScan, ...prev]);
-
-      if (scanMode === 'patient') {
-        setCurrentPatient({
-          id: 'PAT-87654321',
-          name: 'Jane Doe',
-          dob: '1988-07-22',
-          mrn: '345678',
-          room: '301B',
-          allergies: ['Latex']
-        });
+      } else {
+        // Handle API error - show error in UI
+        const errorScan: ScannedItem = {
+          id: `scan-${Date.now()}`,
+          type: scanMode,
+          barcode: manualEntry || 'N/A',
+          name: 'Scan Failed',
+          details: 'Unable to process barcode',
+          timestamp: new Date(),
+          result: 'error',
+          message: 'API request failed',
+        };
+        setLastScan(errorScan);
+        setScanHistory(prev => [errorScan, ...prev]);
       }
-    }, 1500);
+    } catch (err) {
+      console.error('Barcode scan error:', err);
+      const errorScan: ScannedItem = {
+        id: `scan-${Date.now()}`,
+        type: scanMode,
+        barcode: manualEntry || 'N/A',
+        name: 'Scan Failed',
+        details: 'Server connection error',
+        timestamp: new Date(),
+        result: 'error',
+        message: 'Could not connect to server',
+      };
+      setLastScan(errorScan);
+      setScanHistory(prev => [errorScan, ...prev]);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const handleManualEntry = () => {
@@ -385,9 +390,11 @@ const BarcodePage: React.FC = () => {
 
           {/* Manual Entry */}
           <div className="bg-gray-800 p-4">
+            <label htmlFor="barcode-manual-entry" className="sr-only">Enter barcode manually</label>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <input
+                  id="barcode-manual-entry"
                   type="text"
                   value={manualEntry}
                   onChange={(e) => setManualEntry(e.target.value)}

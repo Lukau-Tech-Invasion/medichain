@@ -402,8 +402,10 @@ export default function FallRiskPage() {
                   Select Patient
                 </h2>
                 <div className="relative mb-4">
+                  <label htmlFor="fallrisk-patient-search" className="sr-only">Search patients</label>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
+                    id="fallrisk-patient-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -495,23 +497,27 @@ export default function FallRiskPage() {
 
                 <div className="space-y-4">
                   {/* Fall History */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <label className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-gray-50 rounded-lg p-4">
+                    <legend className="block font-medium text-gray-900 mb-2">
                       1. History of Falling (immediate or within 3 months)
-                    </label>
+                    </legend>
                     <div className="flex space-x-4">
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-fall-history-no" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-fall-history-no"
                           type="radio"
+                          name="fallHistory"
                           checked={morseScale.fallHistory === 0}
                           onChange={() => setMorseScale(prev => ({ ...prev, fallHistory: 0 }))}
                           className="mr-2"
                         />
                         <span>No (0 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-fall-history-yes" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-fall-history-yes"
                           type="radio"
+                          name="fallHistory"
                           checked={morseScale.fallHistory === 25}
                           onChange={() => setMorseScale(prev => ({ ...prev, fallHistory: 25 }))}
                           className="mr-2"
@@ -519,26 +525,30 @@ export default function FallRiskPage() {
                         <span>Yes (25 points)</span>
                       </label>
                     </div>
-                  </div>
+                  </fieldset>
 
                   {/* Secondary Diagnosis */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <label className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-gray-50 rounded-lg p-4">
+                    <legend className="block font-medium text-gray-900 mb-2">
                       2. Secondary Diagnosis (more than one medical diagnosis)
-                    </label>
+                    </legend>
                     <div className="flex space-x-4">
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-secondary-diagnosis-no" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-secondary-diagnosis-no"
                           type="radio"
+                          name="secondaryDiagnosis"
                           checked={morseScale.secondaryDiagnosis === 0}
                           onChange={() => setMorseScale(prev => ({ ...prev, secondaryDiagnosis: 0 }))}
                           className="mr-2"
                         />
                         <span>No (0 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-secondary-diagnosis-yes" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-secondary-diagnosis-yes"
                           type="radio"
+                          name="secondaryDiagnosis"
                           checked={morseScale.secondaryDiagnosis === 15}
                           onChange={() => setMorseScale(prev => ({ ...prev, secondaryDiagnosis: 15 }))}
                           className="mr-2"
@@ -546,35 +556,41 @@ export default function FallRiskPage() {
                         <span>Yes (15 points)</span>
                       </label>
                     </div>
-                  </div>
+                  </fieldset>
 
                   {/* Ambulatory Aid */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <label className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-gray-50 rounded-lg p-4">
+                    <legend className="block font-medium text-gray-900 mb-2">
                       3. Ambulatory Aid
-                    </label>
+                    </legend>
                     <div className="space-y-2">
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-ambulatory-aid-none" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-ambulatory-aid-none"
                           type="radio"
+                          name="ambulatoryAid"
                           checked={morseScale.ambulatoryAid === 0}
                           onChange={() => setMorseScale(prev => ({ ...prev, ambulatoryAid: 0 }))}
                           className="mr-2"
                         />
                         <span>None / Bed Rest / Nurse Assist (0 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-ambulatory-aid-crutches" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-ambulatory-aid-crutches"
                           type="radio"
+                          name="ambulatoryAid"
                           checked={morseScale.ambulatoryAid === 15}
                           onChange={() => setMorseScale(prev => ({ ...prev, ambulatoryAid: 15 }))}
                           className="mr-2"
                         />
                         <span>Crutches / Cane / Walker (15 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-ambulatory-aid-furniture" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-ambulatory-aid-furniture"
                           type="radio"
+                          name="ambulatoryAid"
                           checked={morseScale.ambulatoryAid === 30}
                           onChange={() => setMorseScale(prev => ({ ...prev, ambulatoryAid: 30 }))}
                           className="mr-2"
@@ -582,26 +598,30 @@ export default function FallRiskPage() {
                         <span>Furniture / Wall (30 points)</span>
                       </label>
                     </div>
-                  </div>
+                  </fieldset>
 
                   {/* IV Therapy */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <label className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-gray-50 rounded-lg p-4">
+                    <legend className="block font-medium text-gray-900 mb-2">
                       4. IV Therapy / Heparin Lock
-                    </label>
+                    </legend>
                     <div className="flex space-x-4">
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-iv-therapy-no" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-iv-therapy-no"
                           type="radio"
+                          name="ivTherapy"
                           checked={morseScale.ivTherapy === 0}
                           onChange={() => setMorseScale(prev => ({ ...prev, ivTherapy: 0 }))}
                           className="mr-2"
                         />
                         <span>No (0 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-iv-therapy-yes" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-iv-therapy-yes"
                           type="radio"
+                          name="ivTherapy"
                           checked={morseScale.ivTherapy === 20}
                           onChange={() => setMorseScale(prev => ({ ...prev, ivTherapy: 20 }))}
                           className="mr-2"
@@ -609,35 +629,41 @@ export default function FallRiskPage() {
                         <span>Yes (20 points)</span>
                       </label>
                     </div>
-                  </div>
+                  </fieldset>
 
                   {/* Gait */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <label className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-gray-50 rounded-lg p-4">
+                    <legend className="block font-medium text-gray-900 mb-2">
                       5. Gait / Transferring
-                    </label>
+                    </legend>
                     <div className="space-y-2">
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-gait-normal" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-gait-normal"
                           type="radio"
+                          name="gait"
                           checked={morseScale.gait === 0}
                           onChange={() => setMorseScale(prev => ({ ...prev, gait: 0 }))}
                           className="mr-2"
                         />
                         <span>Normal / Bedrest / Immobile (0 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-gait-weak" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-gait-weak"
                           type="radio"
+                          name="gait"
                           checked={morseScale.gait === 10}
                           onChange={() => setMorseScale(prev => ({ ...prev, gait: 10 }))}
                           className="mr-2"
                         />
                         <span>Weak (10 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-gait-impaired" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-gait-impaired"
                           type="radio"
+                          name="gait"
                           checked={morseScale.gait === 20}
                           onChange={() => setMorseScale(prev => ({ ...prev, gait: 20 }))}
                           className="mr-2"
@@ -645,26 +671,30 @@ export default function FallRiskPage() {
                         <span>Impaired (20 points)</span>
                       </label>
                     </div>
-                  </div>
+                  </fieldset>
 
                   {/* Mental Status */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <label className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-gray-50 rounded-lg p-4">
+                    <legend className="block font-medium text-gray-900 mb-2">
                       6. Mental Status
-                    </label>
+                    </legend>
                     <div className="flex space-x-4">
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-mental-status-oriented" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-mental-status-oriented"
                           type="radio"
+                          name="mentalStatus"
                           checked={morseScale.mentalStatus === 0}
                           onChange={() => setMorseScale(prev => ({ ...prev, mentalStatus: 0 }))}
                           className="mr-2"
                         />
                         <span>Oriented to own ability (0 points)</span>
                       </label>
-                      <label className="flex items-center cursor-pointer">
+                      <label htmlFor="fallrisk-mental-status-overestimates" className="flex items-center cursor-pointer">
                         <input
+                          id="fallrisk-mental-status-overestimates"
                           type="radio"
+                          name="mentalStatus"
                           checked={morseScale.mentalStatus === 15}
                           onChange={() => setMorseScale(prev => ({ ...prev, mentalStatus: 15 }))}
                           className="mr-2"
@@ -672,7 +702,7 @@ export default function FallRiskPage() {
                         <span>Overestimates / Forgets limitations (15 points)</span>
                       </label>
                     </div>
-                  </div>
+                  </fieldset>
                 </div>
               </div>
 
@@ -694,8 +724,9 @@ export default function FallRiskPage() {
                 {recentFall.occurred && (
                   <div className="space-y-3 pl-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Date of Fall</label>
+                      <label htmlFor="fallrisk-fall-date" className="block text-sm font-medium text-gray-700 mb-1">Date of Fall</label>
                       <input
+                        id="fallrisk-fall-date"
                         type="date"
                         value={recentFall.date}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, date: e.target.value }))}
@@ -703,8 +734,9 @@ export default function FallRiskPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Circumstances</label>
+                      <label htmlFor="fallrisk-fall-circumstances" className="block text-sm font-medium text-gray-700 mb-1">Circumstances</label>
                       <textarea
+                        id="fallrisk-fall-circumstances"
                         value={recentFall.circumstances}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, circumstances: e.target.value }))}
                         placeholder="Describe how the fall occurred..."
@@ -713,8 +745,9 @@ export default function FallRiskPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Injuries Sustained</label>
+                      <label htmlFor="fallrisk-fall-injuries" className="block text-sm font-medium text-gray-700 mb-1">Injuries Sustained</label>
                       <input
+                        id="fallrisk-fall-injuries"
                         type="text"
                         value={recentFall.injuries}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, injuries: e.target.value }))}
@@ -800,8 +833,9 @@ export default function FallRiskPage() {
 
               {/* Notes */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4">Additional Notes</h3>
+                <label htmlFor="fallrisk-additional-notes" className="font-bold text-gray-900 mb-4 block">Additional Notes</label>
                 <textarea
+                  id="fallrisk-additional-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Any additional notes or observations..."

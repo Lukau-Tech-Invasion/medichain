@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { getPatients, listBloodBank, createBloodTypeScreen } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
+import { useToastActions } from '../components/Toast';
 
 /**
  * BloodBankPage
@@ -74,6 +75,7 @@ interface BloodOrder {
 
 const BloodBankPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [orders, setOrders] = useState<BloodOrder[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -144,7 +146,7 @@ const BloodBankPage: React.FC = () => {
   const handleSubmitOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !indication) {
-      alert('Please fill in all required fields');
+      showError('Please fill in all required fields');
       return;
     }
 
@@ -167,7 +169,7 @@ const BloodBankPage: React.FC = () => {
     };
 
     setOrders([...orders, newOrder]);
-    alert(`Blood bank order ${newOrder.orderId} submitted successfully`);
+    showSuccess(`Blood bank order ${newOrder.orderId} submitted successfully`);
 
     // Reset form
     setSelectedPatientId('');
@@ -200,12 +202,12 @@ const BloodBankPage: React.FC = () => {
   const handleSubmitTransfusion = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrder || !startTime || !administeredBy || !witnessedBy) {
-      alert('Please fill in all required fields');
+      showError('Please fill in all required fields');
       return;
     }
 
     if (!preBP || !preHR || !preTemp || !preRR) {
-      alert('Pre-transfusion vitals are required');
+      showError('Pre-transfusion vitals are required');
       return;
     }
 
@@ -235,7 +237,7 @@ const BloodBankPage: React.FC = () => {
     };
 
     setOrders(orders.map(o => o.orderId === selectedOrder.orderId ? updatedOrder : o));
-    alert(`Transfusion record ${endTime ? 'completed' : 'started'} successfully`);
+    showSuccess(`Transfusion record ${endTime ? 'completed' : 'started'} successfully`);
     setActiveTab('orders');
     setSelectedOrder(null);
   };
@@ -347,11 +349,12 @@ const BloodBankPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-4 mb-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="bloodbank-search" className="block text-sm font-medium text-gray-700 mb-1">
                   <Search className="inline h-4 w-4 mr-1" />
                   Search
                 </label>
                 <input
+                  id="bloodbank-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -360,8 +363,9 @@ const BloodBankPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <label htmlFor="bloodbank-status-filter" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select
+                  id="bloodbank-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -467,10 +471,11 @@ const BloodBankPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Patient Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="bloodbank-patient" className="block text-sm font-medium text-gray-700 mb-1">
                   Patient <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="bloodbank-patient"
                   value={selectedPatientId}
                   onChange={(e) => setSelectedPatientId(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -487,10 +492,11 @@ const BloodBankPage: React.FC = () => {
 
               {/* Product */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="bloodbank-product" className="block text-sm font-medium text-gray-700 mb-1">
                   Blood Product <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="bloodbank-product"
                   value={product}
                   onChange={(e) => setProduct(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -506,10 +512,11 @@ const BloodBankPage: React.FC = () => {
 
               {/* Units */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="bloodbank-units" className="block text-sm font-medium text-gray-700 mb-1">
                   Number of Units <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="bloodbank-units"
                   type="number"
                   min="1"
                   max="10"
@@ -522,10 +529,11 @@ const BloodBankPage: React.FC = () => {
 
               {/* Priority */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="bloodbank-priority" className="block text-sm font-medium text-gray-700 mb-1">
                   Priority <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="bloodbank-priority"
                   value={priority}
                   onChange={(e) => setPriority(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -539,10 +547,11 @@ const BloodBankPage: React.FC = () => {
 
               {/* Indication */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="bloodbank-indication" className="block text-sm font-medium text-gray-700 mb-1">
                   Clinical Indication <span className="text-red-500">*</span>
                 </label>
                 <textarea
+                  id="bloodbank-indication"
                   value={indication}
                   onChange={(e) => setIndication(e.target.value)}
                   rows={3}
@@ -631,10 +640,11 @@ const BloodBankPage: React.FC = () => {
               <h3 className="text-lg font-bold mb-3">Pre-Transfusion Vital Signs</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="bloodbank-pre-bp" className="block text-sm font-medium text-gray-700 mb-1">
                     Blood Pressure <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="bloodbank-pre-bp"
                     type="text"
                     value={preBP}
                     onChange={(e) => setPreBP(e.target.value)}
@@ -644,10 +654,11 @@ const BloodBankPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="bloodbank-pre-hr" className="block text-sm font-medium text-gray-700 mb-1">
                     Heart Rate <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="bloodbank-pre-hr"
                     type="number"
                     value={preHR}
                     onChange={(e) => setPreHR(e.target.value)}
@@ -657,10 +668,11 @@ const BloodBankPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="bloodbank-pre-temp" className="block text-sm font-medium text-gray-700 mb-1">
                     Temperature <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="bloodbank-pre-temp"
                     type="number"
                     step="0.1"
                     value={preTemp}
@@ -671,10 +683,11 @@ const BloodBankPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="bloodbank-pre-rr" className="block text-sm font-medium text-gray-700 mb-1">
                     Respiratory Rate <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="bloodbank-pre-rr"
                     type="number"
                     value={preRR}
                     onChange={(e) => setPreRR(e.target.value)}
@@ -691,10 +704,11 @@ const BloodBankPage: React.FC = () => {
               <h3 className="text-lg font-bold mb-3">Transfusion Times</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="bloodbank-start-time" className="block text-sm font-medium text-gray-700 mb-1">
                     Start Time <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="bloodbank-start-time"
                     type="time"
                     value={startTime}
                     onChange={(e) => setStartTime(e.target.value)}
@@ -703,8 +717,9 @@ const BloodBankPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                  <label htmlFor="bloodbank-end-time" className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
                   <input
+                    id="bloodbank-end-time"
                     type="time"
                     value={endTime}
                     onChange={(e) => setEndTime(e.target.value)}
@@ -719,10 +734,11 @@ const BloodBankPage: React.FC = () => {
               <h3 className="text-lg font-bold mb-3">Staff</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="bloodbank-administered-by" className="block text-sm font-medium text-gray-700 mb-1">
                     Administered By <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="bloodbank-administered-by"
                     type="text"
                     value={administeredBy}
                     onChange={(e) => setAdministeredBy(e.target.value)}
@@ -732,10 +748,11 @@ const BloodBankPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="bloodbank-witnessed-by" className="block text-sm font-medium text-gray-700 mb-1">
                     Witnessed By <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="bloodbank-witnessed-by"
                     type="text"
                     value={witnessedBy}
                     onChange={(e) => setWitnessedBy(e.target.value)}
@@ -756,8 +773,9 @@ const BloodBankPage: React.FC = () => {
                 <h3 className="text-lg font-bold mb-3">Post-Transfusion Vital Signs</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
+                    <label htmlFor="bloodbank-post-bp" className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
                     <input
+                      id="bloodbank-post-bp"
                       type="text"
                       value={postBP}
                       onChange={(e) => setPostBP(e.target.value)}
@@ -766,8 +784,9 @@ const BloodBankPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Heart Rate</label>
+                    <label htmlFor="bloodbank-post-hr" className="block text-sm font-medium text-gray-700 mb-1">Heart Rate</label>
                     <input
+                      id="bloodbank-post-hr"
                       type="number"
                       value={postHR}
                       onChange={(e) => setPostHR(e.target.value)}
@@ -776,8 +795,9 @@ const BloodBankPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+                    <label htmlFor="bloodbank-post-temp" className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
                     <input
+                      id="bloodbank-post-temp"
                       type="number"
                       step="0.1"
                       value={postTemp}
@@ -787,8 +807,9 @@ const BloodBankPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
+                    <label htmlFor="bloodbank-post-rr" className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
                     <input
+                      id="bloodbank-post-rr"
                       type="number"
                       value={postRR}
                       onChange={(e) => setPostRR(e.target.value)}
@@ -841,8 +862,9 @@ const BloodBankPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+              <label htmlFor="bloodbank-transfusion-notes" className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
               <textarea
+                id="bloodbank-transfusion-notes"
                 value={transfusionNotes}
                 onChange={(e) => setTransfusionNotes(e.target.value)}
                 rows={4}

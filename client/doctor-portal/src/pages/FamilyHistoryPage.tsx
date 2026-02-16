@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { getPatients, getFamilyHistory } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
+import PedigreeChart from '../components/PedigreeChart';
 import {
   Users,
   Heart,
@@ -90,6 +92,7 @@ interface RiskAssessment {
 
 const FamilyHistoryPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -168,7 +171,7 @@ const FamilyHistoryPage: React.FC = () => {
 
   const handleAddMember = () => {
     if (!newMember.patientId || !newMember.relationship) {
-      alert('Please fill in required fields');
+      showWarning('Please fill in required fields');
       return;
     }
 
@@ -206,12 +209,12 @@ const FamilyHistoryPage: React.FC = () => {
     });
     setMemberConditions([]);
     setActiveTab('overview');
-    alert(`Family member ${member.memberId} added successfully`);
+    showSuccess(`Family member ${member.memberId} added successfully`);
   };
 
   const handleAddCondition = () => {
     if (!newCondition.conditionName) {
-      alert('Please enter a condition name');
+      showWarning('Please enter a condition name');
       return;
     }
 
@@ -286,6 +289,11 @@ const FamilyHistoryPage: React.FC = () => {
 
     return matchesSearch && matchesCategory && matchesPatient;
   });
+
+  // Family members filtered only by selected patient (for pedigree chart)
+  const patientFamilyMembers = selectedPatient
+    ? familyMembers.filter((m) => m.patientId === selectedPatient)
+    : [];
 
   const getCategoryIcon = (category: ConditionCategory) => {
     const icons = {
@@ -390,8 +398,9 @@ const FamilyHistoryPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Patient Filter</label>
+                <label htmlFor="family-patient-filter" className="block text-sm font-semibold text-gray-700 mb-2">Patient Filter</label>
                 <select
+                  id="family-patient-filter"
                   value={selectedPatient}
                   onChange={(e) => setSelectedPatient(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -405,10 +414,11 @@ const FamilyHistoryPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="famhx-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="famhx-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -418,8 +428,9 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Condition Category</label>
+                <label htmlFor="famhx-condition-category" className="block text-sm font-semibold text-gray-700 mb-2">Condition Category</label>
                 <select
+                  id="famhx-condition-category"
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value as ConditionCategory | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -564,10 +575,11 @@ const FamilyHistoryPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="famhx-patient" className="block text-sm font-semibold text-gray-700 mb-2">
                   Patient <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="famhx-patient"
                   value={newMember.patientId}
                   onChange={(e) => setNewMember({ ...newMember, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -582,10 +594,11 @@ const FamilyHistoryPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="famhx-relationship" className="block text-sm font-semibold text-gray-700 mb-2">
                   Relationship <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="famhx-relationship"
                   value={newMember.relationship}
                   onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value as RelationshipType })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -610,8 +623,9 @@ const FamilyHistoryPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Family Member Name</label>
+                <label htmlFor="famhx-member-name" className="block text-sm font-semibold text-gray-700 mb-2">Family Member Name</label>
                 <input
+                  id="famhx-member-name"
                   type="text"
                   value={newMember.name}
                   onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
@@ -621,10 +635,11 @@ const FamilyHistoryPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="famhx-vital-status" className="block text-sm font-semibold text-gray-700 mb-2">
                   Vital Status <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="famhx-vital-status"
                   value={newMember.vitalStatus}
                   onChange={(e) => setNewMember({ ...newMember, vitalStatus: e.target.value as VitalStatus })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -637,8 +652,9 @@ const FamilyHistoryPage: React.FC = () => {
 
               {newMember.vitalStatus === 'alive' && (
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Current Age</label>
+                  <label htmlFor="famhx-current-age" className="block text-sm font-semibold text-gray-700 mb-2">Current Age</label>
                   <input
+                    id="famhx-current-age"
                     type="number"
                     min="0"
                     max="120"
@@ -653,8 +669,9 @@ const FamilyHistoryPage: React.FC = () => {
               {newMember.vitalStatus === 'deceased' && (
                 <>
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Age at Death</label>
+                    <label htmlFor="famhx-age-at-death" className="block text-sm font-semibold text-gray-700 mb-2">Age at Death</label>
                     <input
+                      id="famhx-age-at-death"
                       type="number"
                       min="0"
                       max="120"
@@ -665,8 +682,9 @@ const FamilyHistoryPage: React.FC = () => {
                     />
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Cause of Death</label>
+                    <label htmlFor="famhx-cause-of-death" className="block text-sm font-semibold text-gray-700 mb-2">Cause of Death</label>
                     <input
+                      id="famhx-cause-of-death"
                       type="text"
                       value={newMember.causeOfDeath}
                       onChange={(e) => setNewMember({ ...newMember, causeOfDeath: e.target.value })}
@@ -679,17 +697,19 @@ const FamilyHistoryPage: React.FC = () => {
 
               <div className="col-span-2 flex items-center gap-2">
                 <input
+                  id="famhx-consanguineous"
                   type="checkbox"
                   checked={newMember.consanguineous}
                   onChange={(e) => setNewMember({ ...newMember, consanguineous: e.target.checked })}
                   className="w-5 h-5"
                 />
-                <label className="text-sm font-semibold text-gray-700">Consanguineous relationship (blood relation between parents)</label>
+                <label htmlFor="famhx-consanguineous" className="text-sm font-semibold text-gray-700">Consanguineous relationship (blood relation between parents)</label>
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">General Notes</label>
+                <label htmlFor="famhx-general-notes" className="block text-sm font-semibold text-gray-700 mb-2">General Notes</label>
                 <textarea
+                  id="famhx-general-notes"
                   value={newMember.notes}
                   onChange={(e) => setNewMember({ ...newMember, notes: e.target.value })}
                   placeholder="Additional information about family member..."
@@ -704,8 +724,9 @@ const FamilyHistoryPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Condition Name</label>
+                  <label htmlFor="famhx-condition-name" className="block text-sm font-semibold text-gray-700 mb-2">Condition Name</label>
                   <input
+                    id="famhx-condition-name"
                     type="text"
                     value={newCondition.conditionName}
                     onChange={(e) => setNewCondition({ ...newCondition, conditionName: e.target.value })}
@@ -715,8 +736,9 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Category</label>
+                  <label htmlFor="famhx-category" className="block text-sm font-semibold text-gray-700 mb-2">Category</label>
                   <select
+                    id="famhx-category"
                     value={newCondition.category}
                     onChange={(e) => setNewCondition({ ...newCondition, category: e.target.value as ConditionCategory })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -737,8 +759,9 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Age of Onset</label>
+                  <label htmlFor="famhx-age-of-onset" className="block text-sm font-semibold text-gray-700 mb-2">Age of Onset</label>
                   <input
+                    id="famhx-age-of-onset"
                     type="number"
                     min="0"
                     max="120"
@@ -750,8 +773,9 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Severity</label>
+                  <label htmlFor="famhx-severity" className="block text-sm font-semibold text-gray-700 mb-2">Severity</label>
                   <select
+                    id="famhx-severity"
                     value={newCondition.severity}
                     onChange={(e) => setNewCondition({ ...newCondition, severity: e.target.value as 'mild' | 'moderate' | 'severe' })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -763,8 +787,9 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Condition Notes</label>
+                  <label htmlFor="famhx-condition-notes" className="block text-sm font-semibold text-gray-700 mb-2">Condition Notes</label>
                   <textarea
+                    id="famhx-condition-notes"
                     value={newCondition.notes}
                     onChange={(e) => setNewCondition({ ...newCondition, notes: e.target.value })}
                     placeholder="Treatment, outcomes, etc."
@@ -819,8 +844,9 @@ const FamilyHistoryPage: React.FC = () => {
       {activeTab === 'risk-assessment' && (
         <div className="space-y-4">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Select Patient for Risk Assessment</label>
+            <label htmlFor="famhx-risk-patient" className="block text-sm font-semibold text-gray-700 mb-2">Select Patient for Risk Assessment</label>
             <select
+              id="famhx-risk-patient"
               value={selectedPatient}
               onChange={(e) => setSelectedPatient(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -915,22 +941,18 @@ const FamilyHistoryPage: React.FC = () => {
       {activeTab === 'pedigree' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-xl font-bold mb-4">Pedigree Chart Visualization</h2>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
-            <FileText className="w-16 h-16 text-blue-400 mx-auto mb-4" />
-            <h3 className="text-lg font-bold text-blue-900 mb-2">Pedigree Chart Coming Soon</h3>
-            <p className="text-blue-800 mb-4">
-              Interactive pedigree chart visualization with standard symbols for:
-            </p>
-            <ul className="text-left max-w-md mx-auto text-blue-800 space-y-2">
-              <li>• Male/Female/Unknown gender representation</li>
-              <li>• Affected/Unaffected status indicators</li>
-              <li>• Carrier status markers</li>
-              <li>• Deceased members notation</li>
-              <li>• Consanguineous relationships</li>
-              <li>• Multi-generational family tree</li>
-              <li>• Automated inheritance pattern analysis</li>
-            </ul>
-          </div>
+          {selectedPatient ? (
+            <PedigreeChart
+              familyMembers={patientFamilyMembers}
+              patientName={patients.find(p => p.patient_id === selectedPatient)?.full_name || 'Patient'}
+              className="min-h-[500px]"
+            />
+          ) : (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+              <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+              <p className="text-gray-600">Select a patient to view their family pedigree chart</p>
+            </div>
+          )}
         </div>
       )}
     </div>

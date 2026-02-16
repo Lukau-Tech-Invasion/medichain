@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../store';
+import { useAuthStore, useThemeStore } from '../store';
 import { apiUrl } from '@medichain/shared';
 import { 
   Settings, 
@@ -12,7 +12,10 @@ import {
   CheckCircle,
   Key,
   Smartphone,
-  Globe
+  Globe,
+  Sun,
+  Moon,
+  Monitor
 } from 'lucide-react';
 
 interface UserSettings {
@@ -58,6 +61,7 @@ const initialSettings: UserSettings = {
 function SettingsPage() {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
+  const { theme, setTheme } = useThemeStore();
   const [settings, setSettings] = useState<UserSettings>(initialSettings);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'display'>('profile');
   const [isSaving, setIsSaving] = useState(false);
@@ -67,14 +71,19 @@ function SettingsPage() {
     if (!isAuthenticated) {
       navigate('/login');
     }
-  }, [isAuthenticated, navigate]);
+    // Sync theme from store
+    setSettings(prev => ({
+      ...prev,
+      display: { ...prev.display, theme }
+    }));
+  }, [isAuthenticated, navigate, theme]);
 
   const handleSave = async () => {
     if (!user) return;
     
     setIsSaving(true);
     try {
-      const response = await fetch(`${apiUrl}/api/settings`, {
+      const response = await fetch(apiUrl('/api/settings'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -402,30 +411,38 @@ function SettingsPage() {
 
           {/* Display Tab */}
           {activeTab === 'display' && (
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">Display Preferences</h2>
+            <div className="dark:text-white">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Display Preferences</h2>
               
               <div className="space-y-6">
-                <div className="py-3 border-b border-gray-100">
+                <div className="py-3 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex items-start gap-3 mb-3">
-                    <Palette className="text-gray-400 mt-1" size={20} />
+                    <Palette className="text-gray-400 dark:text-gray-300 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">Theme</h4>
-                      <p className="text-sm text-gray-500">Choose your preferred color scheme</p>
+                      <h4 className="font-medium text-gray-900 dark:text-white">Theme</h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Choose your preferred color scheme</p>
                     </div>
                   </div>
                   <div className="flex gap-3">
-                    {['light', 'dark', 'system'].map((theme) => (
+                    {[
+                      { value: 'light', label: 'Light', icon: Sun },
+                      { value: 'dark', label: 'Dark', icon: Moon },
+                      { value: 'system', label: 'System', icon: Monitor }
+                    ].map(({ value, label, icon: Icon }) => (
                       <button
-                        key={theme}
-                        onClick={() => updateDisplay('theme', theme as UserSettings['display']['theme'])}
-                        className={`px-4 py-2 rounded-lg capitalize transition-colors ${
-                          settings.display.theme === theme
-                            ? 'bg-primary-100 text-primary-700 border-2 border-primary-500'
-                            : 'bg-gray-100 text-gray-700 border-2 border-transparent hover:bg-gray-200'
+                        key={value}
+                        onClick={() => {
+                          setTheme(value as 'light' | 'dark' | 'system');
+                          updateDisplay('theme', value as UserSettings['display']['theme']);
+                        }}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                          settings.display.theme === value
+                            ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 border-2 border-primary-500'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-2 border-transparent hover:bg-gray-200 dark:hover:bg-gray-600'
                         }`}
                       >
-                        {theme}
+                        <Icon size={18} />
+                        {label}
                       </button>
                     ))}
                   </div>

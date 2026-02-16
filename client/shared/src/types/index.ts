@@ -34,6 +34,20 @@ export interface User {
   created_by?: string;
   /** Patient ID if this user is linked to a patient record */
   linked_patient_id?: string;
+  /** Email address */
+  email?: string;
+  /** Phone number */
+  phone?: string;
+  /** Department (for healthcare workers) */
+  department?: string;
+  /** Specialty (for doctors) */
+  specialty?: string;
+  /** License/registration number */
+  license_number?: string;
+  /** User status: active, inactive, suspended, pending */
+  status?: 'active' | 'inactive' | 'suspended' | 'pending';
+  /** Last login timestamp (ISO 8601) */
+  last_login?: string;
 }
 
 /**
@@ -43,8 +57,16 @@ export interface WalletUserInfo {
   wallet_address: string;
   name: string;
   username?: string;
-  role: string;
+  role: Role;
+  created_at?: string;
   linked_patient_id?: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  specialty?: string;
+  license_number?: string;
+  status?: string;
+  last_login?: string;
 }
 
 /**
@@ -569,6 +591,175 @@ export interface ReviewLabResultResponse {
 export interface PendingLabResultsResponse {
   submissions: LabResultSubmission[];
   total: number;
+}
+
+// ============================================================================
+// Dashboard Response Types (from /api/dashboard/* endpoints)
+// ============================================================================
+
+/**
+ * Doctor Dashboard Response
+ * GET /api/dashboard/doctor
+ */
+export interface DoctorDashboardResponse {
+  role: 'Doctor';
+  patients: {
+    total: number;
+    list: PatientProfile[];
+  };
+  pending_lab_approvals: LabResultSubmission[];
+  critical_values: unknown[];
+  recent_code_blues: unknown[];
+  active_orders: unknown[];
+  pending_consults: unknown[];
+  alerts: {
+    pending_labs_count: number;
+    critical_values_count: number;
+    code_blues_count: number;
+  };
+}
+
+/**
+ * Nurse Dashboard Response
+ * GET /api/dashboard/nurse
+ */
+export interface NurseDashboardResponse {
+  role: 'Nurse';
+  patients: {
+    total: number;
+    list: PatientProfile[];
+  };
+  care_plans: unknown[];
+  vitals_needing_attention: unknown[];
+  medication_records: unknown[];
+  io_records: unknown[];
+  wound_assessments: unknown[];
+  iv_assessments: unknown[];
+  fall_risk_patients: unknown[];
+  recent_incidents: unknown[];
+  tasks: {
+    vitals_due: number;
+    meds_due: number;
+    wounds_to_assess: number;
+    ivs_to_check: number;
+  };
+}
+
+/**
+ * Lab Technician Dashboard Response
+ * GET /api/dashboard/lab
+ */
+export interface LabDashboardResponse {
+  role: 'LabTechnician';
+  test_queue: {
+    pending: LabResultSubmission[];
+    approved_today: LabResultSubmission[];
+    pending_count: number;
+    approved_count: number;
+  };
+  specimens: unknown[];
+  rejections: unknown[];
+  qc_records: unknown[];
+  critical_notifications: unknown[];
+  chain_of_custody: unknown[];
+  available_panels: unknown[];
+  alerts: {
+    pending_tests: number;
+    critical_values: number;
+    rejections_today: number;
+  };
+}
+
+/**
+ * Admin Dashboard Response
+ * GET /api/dashboard/admin
+ */
+export interface AdminDashboardResponse {
+  role: 'Admin';
+  system_stats: {
+    total_users: number;
+    total_patients: number;
+    doctors: number;
+    nurses: number;
+    lab_technicians: number;
+    pharmacists: number;
+    patient_users: number;
+  };
+  users: User[];
+  nfc_cards: {
+    total: number;
+    cards: unknown[];
+  };
+  lab_submissions: {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+  };
+  emergency_events: {
+    code_blues: number;
+    traumas: number;
+    strokes: number;
+    sepsis: number;
+  };
+  access_logs: unknown[];
+}
+
+/**
+ * Patient Dashboard Response
+ * GET /api/dashboard/patient
+ */
+export interface PatientDashboardResponse {
+  role: 'Patient';
+  patient_id: string;
+  profile: PatientProfile;
+  recent_visits: unknown[];
+  medications: unknown[];
+  lab_results: unknown[];
+  appointments: unknown[];
+  total_visits: number;
+}
+
+/**
+ * Messages Response
+ * GET /api/messages
+ */
+export interface MessagesResponse {
+  messages: unknown[];
+  unread_count: number;
+}
+
+/**
+ * Notifications Response
+ * GET /api/notifications
+ */
+export interface NotificationsResponse {
+  notifications: unknown[];
+  unread_count: number;
+}
+
+/**
+ * Pharmacist Dashboard Response
+ * GET /api/dashboard/pharmacist
+ * Note: This endpoint needs to be created in the backend
+ */
+export interface PharmacistDashboardResponse {
+  role: 'Pharmacist';
+  prescriptions: {
+    pending_fill: number;
+    in_progress: number;
+    completed_today: number;
+    list: unknown[];
+  };
+  drug_interactions: unknown[];
+  refill_requests: unknown[];
+  controlled_substance_log: unknown[];
+  inventory_alerts: unknown[];
+  alerts: {
+    pending_rx_count: number;
+    interactions_count: number;
+    low_inventory_count: number;
+  };
 }
 
 // ============================================================================
