@@ -18,17 +18,69 @@ export const IS_DEVELOPMENT = import.meta.env?.DEV ?? true;
 export const IS_PRODUCTION = import.meta.env?.PROD ?? false;
 
 /**
+ * Detect the best API URL based on environment
+ * Priority:
+ * 1. Environment variable VITE_API_URL
+ * 2. Same origin (for production/proxied setups)
+ * 3. Development fallback with proper host detection
+ */
+function detectApiBaseUrl(): string {
+  // 1. Check environment variable first
+  if (import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // 2. In production, use same origin (assumes proxy or same-origin API)
+  if (IS_PRODUCTION && typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  
+  // 3. In development with Vite proxy, use relative paths
+  // The Vite dev server proxies /api/* to the backend
+  if (IS_DEVELOPMENT && typeof window !== 'undefined') {
+    // When running in browser with Vite, use empty string to leverage proxy
+    // This makes requests go to /api/* which Vite proxies to backend
+    return '';
+  }
+  
+  // 4. Fallback for non-browser environments (tests, SSR)
+  return 'http://127.0.0.1:8080';
+}
+
+/**
+ * Detect WebSocket URL for Substrate node
+ */
+function detectSubstrateWsUrl(): string {
+  if (import.meta.env?.VITE_SUBSTRATE_WS) {
+    return import.meta.env.VITE_SUBSTRATE_WS;
+  }
+  return 'ws://127.0.0.1:9944';
+}
+
+/**
  * API Configuration
  */
 export const API_CONFIG = {
-  /** Base URL for API calls */
-  BASE_URL: import.meta.env?.VITE_API_URL ?? 'http://localhost:8080',
+  /** Base URL for API calls - auto-detected or from env */
+  BASE_URL: detectApiBaseUrl(),
   
   /** Timeout for API requests in milliseconds */
   TIMEOUT: 30000,
   
+  /** Number of retry attempts for failed requests */
+  MAX_RETRIES: 3,
+  
+  /** Base delay for exponential backoff (ms) */
+  RETRY_BASE_DELAY: 1000,
+  
+  /** Maximum delay between retries (ms) */
+  RETRY_MAX_DELAY: 10000,
+  
   /** WebSocket URL for Substrate node */
-  SUBSTRATE_WS_URL: import.meta.env?.VITE_SUBSTRATE_WS ?? 'ws://localhost:9944',
+  SUBSTRATE_WS_URL: detectSubstrateWsUrl(),
+  
+  /** Health check endpoint */
+  HEALTH_ENDPOINT: '/api/health',
 };
 
 /**
@@ -169,3 +221,76 @@ export const clearAuth = (): void => {
 export const isAuthenticated = (): boolean => {
   return getConnectedWalletAddress() !== null;
 };
+
+// ============================================================================
+// CONNECTION HEALTH UTILITIES
+// ============================================================================
+
+/**
+ * Connection status types
+ */
+export type ConnectionStatus = 'connected' | 'disconnected' | 'checking' | 'error';
+
+/**
+ * Check if the API server is reachable
+ * @returns true if healthy, false otherwise
+ */
+export async function checkApiHealth(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(apiUrl(API_CONFIG.HEALTH_ENDPOINT), {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate SS58 wallet address format
+ * MediChain uses Substrate addresses: 48 characters, starts with "5"
+ */
+export function isValidWalletAddress(address: string): boolean {
+  if (!address || typeof address !== 'string') {
+    return false;
+  }
+  if (address.length !== 48) {
+    debugLog('wallet', `Invalid address length: ${address.length}, expected 48`);
+    return false;
+  }
+  if (!address.startsWith('5')) {
+    debugLog('wallet', `Invalid address prefix: should start with "5"`);
+    return false;
+  }
+  if (!/^[A-Za-z0-9]+$/.test(address)) {
+    debugLog('wallet', 'Invalid address characters: must be alphanumeric');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Sleep utility for retry delays
+ */
+export function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Calculate exponential backoff delay with jitter
+ */
+export function calculateBackoff(attempt: number): number {
+  const delay = Math.min(
+    API_CONFIG.RETRY_BASE_DELAY * Math.pow(2, attempt),
+    API_CONFIG.RETRY_MAX_DELAY
+  );
+  // Add random jitter (±25%)
+  const jitter = delay * 0.25 * (Math.random() * 2 - 1);
+  return Math.floor(delay + jitter);
+}

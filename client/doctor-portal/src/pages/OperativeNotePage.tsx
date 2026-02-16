@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Scissors, User, FileText, Droplet, Package } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { getPatients } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
 type AnesthesiaType = 'general' | 'spinal' | 'epidural' | 'regional' | 'local' | 'mac' | 'none';
@@ -59,6 +60,7 @@ const woundClassDescriptions: Record<WoundClass, string> = {
 
 const OperativeNotePage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [notes, setNotes] = useState<OperativeNote[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
@@ -116,7 +118,7 @@ const OperativeNotePage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient || !procedureName) {
-      alert('Please select a patient and enter procedure name');
+      showWarning('Please select a patient and enter procedure name');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -131,7 +133,7 @@ const OperativeNotePage: React.FC = () => {
       implants, complications, disposition, createdAt: new Date().toISOString()
     };
     setNotes([note, ...notes]);
-    alert('Operative note saved!');
+    showSuccess('Operative note saved!');
   };
 
   return (
@@ -174,8 +176,9 @@ const OperativeNotePage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="opnote-patient" className="text-sm text-gray-600">Patient</label>
                   <select
+                    id="opnote-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
@@ -187,8 +190,9 @@ const OperativeNotePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Procedure Date</label>
+                  <label htmlFor="opnote-procedure-date" className="text-sm text-gray-600">Procedure Date</label>
                   <input
+                    id="opnote-procedure-date"
                     type="date"
                     value={procedureDate}
                     onChange={e => setProcedureDate(e.target.value)}
@@ -196,8 +200,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Surgeon</label>
+                  <label htmlFor="opnote-surgeon" className="text-sm text-gray-600">Surgeon</label>
                   <input
+                    id="opnote-surgeon"
                     type="text"
                     value={surgeon}
                     onChange={e => setSurgeon(e.target.value)}
@@ -205,8 +210,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Assistant</label>
+                  <label htmlFor="opnote-assistant" className="text-sm text-gray-600">Assistant</label>
                   <input
+                    id="opnote-assistant"
                     type="text"
                     value={assistant}
                     onChange={e => setAssistant(e.target.value)}
@@ -214,8 +220,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Anesthesiologist</label>
+                  <label htmlFor="opnote-anesthesiologist" className="text-sm text-gray-600">Anesthesiologist</label>
                   <input
+                    id="opnote-anesthesiologist"
                     type="text"
                     value={anesthesiologist}
                     onChange={e => setAnesthesiologist(e.target.value)}
@@ -223,8 +230,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Scrub Nurse</label>
+                  <label htmlFor="opnote-scrub-nurse" className="text-sm text-gray-600">Scrub Nurse</label>
                   <input
+                    id="opnote-scrub-nurse"
                     type="text"
                     value={scrubNurse}
                     onChange={e => setScrubNurse(e.target.value)}
@@ -232,9 +240,8 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Circulator</label>
-                  <input
-                    type="text"
+                  <label htmlFor="opnote-circulator" className="text-sm text-gray-600">Circulator</label>
+                  <input                    id="opnote-circulator"                    type="text"
                     value={circulator}
                     onChange={e => setCirculator(e.target.value)}
                     className="w-full border rounded p-2"
@@ -250,24 +257,27 @@ const OperativeNotePage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Pre-operative Diagnosis</label>
+                  <label htmlFor="opnote-pre-op-diagnosis" className="text-sm text-gray-600">Pre-operative Diagnosis</label>
                   <textarea
+                    id="opnote-pre-op-diagnosis"
                     value={preOpDiagnosis}
                     onChange={e => setPreOpDiagnosis(e.target.value)}
                     className="w-full border rounded p-2 h-20"
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Post-operative Diagnosis</label>
+                  <label htmlFor="opnote-post-op-diagnosis" className="text-sm text-gray-600">Post-operative Diagnosis</label>
                   <textarea
+                    id="opnote-post-op-diagnosis"
                     value={postOpDiagnosis}
                     onChange={e => setPostOpDiagnosis(e.target.value)}
                     className="w-full border rounded p-2 h-20"
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Procedure Name</label>
+                  <label htmlFor="opnote-procedure-name" className="text-sm text-gray-600">Procedure Name</label>
                   <input
+                    id="opnote-procedure-name"
                     list="procedures"
                     value={procedureName}
                     onChange={e => setProcedureName(e.target.value)}
@@ -279,8 +289,9 @@ const OperativeNotePage: React.FC = () => {
                   </datalist>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">CPT Codes</label>
+                  <label htmlFor="opnote-cpt-codes" className="text-sm text-gray-600">CPT Codes</label>
                   <input
+                    id="opnote-cpt-codes"
                     type="text"
                     value={cptCodes}
                     onChange={e => setCptCodes(e.target.value)}
@@ -289,9 +300,8 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Anesthesia Type</label>
-                  <select
-                    value={anesthesiaType}
+                  <label htmlFor="opnote-anesthesia-type" className="text-sm text-gray-600">Anesthesia Type</label>
+                  <select                    id="opnote-anesthesia-type"                    value={anesthesiaType}
                     onChange={e => setAnesthesiaType(e.target.value as AnesthesiaType)}
                     className="w-full border rounded p-2"
                   >
@@ -305,8 +315,9 @@ const OperativeNotePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Wound Classification</label>
+                  <label htmlFor="opnote-wound-class" className="text-sm text-gray-600">Wound Classification</label>
                   <select
+                    id="opnote-wound-class"
                     value={woundClass}
                     onChange={e => setWoundClass(e.target.value as WoundClass)}
                     className="w-full border rounded p-2"
@@ -324,8 +335,9 @@ const OperativeNotePage: React.FC = () => {
               <h2 className="font-semibold mb-3">Operative Details</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm text-gray-600">Incision</label>
+                  <label htmlFor="opnote-incision" className="text-sm text-gray-600">Incision</label>
                   <input
+                    id="opnote-incision"
                     type="text"
                     value={incision}
                     onChange={e => setIncision(e.target.value)}
@@ -334,8 +346,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Findings</label>
+                  <label htmlFor="opnote-findings" className="text-sm text-gray-600">Findings</label>
                   <textarea
+                    id="opnote-findings"
                     value={findings}
                     onChange={e => setFindings(e.target.value)}
                     className="w-full border rounded p-2 h-24"
@@ -343,8 +356,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Procedure Description</label>
+                  <label htmlFor="opnote-procedure-description" className="text-sm text-gray-600">Procedure Description</label>
                   <textarea
+                    id="opnote-procedure-description"
                     value={procedureText}
                     onChange={e => setProcedureText(e.target.value)}
                     className="w-full border rounded p-2 h-32"
@@ -353,8 +367,9 @@ const OperativeNotePage: React.FC = () => {
                 </div>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm text-gray-600">Closure</label>
+                    <label htmlFor="opnote-closure" className="text-sm text-gray-600">Closure</label>
                     <input
+                      id="opnote-closure"
                       type="text"
                       value={closure}
                       onChange={e => setClosure(e.target.value)}
@@ -363,9 +378,8 @@ const OperativeNotePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="text-sm text-gray-600">Drains</label>
-                    <input
-                      type="text"
+                    <label htmlFor="opnote-drains" className="text-sm text-gray-600">Drains</label>
+                    <input                      id="opnote-drains"                      type="text"
                       value={drains}
                       onChange={e => setDrains(e.target.value)}
                       className="w-full border rounded p-2"
@@ -383,8 +397,9 @@ const OperativeNotePage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">EBL (mL)</label>
+                  <label htmlFor="opnote-ebl" className="text-sm text-gray-600">EBL (mL)</label>
                   <input
+                    id="opnote-ebl"
                     type="number"
                     value={ebl}
                     onChange={e => setEbl(Number(e.target.value))}
@@ -392,8 +407,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Fluids In (mL)</label>
+                  <label htmlFor="opnote-fluids-in" className="text-sm text-gray-600">Fluids In (mL)</label>
                   <input
+                    id="opnote-fluids-in"
                     type="number"
                     value={fluidIn}
                     onChange={e => setFluidIn(Number(e.target.value))}
@@ -401,8 +417,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Urine Output (mL)</label>
+                  <label htmlFor="opnote-urine-output" className="text-sm text-gray-600">Urine Output (mL)</label>
                   <input
+                    id="opnote-urine-output"
                     type="number"
                     value={urineOutput}
                     onChange={e => setUrineOutput(Number(e.target.value))}
@@ -419,16 +436,20 @@ const OperativeNotePage: React.FC = () => {
               </h2>
               <div className="flex gap-2 mb-4">
                 <input
+                  id="opnote-specimen-description"
                   type="text"
                   value={newSpecimen.description}
                   onChange={e => setNewSpecimen({ ...newSpecimen, description: e.target.value })}
                   className="flex-1 border rounded p-2"
                   placeholder="Specimen description"
+                  aria-label="Specimen description"
                 />
                 <select
+                  id="opnote-specimen-disposition"
                   value={newSpecimen.disposition}
                   onChange={e => setNewSpecimen({ ...newSpecimen, disposition: e.target.value as Specimen['disposition'] })}
                   className="border rounded p-2"
+                  aria-label="Specimen disposition"
                 >
                   <option value="pathology">Pathology</option>
                   <option value="culture">Culture</option>
@@ -461,8 +482,9 @@ const OperativeNotePage: React.FC = () => {
               <h2 className="font-semibold mb-3">Additional Information</h2>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Implants</label>
+                  <label htmlFor="opnote-implants" className="text-sm text-gray-600">Implants</label>
                   <input
+                    id="opnote-implants"
                     type="text"
                     value={implants}
                     onChange={e => setImplants(e.target.value)}
@@ -471,8 +493,9 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Disposition</label>
+                  <label htmlFor="opnote-disposition" className="text-sm text-gray-600">Disposition</label>
                   <input
+                    id="opnote-disposition"
                     type="text"
                     value={disposition}
                     onChange={e => setDisposition(e.target.value)}
@@ -481,9 +504,8 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="text-sm text-gray-600">Complications</label>
-                  <textarea
-                    value={complications}
+                  <label htmlFor="opnote-complications" className="text-sm text-gray-600">Complications</label>
+                  <textarea                    id="opnote-complications"                    value={complications}
                     onChange={e => setComplications(e.target.value)}
                     className="w-full border rounded p-2"
                     placeholder="None, or describe any complications..."

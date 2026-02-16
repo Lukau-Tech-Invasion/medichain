@@ -41,6 +41,25 @@ export async function ipfsHealthCheck(): Promise<IpfsHealthResponse> {
   return getApiClient().get('/api/ipfs/health');
 }
 
+export interface ServiceHealth {
+  name: string;
+  status: 'online' | 'degraded' | 'offline';
+  latency_ms: number | null;
+  message: string | null;
+}
+
+export interface DetailedHealthResponse {
+  overall_status: string;
+  version: string;
+  uptime_seconds: number;
+  timestamp: string;
+  services: ServiceHealth[];
+}
+
+export async function detailedHealthCheck(): Promise<DetailedHealthResponse> {
+  return getApiClient().get('/api/health/detailed');
+}
+
 // ============================================================================
 // Patient Management
 // ============================================================================
@@ -52,7 +71,12 @@ export async function registerPatient(
 }
 
 export async function getPatients(): Promise<PatientProfile[]> {
-  return getApiClient().get('/api/patients');
+  const response = await getApiClient().get<{ data: PatientProfile[]; pagination: unknown }>('/api/patients');
+  // Handle both paginated response and direct array for backward compatibility
+  if (Array.isArray(response)) {
+    return response;
+  }
+  return response.data || [];
 }
 
 export async function getPatient(patientId: string): Promise<PatientProfile> {
@@ -123,8 +147,71 @@ export async function getAccessLogs(patientId: string): Promise<AccessLogsRespon
 // Role Management (Admin)
 // ============================================================================
 
+/**
+ * Get all users (Admin only)
+ * Returns empty array if API returns error or unexpected format
+ */
 export async function getUsers(): Promise<User[]> {
-  return getApiClient().get('/api/users');
+  try {
+    const response = await getApiClient().get<User[] | { users?: User[]; data?: User[] } | null>('/api/users');
+    
+    // Handle various response formats defensively
+    if (Array.isArray(response)) {
+      return response;
+    }
+    
+    // Handle wrapped response formats
+    if (response && typeof response === 'object') {
+      if ('users' in response && Array.isArray(response.users)) {
+        return response.users;
+      }
+      if ('data' in response && Array.isArray(response.data)) {
+        return response.data;
+      }
+    }
+    
+    console.warn('[MediChain] Unexpected users API response format:', response);
+    return [];
+  } catch (error) {
+    console.error('[MediChain] Failed to fetch users:', error);
+    return [];
+  }
+}
+
+/**
+ * Get a single user by wallet address (Admin or self)
+ */
+export async function getUserDetails(walletAddress: string): Promise<User | null> {
+  try {
+    const response = await getApiClient().get<User>(`/api/users/${walletAddress}`);
+    return response;
+  } catch (error) {
+    console.error('[MediChain] Failed to fetch user details:', error);
+    return null;
+  }
+}
+
+/**
+ * Update user profile request
+ */
+export interface UpdateUserProfileRequest {
+  email?: string;
+  phone?: string;
+  department?: string;
+  specialty?: string;
+  license_number?: string;
+  status?: 'active' | 'inactive' | 'suspended' | 'pending';
+  name?: string;
+}
+
+/**
+ * Update a user's profile (Admin or self)
+ */
+export async function updateUserProfile(
+  walletAddress: string,
+  data: UpdateUserProfileRequest
+): Promise<{ success: boolean; wallet_address: string; message: string }> {
+  return getApiClient().put(`/api/users/${walletAddress}`, data);
 }
 
 export async function assignRole(data: AssignRoleRequest): Promise<AssignRoleResponse> {
@@ -148,6 +235,34 @@ import type {
   WalletLoginResponse,
   WalletUserInfo,
 } from '../types';
+
+/**
+ * Demo login request (development mode only)
+ */
+export interface DemoLoginRequest {
+  wallet_address: string;
+  role: string;
+  name?: string;
+}
+
+/**
+ * Demo login response
+ */
+export interface DemoLoginResponse {
+  success: boolean;
+  wallet_address: string;
+  role: string;
+  name: string;
+  message: string;
+}
+
+/**
+ * Demo login - creates a temporary user for testing (development mode only)
+ * This endpoint auto-registers the wallet if it doesn't exist
+ */
+export async function demoLogin(data: DemoLoginRequest): Promise<DemoLoginResponse> {
+  return getApiClient().post('/api/auth/demo-login', data);
+}
 
 /**
  * Bootstrap the first admin user (only works when no users exist)
@@ -380,8 +495,20 @@ export async function getMar(patientId: string, date: string): Promise<unknown> 
   return getApiClient().get(`/api/clinical/mar/${patientId}/${date}`);
 }
 
-export async function listMar(): Promise<unknown> {
-  return getApiClient().get('/api/nursing/mar');
+export async function listMar(): Promise<unknown[]> {
+  const response = await getApiClient().get<unknown>('/api/nursing/mar');
+  // Handle different response formats from API
+  if (response && typeof response === 'object') {
+    // API returns { success: true, records: [...] }
+    if ('records' in response) {
+      return (response as { records: unknown[] }).records || [];
+    }
+    // Also handle paginated response format { data: [...] }
+    if ('data' in response) {
+      return (response as { data: unknown[] }).data || [];
+    }
+  }
+  return Array.isArray(response) ? response : [];
 }
 
 export async function administerMedication(data: unknown): Promise<unknown> {
@@ -888,6 +1015,14 @@ export async function deleteMedicationReminder(reminderId: string): Promise<unkn
 // Drug Interactions (Phase 21)
 // ============================================================================
 
+export async function getDrugDatabase(): Promise<unknown> {
+  return getApiClient().get('/api/drugs');
+}
+
+export async function getInteractionDatabase(): Promise<unknown> {
+  return getApiClient().get('/api/interactions');
+}
+
 export async function checkDrugInteractions(data: unknown): Promise<unknown> {
   return getApiClient().post('/api/interactions/check', data);
 }
@@ -952,6 +1087,35 @@ export async function getWearableAlerts(): Promise<unknown> {
 // ============================================================================
 // Symptom Checker (Phase 25)
 // ============================================================================
+
+export interface SymptomAnalysisRequest {
+  symptoms: string[];
+  patient_age?: number;
+  patient_gender?: 'male' | 'female' | 'other';
+  existing_conditions?: string[];
+  current_medications?: string[];
+}
+
+export interface SymptomAnalysisResult {
+  possible_conditions: Array<{
+    condition_name: string;
+    probability: number;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    description: string;
+    icd10_code?: string;
+  }>;
+  triage_level: 'self_care' | 'schedule_appointment' | 'urgent_care' | 'emergency';
+  triage_message: string;
+  recommendations: string[];
+  red_flags: string[];
+  self_care_advice: string[];
+  when_to_seek_care: string[];
+  disclaimer: string;
+}
+
+export async function analyzeSymptoms(data: SymptomAnalysisRequest): Promise<SymptomAnalysisResult> {
+  return getApiClient().post('/api/symptoms/analyze', data);
+}
 
 export async function startSymptomCheck(data: unknown): Promise<unknown> {
   return getApiClient().post('/api/symptoms/start', data);
@@ -1255,6 +1419,13 @@ export async function getLabDashboard(): Promise<unknown> {
  */
 export async function getAdminDashboard(): Promise<unknown> {
   return getApiClient().get('/api/dashboard/admin');
+}
+
+/**
+ * Get pharmacist dashboard data
+ */
+export async function getPharmacistDashboard(): Promise<unknown> {
+  return getApiClient().get('/api/dashboard/pharmacist');
 }
 
 // ============================================================================

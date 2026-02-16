@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Wifi,
   WifiOff,
@@ -16,8 +16,20 @@ import {
   FileText,
   Image,
   Settings,
-  Shield
+  Shield,
+  Loader2
 } from 'lucide-react';
+import {
+  getAllCachedItems,
+  getAllSyncItems,
+  getStorageInfo,
+  clearStore,
+  clearCompletedSyncItems,
+  clearExpiredCache,
+  STORES,
+  type SyncQueueItem as IndexedDBSyncItem,
+  type CachedDataItem
+} from '@medichain/shared';
 
 /**
  * OfflineSyncPage
@@ -61,8 +73,88 @@ const OfflineSyncPage: React.FC = () => {
   const [cachedItems, setCachedItems] = useState<CachedItem[]>([]);
   const [syncQueue, setSyncQueue] = useState<SyncQueue[]>([]);
   const [storageInfo, setStorageInfo] = useState<StorageInfo>({ used: 0, available: 0, quota: 0 });
-  const [lastFullSync, setLastFullSync] = useState<string>('2025-01-15T10:30:00Z');
+  const [lastFullSync, setLastFullSync] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
+  const [loading, setLoading] = useState(true);
+
+  // Load data from IndexedDB
+  const loadOfflineData = useCallback(async () => {
+    setLoading(true);
+    try {
+      // Load cached items from IndexedDB
+      const dbCachedItems = await getAllCachedItems();
+      const mappedItems: CachedItem[] = dbCachedItems.map((item: CachedDataItem) => ({
+        id: item.id,
+        category: item.category as DataCategory,
+        name: item.name,
+        size: item.size,
+        lastSynced: new Date(item.lastSynced).toISOString(),
+        status: Date.now() > item.expiresAt ? 'pending' : 'synced' as SyncStatus,
+        priority: item.priority
+      }));
+      
+      // Load sync queue from IndexedDB
+      const dbSyncItems = await getAllSyncItems();
+      const mappedQueue: SyncQueue[] = dbSyncItems.map((item: IndexedDBSyncItem) => ({
+        id: item.id,
+        action: item.action === 'upload' ? 'upload' : 'download' as 'upload' | 'download',
+        description: item.description,
+        timestamp: new Date(item.timestamp).toISOString(),
+        status: item.status,
+        retryCount: item.retryCount
+      }));
+
+      // Load storage info
+      const storage = await getStorageInfo();
+      
+      setCachedItems(mappedItems.length > 0 ? mappedItems : getDefaultCachedItems());
+      setSyncQueue(mappedQueue);
+      setStorageInfo({
+        used: storage.used || storage.cachedItemsSize + storage.syncQueueSize + storage.documentsSize,
+        available: storage.available,
+        quota: storage.quota
+      });
+
+      // Check if any items are pending
+      const hasPending = mappedItems.some(i => i.status === 'pending') || mappedQueue.some(q => q.status === 'pending');
+      setSyncStatus(hasPending ? 'pending' : 'synced');
+
+    } catch (error) {
+      console.error('Failed to load offline data:', error);
+      // Use demo data as fallback
+      setCachedItems(getDefaultCachedItems());
+      setSyncQueue(getDefaultSyncQueue());
+      
+      // Estimate storage
+      if (navigator.storage && navigator.storage.estimate) {
+        const estimate = await navigator.storage.estimate();
+        setStorageInfo({
+          used: estimate.usage || 2500000,
+          available: (estimate.quota || 50000000) - (estimate.usage || 2500000),
+          quota: estimate.quota || 50000000
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Default demo data helpers
+  const getDefaultCachedItems = (): CachedItem[] => [
+    { id: '1', category: 'medical-records', name: 'Medical History Summary', size: 256000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
+    { id: '2', category: 'medications', name: 'Current Medications List', size: 12000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
+    { id: '3', category: 'appointments', name: 'Upcoming Appointments', size: 8000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' },
+    { id: '4', category: 'lab-results', name: 'Recent Lab Results', size: 145000, lastSynced: '2026-01-25T09:00:00Z', status: 'pending', priority: 'medium' },
+    { id: '5', category: 'documents', name: 'Insurance Cards', size: 320000, lastSynced: '2026-01-24T15:00:00Z', status: 'synced', priority: 'medium' },
+    { id: '6', category: 'images', name: 'Profile Photo', size: 180000, lastSynced: '2026-01-20T12:00:00Z', status: 'synced', priority: 'low' },
+    { id: '7', category: 'documents', name: 'Vaccination Records', size: 95000, lastSynced: '2026-01-22T08:00:00Z', status: 'synced', priority: 'medium' },
+    { id: '8', category: 'medical-records', name: 'Allergy Information', size: 5000, lastSynced: '2026-01-25T10:30:00Z', status: 'synced', priority: 'high' }
+  ];
+
+  const getDefaultSyncQueue = (): SyncQueue[] => [
+    { id: 'q1', action: 'upload', description: 'Symptom diary entry', timestamp: '2026-01-25T11:00:00Z', status: 'pending', retryCount: 0 },
+    { id: 'q2', action: 'download', description: 'Lab results update', timestamp: '2026-01-25T10:45:00Z', status: 'pending', retryCount: 0 }
+  ];
 
   useEffect(() => {
     // Monitor online/offline status
@@ -72,44 +164,14 @@ const OfflineSyncPage: React.FC = () => {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Sample cached items
-    const items: CachedItem[] = [
-      { id: '1', category: 'medical-records', name: 'Medical History Summary', size: 256000, lastSynced: '2025-01-15T10:30:00Z', status: 'synced', priority: 'high' },
-      { id: '2', category: 'medications', name: 'Current Medications List', size: 12000, lastSynced: '2025-01-15T10:30:00Z', status: 'synced', priority: 'high' },
-      { id: '3', category: 'appointments', name: 'Upcoming Appointments', size: 8000, lastSynced: '2025-01-15T10:30:00Z', status: 'synced', priority: 'high' },
-      { id: '4', category: 'lab-results', name: 'Recent Lab Results', size: 145000, lastSynced: '2025-01-15T09:00:00Z', status: 'pending', priority: 'medium' },
-      { id: '5', category: 'documents', name: 'Insurance Cards', size: 320000, lastSynced: '2025-01-14T15:00:00Z', status: 'synced', priority: 'medium' },
-      { id: '6', category: 'images', name: 'Profile Photo', size: 180000, lastSynced: '2025-01-10T12:00:00Z', status: 'synced', priority: 'low' },
-      { id: '7', category: 'documents', name: 'Vaccination Records', size: 95000, lastSynced: '2025-01-12T08:00:00Z', status: 'synced', priority: 'medium' },
-      { id: '8', category: 'medical-records', name: 'Allergy Information', size: 5000, lastSynced: '2025-01-15T10:30:00Z', status: 'synced', priority: 'high' }
-    ];
-    setCachedItems(items);
-
-    // Sample sync queue
-    const queue: SyncQueue[] = [
-      { id: 'q1', action: 'upload', description: 'Symptom diary entry', timestamp: '2025-01-15T11:00:00Z', status: 'pending', retryCount: 0 },
-      { id: 'q2', action: 'download', description: 'Lab results update', timestamp: '2025-01-15T10:45:00Z', status: 'pending', retryCount: 0 }
-    ];
-    setSyncQueue(queue);
-
-    // Estimate storage
-    if (navigator.storage && navigator.storage.estimate) {
-      navigator.storage.estimate().then(estimate => {
-        setStorageInfo({
-          used: estimate.usage || 2500000,
-          available: (estimate.quota || 50000000) - (estimate.usage || 2500000),
-          quota: estimate.quota || 50000000
-        });
-      });
-    } else {
-      setStorageInfo({ used: 2500000, available: 47500000, quota: 50000000 });
-    }
+    // Load data from IndexedDB
+    loadOfflineData();
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [loadOfflineData]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -129,26 +191,42 @@ const OfflineSyncPage: React.FC = () => {
     });
   };
 
-  const handleSync = () => {
+  const handleSync = async () => {
     if (!isOnline) return;
     setIsSyncing(true);
     setSyncStatus('syncing');
     
-    // Simulate sync
-    setTimeout(() => {
-      setIsSyncing(false);
-      setSyncStatus('synced');
+    try {
+      // Clear completed sync items from IndexedDB
+      await clearCompletedSyncItems();
+      
+      // Clear expired cache entries
+      await clearExpiredCache();
+      
+      // Reload data
+      await loadOfflineData();
+      
       setLastFullSync(new Date().toISOString());
-      setSyncQueue([]);
-      setCachedItems(prev => prev.map(item => ({ ...item, status: 'synced' as SyncStatus, lastSynced: new Date().toISOString() })));
-    }, 2000);
+      setSyncStatus('synced');
+    } catch (error) {
+      console.error('Sync failed:', error);
+      setSyncStatus('error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
-  const handleClearCache = (category?: DataCategory) => {
-    if (category) {
-      setCachedItems(prev => prev.filter(item => item.category !== category));
-    } else {
-      setCachedItems([]);
+  const handleClearCache = async (category?: DataCategory) => {
+    try {
+      if (category) {
+        setCachedItems(prev => prev.filter(item => item.category !== category));
+        // Note: Would need to implement category-specific clearing in IndexedDB
+      } else {
+        await clearStore(STORES.CACHED_DATA);
+        setCachedItems([]);
+      }
+    } catch (error) {
+      console.error('Failed to clear cache:', error);
     }
   };
 
@@ -175,6 +253,17 @@ const OfflineSyncPage: React.FC = () => {
 
   const pendingCount = cachedItems.filter(i => i.status === 'pending').length + syncQueue.length;
   const storagePercent = (storageInfo.used / storageInfo.quota) * 100;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-sky-500 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading offline data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -245,7 +334,7 @@ const OfflineSyncPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-gray-900">Last Full Sync</h3>
-                <p className="text-sm text-gray-500">{formatDate(lastFullSync)}</p>
+                <p className="text-sm text-gray-500">{lastFullSync ? formatDate(lastFullSync) : 'Never'}</p>
               </div>
               <div className="flex items-center gap-2">
                 {getStatusIcon(syncStatus)}

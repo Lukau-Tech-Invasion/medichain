@@ -3,54 +3,62 @@
  * 
  * Provides offline support for critical medical information.
  * Caches emergency medical data for offline access.
+ * 
+ * VERSION 3 - Force cache bust for hackathon demo
  */
 
-const CACHE_NAME = 'medichain-v1';
-const STATIC_CACHE = 'medichain-static-v1';
-const DATA_CACHE = 'medichain-data-v1';
+const CACHE_VERSION = 'v3';
+const CACHE_NAME = `medichain-${CACHE_VERSION}`;
+const STATIC_CACHE = `medichain-static-${CACHE_VERSION}`;
+const DATA_CACHE = `medichain-data-${CACHE_VERSION}`;
 
 // Static assets to cache
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
   '/offline.html',
 ];
 
 // API endpoints to cache for offline
 const CACHEABLE_API = [
-  '/api/demo',
   '/health',
 ];
 
-// Install event - cache static assets
+// Install event - cache static assets and skip waiting immediately
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing service worker...');
+  console.log('[SW] Installing service worker v3...');
   event.waitUntil(
     caches.open(STATIC_CACHE).then((cache) => {
       console.log('[SW] Caching static assets');
       return cache.addAll(STATIC_ASSETS);
     })
   );
+  // Force immediate activation - don't wait for old tabs to close
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// Activate event - AGGRESSIVELY clean up ALL old caches
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating service worker...');
+  console.log('[SW] Activating service worker v3 - clearing ALL old caches...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name.startsWith('medichain-') && name !== STATIC_CACHE && name !== DATA_CACHE)
-          .map((name) => caches.delete(name))
+          .filter((name) => {
+            // Delete ALL old medichain caches that don't match current version
+            return name.startsWith('medichain-') && 
+                   !name.includes(CACHE_VERSION);
+          })
+          .map((name) => {
+            console.log('[SW] Deleting old cache:', name);
+            return caches.delete(name);
+          })
       );
     })
   );
+  // Take control of all clients immediately
   self.clients.claim();
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event - NETWORK FIRST for everything (get fresh content)
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -60,27 +68,32 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API requests - network first, cache fallback
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Cache successful API responses for offline
-          if (response.ok && CACHEABLE_API.some(path => url.pathname.startsWith(path))) {
-            const clonedResponse = response.clone();
-            caches.open(DATA_CACHE).then((cache) => {
-              cache.put(request, clonedResponse);
-            });
+  // For development/demo: Always try network first for ALL requests
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        // Only cache API responses for offline, not static assets
+        if (response.ok && url.pathname.startsWith('/api/') && 
+            CACHEABLE_API.some(path => url.pathname.startsWith(path))) {
+          const clonedResponse = response.clone();
+          caches.open(DATA_CACHE).then((cache) => {
+            cache.put(request, clonedResponse);
+          });
+        }
+        return response;
+      })
+      .catch(() => {
+        // Network failed - try cache as fallback
+        return caches.match(request).then((cachedResponse) => {
+          if (cachedResponse) {
+            return cachedResponse;
           }
-          return response;
-        })
-        .catch(() => {
-          // Offline - try to serve from cache
-          return caches.match(request).then((cachedResponse) => {
-            if (cachedResponse) {
-              return cachedResponse;
-            }
-            // Return offline error response
+          // Offline navigation - show offline page
+          if (request.mode === 'navigate') {
+            return caches.match('/offline.html');
+          }
+          // Return offline error for API
+          if (url.pathname.startsWith('/api/')) {
             return new Response(
               JSON.stringify({
                 success: false,
@@ -92,35 +105,10 @@ self.addEventListener('fetch', (event) => {
                 headers: { 'Content-Type': 'application/json' },
               }
             );
-          });
-        })
-    );
-    return;
-  }
-
-  // Static assets - cache first, network fallback
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(request).then((response) => {
-        // Cache new static assets
-        if (response.ok) {
-          const clonedResponse = response.clone();
-          caches.open(STATIC_CACHE).then((cache) => {
-            cache.put(request, clonedResponse);
-          });
-        }
-        return response;
-      });
-    }).catch(() => {
-      // Offline fallback for navigation
-      if (request.mode === 'navigate') {
-        return caches.match('/offline.html');
-      }
-      return new Response('Offline', { status: 503 });
-    })
+          }
+          return new Response('Offline', { status: 503 });
+        });
+      })
   );
 });
 

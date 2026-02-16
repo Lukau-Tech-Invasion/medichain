@@ -42,16 +42,32 @@ function AccessLogsPage() {
       setIsLoading(true);
       try {
         const user = useAuthStore.getState().user;
+        if (!user?.walletAddress) {
+          setLogs([]);
+          return;
+        }
+        
+        // Fetch all access logs from the access logs endpoint
         const response = await fetch(apiUrl('/api/access/logs'), {
           headers: {
-            'X-User-Id': user?.userId || '',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
           },
         });
+        
         if (response.ok) {
           const data = await response.json();
-          setLogs(data);
+          // Handle both direct array and object with access_logs property
+          const logsArray = Array.isArray(data) 
+            ? data 
+            : (data.access_logs || data.data || []);
+          setLogs(logsArray);
+        } else if (response.status === 404) {
+          // Endpoint not implemented yet - start with empty logs
+          console.log('Access logs endpoint not available, showing empty state');
+          setLogs([]);
         } else {
-          console.error('Failed to fetch access logs');
+          console.error('Failed to fetch access logs:', response.status);
           setLogs([]);
         }
       } catch (error) {
@@ -111,9 +127,9 @@ function AccessLogsPage() {
   // Filter logs
   const filteredLogs = logs.filter(log => {
     const matchesSearch = 
-      log.patient_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.accessor_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.access_type.toLowerCase().includes(searchQuery.toLowerCase());
+      (log.patient_id?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      (log.accessor_id?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      (log.access_type?.toLowerCase() || '').includes(searchQuery.toLowerCase());
     
     const matchesFilter = 
       filterType === 'all' || 

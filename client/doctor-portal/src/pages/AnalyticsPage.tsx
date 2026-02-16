@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, XCircle, Calendar } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, XCircle, Calendar, Loader2 } from 'lucide-react';
 
 type MetricPeriod = 'today' | 'week' | 'month' | 'year';
 type DepartmentType = 'emergency' | 'surgery' | 'medicine' | 'pediatrics' | 'radiology' | 'laboratory';
@@ -35,75 +36,156 @@ interface PatientFlowData {
  * Page for hospital operations analytics and dashboards.
  */
 const AnalyticsPage: React.FC = () => {
-  const { user: _user } = useAuthStore();
+  const { user } = useAuthStore();
   const [selectedPeriod, setSelectedPeriod] = useState<MetricPeriod>('today');
   const [metrics, setMetrics] = useState<MetricCard[]>([]);
   const [departmentData, setDepartmentData] = useState<DepartmentMetrics[]>([]);
   const [patientFlow, setPatientFlow] = useState<PatientFlowData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Helper to calculate date range from period
+  const getDateRange = (period: MetricPeriod): { startDate: string; endDate: string } => {
+    const now = new Date();
+    const endDate = now.toISOString().split('T')[0];
+    let startDate: string;
+    
+    switch (period) {
+      case 'today':
+        startDate = endDate;
+        break;
+      case 'week':
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        startDate = weekAgo.toISOString().split('T')[0];
+        break;
+      case 'month':
+        const monthAgo = new Date(now);
+        monthAgo.setMonth(monthAgo.getMonth() - 1);
+        startDate = monthAgo.toISOString().split('T')[0];
+        break;
+      case 'year':
+        const yearAgo = new Date(now);
+        yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+        startDate = yearAgo.toISOString().split('T')[0];
+        break;
+      default:
+        startDate = endDate;
+    }
+    
+    return { startDate, endDate };
+  };
 
   useEffect(() => {
-    // Sample metrics data
-    setMetrics([
-      {
-        title: 'Total Patients',
-        value: selectedPeriod === 'today' ? 156 : selectedPeriod === 'week' ? 1234 : selectedPeriod === 'month' ? 5678 : 68450,
-        change: '+12%',
-        trend: 'up',
-        icon: <Users className="w-6 h-6" />,
-        color: 'blue',
-      },
-      {
-        title: 'Avg Wait Time',
-        value: selectedPeriod === 'today' ? '23 min' : selectedPeriod === 'week' ? '28 min' : selectedPeriod === 'month' ? '25 min' : '27 min',
-        change: '-8%',
-        trend: 'down',
-        icon: <Clock className="w-6 h-6" />,
-        color: 'green',
-      },
-      {
-        title: 'Bed Occupancy',
-        value: '87%',
-        change: '+3%',
-        trend: 'up',
-        icon: <Activity className="w-6 h-6" />,
-        color: 'purple',
-      },
-      {
-        title: 'Critical Alerts',
-        value: selectedPeriod === 'today' ? 8 : selectedPeriod === 'week' ? 47 : selectedPeriod === 'month' ? 203 : 2456,
-        change: '-15%',
-        trend: 'down',
-        icon: <AlertCircle className="w-6 h-6" />,
-        color: 'red',
-      },
-    ]);
+    const fetchAnalytics = async () => {
+      if (!user?.walletAddress) {
+        setLoading(false);
+        return;
+      }
 
-    // Sample department data
-    setDepartmentData([
-      { department: 'emergency', patients: 45, avgWaitTime: 32, bedOccupancy: 92, staffOnDuty: 12 },
-      { department: 'surgery', patients: 23, avgWaitTime: 15, bedOccupancy: 78, staffOnDuty: 18 },
-      { department: 'medicine', patients: 67, avgWaitTime: 20, bedOccupancy: 85, staffOnDuty: 15 },
-      { department: 'pediatrics', patients: 18, avgWaitTime: 18, bedOccupancy: 65, staffOnDuty: 8 },
-      { department: 'radiology', patients: 34, avgWaitTime: 25, bedOccupancy: 0, staffOnDuty: 6 },
-      { department: 'laboratory', patients: 89, avgWaitTime: 12, bedOccupancy: 0, staffOnDuty: 10 },
-    ]);
+      try {
+        setLoading(true);
+        setError(null);
 
-    // Sample patient flow data (24-hour)
-    setPatientFlow([
-      { hour: '00:00', admissions: 2, discharges: 1, transfers: 0 },
-      { hour: '02:00', admissions: 1, discharges: 0, transfers: 1 },
-      { hour: '04:00', admissions: 3, discharges: 2, transfers: 0 },
-      { hour: '06:00', admissions: 5, discharges: 3, transfers: 1 },
-      { hour: '08:00', admissions: 8, discharges: 6, transfers: 2 },
-      { hour: '10:00', admissions: 12, discharges: 8, transfers: 3 },
-      { hour: '12:00', admissions: 15, discharges: 10, transfers: 4 },
-      { hour: '14:00', admissions: 13, discharges: 11, transfers: 3 },
-      { hour: '16:00', admissions: 11, discharges: 9, transfers: 2 },
-      { hour: '18:00', admissions: 9, discharges: 7, transfers: 2 },
-      { hour: '20:00', admissions: 6, discharges: 4, transfers: 1 },
-      { hour: '22:00', admissions: 4, discharges: 2, transfers: 1 },
-    ]);
-  }, [selectedPeriod]);
+        // Calculate date range from selected period
+        const { startDate, endDate } = getDateRange(selectedPeriod);
+        
+        // Fetch dashboard metrics from API with proper date parameters
+        const response = await fetch(apiUrl(`/api/analytics/dashboard?start_date=${startDate}&end_date=${endDate}`), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch analytics: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Map API response to metrics cards
+        const patientMetrics = data.patient_metrics || {};
+        const appointmentMetrics = data.appointment_metrics || {};
+        const financialMetrics = data.financial_metrics || {};
+        const cdsMetrics = data.cds_metrics || {};
+
+        setMetrics([
+          {
+            title: 'Total Patients',
+            value: patientMetrics.total_patients || 0,
+            change: patientMetrics.new_patients ? `+${patientMetrics.new_patients}` : '0',
+            trend: (patientMetrics.new_patients || 0) > 0 ? 'up' : 'stable',
+            icon: <Users className="w-6 h-6" />,
+            color: 'blue',
+          },
+          {
+            title: 'Appointments',
+            value: appointmentMetrics.total_appointments || 0,
+            change: appointmentMetrics.completed_appointments ? `${appointmentMetrics.completed_appointments} completed` : '0',
+            trend: 'stable',
+            icon: <Clock className="w-6 h-6" />,
+            color: 'green',
+          },
+          {
+            title: 'Telehealth %',
+            value: `${(appointmentMetrics.telehealth_percentage || 0).toFixed(1)}%`,
+            change: 'of appointments',
+            trend: 'stable',
+            icon: <Activity className="w-6 h-6" />,
+            color: 'purple',
+          },
+          {
+            title: 'CDS Alerts',
+            value: cdsMetrics.total_alerts || 0,
+            change: cdsMetrics.alerts_accepted ? `${cdsMetrics.alerts_accepted} accepted` : '0',
+            trend: (cdsMetrics.total_alerts || 0) > 10 ? 'up' : 'down',
+            icon: <AlertCircle className="w-6 h-6" />,
+            color: 'red',
+          },
+        ]);
+
+        // Map department data from API response
+        const deptData = data.department_metrics || [];
+        if (deptData.length > 0) {
+          setDepartmentData(deptData.map((d: { department: string; patients: number; avg_wait_time: number; bed_occupancy: number; staff_on_duty: number }) => ({
+            department: d.department as DepartmentType,
+            patients: d.patients || 0,
+            avgWaitTime: d.avg_wait_time || 0,
+            bedOccupancy: d.bed_occupancy || 0,
+            staffOnDuty: d.staff_on_duty || 0
+          })));
+        } else {
+          setDepartmentData([]);
+        }
+
+        // Map patient flow data from API response
+        const flowData = data.patient_flow || [];
+        if (flowData.length > 0) {
+          setPatientFlow(flowData.map((f: { hour: string; admissions: number; discharges: number; transfers: number }) => ({
+            hour: f.hour,
+            admissions: f.admissions || 0,
+            discharges: f.discharges || 0,
+            transfers: f.transfers || 0
+          })));
+        } else {
+          setPatientFlow([]);
+        }
+
+      } catch (err) {
+        console.error('Error fetching analytics:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load analytics');
+        setMetrics([]);
+        setDepartmentData([]);
+        setPatientFlow([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAnalytics();
+  }, [user, selectedPeriod]);
 
   const getColorClasses = (color: string) => {
     switch (color) {
@@ -164,6 +246,28 @@ const AnalyticsPage: React.FC = () => {
     if (occupancy >= 50) return { color: 'green', label: 'Optimal' };
     return { color: 'blue', label: 'Low' };
   };
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+          <span className="ml-2 text-gray-600">Loading analytics...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <p className="font-medium">Error loading analytics</p>
+          <p className="text-sm">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">

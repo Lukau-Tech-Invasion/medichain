@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { apiUrl } from '@medichain/shared';
 import {
   AlertTriangle,
   Search,
@@ -19,6 +20,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  Loader2,
 } from 'lucide-react';
 
 // ===== PART 1: Types, State, Data, Helpers =====
@@ -114,341 +116,78 @@ const DrugInteractionsPage: React.FC = () => {
     currentMedications: [],
   });
 
-  // Drug Database (sample data)
-  const [drugDatabase] = useState<Drug[]>([
-    {
-      drugId: 'DRUG-001',
-      name: 'Warfarin',
-      genericName: 'warfarin',
-      brandNames: ['Coumadin', 'Jantoven'],
-      drugClass: 'Anticoagulant',
-      route: 'oral',
-      form: 'tablet',
-      commonDoses: ['1mg', '2mg', '2.5mg', '3mg', '4mg', '5mg', '6mg', '7.5mg', '10mg'],
-    },
-    {
-      drugId: 'DRUG-002',
-      name: 'Aspirin',
-      genericName: 'aspirin',
-      brandNames: ['Bayer', 'Ecotrin', 'Bufferin'],
-      drugClass: 'NSAID/Antiplatelet',
-      route: 'oral',
-      form: 'tablet',
-      commonDoses: ['81mg', '325mg', '500mg'],
-    },
-    {
-      drugId: 'DRUG-003',
-      name: 'Lisinopril',
-      genericName: 'lisinopril',
-      brandNames: ['Prinivil', 'Zestril'],
-      drugClass: 'ACE Inhibitor',
-      route: 'oral',
-      form: 'tablet',
-      commonDoses: ['2.5mg', '5mg', '10mg', '20mg', '40mg'],
-    },
-    {
-      drugId: 'DRUG-004',
-      name: 'Metformin',
-      genericName: 'metformin',
-      brandNames: ['Glucophage', 'Fortamet', 'Glumetza'],
-      drugClass: 'Biguanide',
-      route: 'oral',
-      form: 'tablet',
-      commonDoses: ['500mg', '850mg', '1000mg'],
-    },
-    {
-      drugId: 'DRUG-005',
-      name: 'Amoxicillin',
-      genericName: 'amoxicillin',
-      brandNames: ['Amoxil', 'Moxatag'],
-      drugClass: 'Penicillin Antibiotic',
-      route: 'oral',
-      form: 'capsule',
-      commonDoses: ['250mg', '500mg', '875mg'],
-    },
-    {
-      drugId: 'DRUG-006',
-      name: 'Simvastatin',
-      genericName: 'simvastatin',
-      brandNames: ['Zocor'],
-      drugClass: 'Statin',
-      route: 'oral',
-      form: 'tablet',
-      commonDoses: ['5mg', '10mg', '20mg', '40mg', '80mg'],
-    },
-    {
-      drugId: 'DRUG-007',
-      name: 'Omeprazole',
-      genericName: 'omeprazole',
-      brandNames: ['Prilosec', 'Losec'],
-      drugClass: 'Proton Pump Inhibitor',
-      route: 'oral',
-      form: 'capsule',
-      commonDoses: ['10mg', '20mg', '40mg'],
-    },
-    {
-      drugId: 'DRUG-008',
-      name: 'Levothyroxine',
-      genericName: 'levothyroxine',
-      brandNames: ['Synthroid', 'Levoxyl', 'Unithroid'],
-      drugClass: 'Thyroid Hormone',
-      route: 'oral',
-      form: 'tablet',
-      commonDoses: ['25mcg', '50mcg', '75mcg', '88mcg', '100mcg', '112mcg', '125mcg', '137mcg', '150mcg'],
-    },
-    {
-      drugId: 'DRUG-009',
-      name: 'Amlodipine',
-      genericName: 'amlodipine',
-      brandNames: ['Norvasc'],
-      drugClass: 'Calcium Channel Blocker',
-      route: 'oral',
-      form: 'tablet',
-      commonDoses: ['2.5mg', '5mg', '10mg'],
-    },
-    {
-      drugId: 'DRUG-010',
-      name: 'Fluoxetine',
-      genericName: 'fluoxetine',
-      brandNames: ['Prozac', 'Sarafem'],
-      drugClass: 'SSRI Antidepressant',
-      route: 'oral',
-      form: 'capsule',
-      commonDoses: ['10mg', '20mg', '40mg', '60mg'],
-    },
-  ]);
+  // Loading/Error state for drugs
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Interaction Database (sample data)
-  const [interactionDatabase] = useState<Interaction[]>([
-    {
-      interactionId: 'INT-001',
-      type: 'drug-drug',
-      severity: 'major',
-      drug1: 'Warfarin',
-      drug2: 'Aspirin',
-      title: 'Warfarin + Aspirin: Increased Bleeding Risk',
-      description: 'Concurrent use of warfarin with aspirin significantly increases the risk of bleeding complications.',
-      mechanism: 'Additive anticoagulant and antiplatelet effects. Both drugs inhibit different pathways in hemostasis, leading to synergistic bleeding risk.',
-      clinicalEffects: [
-        'Increased risk of major bleeding (GI, intracranial)',
-        'Prolonged bleeding time',
-        'Elevated INR',
-        'Easy bruising',
-        'Hematuria or melena',
-      ],
-      management: [
-        'Avoid combination when possible',
-        'If combination necessary, use lowest effective aspirin dose (81mg)',
-        'Monitor INR more frequently (weekly initially)',
-        'Watch for signs of bleeding',
-        'Consider PPI for GI protection',
-        'Educate patient on bleeding signs',
-      ],
-      monitoring: [
-        'INR every 1-2 weeks until stable',
-        'CBC for anemia',
-        'Stool guaiac for occult blood',
-        'Monitor for bruising, bleeding gums',
-      ],
-      alternatives: [
-        'Use aspirin alone for cardiovascular protection if anticoagulation can be stopped',
-        'Consider alternative anticoagulant if aspirin essential',
-        'Evaluate risk/benefit of combination therapy',
-      ],
-      evidenceLevel: 'A',
-      references: [
-        'Holbrook AM, et al. Arch Intern Med. 2005;165(10):1095-1106.',
-        'Johnson SG, et al. Am Heart J. 2008;155(5):918-924.',
-      ],
-      onset: 'Immediate (within days)',
-      documentation: 'Well-established',
-      riskFactors: ['Age >65', 'History of bleeding', 'Renal impairment', 'Peptic ulcer disease'],
-    },
-    {
-      interactionId: 'INT-002',
-      type: 'drug-drug',
-      severity: 'moderate',
-      drug1: 'Lisinopril',
-      drug2: 'Aspirin',
-      title: 'ACE Inhibitors + NSAIDs: Reduced Antihypertensive Effect',
-      description: 'NSAIDs may reduce the antihypertensive effect of ACE inhibitors and increase risk of renal impairment.',
-      mechanism: 'NSAIDs inhibit prostaglandin synthesis, which is important for ACE inhibitor-mediated vasodilation and natriuresis.',
-      clinicalEffects: [
-        'Reduced blood pressure control',
-        'Increased risk of acute kidney injury',
-        'Hyperkalemia',
-        'Sodium and fluid retention',
-      ],
-      management: [
-        'Monitor blood pressure closely',
-        'Check renal function and potassium',
-        'Use lowest effective NSAID dose for shortest duration',
-        'Consider alternative analgesic (acetaminophen)',
-      ],
-      monitoring: [
-        'Blood pressure weekly during NSAID therapy',
-        'Serum creatinine and potassium baseline and after 1 week',
-        'Volume status',
-      ],
-      alternatives: ['Acetaminophen for pain', 'Topical NSAIDs', 'COX-2 selective inhibitor (caution still needed)'],
-      evidenceLevel: 'B',
-      references: [
-        'Fournier JP, et al. BMJ. 2012;344:e4128.',
-        'Lapi F, et al. Drug Saf. 2013;36(10):899-918.',
-      ],
-      onset: 'Days to weeks',
-      documentation: 'Established',
-      riskFactors: ['Pre-existing renal disease', 'Volume depletion', 'Age >65', 'Diabetes'],
-    },
-    {
-      interactionId: 'INT-003',
-      type: 'drug-drug',
-      severity: 'major',
-      drug1: 'Simvastatin',
-      drug2: 'Fluoxetine',
-      title: 'Simvastatin + Fluoxetine: Increased Statin Levels',
-      description: 'Fluoxetine inhibits CYP3A4, increasing simvastatin levels and risk of myopathy/rhabdomyolysis.',
-      mechanism: 'Fluoxetine is a moderate CYP3A4 inhibitor. Simvastatin is extensively metabolized by CYP3A4.',
-      clinicalEffects: [
-        'Increased simvastatin plasma concentrations',
-        'Myalgia and muscle weakness',
-        'Elevated creatine kinase (CK)',
-        'Rhabdomyolysis (rare but serious)',
-        'Acute kidney injury from myoglobinuria',
-      ],
-      management: [
-        'Reduce simvastatin dose (max 20mg daily with moderate CYP3A4 inhibitor)',
-        'Monitor for muscle symptoms',
-        'Check CK if symptoms develop',
-        'Consider alternative statin not metabolized by CYP3A4 (rosuvastatin, pravastatin)',
-      ],
-      monitoring: [
-        'Baseline CK',
-        'Patient education on myopathy symptoms',
-        'CK if muscle pain/weakness',
-        'Renal function',
-      ],
-      alternatives: [
-        'Switch to rosuvastatin or pravastatin',
-        'Switch to alternative SSRI with less CYP3A4 inhibition (sertraline)',
-      ],
-      evidenceLevel: 'B',
-      references: [
-        'FDA Drug Safety Communication on Simvastatin',
-        'Law M, Rudnicka AR. Am J Cardiovasc Drugs. 2006;6(6):343-348.',
-      ],
-      onset: 'Days to weeks',
-      documentation: 'Established',
-      riskFactors: ['High simvastatin dose', 'Renal impairment', 'Hypothyroidism', 'Age >65', 'Female gender'],
-    },
-    {
-      interactionId: 'INT-004',
-      type: 'drug-drug',
-      severity: 'moderate',
-      drug1: 'Metformin',
-      drug2: 'Lisinopril',
-      title: 'Metformin + ACE Inhibitors: Hypoglycemia Risk',
-      description: 'ACE inhibitors may enhance the hypoglycemic effect of metformin.',
-      mechanism: 'ACE inhibitors may improve insulin sensitivity and glucose uptake.',
-      clinicalEffects: [
-        'Increased risk of hypoglycemia',
-        'Enhanced glucose-lowering effect',
-        'Symptoms: tremor, sweating, confusion, tachycardia',
-      ],
-      management: [
-        'Monitor blood glucose more frequently when initiating ACE inhibitor',
-        'Educate patient on hypoglycemia symptoms',
-        'May need to adjust metformin or other antidiabetic dose',
-        'Generally beneficial interaction for diabetic patients',
-      ],
-      monitoring: [
-        'Blood glucose daily initially',
-        'HbA1c at 3 months',
-        'Hypoglycemia symptoms',
-      ],
-      alternatives: ['Generally continue both medications', 'Adjust doses as needed based on glucose control'],
-      evidenceLevel: 'C',
-      references: [
-        'Paolisso G, et al. J Clin Invest. 1992;89(4):1295-1300.',
-        'Tokmakidis SP, et al. Diabetes Care. 2003;26(7):2119-2125.',
-      ],
-      onset: 'Days to weeks',
-      documentation: 'Probable',
-      riskFactors: ['Elderly', 'Renal impairment', 'Tight glycemic control', 'Irregular meals'],
-    },
-    {
-      interactionId: 'INT-005',
-      type: 'drug-drug',
-      severity: 'moderate',
-      drug1: 'Levothyroxine',
-      drug2: 'Omeprazole',
-      title: 'Levothyroxine + PPIs: Reduced Levothyroxine Absorption',
-      description: 'PPIs increase gastric pH, which may reduce levothyroxine absorption.',
-      mechanism: 'Levothyroxine absorption is pH-dependent. Increased gastric pH from PPI reduces dissolution and absorption.',
-      clinicalEffects: [
-        'Reduced levothyroxine efficacy',
-        'Elevated TSH',
-        'Hypothyroid symptoms may recur',
-      ],
-      management: [
-        'Separate administration by at least 4 hours',
-        'Take levothyroxine first thing in the morning on empty stomach',
-        'Take PPI later in the day',
-        'Monitor TSH 6-8 weeks after PPI initiation',
-        'May need to increase levothyroxine dose',
-      ],
-      monitoring: [
-        'TSH and free T4 at 6-8 weeks',
-        'Clinical symptoms of hypothyroidism',
-      ],
-      alternatives: ['H2 antagonist instead of PPI if appropriate', 'Antacids (though also affect absorption)'],
-      evidenceLevel: 'C',
-      references: [
-        'Centanni M, et al. N Engl J Med. 2006;354(17):1787-1795.',
-        'Vita R, et al. J Clin Endocrinol Metab. 2014;99(6):1954-1961.',
-      ],
-      onset: 'Weeks',
-      documentation: 'Probable',
-      riskFactors: ['Marginal thyroid function', 'High PPI dose', 'Long-term PPI use'],
-    },
-    {
-      interactionId: 'INT-006',
-      type: 'drug-allergy',
-      severity: 'contraindicated',
-      drug1: 'Amoxicillin',
-      allergen: 'Penicillin',
-      title: 'Amoxicillin in Penicillin-Allergic Patients',
-      description: 'Absolute contraindication to use amoxicillin (a penicillin) in patients with documented penicillin allergy.',
-      mechanism: 'Cross-reactivity due to shared beta-lactam ring structure.',
-      clinicalEffects: [
-        'Immediate hypersensitivity reaction',
-        'Urticaria, angioedema',
-        'Bronchospasm',
-        'Anaphylaxis (life-threatening)',
-        'Stevens-Johnson syndrome (rare)',
-      ],
-      management: [
-        'DO NOT ADMINISTER',
-        'Use alternative antibiotic class',
-        'If beta-lactam essential, consider allergy testing and possible desensitization',
-        'Update allergy list in medical record',
-      ],
-      monitoring: ['N/A - do not use'],
-      alternatives: [
-        'Macrolides (azithromycin, clarithromycin)',
-        'Fluoroquinolones (levofloxacin, moxifloxacin)',
-        'Cephalosporins (use with caution, 1-10% cross-reactivity)',
-      ],
-      evidenceLevel: 'A',
-      references: [
-        'Joint Task Force on Practice Parameters. J Allergy Clin Immunol. 2010;125(3 Suppl 2):S126-137.',
-        'Macy E, Contreras R. Clin Infect Dis. 2014;58(7):942-948.',
-      ],
-      onset: 'Immediate to hours',
-      documentation: 'Well-established',
-      riskFactors: ['History of severe reaction', 'Atopy', 'Previous penicillin reaction'],
-    },
-  ]);
+  // Drug Database - fetched from API
+  const [drugDatabase, setDrugDatabase] = useState<Drug[]>([]);
+
+  // Load drug database from API
+  useEffect(() => {
+    const fetchDrugs = async () => {
+      if (!user?.walletAddress) return;
+      
+      try {
+        const response = await fetch(apiUrl('/api/drugs'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch drug database');
+        }
+        
+        const data = await response.json();
+        if (data.success && data.drugs) {
+          setDrugDatabase(data.drugs);
+        }
+      } catch (err) {
+        console.error('Failed to load drug database:', err);
+        setError('Failed to load drug database. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchDrugs();
+  }, [user?.walletAddress, user?.role]);
+
+  // Interaction Database - fetched from API
+  const [interactionDatabase, setInteractionDatabase] = useState<Interaction[]>([]);
+
+  // Load interaction database from API
+  useEffect(() => {
+    const fetchInteractions = async () => {
+      if (!user?.walletAddress) return;
+      
+      try {
+        const response = await fetch(apiUrl('/api/interactions'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch interaction database');
+        }
+        
+        const data = await response.json();
+        if (data.success && data.interactions) {
+          setInteractionDatabase(data.interactions);
+        }
+      } catch (err) {
+        console.error('Failed to load interaction database:', err);
+      }
+    };
+    
+    fetchInteractions();
+  }, [user?.walletAddress, user?.role]);
 
   // Search drugs
   useEffect(() => {
@@ -481,52 +220,87 @@ const DrugInteractionsPage: React.FC = () => {
     setInteractions([]);
   };
 
-  const handleCheckInteractions = () => {
+  const handleCheckInteractions = async () => {
+    if (!user?.walletAddress) return;
+    
     setIsChecking(true);
     
-    // Simulate API call delay
-    setTimeout(() => {
-      const foundInteractions: Interaction[] = [];
+    try {
+      const response = await fetch(apiUrl('/api/interactions/check'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role || 'Doctor',
+        },
+        body: JSON.stringify({
+          patient_id: patientContext.patientId || 'UNKNOWN',
+          medications: selectedDrugs.map((d) => d.name),
+          include_allergies: patientContext.allergies.length > 0,
+          include_conditions: patientContext.conditions.length > 0,
+        }),
+      });
       
-      // Check all drug pairs
-      for (let i = 0; i < selectedDrugs.length; i++) {
-        for (let j = i + 1; j < selectedDrugs.length; j++) {
-          const drug1 = selectedDrugs[i].name;
-          const drug2 = selectedDrugs[j].name;
-          
-          const interaction = interactionDatabase.find(
-            (int) =>
-              (int.drug1 === drug1 && int.drug2 === drug2) ||
-              (int.drug1 === drug2 && int.drug2 === drug1)
-          );
-          
-          if (interaction) {
-            foundInteractions.push(interaction);
-          }
-        }
-        
-        // Check drug-allergy
-        if (patientContext.allergies.length > 0) {
-          patientContext.allergies.forEach((allergen) => {
-            const interaction = interactionDatabase.find(
-              (int) =>
-                int.type === 'drug-allergy' &&
-                int.drug1 === selectedDrugs[i].name &&
-                int.allergen?.toLowerCase() === allergen.toLowerCase()
-            );
-            
-            if (interaction) {
-              foundInteractions.push(interaction);
-            }
+      if (!response.ok) {
+        throw new Error('Failed to check interactions');
+      }
+      
+      const data = await response.json();
+      
+      // Map API response to local Interaction type
+      const foundInteractions: Interaction[] = (data.interactions || []).map((int: {
+        drug_a: string;
+        drug_b: string;
+        severity: string;
+        description: string;
+        clinical_effects: string;
+        management: string;
+      }, idx: number) => ({
+        interactionId: `INT-API-${idx}`,
+        type: 'drug-drug' as InteractionType,
+        severity: int.severity.toLowerCase() as InteractionSeverity,
+        drug1: int.drug_a,
+        drug2: int.drug_b,
+        title: `${int.drug_a} + ${int.drug_b}: ${int.description}`,
+        description: int.description,
+        mechanism: int.clinical_effects,
+        clinicalEffects: [int.clinical_effects],
+        management: [int.management],
+        monitoring: [],
+        evidenceLevel: 'B' as EvidenceLevel,
+        references: [],
+        onset: 'Variable',
+        documentation: 'Established',
+      }));
+      
+      // Add allergy alerts as interactions
+      if (data.allergy_alerts && data.allergy_alerts.length > 0) {
+        data.allergy_alerts.forEach((alert: { medication: string; allergen: string; reaction: string }, idx: number) => {
+          foundInteractions.push({
+            interactionId: `INT-ALLERGY-${idx}`,
+            type: 'drug-allergy' as InteractionType,
+            severity: 'contraindicated' as InteractionSeverity,
+            drug1: alert.medication,
+            allergen: alert.allergen,
+            title: `${alert.medication}: Allergy Alert - ${alert.allergen}`,
+            description: `Patient has documented allergy to ${alert.allergen}`,
+            mechanism: 'Allergic cross-reactivity',
+            clinicalEffects: [alert.reaction || 'Allergic reaction'],
+            management: ['Do not administer', 'Use alternative medication'],
+            monitoring: [],
+            evidenceLevel: 'A' as EvidenceLevel,
+            references: [],
+            onset: 'Immediate',
+            documentation: 'Well-established',
           });
-        }
+        });
       }
       
       setInteractions(foundInteractions);
       
       // Create check record
       const check: InteractionCheck = {
-        checkId: `CHECK-${Date.now()}`,
+        checkId: data.check_id || `CHECK-${Date.now()}`,
         drugs: selectedDrugs.map((d) => d.name),
         patientContext: patientContext.patientId ? patientContext : undefined,
         timestamp: new Date().toISOString(),
@@ -539,13 +313,17 @@ const DrugInteractionsPage: React.FC = () => {
           minor: foundInteractions.filter((i) => i.severity === 'minor').length,
           unknown: foundInteractions.filter((i) => i.severity === 'unknown').length,
         },
-        checkedBy: user?.userId || 'Unknown',
+        checkedBy: user?.userId || user?.walletAddress || 'Unknown',
       };
       
       setChecks([check, ...checks]);
       setShowResults(true);
+    } catch (err) {
+      console.error('Failed to check interactions:', err);
+      setError('Failed to check drug interactions. Please try again.');
+    } finally {
       setIsChecking(false);
-    }, 1000);
+    }
   };
 
   const handleClearDrugs = () => {
@@ -796,8 +574,9 @@ const DrugInteractionsPage: React.FC = () => {
             <h2 className="text-xl font-bold text-gray-900 mb-4">Patient Context (Optional)</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
+                <label htmlFor="ddi-patient-id" className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
                 <input
+                  id="ddi-patient-id"
                   type="text"
                   value={patientContext.patientId}
                   onChange={(e) => setPatientContext({ ...patientContext, patientId: e.target.value })}
@@ -806,8 +585,9 @@ const DrugInteractionsPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Age</label>
+                <label htmlFor="ddi-patient-age" className="block text-sm font-medium text-gray-700 mb-1">Age</label>
                 <input
+                  id="ddi-patient-age"
                   type="number"
                   value={patientContext.age || ''}
                   onChange={(e) => setPatientContext({ ...patientContext, age: parseInt(e.target.value) || 0 })}
@@ -816,8 +596,9 @@ const DrugInteractionsPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Weight</label>
+                <label htmlFor="ddi-patient-weight" className="block text-sm font-medium text-gray-700 mb-1">Weight</label>
                 <input
+                  id="ddi-patient-weight"
                   type="number"
                   value={patientContext.weight || ''}
                   onChange={(e) => setPatientContext({ ...patientContext, weight: parseFloat(e.target.value) || 0 })}
@@ -827,10 +608,11 @@ const DrugInteractionsPage: React.FC = () => {
               </div>
             </div>
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="ddi-patient-allergies" className="block text-sm font-medium text-gray-700 mb-1">
                 Known Allergies (comma-separated)
               </label>
               <input
+                id="ddi-patient-allergies"
                 type="text"
                 value={patientContext.allergies.join(', ')}
                 onChange={(e) =>

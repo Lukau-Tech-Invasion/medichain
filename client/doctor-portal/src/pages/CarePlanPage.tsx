@@ -449,8 +449,9 @@ export default function CarePlanPage() {
                           <h3 className="text-lg font-bold mb-4">Add Nursing Diagnosis</h3>
                           <div className="space-y-4">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Diagnosis</label>
+                              <label htmlFor="careplan-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">Diagnosis</label>
                               <select
+                                id="careplan-diagnosis"
                                 value={newDiagnosis.diagnosis}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, diagnosis: e.target.value })}
                                 className="w-full p-3 border border-gray-300 rounded-lg"
@@ -466,8 +467,9 @@ export default function CarePlanPage() {
                               </select>
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Related To (Etiology)</label>
+                              <label htmlFor="careplan-related-to" className="block text-sm font-medium text-gray-700 mb-1">Related To (Etiology)</label>
                               <input
+                                id="careplan-related-to"
                                 type="text"
                                 value={newDiagnosis.relatedTo}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, relatedTo: e.target.value })}
@@ -476,8 +478,9 @@ export default function CarePlanPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">As Evidenced By (Signs/Symptoms)</label>
+                              <label htmlFor="careplan-evidenced-by" className="block text-sm font-medium text-gray-700 mb-1">As Evidenced By (Signs/Symptoms)</label>
                               <input
+                                id="careplan-evidenced-by"
                                 type="text"
                                 value={newDiagnosis.evidencedBy}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, evidencedBy: e.target.value })}
@@ -485,12 +488,13 @@ export default function CarePlanPage() {
                                 className="w-full p-3 border border-gray-300 rounded-lg"
                               />
                             </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                            <fieldset>
+                              <legend className="block text-sm font-medium text-gray-700 mb-1">Priority</legend>
                               <div className="flex space-x-4">
                                 {(['high', 'medium', 'low'] as Priority[]).map(p => (
-                                  <label key={p} className="flex items-center space-x-2">
+                                  <label key={p} htmlFor={`careplan-priority-${p}`} className="flex items-center space-x-2">
                                     <input
+                                      id={`careplan-priority-${p}`}
                                       type="radio"
                                       checked={newDiagnosis.priority === p}
                                       onChange={() => setNewDiagnosis({ ...newDiagnosis, priority: p })}
@@ -500,7 +504,7 @@ export default function CarePlanPage() {
                                   </label>
                                 ))}
                               </div>
-                            </div>
+                            </fieldset>
                           </div>
                           <div className="flex justify-end space-x-3 mt-4">
                             <button
@@ -588,8 +592,9 @@ export default function CarePlanPage() {
                           <h3 className="text-lg font-bold mb-4">Add Goal</h3>
                           <div className="space-y-4">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Related Diagnosis</label>
+                              <label htmlFor="careplan-goal-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">Related Diagnosis</label>
                               <select
+                                id="careplan-goal-diagnosis"
                                 value={newGoal.diagnosisId}
                                 onChange={(e) => setNewGoal({ ...newGoal, diagnosisId: e.target.value })}
                                 className="w-full p-3 border border-gray-300 rounded-lg"
@@ -601,8 +606,9 @@ export default function CarePlanPage() {
                               </select>
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Goal Description</label>
+                              <label htmlFor="careplan-goal-description" className="block text-sm font-medium text-gray-700 mb-1">Goal Description</label>
                               <textarea
+                                id="careplan-goal-description"
                                 value={newGoal.description}
                                 onChange={(e) => setNewGoal({ ...newGoal, description: e.target.value })}
                                 placeholder="e.g., Patient will remain free from falls during hospitalization"
@@ -611,8 +617,9 @@ export default function CarePlanPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Measurable Outcome</label>
+                              <label htmlFor="careplan-measurable-outcome" className="block text-sm font-medium text-gray-700 mb-1">Measurable Outcome</label>
                               <input
+                                id="careplan-measurable-outcome"
                                 type="text"
                                 value={newGoal.measurableOutcome}
                                 onChange={(e) => setNewGoal({ ...newGoal, measurableOutcome: e.target.value })}
@@ -621,8 +628,9 @@ export default function CarePlanPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Target Date</label>
+                              <label htmlFor="careplan-target-date" className="block text-sm font-medium text-gray-700 mb-1">Target Date</label>
                               <input
+                                id="careplan-target-date"
                                 type="date"
                                 value={newGoal.targetDate}
                                 onChange={(e) => setNewGoal({ ...newGoal, targetDate: e.target.value })}
@@ -728,8 +736,9 @@ export default function CarePlanPage() {
                           <h3 className="text-lg font-bold mb-4">Add Intervention</h3>
                           <div className="space-y-4">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Related Goal</label>
+                              <label htmlFor="careplan-intervention-goal" className="block text-sm font-medium text-gray-700 mb-1">Related Goal</label>
                               <select
+                                id="careplan-intervention-goal"
                                 value={newIntervention.goalId}
                                 onChange={(e) => setNewIntervention({ ...newIntervention, goalId: e.target.value })}
                                 className="w-full p-3 border border-gray-300 rounded-lg"
@@ -741,8 +750,9 @@ export default function CarePlanPage() {
                               </select>
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Intervention</label>
+                              <label htmlFor="careplan-intervention-description" className="block text-sm font-medium text-gray-700 mb-1">Intervention</label>
                               <textarea
+                                id="careplan-intervention-description"
                                 value={newIntervention.description}
                                 onChange={(e) => setNewIntervention({ ...newIntervention, description: e.target.value })}
                                 placeholder="e.g., Assist patient with ambulation using walker TID"
@@ -752,8 +762,9 @@ export default function CarePlanPage() {
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
+                                <label htmlFor="careplan-intervention-frequency" className="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
                                 <select
+                                  id="careplan-intervention-frequency"
                                   value={newIntervention.frequency}
                                   onChange={(e) => setNewIntervention({ ...newIntervention, frequency: e.target.value })}
                                   className="w-full p-3 border border-gray-300 rounded-lg"
@@ -765,8 +776,9 @@ export default function CarePlanPage() {
                                 </select>
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Responsible Party</label>
+                                <label htmlFor="careplan-responsible-party" className="block text-sm font-medium text-gray-700 mb-1">Responsible Party</label>
                                 <select
+                                  id="careplan-responsible-party"
                                   value={newIntervention.responsibleParty}
                                   onChange={(e) => setNewIntervention({ ...newIntervention, responsibleParty: e.target.value })}
                                   className="w-full p-3 border border-gray-300 rounded-lg"

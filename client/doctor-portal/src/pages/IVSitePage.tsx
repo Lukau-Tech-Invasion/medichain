@@ -641,8 +641,9 @@ export default function IVSitePage() {
                       <div className="space-y-6">
                         <div className="grid grid-cols-2 gap-6">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Location</label>
+                            <label htmlFor="iv-location" className="block text-sm font-medium text-gray-700 mb-2">Location</label>
                             <select
+                              id="iv-location"
                               value={newSite.location}
                               onChange={(e) => setNewSite({ ...newSite, location: e.target.value as SiteLocation })}
                               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -653,8 +654,9 @@ export default function IVSitePage() {
                             </select>
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Location Detail</label>
+                            <label htmlFor="iv-location-detail" className="block text-sm font-medium text-gray-700 mb-2">Location Detail</label>
                             <input
+                              id="iv-location-detail"
                               type="text"
                               value={newSite.locationDetail}
                               onChange={(e) => setNewSite({ ...newSite, locationDetail: e.target.value })}
@@ -666,8 +668,9 @@ export default function IVSitePage() {
 
                         <div className="grid grid-cols-2 gap-6">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Catheter Type</label>
+                            <label htmlFor="iv-catheter-type" className="block text-sm font-medium text-gray-700 mb-2">Catheter Type</label>
                             <select
+                              id="iv-catheter-type"
                               value={newSite.catheterType}
                               onChange={(e) => setNewSite({ ...newSite, catheterType: e.target.value as CatheterType })}
                               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -795,8 +798,9 @@ export default function IVSitePage() {
 
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">Dressing Type</label>
+                                  <label htmlFor="iv-dressing-type" className="block text-sm font-medium text-gray-700 mb-2">Dressing Type</label>
                                   <select
+                                    id="iv-dressing-type"
                                     value={newAssessment.dressingType}
                                     onChange={(e) => setNewAssessment({ ...newAssessment, dressingType: e.target.value as DressingType })}
                                     className="w-full p-3 border border-gray-300 rounded-lg"
@@ -808,19 +812,23 @@ export default function IVSitePage() {
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">Dressing Intact?</label>
+                                  <span className="block text-sm font-medium text-gray-700 mb-2">Dressing Intact?</span>
                                   <div className="flex space-x-4">
-                                    <label className="flex items-center space-x-2">
+                                    <label htmlFor="iv-dressing-intact-yes" className="flex items-center space-x-2">
                                       <input
+                                        id="iv-dressing-intact-yes"
                                         type="radio"
+                                        name="dressingIntact"
                                         checked={newAssessment.dressingIntact === true}
                                         onChange={() => setNewAssessment({ ...newAssessment, dressingIntact: true })}
                                       />
                                       <span>Yes</span>
                                     </label>
-                                    <label className="flex items-center space-x-2">
+                                    <label htmlFor="iv-dressing-intact-no" className="flex items-center space-x-2">
                                       <input
+                                        id="iv-dressing-intact-no"
                                         type="radio"
+                                        name="dressingIntact"
                                         checked={newAssessment.dressingIntact === false}
                                         onChange={() => setNewAssessment({ ...newAssessment, dressingIntact: false })}
                                       />
@@ -832,19 +840,23 @@ export default function IVSitePage() {
 
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">Flushes Patent?</label>
+                                  <span className="block text-sm font-medium text-gray-700 mb-2">Flushes Patent?</span>
                                   <div className="flex space-x-4">
-                                    <label className="flex items-center space-x-2">
+                                    <label htmlFor="iv-flush-patent-yes" className="flex items-center space-x-2">
                                       <input
+                                        id="iv-flush-patent-yes"
                                         type="radio"
+                                        name="flushPatent"
                                         checked={newAssessment.flushPatent === true}
                                         onChange={() => setNewAssessment({ ...newAssessment, flushPatent: true })}
                                       />
                                       <span>Yes</span>
                                     </label>
-                                    <label className="flex items-center space-x-2">
+                                    <label htmlFor="iv-flush-patent-no" className="flex items-center space-x-2">
                                       <input
+                                        id="iv-flush-patent-no"
                                         type="radio"
+                                        name="flushPatent"
                                         checked={newAssessment.flushPatent === false}
                                         onChange={() => setNewAssessment({ ...newAssessment, flushPatent: false })}
                                       />
@@ -853,19 +865,23 @@ export default function IVSitePage() {
                                   </div>
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">Blood Return?</label>
+                                  <span className="block text-sm font-medium text-gray-700 mb-2">Blood Return?</span>
                                   <div className="flex space-x-4">
-                                    <label className="flex items-center space-x-2">
+                                    <label htmlFor="iv-blood-return-yes" className="flex items-center space-x-2">
                                       <input
+                                        id="iv-blood-return-yes"
                                         type="radio"
+                                        name="bloodReturn"
                                         checked={newAssessment.bloodReturn === true}
                                         onChange={() => setNewAssessment({ ...newAssessment, bloodReturn: true })}
                                       />
                                       <span>Yes</span>
                                     </label>
-                                    <label className="flex items-center space-x-2">
+                                    <label htmlFor="iv-blood-return-no" className="flex items-center space-x-2">
                                       <input
+                                        id="iv-blood-return-no"
                                         type="radio"
+                                        name="bloodReturn"
                                         checked={newAssessment.bloodReturn === false}
                                         onChange={() => setNewAssessment({ ...newAssessment, bloodReturn: false })}
                                       />
@@ -877,8 +893,9 @@ export default function IVSitePage() {
 
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">Currently Infusing</label>
+                                  <label htmlFor="iv-currently-infusing" className="block text-sm font-medium text-gray-700 mb-2">Currently Infusing</label>
                                   <input
+                                    id="iv-currently-infusing"
                                     type="text"
                                     value={newAssessment.infusing}
                                     onChange={(e) => setNewAssessment({ ...newAssessment, infusing: e.target.value })}
@@ -887,8 +904,9 @@ export default function IVSitePage() {
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-2">Infusion Rate</label>
+                                  <label htmlFor="iv-infusion-rate" className="block text-sm font-medium text-gray-700 mb-2">Infusion Rate</label>
                                   <input
+                                    id="iv-infusion-rate"
                                     type="text"
                                     value={newAssessment.infusionRate}
                                     onChange={(e) => setNewAssessment({ ...newAssessment, infusionRate: e.target.value })}
@@ -899,8 +917,9 @@ export default function IVSitePage() {
                               </div>
 
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                                <label htmlFor="iv-notes" className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
                                 <textarea
+                                  id="iv-notes"
                                   value={newAssessment.notes}
                                   onChange={(e) => setNewAssessment({ ...newAssessment, notes: e.target.value })}
                                   rows={2}

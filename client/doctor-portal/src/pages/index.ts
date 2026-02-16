@@ -99,6 +99,11 @@ export { default as BarcodePage } from './BarcodePage';
 export { default as AnalyticsPage } from './AnalyticsPage';
 export { default as CDSAlertsPage } from './CDSAlertsPage';
 
+// Role-Specific Dashboards
+export { default as NurseDashboardPage } from './NurseDashboardPage';
+export { default as LabTechDashboardPage } from './LabTechDashboardPage';
+export { default as PharmacistDashboardPage } from './PharmacistDashboardPage';
+
 // Scheduling
 export { default as AppointmentSchedulerPage } from './AppointmentSchedulerPage';
 

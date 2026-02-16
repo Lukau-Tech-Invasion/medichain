@@ -24,6 +24,16 @@ export * from './api/endpoints';
 // Hooks
 export * from './hooks/useAuth';
 export * from './hooks/useApi';
+export * from './hooks/useSidebarData';
+
+// Utilities
+export * from './utils/cache';
+export { fetchWithRetry } from './utils/fetchWithRetry';
+export * from './utils/indexedDB';
+export * from './utils/offlineQueue';
+export { SubstrateConnection, testSubstrateConnection } from './utils/SubstrateConnection';
+export * from './utils/validation';
+export { SubstrateWebSocket, testSubstrateWs } from './utils/websocket';
 
 // Components
 export * from './components';

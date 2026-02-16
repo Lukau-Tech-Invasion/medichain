@@ -12,8 +12,12 @@ import {
   AlertTriangle,
   CheckCircle,
   Upload,
-  Ruler
+  Ruler,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * WoundCarePage
@@ -63,94 +67,54 @@ const WoundCarePage: React.FC = () => {
   const [wounds, setWounds] = useState<WoundAssessment[]>([]);
   const [selectedWound, setSelectedWound] = useState<WoundAssessment | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuthStore();
 
   useEffect(() => {
-    const now = new Date();
-    const daysAgo = (d: number) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000);
-
-    setWounds([
-      {
-        id: 'WND-001',
-        patientId: 'PAT-001',
-        patientName: 'Abdullah Al-Mansouri',
-        mrn: '123456',
-        location: 'Sacrum',
-        woundType: 'pressure-ulcer',
-        stage: 'stage-2',
-        status: 'healing',
-        discoveredDate: daysAgo(14),
-        lastAssessment: daysAgo(1),
-        measurements: [
-          { date: daysAgo(14), length: 4.5, width: 3.2, depth: 0.3, area: 14.4 },
-          { date: daysAgo(7), length: 4.0, width: 2.8, depth: 0.2, area: 11.2 },
-          { date: daysAgo(1), length: 3.5, width: 2.5, depth: 0.1, area: 8.75 }
-        ],
-        exudate: 'minimal',
-        tissue: ['granulation', 'epithelial'],
-        edges: 'attached',
-        periwound: 'Intact, no erythema',
-        painLevel: 2,
-        dressing: 'Foam dressing with silicone border',
-        frequency: 'Every 3 days or PRN',
-        notes: 'Good granulation tissue. Continue offloading with specialty mattress.',
-        photos: [],
-        assessedBy: 'Nurse Aisha Mohammed'
-      },
-      {
-        id: 'WND-002',
-        patientId: 'PAT-002',
-        patientName: 'Fatima Hassan',
-        mrn: '234567',
-        location: 'Right lower leg (medial)',
-        woundType: 'venous-ulcer',
-        stage: 'n/a',
-        status: 'stable',
-        discoveredDate: daysAgo(30),
-        lastAssessment: daysAgo(3),
-        measurements: [
-          { date: daysAgo(30), length: 6.0, width: 4.5, depth: 0.5, area: 27.0 },
-          { date: daysAgo(14), length: 5.8, width: 4.3, depth: 0.4, area: 24.9 },
-          { date: daysAgo(3), length: 5.5, width: 4.0, depth: 0.4, area: 22.0 }
-        ],
-        exudate: 'moderate',
-        tissue: ['granulation', 'slough'],
-        edges: 'macerated',
-        periwound: 'Edematous, hemosiderin staining',
-        painLevel: 5,
-        dressing: 'Alginate with compression wrap',
-        frequency: 'Every 2 days',
-        notes: 'Continue compression therapy. Patient education on leg elevation.',
-        photos: [],
-        assessedBy: 'Nurse Fatima Al-Rashid'
-      },
-      {
-        id: 'WND-003',
-        patientId: 'PAT-003',
-        patientName: 'Omar Khalil',
-        mrn: '345678',
-        location: 'Abdominal incision',
-        woundType: 'surgical',
-        stage: 'n/a',
-        status: 'healing',
-        discoveredDate: daysAgo(7),
-        lastAssessment: daysAgo(0),
-        measurements: [
-          { date: daysAgo(7), length: 15.0, width: 0.5, depth: 0, area: 7.5 },
-          { date: daysAgo(0), length: 15.0, width: 0.3, depth: 0, area: 4.5 }
-        ],
-        exudate: 'none',
-        tissue: ['epithelial'],
-        edges: 'attached',
-        periwound: 'Intact, mild bruising',
-        painLevel: 3,
-        dressing: 'Steri-strips, dry gauze',
-        frequency: 'Daily inspection',
-        notes: 'Incision healing well. No signs of infection. Staples removed today.',
-        photos: [],
-        assessedBy: 'Dr. Sarah Ahmed'
+    const fetchWounds = async () => {
+      if (!user?.walletAddress) {
+        setError('User not authenticated');
+        setLoading(false);
+        return;
       }
-    ]);
-  }, []);
+
+      try {
+        const response = await fetch(apiUrl('/api/clinical/wound-assessments'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Nurse'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch wound assessments: ${response.status}`);
+        }
+
+        const data = await response.json();
+        // Convert date strings to Date objects
+        const assessments = data.map((w: WoundAssessment) => ({
+          ...w,
+          discoveredDate: new Date(w.discoveredDate),
+          lastAssessment: new Date(w.lastAssessment),
+          measurements: w.measurements.map((m: WoundMeasurement) => ({
+            ...m,
+            date: new Date(m.date)
+          }))
+        }));
+        setWounds(assessments);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching wound assessments:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load wound assessments');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchWounds();
+  }, [user]);
 
   const getStatusBadge = (status: WoundStatus) => {
     const styles: Record<WoundStatus, { bg: string; text: string; icon: React.ReactNode }> = {
@@ -210,40 +174,62 @@ const WoundCarePage: React.FC = () => {
         <p className="text-rose-100">Assessment, documentation, and healing tracking</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{wounds.length}</p>
-          <p className="text-xs text-gray-500">Active Wounds</p>
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-rose-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading wound assessments...</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-green-600">{wounds.filter(w => w.status === 'healing').length}</p>
-          <p className="text-xs text-gray-500">Healing</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-red-600">{wounds.filter(w => w.status === 'deteriorating' || w.status === 'infected').length}</p>
-          <p className="text-xs text-gray-500">Needs Attention</p>
-        </div>
-      </div>
+      )}
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="flex">
-          {(['wounds', 'assess', 'tracking'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize ${
-                activeTab === tab ? 'text-rose-700 border-b-2 border-rose-700' : 'text-gray-500'
-              }`}
-            >
-              {tab === 'wounds' ? 'All Wounds' : tab === 'assess' ? 'New Assessment' : 'Healing Trends'}
-            </button>
-          ))}
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Wounds Tab */}
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-gray-800">{wounds.length}</p>
+              <p className="text-xs text-gray-500">Active Wounds</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-green-600">{wounds.filter(w => w.status === 'healing').length}</p>
+              <p className="text-xs text-gray-500">Healing</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-red-600">{wounds.filter(w => w.status === 'deteriorating' || w.status === 'infected').length}</p>
+              <p className="text-xs text-gray-500">Needs Attention</p>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="bg-white border-b">
+            <div className="flex">
+              {(['wounds', 'assess', 'tracking'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 py-4 text-sm font-medium capitalize ${
+                    activeTab === tab ? 'text-rose-700 border-b-2 border-rose-700' : 'text-gray-500'
+                  }`}
+                >
+                  {tab === 'wounds' ? 'All Wounds' : tab === 'assess' ? 'New Assessment' : 'Healing Trends'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Wounds Tab */}
       {activeTab === 'wounds' && (
         <div className="p-4">
           <div className="relative mb-4">
@@ -327,8 +313,8 @@ const WoundCarePage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Patient *</label>
-                <select className="w-full border rounded-lg px-3 py-2">
+                <label htmlFor="wound-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                <select id="wound-patient" className="w-full border rounded-lg px-3 py-2">
                   <option value="">Select patient...</option>
                   {wounds.map(w => (
                     <option key={w.patientId} value={w.patientId}>{w.patientName} - {w.mrn}</option>
@@ -338,8 +324,8 @@ const WoundCarePage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Wound Type *</label>
-                  <select className="w-full border rounded-lg px-3 py-2">
+                  <label htmlFor="wound-type" className="block text-sm font-medium mb-1">Wound Type *</label>
+                  <select id="wound-type" className="w-full border rounded-lg px-3 py-2">
                     <option value="pressure-ulcer">Pressure Ulcer</option>
                     <option value="surgical">Surgical</option>
                     <option value="diabetic-ulcer">Diabetic Ulcer</option>
@@ -351,30 +337,30 @@ const WoundCarePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Location *</label>
-                  <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Sacrum, R heel" />
+                  <label htmlFor="wound-location" className="block text-sm font-medium mb-1">Location *</label>
+                  <input id="wound-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Sacrum, R heel" />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Length (cm)</label>
-                  <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
+                  <label htmlFor="wound-length" className="block text-sm font-medium mb-1">Length (cm)</label>
+                  <input id="wound-length" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Width (cm)</label>
-                  <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
+                  <label htmlFor="wound-width" className="block text-sm font-medium mb-1">Width (cm)</label>
+                  <input id="wound-width" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Depth (cm)</label>
-                  <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
+                  <label htmlFor="wound-depth" className="block text-sm font-medium mb-1">Depth (cm)</label>
+                  <input id="wound-depth" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Exudate</label>
-                  <select className="w-full border rounded-lg px-3 py-2">
+                  <label htmlFor="wound-exudate" className="block text-sm font-medium mb-1">Exudate</label>
+                  <select id="wound-exudate" className="w-full border rounded-lg px-3 py-2">
                     <option value="none">None</option>
                     <option value="minimal">Minimal</option>
                     <option value="moderate">Moderate</option>
@@ -382,8 +368,8 @@ const WoundCarePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Pain Level (0-10)</label>
-                  <input type="number" min="0" max="10" className="w-full border rounded-lg px-3 py-2" placeholder="0" />
+                  <label htmlFor="wound-pain-level" className="block text-sm font-medium mb-1">Pain Level (0-10)</label>
+                  <input id="wound-pain-level" type="number" min="0" max="10" className="w-full border rounded-lg px-3 py-2" placeholder="0" />
                 </div>
               </div>
 
@@ -409,8 +395,8 @@ const WoundCarePage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Notes</label>
-                <textarea className="w-full border rounded-lg px-3 py-2" rows={2} placeholder="Assessment findings..." />
+                <label htmlFor="wound-notes" className="block text-sm font-medium mb-1">Notes</label>
+                <textarea id="wound-notes" className="w-full border rounded-lg px-3 py-2" rows={2} placeholder="Assessment findings..." />
               </div>
 
               <button className="w-full py-3 bg-rose-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
@@ -481,6 +467,8 @@ const WoundCarePage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Wound Detail Modal */}

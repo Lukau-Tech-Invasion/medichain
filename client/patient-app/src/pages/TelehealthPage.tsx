@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { getPatientTelehealthSessions, joinTelehealthSession } from '@shared/api/endpoints';
+import { getPatientTelehealthSessions, joinTelehealthSession } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 
 export function TelehealthPage() {
   const { patient } = usePatientAuthStore();
+  const { showError } = useToastActions();
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,7 +27,7 @@ export function TelehealthPage() {
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to join session');
+      showError('Failed to join session');
     }
   };
 

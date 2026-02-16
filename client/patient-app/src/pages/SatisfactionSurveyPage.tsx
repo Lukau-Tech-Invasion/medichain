@@ -422,10 +422,11 @@ const SatisfactionSurveyPage: React.FC = () => {
 
             {/* Additional Comments */}
             <div className="bg-white rounded-lg shadow p-4">
-              <p className="font-medium text-gray-900 mb-3">
+              <label htmlFor="survey-additional-comments" className="block font-medium text-gray-900 mb-3">
                 Any additional comments or suggestions?
-              </p>
+              </label>
               <textarea
+                id="survey-additional-comments"
                 value={additionalComments}
                 onChange={(e) => setAdditionalComments(e.target.value)}
                 placeholder="Share your thoughts with us..."

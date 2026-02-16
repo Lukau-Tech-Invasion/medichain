@@ -2,6 +2,10 @@
 
 © 2025 Trustware. All rights reserved.
 
+> Updated: 2026-01-28 — See `docs/PROJECT_STATUS_FOR_PRESENTATION.md` for a concise implementation summary used for presentations.
+> Implementation progress and completed items consolidated in `docs/PROJECT_PROGRESS.md`.
+> Recent changes (2026-01-28): The storage architecture now includes an off-chain Postgres indexer in addition to on-chain metadata and IPFS blobs. The indexer provides fast queryability for API endpoints and reporting. See `docs/database-schema.md` and `POSTGRES_SETUP.md` for migration and schema details. A machine-readable endpoint list is available at `docs/api_endpoints.json` (generated from `api/src/main.rs`).
+
 ## Overview
 
 MediChain is a safety-critical blockchain-based national health ID and medical records system built on the Substrate framework. The architecture follows NASA Power of 10 rules and Rust best practices for medical software.
@@ -67,6 +71,8 @@ MediChain is a safety-critical blockchain-based national health ID and medical r
 │  │ (Metadata)   │    │ Documents)   │    │ (Analytics)  │      │
 │  └──────────────┘    └──────────────┘    └──────────────┘      │
 └─────────────────────────────────────────────────────────────────┘
+
+Note: the off-chain indexer is implemented as a Postgres-backed read-store that maintains denormalized views for fast querying and reporting. The indexer stores `patients`, `health_records`, `access_logs`, `lab_submissions`, and `nfc_cards`, with traceability fields (`source_block`, `source_tx`) linking back to on-chain events.
 ```
 
 ---

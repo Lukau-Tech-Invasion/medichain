@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { listCdsAlerts } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import {
   Bell,
   AlertTriangle,
@@ -155,9 +156,11 @@ const CDSAlertsPage: React.FC = () => {
   }, [fetchRules]);
 
   // Handler Functions
+  const { showSuccess, showError, showWarning } = useToastActions();
+
   const handleCreateRule = () => {
     if (!newRule.name || !newRule.description || !newRule.conditions?.length || !newRule.actions?.length) {
-      alert('Please fill in all required fields: name, description, at least one condition, and at least one action.');
+      showError('Please fill in all required fields: name, description, at least one condition, and at least one action.');
       return;
     }
 
@@ -202,12 +205,12 @@ const CDSAlertsPage: React.FC = () => {
       references: [],
     });
     setActiveTab('all');
-    alert(`Rule "${rule.name}" created successfully!`);
+    showSuccess(`Rule "${rule.name}" created successfully!`);
   };
 
   const handleAddCondition = () => {
     if (!newCondition.field || !newCondition.operator || newCondition.value === undefined || newCondition.value === '') {
-      alert('Please fill in all condition fields: field, operator, and value.');
+      showError('Please fill in all condition fields: field, operator, and value.');
       return;
     }
 
@@ -243,7 +246,7 @@ const CDSAlertsPage: React.FC = () => {
 
   const handleAddAction = () => {
     if (!newAction.message) {
-      alert('Please provide an action message.');
+      showError('Please provide an action message.');
       return;
     }
 
@@ -304,7 +307,7 @@ const CDSAlertsPage: React.FC = () => {
       lastTriggered: undefined,
     };
     setRules([...rules, duplicatedRule]);
-    alert(`Rule duplicated as "${duplicatedRule.name}"`);
+    showSuccess(`Rule duplicated as "${duplicatedRule.name}"`);
   };
 
   const handleDeleteRule = (ruleId: string) => {
@@ -477,8 +480,10 @@ const CDSAlertsPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Search */}
               <div className="md:col-span-2 relative">
+                <label htmlFor="cds-search" className="sr-only">Search rules</label>
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
+                  id="cds-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -489,7 +494,9 @@ const CDSAlertsPage: React.FC = () => {
 
               {/* Category Filter */}
               <div>
+                <label htmlFor="cds-category-filter" className="sr-only">Filter by category</label>
                 <select
+                  id="cds-category-filter"
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value as AlertCategory | 'all')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
@@ -507,7 +514,9 @@ const CDSAlertsPage: React.FC = () => {
 
               {/* Severity Filter */}
               <div>
+                <label htmlFor="cds-severity-filter" className="sr-only">Filter by severity</label>
                 <select
+                  id="cds-severity-filter"
                   value={severityFilter}
                   onChange={(e) => setSeverityFilter(e.target.value as AlertSeverity | 'all')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
@@ -525,7 +534,9 @@ const CDSAlertsPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               {/* Status Filter */}
               <div>
+                <label htmlFor="cds-status-filter" className="sr-only">Filter by status</label>
                 <select
+                  id="cds-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as AlertStatus | 'all')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
@@ -788,10 +799,11 @@ const CDSAlertsPage: React.FC = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="cds-rule-name" className="block text-sm font-medium text-gray-700 mb-1">
                     Rule Name <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="cds-rule-name"
                     type="text"
                     value={newRule.name || ''}
                     onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
@@ -801,8 +813,9 @@ const CDSAlertsPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                  <label htmlFor="cds-category" className="block text-sm font-medium text-gray-700 mb-1">Category</label>
                   <select
+                    id="cds-category"
                     value={newRule.category || 'medication'}
                     onChange={(e) => setNewRule({ ...newRule, category: e.target.value as AlertCategory })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
@@ -820,8 +833,9 @@ const CDSAlertsPage: React.FC = () => {
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Severity</label>
+                  <label htmlFor="cds-severity" className="block text-sm font-medium text-gray-700 mb-1">Severity</label>
                   <select
+                    id="cds-severity"
                     value={newRule.severity || 'medium'}
                     onChange={(e) => setNewRule({ ...newRule, severity: e.target.value as AlertSeverity })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
@@ -835,8 +849,9 @@ const CDSAlertsPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Trigger Type</label>
+                  <label htmlFor="cds-trigger-type" className="block text-sm font-medium text-gray-700 mb-1">Trigger Type</label>
                   <select
+                    id="cds-trigger-type"
                     value={newRule.triggerType || 'threshold'}
                     onChange={(e) => setNewRule({ ...newRule, triggerType: e.target.value as TriggerType })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
@@ -850,8 +865,9 @@ const CDSAlertsPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Priority (1-10)</label>
+                  <label htmlFor="cds-priority" className="block text-sm font-medium text-gray-700 mb-1">Priority (1-10)</label>
                   <input
+                    id="cds-priority"
                     type="number"
                     min="1"
                     max="10"
@@ -863,10 +879,11 @@ const CDSAlertsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="cds-description" className="block text-sm font-medium text-gray-700 mb-1">
                   Description <span className="text-red-500">*</span>
                 </label>
                 <textarea
+                  id="cds-description"
                   value={newRule.description || ''}
                   onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
                   placeholder="Detailed description of the rule and its purpose..."
@@ -876,8 +893,9 @@ const CDSAlertsPage: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2">
+                <label htmlFor="cds-is-enabled" className="flex items-center gap-2">
                   <input
+                    id="cds-is-enabled"
                     type="checkbox"
                     checked={newRule.isEnabled || false}
                     onChange={(e) => setNewRule({ ...newRule, isEnabled: e.target.checked })}
@@ -885,8 +903,9 @@ const CDSAlertsPage: React.FC = () => {
                   />
                   <span className="text-sm font-medium text-gray-700">Enable rule</span>
                 </label>
-                <label className="flex items-center gap-2">
+                <label htmlFor="cds-test-mode" className="flex items-center gap-2">
                   <input
+                    id="cds-test-mode"
                     type="checkbox"
                     checked={newRule.testMode !== undefined ? newRule.testMode : true}
                     onChange={(e) => setNewRule({ ...newRule, testMode: e.target.checked })}
@@ -909,18 +928,25 @@ const CDSAlertsPage: React.FC = () => {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
               <h3 className="font-semibold text-blue-900 mb-3">Add Condition</h3>
               <div className="grid grid-cols-4 gap-3 mb-3">
-                <input
-                  type="text"
-                  value={newCondition.field || ''}
-                  onChange={(e) => setNewCondition({ ...newCondition, field: e.target.value })}
-                  placeholder="Field (e.g., blood_pressure_systolic)"
-                  className="px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
-                />
-                <select
-                  value={newCondition.operator || 'equals'}
-                  onChange={(e) => setNewCondition({ ...newCondition, operator: e.target.value as Condition['operator'] })}
-                  className="px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
-                >
+                <div>
+                  <label htmlFor="cds-condition-field" className="sr-only">Condition field</label>
+                  <input
+                    id="cds-condition-field"
+                    type="text"
+                    value={newCondition.field || ''}
+                    onChange={(e) => setNewCondition({ ...newCondition, field: e.target.value })}
+                    placeholder="Field (e.g., blood_pressure_systolic)"
+                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="cds-condition-operator" className="sr-only">Condition operator</label>
+                  <select
+                    id="cds-condition-operator"
+                    value={newCondition.operator || 'equals'}
+                    onChange={(e) => setNewCondition({ ...newCondition, operator: e.target.value as Condition['operator'] })}
+                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                  >
                   <option value="equals">Equals (=)</option>
                   <option value="not_equals">Not Equals (≠)</option>
                   <option value="greater_than">Greater Than (&gt;)</option>
@@ -931,22 +957,31 @@ const CDSAlertsPage: React.FC = () => {
                   <option value="not_contains">Not Contains</option>
                   <option value="in_range">In Range</option>
                   <option value="out_of_range">Out of Range</option>
-                </select>
-                <input
-                  type="text"
-                  value={newCondition.value || ''}
-                  onChange={(e) => setNewCondition({ ...newCondition, value: e.target.value })}
-                  placeholder="Value"
-                  className="px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
-                />
-                <select
-                  value={newCondition.logicalOperator || 'AND'}
-                  onChange={(e) => setNewCondition({ ...newCondition, logicalOperator: e.target.value as 'AND' | 'OR' })}
-                  className="px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="AND">AND</option>
-                  <option value="OR">OR</option>
-                </select>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="cds-condition-value" className="sr-only">Condition value</label>
+                  <input
+                    id="cds-condition-value"
+                    type="text"
+                    value={newCondition.value || ''}
+                    onChange={(e) => setNewCondition({ ...newCondition, value: e.target.value })}
+                    placeholder="Value"
+                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="cds-condition-logical" className="sr-only">Logical operator</label>
+                  <select
+                    id="cds-condition-logical"
+                    value={newCondition.logicalOperator || 'AND'}
+                    onChange={(e) => setNewCondition({ ...newCondition, logicalOperator: e.target.value as 'AND' | 'OR' })}
+                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="AND">AND</option>
+                    <option value="OR">OR</option>
+                  </select>
+                </div>
               </div>
               <button
                 onClick={handleAddCondition}
@@ -999,30 +1034,39 @@ const CDSAlertsPage: React.FC = () => {
               <h3 className="font-semibold text-orange-900 mb-3">Add Action</h3>
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
-                  <select
-                    value={newAction.type || 'alert'}
-                    onChange={(e) => setNewAction({ ...newAction, type: e.target.value as ActionType })}
-                    className="px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
-                  >
-                    <option value="alert">Alert</option>
-                    <option value="block">Block</option>
-                    <option value="recommend">Recommend</option>
-                    <option value="notify">Notify</option>
-                    <option value="escalate">Escalate</option>
-                  </select>
-                  <select
-                    value={newAction.severity || 'medium'}
-                    onChange={(e) => setNewAction({ ...newAction, severity: e.target.value as AlertSeverity })}
-                    className="px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
-                  >
-                    <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                    <option value="info">Info</option>
-                  </select>
-                  <label className="flex items-center gap-2 px-3 py-2">
+                  <div>
+                    <label htmlFor="cds-action-type" className="sr-only">Action type</label>
+                    <select
+                      id="cds-action-type"
+                      value={newAction.type || 'alert'}
+                      onChange={(e) => setNewAction({ ...newAction, type: e.target.value as ActionType })}
+                      className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="alert">Alert</option>
+                      <option value="block">Block</option>
+                      <option value="recommend">Recommend</option>
+                      <option value="notify">Notify</option>
+                      <option value="escalate">Escalate</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="cds-action-severity" className="sr-only">Action severity</label>
+                    <select
+                      id="cds-action-severity"
+                      value={newAction.severity || 'medium'}
+                      onChange={(e) => setNewAction({ ...newAction, severity: e.target.value as AlertSeverity })}
+                      className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="critical">Critical</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                      <option value="info">Info</option>
+                    </select>
+                  </div>
+                  <label htmlFor="cds-block-action" className="flex items-center gap-2 px-3 py-2">
                     <input
+                      id="cds-block-action"
                       type="checkbox"
                       checked={newAction.blockAction || false}
                       onChange={(e) => setNewAction({ ...newAction, blockAction: e.target.checked })}
@@ -1031,20 +1075,28 @@ const CDSAlertsPage: React.FC = () => {
                     <span className="text-sm font-medium text-orange-900">Block action</span>
                   </label>
                 </div>
-                <textarea
-                  value={newAction.message || ''}
-                  onChange={(e) => setNewAction({ ...newAction, message: e.target.value })}
-                  placeholder="Alert message to display (required)"
-                  rows={2}
-                  className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
-                />
-                <textarea
-                  value={newAction.suggestedAction || ''}
-                  onChange={(e) => setNewAction({ ...newAction, suggestedAction: e.target.value })}
-                  placeholder="Suggested action or alternative (optional)"
-                  rows={2}
-                  className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
-                />
+                <div>
+                  <label htmlFor="cds-action-message" className="sr-only">Alert message</label>
+                  <textarea
+                    id="cds-action-message"
+                    value={newAction.message || ''}
+                    onChange={(e) => setNewAction({ ...newAction, message: e.target.value })}
+                    placeholder="Alert message to display (required)"
+                    rows={2}
+                    className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="cds-suggested-action" className="sr-only">Suggested action</label>
+                  <textarea
+                    id="cds-suggested-action"
+                    value={newAction.suggestedAction || ''}
+                    onChange={(e) => setNewAction({ ...newAction, suggestedAction: e.target.value })}
+                    placeholder="Suggested action or alternative (optional)"
+                    rows={2}
+                    className="w-full px-3 py-2 border border-orange-300 rounded focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
               </div>
               <button
                 onClick={handleAddAction}

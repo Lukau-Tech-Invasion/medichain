@@ -433,8 +433,10 @@ export default function BurnPage() {
                   Select Patient
                 </h2>
                 <div className="relative mb-4">
+                  <label htmlFor="burn-patient-search" className="sr-only">Search patients</label>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
+                    id="burn-patient-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -468,8 +470,9 @@ export default function BurnPage() {
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mechanism</label>
+                    <label htmlFor="burn-mechanism" className="block text-sm font-medium text-gray-700 mb-1">Mechanism</label>
                     <select
+                      id="burn-mechanism"
                       value={mechanism}
                       onChange={(e) => setMechanism(e.target.value as BurnMechanism)}
                       className="w-full p-2 border border-gray-300 rounded"
@@ -480,8 +483,9 @@ export default function BurnPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Agent/Source</label>
+                    <label htmlFor="burn-agent-source" className="block text-sm font-medium text-gray-700 mb-1">Agent/Source</label>
                     <input
+                      id="burn-agent-source"
                       type="text"
                       value={agentSource}
                       onChange={(e) => setAgentSource(e.target.value)}
@@ -490,8 +494,9 @@ export default function BurnPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Time of Injury</label>
+                    <label htmlFor="burn-injury-time" className="block text-sm font-medium text-gray-700 mb-1">Time of Injury</label>
                     <input
+                      id="burn-injury-time"
                       type="time"
                       value={injuryTime}
                       onChange={(e) => setInjuryTime(e.target.value)}
@@ -499,16 +504,18 @@ export default function BurnPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Patient Weight (kg)</label>
+                    <label htmlFor="burn-patient-weight" className="block text-sm font-medium text-gray-700 mb-1">Patient Weight (kg)</label>
                     <input
+                      id="burn-patient-weight"
                       type="number"
                       value={weight}
                       onChange={(e) => setWeight(Number(e.target.value))}
                       className="w-full p-2 border border-gray-300 rounded"
                     />
                   </div>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label htmlFor="burn-is-child" className="flex items-center space-x-2 cursor-pointer">
                     <input
+                      id="burn-is-child"
                       type="checkbox"
                       checked={isChild}
                       onChange={() => setIsChild(!isChild)}
@@ -523,8 +530,9 @@ export default function BurnPage() {
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tetanus Status</label>
+                    <label htmlFor="burn-tetanus-status" className="block text-sm font-medium text-gray-700 mb-1">Tetanus Status</label>
                     <select
+                      id="burn-tetanus-status"
                       value={tetanusStatus}
                       onChange={(e) => setTetanusStatus(e.target.value)}
                       className="w-full p-2 border border-gray-300 rounded"
@@ -536,10 +544,11 @@ export default function BurnPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="burn-pain-level" className="block text-sm font-medium text-gray-700 mb-1">
                       Pain Level: {painLevel}/10
                     </label>
                     <input
+                      id="burn-pain-level"
                       type="range"
                       min="0"
                       max="10"
@@ -587,8 +596,9 @@ export default function BurnPage() {
                         </div>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-xs text-gray-500 mb-1">% Affected</label>
+                            <label htmlFor={`burn-percent-${region.id}`} className="block text-xs text-gray-500 mb-1">% Affected</label>
                             <input
+                              id={`burn-percent-${region.id}`}
                               type="number"
                               min="0"
                               max={maxPercent}
@@ -599,8 +609,9 @@ export default function BurnPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs text-gray-500 mb-1">Depth</label>
+                            <label htmlFor={`burn-depth-${region.id}`} className="block text-xs text-gray-500 mb-1">Depth</label>
                             <select
+                              id={`burn-depth-${region.id}`}
                               value={currentDepth}
                               onChange={(e) => updateBurnArea(region.id, 'depth', e.target.value as BurnDepth)}
                               disabled={currentPercent === 0}
@@ -637,8 +648,9 @@ export default function BurnPage() {
                   <AlertTriangle className="h-5 w-5 mr-2 text-red-500" />
                   Inhalation Injury Assessment
                 </h3>
-                <label className="flex items-center space-x-2 mb-4 cursor-pointer">
+                <label htmlFor="burn-inhalation-suspected" className="flex items-center space-x-2 mb-4 cursor-pointer">
                   <input
+                    id="burn-inhalation-suspected"
                     type="checkbox"
                     checked={inhalationInjury.suspected}
                     onChange={() => setInhalationInjury(prev => ({ ...prev, suspected: !prev.suspected }))}
@@ -655,8 +667,9 @@ export default function BurnPage() {
                       { key: 'stridor', label: 'Stridor' },
                       { key: 'carbonMonoxide', label: 'CO Poisoning Suspected' }
                     ].map(({ key, label }) => (
-                      <label key={key} className="flex items-center space-x-2 cursor-pointer">
+                      <label key={key} htmlFor={`burn-inhalation-${key}`} className="flex items-center space-x-2 cursor-pointer">
                         <input
+                          id={`burn-inhalation-${key}`}
                           type="checkbox"
                           checked={inhalationInjury[key as keyof typeof inhalationInjury] as boolean}
                           onChange={() => setInhalationInjury(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
@@ -667,8 +680,9 @@ export default function BurnPage() {
                     ))}
                     {inhalationInjury.carbonMonoxide && (
                       <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">CO Level (%)</label>
+                        <label htmlFor="burn-co-level" className="block text-sm font-medium text-gray-700 mb-1">CO Level (%)</label>
                         <input
+                          id="burn-co-level"
                           type="number"
                           value={inhalationInjury.coLevel || ''}
                           onChange={(e) => setInhalationInjury(prev => ({ ...prev, coLevel: Number(e.target.value) }))}
@@ -687,8 +701,9 @@ export default function BurnPage() {
                   <AlertCircle className="h-5 w-5 mr-2 text-purple-500" />
                   Circumferential Burns
                 </h3>
-                <label className="flex items-center space-x-2 mb-4 cursor-pointer">
+                <label htmlFor="burn-circumferential" className="flex items-center space-x-2 mb-4 cursor-pointer">
                   <input
+                    id="burn-circumferential"
                     type="checkbox"
                     checked={circumferential.present}
                     onChange={() => setCircumferential(prev => ({ ...prev, present: !prev.present }))}
@@ -699,8 +714,8 @@ export default function BurnPage() {
                 {circumferential.present && (
                   <div className="pl-6 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Locations</label>
-                      <div className="flex flex-wrap gap-2">
+                      <span className="block text-sm font-medium text-gray-700 mb-2">Locations</span>
+                      <div className="flex flex-wrap gap-2" role="group" aria-label="Circumferential burn locations">
                         {circumferentialLocations.map(loc => (
                           <button
                             key={loc}
@@ -717,8 +732,9 @@ export default function BurnPage() {
                         ))}
                       </div>
                     </div>
-                    <label className="flex items-center space-x-2 cursor-pointer">
+                    <label htmlFor="burn-escharotomy-needed" className="flex items-center space-x-2 cursor-pointer">
                       <input
+                        id="burn-escharotomy-needed"
                         type="checkbox"
                         checked={circumferential.escharotomyNeeded}
                         onChange={() => setCircumferential(prev => ({ ...prev, escharotomyNeeded: !prev.escharotomyNeeded }))}
@@ -756,8 +772,9 @@ export default function BurnPage() {
                   <h3 className="font-bold text-gray-900 mb-3">Interventions</h3>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {interventionOptions.map(intervention => (
-                      <label key={intervention} className="flex items-center space-x-2 cursor-pointer">
+                      <label key={intervention} htmlFor={`burn-intervention-${intervention.toLowerCase().replace(/\s+/g, '-')}`} className="flex items-center space-x-2 cursor-pointer">
                         <input
+                          id={`burn-intervention-${intervention.toLowerCase().replace(/\s+/g, '-')}`}
                           type="checkbox"
                           checked={interventions.includes(intervention)}
                           onChange={() => toggleIntervention(intervention)}
@@ -772,8 +789,9 @@ export default function BurnPage() {
 
               {/* Notes */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4">Additional Notes</h3>
+                <label htmlFor="burn-notes" className="font-bold text-gray-900 mb-4 block">Additional Notes</label>
                 <textarea
+                  id="burn-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Additional observations, burn wound description, patient response..."
@@ -819,8 +837,9 @@ export default function BurnPage() {
                   <h3 className="font-bold mb-3">Input Parameters</h3>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Patient Weight (kg)</label>
+                      <label htmlFor="burn-calc-weight" className="block text-sm font-medium text-gray-700 mb-1">Patient Weight (kg)</label>
                       <input
+                        id="burn-calc-weight"
                         type="number"
                         value={weight}
                         onChange={(e) => setWeight(Number(e.target.value))}
@@ -828,8 +847,9 @@ export default function BurnPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Total BSA (%)</label>
+                      <label htmlFor="burn-total-bsa" className="block text-sm font-medium text-gray-700 mb-1">Total BSA (%)</label>
                       <input
+                        id="burn-total-bsa"
                         type="number"
                         value={totalBSA}
                         readOnly
@@ -838,8 +858,9 @@ export default function BurnPage() {
                       <p className="text-xs text-gray-500 mt-1">Calculated from body region entries</p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Time Fluids Started</label>
+                      <label htmlFor="burn-fluid-start" className="block text-sm font-medium text-gray-700 mb-1">Time Fluids Started</label>
                       <input
+                        id="burn-fluid-start"
                         type="time"
                         value={fluidStartTime}
                         onChange={(e) => setFluidStartTime(e.target.value)}
@@ -887,8 +908,9 @@ export default function BurnPage() {
                     Monitoring
                   </h4>
                   <div>
-                    <label className="block text-sm font-medium text-yellow-700 mb-1">Urine Output (mL/hr)</label>
+                    <label htmlFor="burn-urine-output" className="block text-sm font-medium text-yellow-700 mb-1">Urine Output (mL/hr)</label>
                     <input
+                      id="burn-urine-output"
                       type="number"
                       value={urineOutput || ''}
                       onChange={(e) => setUrineOutput(Number(e.target.value))}

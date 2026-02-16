@@ -359,8 +359,9 @@ export default function MCIPage() {
                         <p className="font-medium text-yellow-800 mb-3">START Triage Vitals</p>
                         <div className="grid grid-cols-4 gap-4">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
+                            <label htmlFor="mci-respiratory-rate" className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
                             <input
+                              id="mci-respiratory-rate"
                               type="number"
                               value={newPatient.vitals?.respiratoryRate}
                               onChange={(e) => setNewPatient({
@@ -371,8 +372,9 @@ export default function MCIPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Radial Pulse</label>
+                            <label htmlFor="mci-radial-pulse" className="block text-sm font-medium text-gray-700 mb-1">Radial Pulse</label>
                             <input
+                              id="mci-radial-pulse"
                               type="number"
                               value={newPatient.vitals?.pulse}
                               onChange={(e) => setNewPatient({
@@ -383,8 +385,9 @@ export default function MCIPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Cap Refill (sec)</label>
+                            <label htmlFor="mci-cap-refill" className="block text-sm font-medium text-gray-700 mb-1">Cap Refill (sec)</label>
                             <input
+                              id="mci-cap-refill"
                               type="number"
                               value={newPatient.vitals?.capRefill}
                               onChange={(e) => setNewPatient({
@@ -395,8 +398,9 @@ export default function MCIPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Mental Status</label>
+                            <label htmlFor="mci-mental-status" className="block text-sm font-medium text-gray-700 mb-1">Mental Status</label>
                             <select
+                              id="mci-mental-status"
                               value={newPatient.vitals?.mentalStatus}
                               onChange={(e) => setNewPatient({
                                 ...newPatient,
@@ -413,8 +417,9 @@ export default function MCIPage() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Age</label>
+                        <label htmlFor="mci-age" className="block text-sm font-medium text-gray-700 mb-1">Age</label>
                         <input
+                          id="mci-age"
                           type="text"
                           value={newPatient.age}
                           onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })}
@@ -423,8 +428,9 @@ export default function MCIPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                        <label htmlFor="mci-gender" className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
                         <select
+                          id="mci-gender"
                           value={newPatient.gender}
                           onChange={(e) => setNewPatient({ ...newPatient, gender: e.target.value })}
                           className="w-full p-2 border rounded"
@@ -435,8 +441,9 @@ export default function MCIPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Location Found</label>
+                        <label htmlFor="mci-location-found" className="block text-sm font-medium text-gray-700 mb-1">Location Found</label>
                         <input
+                          id="mci-location-found"
                           type="text"
                           value={newPatient.location}
                           onChange={(e) => setNewPatient({ ...newPatient, location: e.target.value })}
@@ -445,8 +452,9 @@ export default function MCIPage() {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Chief Complaint / Injuries</label>
+                        <label htmlFor="mci-chief-complaint" className="block text-sm font-medium text-gray-700 mb-1">Chief Complaint / Injuries</label>
                         <input
+                          id="mci-chief-complaint"
                           type="text"
                           value={newPatient.chiefComplaint}
                           onChange={(e) => setNewPatient({ ...newPatient, chiefComplaint: e.target.value })}
@@ -591,8 +599,9 @@ export default function MCIPage() {
                 <h2 className="text-xl font-bold text-gray-900 mb-6">Incident Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Incident Name</label>
+                    <label htmlFor="mci-incident-name" className="block text-sm font-medium text-gray-700 mb-1">Incident Name</label>
                     <input
+                      id="mci-incident-name"
                       type="text"
                       value={incident.incidentName}
                       onChange={(e) => setIncident({ ...incident, incidentName: e.target.value })}
@@ -602,8 +611,9 @@ export default function MCIPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Incident Type</label>
+                    <label htmlFor="mci-incident-type" className="block text-sm font-medium text-gray-700 mb-1">Incident Type</label>
                     <select
+                      id="mci-incident-type"
                       value={incident.incidentType}
                       onChange={(e) => setIncident({ ...incident, incidentType: e.target.value })}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
@@ -615,10 +625,11 @@ export default function MCIPage() {
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className="flex items-center text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-location" className="flex items-center text-sm font-medium text-gray-700 mb-1">
                       <MapPin className="h-4 w-4 mr-1" /> Location
                     </label>
                     <input
+                      id="mci-location"
                       type="text"
                       value={incident.location}
                       onChange={(e) => setIncident({ ...incident, location: e.target.value })}
@@ -627,10 +638,11 @@ export default function MCIPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-start-time" className="block text-sm font-medium text-gray-700 mb-1">
                       <Clock className="h-4 w-4 inline mr-1" /> Incident Start Time
                     </label>
                     <input
+                      id="mci-start-time"
                       type="datetime-local"
                       value={incident.startTime}
                       onChange={(e) => setIncident({ ...incident, startTime: e.target.value })}
@@ -638,10 +650,11 @@ export default function MCIPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-estimated-casualties" className="block text-sm font-medium text-gray-700 mb-1">
                       Estimated Total Casualties
                     </label>
                     <input
+                      id="mci-estimated-casualties"
                       type="number"
                       value={incident.estimatedCasualties}
                       onChange={(e) => setIncident({ ...incident, estimatedCasualties: parseInt(e.target.value) })}
@@ -649,10 +662,11 @@ export default function MCIPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-command-post" className="block text-sm font-medium text-gray-700 mb-1">
                       <Building2 className="h-4 w-4 inline mr-1" /> Command Post Location
                     </label>
                     <input
+                      id="mci-command-post"
                       type="text"
                       value={incident.commandPost}
                       onChange={(e) => setIncident({ ...incident, commandPost: e.target.value })}
@@ -661,10 +675,11 @@ export default function MCIPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-incident-commander" className="block text-sm font-medium text-gray-700 mb-1">
                       <Radio className="h-4 w-4 inline mr-1" /> Incident Commander
                     </label>
                     <input
+                      id="mci-incident-commander"
                       type="text"
                       value={incident.incidentCommander}
                       onChange={(e) => setIncident({ ...incident, incidentCommander: e.target.value })}
@@ -673,10 +688,11 @@ export default function MCIPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-contact-number" className="block text-sm font-medium text-gray-700 mb-1">
                       <Phone className="h-4 w-4 inline mr-1" /> Contact Number
                     </label>
                     <input
+                      id="mci-contact-number"
                       type="tel"
                       value={incident.contactNumber}
                       onChange={(e) => setIncident({ ...incident, contactNumber: e.target.value })}

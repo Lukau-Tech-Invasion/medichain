@@ -385,8 +385,9 @@ export default function ShiftHandoffPage() {
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Shift Type</label>
+                    <label htmlFor="handoff-shift-type" className="block text-sm font-medium text-gray-700 mb-1">Shift Type</label>
                     <select
+                      id="handoff-shift-type"
                       value={handoff.shiftType}
                       onChange={(e) => setHandoff({ ...handoff, shiftType: e.target.value as ShiftType })}
                       className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
@@ -399,8 +400,9 @@ export default function ShiftHandoffPage() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                      <label htmlFor="handoff-date" className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                       <input
+                        id="handoff-date"
                         type="date"
                         value={handoff.handoffDate}
                         onChange={(e) => setHandoff({ ...handoff, handoffDate: e.target.value })}
@@ -408,8 +410,9 @@ export default function ShiftHandoffPage() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                      <label htmlFor="handoff-time" className="block text-sm font-medium text-gray-700 mb-1">Time</label>
                       <input
+                        id="handoff-time"
                         type="time"
                         value={handoff.handoffTime}
                         onChange={(e) => setHandoff({ ...handoff, handoffTime: e.target.value })}
@@ -419,8 +422,9 @@ export default function ShiftHandoffPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+                    <label htmlFor="handoff-unit" className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
                     <select
+                      id="handoff-unit"
                       value={handoff.unit}
                       onChange={(e) => setHandoff({ ...handoff, unit: e.target.value })}
                       className="w-full p-2 border border-gray-300 rounded-lg"
@@ -432,8 +436,9 @@ export default function ShiftHandoffPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Outgoing Nurse</label>
+                    <label htmlFor="handoff-outgoing-nurse" className="block text-sm font-medium text-gray-700 mb-1">Outgoing Nurse</label>
                     <input
+                      id="handoff-outgoing-nurse"
                       type="text"
                       value={handoff.outgoingNurse}
                       onChange={(e) => setHandoff({ ...handoff, outgoingNurse: e.target.value })}
@@ -443,8 +448,9 @@ export default function ShiftHandoffPage() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Incoming Nurse *</label>
+                    <label htmlFor="handoff-incoming-nurse" className="block text-sm font-medium text-gray-700 mb-1">Incoming Nurse *</label>
                     <input
+                      id="handoff-incoming-nurse"
                       type="text"
                       value={handoff.incomingNurse}
                       onChange={(e) => setHandoff({ ...handoff, incomingNurse: e.target.value })}
@@ -544,8 +550,9 @@ export default function ShiftHandoffPage() {
                     <div className="border-t pt-4 space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Room</label>
+                          <label htmlFor="handoff-new-patient-room" className="block text-sm font-medium text-gray-700">Room</label>
                           <input
+                            id="handoff-new-patient-room"
                             type="text"
                             value={newPatientHandoff.room}
                             onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, room: e.target.value })}
@@ -554,8 +561,9 @@ export default function ShiftHandoffPage() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-medium text-gray-700">Priority</label>
+                          <label htmlFor="handoff-new-patient-priority" className="block text-sm font-medium text-gray-700">Priority</label>
                           <select
+                            id="handoff-new-patient-priority"
                             value={newPatientHandoff.priority}
                             onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, priority: e.target.value as Priority })}
                             className="w-full p-2 border border-gray-300 rounded"
@@ -567,8 +575,9 @@ export default function ShiftHandoffPage() {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Diagnosis</label>
+                        <label htmlFor="handoff-new-patient-diagnosis" className="block text-sm font-medium text-gray-700">Diagnosis</label>
                         <input
+                          id="handoff-new-patient-diagnosis"
                           type="text"
                           value={newPatientHandoff.diagnosis}
                           onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, diagnosis: e.target.value })}
@@ -643,8 +652,9 @@ export default function ShiftHandoffPage() {
                           </h4>
                           <div className="space-y-3">
                             <div>
-                              <label className="block text-sm font-bold text-purple-700 mb-1">S - Situation</label>
+                              <label htmlFor={`handoff-sbar-situation-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">S - Situation</label>
                               <textarea
+                                id={`handoff-sbar-situation-${patient.patientId}`}
                                 value={patient.sbar.situation}
                                 onChange={(e) => updatePatientSbar(patient.patientId, 'situation', e.target.value)}
                                 placeholder="What is the current situation? Why are you calling/handing off?"
@@ -653,8 +663,9 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-bold text-purple-700 mb-1">B - Background</label>
+                              <label htmlFor={`handoff-sbar-background-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">B - Background</label>
                               <textarea
+                                id={`handoff-sbar-background-${patient.patientId}`}
                                 value={patient.sbar.background}
                                 onChange={(e) => updatePatientSbar(patient.patientId, 'background', e.target.value)}
                                 placeholder="Relevant history, recent changes, treatments given"
@@ -663,8 +674,9 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-bold text-purple-700 mb-1">A - Assessment</label>
+                              <label htmlFor={`handoff-sbar-assessment-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">A - Assessment</label>
                               <textarea
+                                id={`handoff-sbar-assessment-${patient.patientId}`}
                                 value={patient.sbar.assessment}
                                 onChange={(e) => updatePatientSbar(patient.patientId, 'assessment', e.target.value)}
                                 placeholder="Your clinical assessment of the situation"
@@ -673,8 +685,9 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-sm font-bold text-purple-700 mb-1">R - Recommendation</label>
+                              <label htmlFor={`handoff-sbar-recommendation-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">R - Recommendation</label>
                               <textarea
+                                id={`handoff-sbar-recommendation-${patient.patientId}`}
                                 value={patient.sbar.recommendation}
                                 onChange={(e) => updatePatientSbar(patient.patientId, 'recommendation', e.target.value)}
                                 placeholder="What actions are needed? What do you recommend?"
@@ -688,8 +701,9 @@ export default function ShiftHandoffPage() {
                         {/* Quick Info Grid */}
                         <div className="grid grid-cols-3 gap-3">
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">Code Status</label>
+                            <label htmlFor={`handoff-code-status-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Code Status</label>
                             <select
+                              id={`handoff-code-status-${patient.patientId}`}
                               value={patient.codeStatus}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { codeStatus: e.target.value })}
                               className="w-full p-2 border border-gray-300 rounded text-sm"
@@ -700,8 +714,9 @@ export default function ShiftHandoffPage() {
                             </select>
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">IV Access</label>
+                            <label htmlFor={`handoff-iv-access-${patient.patientId}`} className="block text-xs font-medium text-gray-600">IV Access</label>
                             <input
+                              id={`handoff-iv-access-${patient.patientId}`}
                               type="text"
                               value={patient.ivAccess}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { ivAccess: e.target.value })}
@@ -710,8 +725,9 @@ export default function ShiftHandoffPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">Diet</label>
+                            <label htmlFor={`handoff-diet-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Diet</label>
                             <input
+                              id={`handoff-diet-${patient.patientId}`}
                               type="text"
                               value={patient.diet}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { diet: e.target.value })}
@@ -720,8 +736,9 @@ export default function ShiftHandoffPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">Activity</label>
+                            <label htmlFor={`handoff-activity-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Activity</label>
                             <input
+                              id={`handoff-activity-${patient.patientId}`}
                               type="text"
                               value={patient.activity}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { activity: e.target.value })}
@@ -730,8 +747,9 @@ export default function ShiftHandoffPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">Pending Labs</label>
+                            <label htmlFor={`handoff-pending-labs-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Pending Labs</label>
                             <input
+                              id={`handoff-pending-labs-${patient.patientId}`}
                               type="text"
                               value={patient.pendingLabs}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingLabs: e.target.value })}
@@ -740,8 +758,9 @@ export default function ShiftHandoffPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">Pending Tests</label>
+                            <label htmlFor={`handoff-pending-tests-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Pending Tests</label>
                             <input
+                              id={`handoff-pending-tests-${patient.patientId}`}
                               type="text"
                               value={patient.pendingTests}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingTests: e.target.value })}
@@ -759,8 +778,9 @@ export default function ShiftHandoffPage() {
                           </h5>
                           <div className="grid grid-cols-3 gap-2 text-sm">
                             <div>
-                              <label className="block text-xs text-blue-600">Scheduled</label>
+                              <label htmlFor={`handoff-meds-scheduled-${patient.patientId}`} className="block text-xs text-blue-600">Scheduled</label>
                               <input
+                                id={`handoff-meds-scheduled-${patient.patientId}`}
                                 type="text"
                                 value={patient.medications.scheduled}
                                 onChange={(e) => updatePatientMeds(patient.patientId, 'scheduled', e.target.value)}
@@ -769,8 +789,9 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-xs text-blue-600">PRN</label>
+                              <label htmlFor={`handoff-meds-prn-${patient.patientId}`} className="block text-xs text-blue-600">PRN</label>
                               <input
+                                id={`handoff-meds-prn-${patient.patientId}`}
                                 type="text"
                                 value={patient.medications.prn}
                                 onChange={(e) => updatePatientMeds(patient.patientId, 'prn', e.target.value)}
@@ -779,8 +800,9 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label className="block text-xs text-blue-600">Drips/Infusions</label>
+                              <label htmlFor={`handoff-meds-drips-${patient.patientId}`} className="block text-xs text-blue-600">Drips/Infusions</label>
                               <input
+                                id={`handoff-meds-drips-${patient.patientId}`}
                                 type="text"
                                 value={patient.medications.drips}
                                 onChange={(e) => updatePatientMeds(patient.patientId, 'drips', e.target.value)}
@@ -818,8 +840,9 @@ export default function ShiftHandoffPage() {
                         {/* Additional Notes */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">Pending Orders</label>
+                            <label htmlFor={`handoff-pending-orders-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Pending Orders</label>
                             <input
+                              id={`handoff-pending-orders-${patient.patientId}`}
                               type="text"
                               value={patient.pendingOrders}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingOrders: e.target.value })}
@@ -828,8 +851,9 @@ export default function ShiftHandoffPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600">Family Updates</label>
+                            <label htmlFor={`handoff-family-updates-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Family Updates</label>
                             <input
+                              id={`handoff-family-updates-${patient.patientId}`}
                               type="text"
                               value={patient.familyUpdates}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { familyUpdates: e.target.value })}
@@ -840,8 +864,9 @@ export default function ShiftHandoffPage() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-gray-600">Additional Notes</label>
+                          <label htmlFor={`handoff-additional-notes-${patient.patientId}`} className="block text-xs font-medium text-gray-600">Additional Notes</label>
                           <textarea
+                            id={`handoff-additional-notes-${patient.patientId}`}
                             value={patient.additionalNotes}
                             onChange={(e) => updatePatientHandoff(patient.patientId, { additionalNotes: e.target.value })}
                             placeholder="Any other important information..."

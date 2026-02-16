@@ -261,13 +261,14 @@ function VitalSignsPage() {
 
       {/* Patient Selection */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="vitals-patient-select" className="block text-sm font-medium text-gray-700 mb-2">
           Select Patient
         </label>
         <div className="flex gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <select
+              id="vitals-patient-select"
               value={selectedPatientId}
               onChange={(e) => setSelectedPatientId(e.target.value)}
               className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 appearance-none"
@@ -313,11 +314,12 @@ function VitalSignsPage() {
           <form onSubmit={handleSubmitVitals}>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-heart-rate" className="block text-sm font-medium text-gray-700 mb-1">
                   <Heart className="inline mr-1" size={14} />
                   Heart Rate (bpm)
                 </label>
                 <input
+                  id="vitals-heart-rate"
                   type="number"
                   value={newVitals.heart_rate}
                   onChange={(e) => setNewVitals({ ...newVitals, heart_rate: e.target.value })}
@@ -326,11 +328,12 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-respiratory-rate" className="block text-sm font-medium text-gray-700 mb-1">
                   <Wind className="inline mr-1" size={14} />
                   Resp Rate (/min)
                 </label>
                 <input
+                  id="vitals-respiratory-rate"
                   type="number"
                   value={newVitals.respiratory_rate}
                   onChange={(e) => setNewVitals({ ...newVitals, respiratory_rate: e.target.value })}
@@ -339,10 +342,11 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-bp-systolic" className="block text-sm font-medium text-gray-700 mb-1">
                   BP Systolic (mmHg)
                 </label>
                 <input
+                  id="vitals-bp-systolic"
                   type="number"
                   value={newVitals.bp_systolic}
                   onChange={(e) => setNewVitals({ ...newVitals, bp_systolic: e.target.value })}
@@ -351,10 +355,11 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-bp-diastolic" className="block text-sm font-medium text-gray-700 mb-1">
                   BP Diastolic (mmHg)
                 </label>
                 <input
+                  id="vitals-bp-diastolic"
                   type="number"
                   value={newVitals.bp_diastolic}
                   onChange={(e) => setNewVitals({ ...newVitals, bp_diastolic: e.target.value })}
@@ -363,11 +368,12 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-temperature" className="block text-sm font-medium text-gray-700 mb-1">
                   <Thermometer className="inline mr-1" size={14} />
                   Temperature (°C)
                 </label>
                 <input
+                  id="vitals-temperature"
                   type="number"
                   step="0.1"
                   value={newVitals.temperature}
@@ -377,11 +383,12 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-oxygen-saturation" className="block text-sm font-medium text-gray-700 mb-1">
                   <Droplet className="inline mr-1" size={14} />
                   SpO2 (%)
                 </label>
                 <input
+                  id="vitals-oxygen-saturation"
                   type="number"
                   value={newVitals.oxygen_saturation}
                   onChange={(e) => setNewVitals({ ...newVitals, oxygen_saturation: e.target.value })}
@@ -390,10 +397,11 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-pain-scale" className="block text-sm font-medium text-gray-700 mb-1">
                   Pain Scale (0-10)
                 </label>
                 <input
+                  id="vitals-pain-scale"
                   type="number"
                   min="0"
                   max="10"
@@ -404,10 +412,11 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-gcs-total" className="block text-sm font-medium text-gray-700 mb-1">
                   GCS Score (3-15)
                 </label>
                 <input
+                  id="vitals-gcs-total"
                   type="number"
                   min="3"
                   max="15"
@@ -418,10 +427,11 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-blood-glucose" className="block text-sm font-medium text-gray-700 mb-1">
                   Blood Glucose (mg/dL)
                 </label>
                 <input
+                  id="vitals-blood-glucose"
                   type="number"
                   value={newVitals.blood_glucose}
                   onChange={(e) => setNewVitals({ ...newVitals, blood_glucose: e.target.value })}
@@ -430,10 +440,11 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-weight" className="block text-sm font-medium text-gray-700 mb-1">
                   Weight (kg)
                 </label>
                 <input
+                  id="vitals-weight"
                   type="number"
                   step="0.1"
                   value={newVitals.weight_kg}
@@ -444,8 +455,9 @@ function VitalSignsPage() {
               </div>
             </div>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <label htmlFor="vitals-notes" className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
               <textarea
+                id="vitals-notes"
                 value={newVitals.notes}
                 onChange={(e) => setNewVitals({ ...newVitals, notes: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500"

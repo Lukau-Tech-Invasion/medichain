@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { createEPrescription } from '@medichain/shared';
 import { FileText, Send, AlertCircle } from 'lucide-react';
+import { useToastActions } from '../components/Toast';
+import PatientSelect from '../components/PatientSelect';
 
 export default function EPrescribePage() {
+  const { showError } = useToastActions();
   const [formData, setFormData] = useState({
     patient_id: '',
     medication_name: '',
@@ -38,7 +41,7 @@ export default function EPrescribePage() {
       });
     } catch (err) {
       console.error(err);
-      alert('Error creating prescription');
+      showError('Error creating prescription');
     } finally {
       setIsSubmitting(false);
     }
@@ -73,23 +76,21 @@ export default function EPrescribePage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Pharmacy */}
-        <div className="bg-white shadow rounded-lg p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Patient & Pharmacy</h3>
+        <div className="bg-white dark:bg-slate-800 shadow rounded-lg p-6">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Patient & Pharmacy</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <PatientSelect
+              id="patient_id"
+              label="Patient"
+              value={formData.patient_id}
+              onChange={(patientId) => setFormData(prev => ({...prev, patient_id: patientId}))}
+              placeholder="Search and select a patient..."
+              required
+            />
             <div>
-              <label className="block text-sm font-medium text-gray-700">Patient ID</label>
-              <input 
-                name="patient_id" 
-                value={formData.patient_id} 
-                onChange={handleChange} 
-                className="mt-1 w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-                placeholder="Enter patient wallet address"
-                required 
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Pharmacy</label>
+              <label htmlFor="pharmacy_name" className="block text-sm font-medium text-gray-700">Pharmacy</label>
               <select 
+                id="pharmacy_name"
                 name="pharmacy_name" 
                 value={formData.pharmacy_name} 
                 onChange={handleChange} 
@@ -108,8 +109,9 @@ export default function EPrescribePage() {
           <h3 className="text-lg font-medium text-gray-900 mb-4">Medication Details</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Medication Name</label>
+              <label htmlFor="medication_name" className="block text-sm font-medium text-gray-700">Medication Name</label>
               <input 
+                id="medication_name"
                 name="medication_name" 
                 value={formData.medication_name} 
                 onChange={handleChange} 
@@ -119,8 +121,9 @@ export default function EPrescribePage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Strength</label>
+              <label htmlFor="strength" className="block text-sm font-medium text-gray-700">Strength</label>
               <input 
+                id="strength"
                 name="strength" 
                 value={formData.strength} 
                 onChange={handleChange} 
@@ -130,8 +133,9 @@ export default function EPrescribePage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Form</label>
+              <label htmlFor="form" className="block text-sm font-medium text-gray-700">Form</label>
               <select 
+                id="form"
                 name="form" 
                 value={formData.form} 
                 onChange={handleChange} 
@@ -146,8 +150,9 @@ export default function EPrescribePage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Quantity</label>
+              <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">Quantity</label>
               <input 
+                id="quantity"
                 type="number" 
                 name="quantity" 
                 value={formData.quantity} 
@@ -156,8 +161,9 @@ export default function EPrescribePage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Days Supply</label>
+              <label htmlFor="days_supply" className="block text-sm font-medium text-gray-700">Days Supply</label>
               <input 
+                id="days_supply"
                 type="number" 
                 name="days_supply" 
                 value={formData.days_supply} 
@@ -166,8 +172,9 @@ export default function EPrescribePage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Refills Allowed</label>
+              <label htmlFor="refills_allowed" className="block text-sm font-medium text-gray-700">Refills Allowed</label>
               <input 
+                id="refills_allowed"
                 type="number" 
                 name="refills_allowed" 
                 value={formData.refills_allowed} 
@@ -180,8 +187,9 @@ export default function EPrescribePage() {
           </div>
 
           <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700">Directions (Sig)</label>
+            <label htmlFor="directions" className="block text-sm font-medium text-gray-700">Directions (Sig)</label>
             <textarea 
+              id="directions"
               name="directions" 
               value={formData.directions} 
               onChange={handleChange} 
@@ -193,8 +201,9 @@ export default function EPrescribePage() {
           </div>
 
           <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700">Patient Instructions</label>
+            <label htmlFor="patient_instructions" className="block text-sm font-medium text-gray-700">Patient Instructions</label>
             <textarea 
+              id="patient_instructions"
               name="patient_instructions" 
               value={formData.patient_instructions} 
               onChange={handleChange} 
@@ -206,13 +215,14 @@ export default function EPrescribePage() {
 
           <div className="mt-4 flex items-center">
             <input
+              id="is_controlled"
               type="checkbox"
               name="is_controlled"
               checked={formData.is_controlled}
               onChange={handleChange}
               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
             />
-            <label className="ml-2 block text-sm text-gray-700">
+            <label htmlFor="is_controlled" className="ml-2 block text-sm text-gray-700">
               Controlled Substance (Schedule II-V)
             </label>
           </div>

@@ -470,10 +470,11 @@ export function SymptomTrackerPage() {
 
                   {/* Duration */}
                   <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label htmlFor="symptom-duration" className="block text-sm font-medium text-neutral-700 mb-2">
                       Duration (optional)
                     </label>
                     <input
+                      id="symptom-duration"
                       type="text"
                       value={newEntry.duration || ''}
                       onChange={(e) => setNewEntry(prev => ({ ...prev, duration: e.target.value }))}
@@ -484,10 +485,11 @@ export function SymptomTrackerPage() {
 
                   {/* Notes */}
                   <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label htmlFor="symptom-notes" className="block text-sm font-medium text-neutral-700 mb-2">
                       Notes (optional)
                     </label>
                     <textarea
+                      id="symptom-notes"
                       value={newEntry.notes || ''}
                       onChange={(e) => setNewEntry(prev => ({ ...prev, notes: e.target.value }))}
                       placeholder="Any additional details..."

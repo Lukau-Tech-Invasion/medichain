@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getPatients, listImmunizations, createImmunization } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -79,6 +80,7 @@ interface VaccineScheduleItem {
 
 const ImmunizationPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [administrations, setAdministrations] = useState<VaccineAdministration[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -204,7 +206,7 @@ const ImmunizationPage: React.FC = () => {
 
   const handleAdminister = () => {
     if (!newVaccine.patientId || !newVaccine.vaccineName || !newVaccine.lotNumber) {
-      alert('Please fill in all required fields');
+      showWarning('Please fill in all required fields');
       return;
     }
 
@@ -258,7 +260,7 @@ const ImmunizationPage: React.FC = () => {
       vfcEligible: false,
     });
     setActiveTab('records');
-    alert(`Vaccination ${newAdmin.administrationId} administered successfully`);
+    showSuccess(`Vaccination ${newAdmin.administrationId} administered successfully`);
   };
 
   const filteredAdministrations = administrations.filter((a) => {
@@ -355,10 +357,11 @@ const ImmunizationPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="imm-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="imm-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -368,8 +371,9 @@ const ImmunizationPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="imm-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
                 <select
+                  id="imm-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as VaccinationStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -498,10 +502,11 @@ const ImmunizationPage: React.FC = () => {
           <div className="space-y-4 mb-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-patient" className="block text-sm font-semibold text-gray-700 mb-2">
                   Patient <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="imm-patient"
                   value={newVaccine.patientId}
                   onChange={(e) => setNewVaccine({ ...newVaccine, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -516,10 +521,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-vaccine-type" className="block text-sm font-semibold text-gray-700 mb-2">
                   Vaccine Type <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="imm-vaccine-type"
                   value={newVaccine.vaccineType}
                   onChange={(e) => setNewVaccine({ ...newVaccine, vaccineType: e.target.value as VaccineType })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -546,10 +552,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-vaccine-name" className="block text-sm font-semibold text-gray-700 mb-2">
                   Vaccine Name <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="imm-vaccine-name"
                   type="text"
                   value={newVaccine.vaccineName}
                   onChange={(e) => setNewVaccine({ ...newVaccine, vaccineName: e.target.value })}
@@ -559,10 +566,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-manufacturer" className="block text-sm font-semibold text-gray-700 mb-2">
                   Manufacturer <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="imm-manufacturer"
                   type="text"
                   value={newVaccine.manufacturer}
                   onChange={(e) => setNewVaccine({ ...newVaccine, manufacturer: e.target.value })}
@@ -572,10 +580,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-lot-number" className="block text-sm font-semibold text-gray-700 mb-2">
                   Lot Number <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="imm-lot-number"
                   type="text"
                   value={newVaccine.lotNumber}
                   onChange={(e) => setNewVaccine({ ...newVaccine, lotNumber: e.target.value })}
@@ -585,10 +594,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-expiry-date" className="block text-sm font-semibold text-gray-700 mb-2">
                   Expiry Date <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="imm-expiry-date"
                   type="date"
                   value={newVaccine.expiryDate}
                   onChange={(e) => setNewVaccine({ ...newVaccine, expiryDate: e.target.value })}
@@ -597,10 +607,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-dose" className="block text-sm font-semibold text-gray-700 mb-2">
                   Dose <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="imm-dose"
                   type="text"
                   value={newVaccine.dose}
                   onChange={(e) => setNewVaccine({ ...newVaccine, dose: e.target.value })}
@@ -610,10 +621,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-route" className="block text-sm font-semibold text-gray-700 mb-2">
                   Route <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="imm-route"
                   value={newVaccine.route}
                   onChange={(e) => setNewVaccine({ ...newVaccine, route: e.target.value as AdministrationRoute })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -627,10 +639,11 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="imm-site" className="block text-sm font-semibold text-gray-700 mb-2">
                   Site <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="imm-site"
                   value={newVaccine.site}
                   onChange={(e) => setNewVaccine({ ...newVaccine, site: e.target.value as AdministrationSite })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -645,8 +658,9 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Dose Number</label>
+                <label htmlFor="imm-dose-number" className="block text-sm font-semibold text-gray-700 mb-2">Dose Number</label>
                 <input
+                  id="imm-dose-number"
                   type="number"
                   min="1"
                   value={newVaccine.doseNumber}
@@ -656,8 +670,9 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Total Doses in Series</label>
+                <label htmlFor="imm-total-doses" className="block text-sm font-semibold text-gray-700 mb-2">Total Doses in Series</label>
                 <input
+                  id="imm-total-doses"
                   type="number"
                   min="1"
                   value={newVaccine.totalDoses}
@@ -667,8 +682,9 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Next Dose Due Date</label>
+                <label htmlFor="imm-next-due-date" className="block text-sm font-semibold text-gray-700 mb-2">Next Dose Due Date</label>
                 <input
+                  id="imm-next-due-date"
                   type="date"
                   value={newVaccine.nextDueDate}
                   onChange={(e) => setNewVaccine({ ...newVaccine, nextDueDate: e.target.value })}
@@ -679,29 +695,32 @@ const ImmunizationPage: React.FC = () => {
               <div className="col-span-2 flex items-center gap-6">
                 <div className="flex items-center gap-2">
                   <input
+                    id="imm-consent-obtained"
                     type="checkbox"
                     checked={newVaccine.consentObtained}
                     onChange={(e) => setNewVaccine({ ...newVaccine, consentObtained: e.target.checked })}
                     className="w-5 h-5"
                   />
-                  <label className="text-sm font-semibold text-gray-700">Consent Obtained</label>
+                  <label htmlFor="imm-consent-obtained" className="text-sm font-semibold text-gray-700">Consent Obtained</label>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <input
+                    id="imm-vfc-eligible"
                     type="checkbox"
                     checked={newVaccine.vfcEligible}
                     onChange={(e) => setNewVaccine({ ...newVaccine, vfcEligible: e.target.checked })}
                     className="w-5 h-5"
                   />
-                  <label className="text-sm font-semibold text-gray-700">VFC Eligible</label>
+                  <label htmlFor="imm-vfc-eligible" className="text-sm font-semibold text-gray-700">VFC Eligible</label>
                 </div>
               </div>
 
               {newVaccine.consentObtained && (
                 <div className="col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Consent Given By</label>
+                  <label htmlFor="imm-consent-by" className="block text-sm font-semibold text-gray-700 mb-2">Consent Given By</label>
                   <input
+                    id="imm-consent-by"
                     type="text"
                     value={newVaccine.consentBy}
                     onChange={(e) => setNewVaccine({ ...newVaccine, consentBy: e.target.value })}
@@ -712,8 +731,9 @@ const ImmunizationPage: React.FC = () => {
               )}
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Adverse Reactions</label>
+                <label htmlFor="imm-adverse-reactions" className="block text-sm font-semibold text-gray-700 mb-2">Adverse Reactions</label>
                 <input
+                  id="imm-adverse-reactions"
                   type="text"
                   value={newVaccine.adverseReactions}
                   onChange={(e) => setNewVaccine({ ...newVaccine, adverseReactions: e.target.value })}
@@ -723,8 +743,9 @@ const ImmunizationPage: React.FC = () => {
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label htmlFor="imm-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
                 <textarea
+                  id="imm-notes"
                   value={newVaccine.notes}
                   onChange={(e) => setNewVaccine({ ...newVaccine, notes: e.target.value })}
                   placeholder="Additional notes..."
@@ -836,8 +857,9 @@ const ImmunizationPage: React.FC = () => {
       {activeTab === 'history' && (
         <div className="space-y-4">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Select Patient</label>
+            <label htmlFor="imm-select-patient" className="block text-sm font-semibold text-gray-700 mb-2">Select Patient</label>
             <select
+              id="imm-select-patient"
               value={selectedPatient}
               onChange={(e) => setSelectedPatient(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2"

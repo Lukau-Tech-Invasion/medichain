@@ -10,8 +10,12 @@ import {
   ArrowDown,
   ArrowUp,
   Download,
-  Printer
+  Printer,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * IntakeOutputPage
@@ -56,6 +60,9 @@ const IntakeOutputPage: React.FC = () => {
   const [_showEntryModal, setShowEntryModal] = useState(false);
   const [entryType, setEntryType] = useState<'intake' | 'output'>('intake');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuthStore();
 
   const [newEntry, setNewEntry] = useState({
     type: 'intake' as 'intake' | 'output',
@@ -67,65 +74,47 @@ const IntakeOutputPage: React.FC = () => {
   });
 
   useEffect(() => {
-    const now = new Date();
-    const makeTime = (h: number, m: number) => {
-      const d = new Date(now);
-      d.setHours(h, m, 0, 0);
-      return d;
-    };
-
-    setPatients([
-      {
-        patientId: 'PAT-12345',
-        patientName: 'Ahmed Al-Rashid',
-        mrn: '789012',
-        room: '412-A',
-        entries: [
-          { id: 'IO-001', patientId: 'PAT-12345', timestamp: makeTime(6, 0), type: 'intake', category: 'oral', amount: 240, unit: 'ml', source: 'Water', recordedBy: 'Maria Santos, RN' },
-          { id: 'IO-002', patientId: 'PAT-12345', timestamp: makeTime(7, 30), type: 'intake', category: 'iv', amount: 100, unit: 'ml', source: 'NS @ 100ml/hr', recordedBy: 'Maria Santos, RN' },
-          { id: 'IO-003', patientId: 'PAT-12345', timestamp: makeTime(8, 0), type: 'output', category: 'urine', amount: 350, unit: 'ml', recordedBy: 'Maria Santos, RN' },
-          { id: 'IO-004', patientId: 'PAT-12345', timestamp: makeTime(10, 0), type: 'intake', category: 'oral', amount: 180, unit: 'ml', source: 'Juice', recordedBy: 'James Wilson, CNA' },
-          { id: 'IO-005', patientId: 'PAT-12345', timestamp: makeTime(12, 0), type: 'intake', category: 'tube-feeding', amount: 250, unit: 'ml', source: 'Jevity 1.5', recordedBy: 'Maria Santos, RN' },
-          { id: 'IO-006', patientId: 'PAT-12345', timestamp: makeTime(14, 0), type: 'output', category: 'urine', amount: 425, unit: 'ml', recordedBy: 'David Chen, RN' }
-        ],
-        totalIntake24h: 1870,
-        totalOutput24h: 1425,
-        netBalance: 445,
-        alerts: []
-      },
-      {
-        patientId: 'PAT-67890',
-        patientName: 'Fatima Hassan',
-        mrn: '456789',
-        room: '308-B',
-        entries: [
-          { id: 'IO-101', patientId: 'PAT-67890', timestamp: makeTime(6, 0), type: 'intake', category: 'iv', amount: 500, unit: 'ml', source: 'LR @ 125ml/hr', recordedBy: 'David Chen, RN' },
-          { id: 'IO-102', patientId: 'PAT-67890', timestamp: makeTime(8, 0), type: 'output', category: 'urine', amount: 150, unit: 'ml', recordedBy: 'David Chen, RN' },
-          { id: 'IO-103', patientId: 'PAT-67890', timestamp: makeTime(10, 0), type: 'intake', category: 'iv', amount: 250, unit: 'ml', source: 'LR @ 125ml/hr', recordedBy: 'Susan Kim, RN' },
-          { id: 'IO-104', patientId: 'PAT-67890', timestamp: makeTime(12, 0), type: 'output', category: 'emesis', amount: 100, unit: 'ml', notes: 'Bilious', recordedBy: 'Susan Kim, RN' }
-        ],
-        totalIntake24h: 1250,
-        totalOutput24h: 650,
-        netBalance: 600,
-        alerts: ['Low urine output - monitor closely']
-      },
-      {
-        patientId: 'PAT-11223',
-        patientName: 'Omar Khalil',
-        mrn: '334455',
-        room: 'ICU-3',
-        entries: [
-          { id: 'IO-201', patientId: 'PAT-11223', timestamp: makeTime(0, 0), type: 'intake', category: 'iv', amount: 1200, unit: 'ml', source: 'NS @ 50ml/hr', recordedBy: 'Night Shift RN' },
-          { id: 'IO-202', patientId: 'PAT-11223', timestamp: makeTime(6, 0), type: 'output', category: 'urine', amount: 180, unit: 'ml', notes: 'Foley catheter', recordedBy: 'David Chen, RN' },
-          { id: 'IO-203', patientId: 'PAT-11223', timestamp: makeTime(8, 0), type: 'output', category: 'drainage', amount: 75, unit: 'ml', source: 'NG tube', recordedBy: 'David Chen, RN' }
-        ],
-        totalIntake24h: 2400,
-        totalOutput24h: 455,
-        netBalance: 1945,
-        alerts: ['Significant positive balance', 'Oliguria - notify physician']
+    const fetchIntakeOutput = async () => {
+      if (!user?.walletAddress) {
+        setLoading(false);
+        return;
       }
-    ]);
-  }, []);
+      
+      try {
+        const response = await fetch(apiUrl('/api/clinical/intake-output'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (Array.isArray(data)) {
+            setPatients(data.map((p: PatientIO & { entries: (IOEntry & { timestamp: string })[] }) => ({
+              ...p,
+              entries: p.entries.map((e: IOEntry & { timestamp: string }) => ({
+                ...e,
+                timestamp: new Date(e.timestamp)
+              }))
+            })));
+          }
+        } else if (response.status === 401) {
+          setError('Session expired. Please log in again.');
+        } else {
+          setError('Failed to load intake/output records');
+        }
+      } catch (err) {
+        console.error('Failed to fetch I/O records:', err);
+        setError('Unable to connect to server');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchIntakeOutput();
+  }, [user]);
 
   const getIntakeCategories = (): IntakeType[] => ['oral', 'iv', 'tube-feeding', 'blood-products', 'other-intake'];
   const getOutputCategories = (): OutputType[] => ['urine', 'stool', 'emesis', 'drainage', 'blood-loss', 'other-output'];
@@ -193,52 +182,74 @@ const IntakeOutputPage: React.FC = () => {
         <p className="text-cyan-100">Track patient fluid balance</p>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="flex">
-          {(['patients', 'entry', 'trends'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize ${
-                activeTab === tab ? 'text-cyan-700 border-b-2 border-cyan-700' : 'text-gray-500'
-              }`}
-            >
-              {tab === 'entry' ? 'Quick Entry' : tab === 'patients' ? 'All Patients' : 'Trends'}
-            </button>
-          ))}
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-cyan-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading I/O records...</p>
         </div>
-      </div>
+      )}
 
-      {/* Patients Tab */}
-      {activeTab === 'patients' && (
-        <div className="p-6">
-          <div className="flex gap-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by name, MRN, or room..."
-                className="w-full pl-10 pr-4 py-2 border rounded-lg"
-              />
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+          </div>
+        </div>
+      )}
+
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Tabs */}
+          <div className="bg-white border-b">
+            <div className="flex">
+              {(['patients', 'entry', 'trends'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 py-4 text-sm font-medium capitalize ${
+                    activeTab === tab ? 'text-cyan-700 border-b-2 border-cyan-700' : 'text-gray-500'
+                  }`}
+                >
+                  {tab === 'entry' ? 'Quick Entry' : tab === 'patients' ? 'All Patients' : 'Trends'}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="space-y-4">
-            {filteredPatients.map(patient => {
-              const balanceStatus = getBalanceStatus(patient.netBalance);
-              return (
-                <div
-                  key={patient.patientId}
-                  className="bg-white rounded-lg shadow border overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => setSelectedPatient(patient)}
-                >
-                  <div className="p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="font-semibold text-lg">{patient.patientName}</h3>
+          {/* Patients Tab */}
+          {activeTab === 'patients' && (
+            <div className="p-6">
+              <div className="flex gap-4 mb-6">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by name, MRN, or room..."
+                    className="w-full pl-10 pr-4 py-2 border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {filteredPatients.map(patient => {
+                  const balanceStatus = getBalanceStatus(patient.netBalance);
+                  return (
+                    <div
+                      key={patient.patientId}
+                      className="bg-white rounded-lg shadow border overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                      onClick={() => setSelectedPatient(patient)}
+                    >
+                      <div className="p-6">
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h3 className="font-semibold text-lg">{patient.patientName}</h3>
                         <p className="text-sm text-gray-500">MRN: {patient.mrn} • Room: {patient.room}</p>
                       </div>
                       {patient.alerts.length > 0 && (
@@ -306,8 +317,8 @@ const IntakeOutputPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Patient *</label>
-                <select className="w-full border rounded-lg px-3 py-2">
+                <label htmlFor="io-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                <select id="io-patient" className="w-full border rounded-lg px-3 py-2">
                   <option value="">Select patient...</option>
                   {patients.map(p => (
                     <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.room}</option>
@@ -340,8 +351,9 @@ const IntakeOutputPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Category *</label>
+                <label htmlFor="io-category" className="block text-sm font-medium mb-1">Category *</label>
                 <select
+                  id="io-category"
                   value={newEntry.category}
                   onChange={(e) => setNewEntry({ ...newEntry, category: e.target.value as any })}
                   className="w-full border rounded-lg px-3 py-2"
@@ -354,8 +366,9 @@ const IntakeOutputPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Amount *</label>
+                  <label htmlFor="io-amount" className="block text-sm font-medium mb-1">Amount *</label>
                   <input
+                    id="io-amount"
                     type="number"
                     value={newEntry.amount || ''}
                     onChange={(e) => setNewEntry({ ...newEntry, amount: parseInt(e.target.value) || 0 })}
@@ -364,8 +377,9 @@ const IntakeOutputPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Unit</label>
+                  <label htmlFor="io-unit" className="block text-sm font-medium mb-1">Unit</label>
                   <select
+                    id="io-unit"
                     value={newEntry.unit}
                     onChange={(e) => setNewEntry({ ...newEntry, unit: e.target.value as any })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -379,8 +393,9 @@ const IntakeOutputPage: React.FC = () => {
 
               {entryType === 'intake' && (
                 <div>
-                  <label className="block text-sm font-medium mb-1">Source</label>
+                  <label htmlFor="io-source" className="block text-sm font-medium mb-1">Source</label>
                   <input
+                    id="io-source"
                     type="text"
                     value={newEntry.source}
                     onChange={(e) => setNewEntry({ ...newEntry, source: e.target.value })}
@@ -391,8 +406,9 @@ const IntakeOutputPage: React.FC = () => {
               )}
 
               <div>
-                <label className="block text-sm font-medium mb-1">Notes</label>
+                <label htmlFor="io-notes" className="block text-sm font-medium mb-1">Notes</label>
                 <textarea
+                  id="io-notes"
                   value={newEntry.notes}
                   onChange={(e) => setNewEntry({ ...newEntry, notes: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2"
@@ -543,6 +559,8 @@ const IntakeOutputPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

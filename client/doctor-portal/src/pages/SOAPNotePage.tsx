@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useAuthStore, usePatientStore } from '../store';
+import { useAuthStore } from '../store';
 import { apiUrl } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
@@ -84,6 +84,12 @@ const DIAGNOSIS_STATUSES: Array<'confirmed' | 'provisional' | 'rule-out'> = ['co
 
 const MEDICATION_ROUTES = ['PO', 'IV', 'IM', 'SubQ', 'Topical', 'Inhalation', 'Rectal', 'Transdermal'];
 
+interface PatientOption {
+  patient_id: string;
+  full_name: string;
+  health_id?: string;
+}
+
 /**
  * SOAPNotePage - Create comprehensive SOAP (Subjective/Objective/Assessment/Plan) clinical notes
  */
@@ -93,7 +99,10 @@ function SOAPNotePage() {
   const patientIdFromUrl = searchParams.get('patientId');
   
   const { user, isAuthenticated } = useAuthStore();
-  const { recentPatients } = usePatientStore();
+  
+  // Patients fetched from API
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const [loadingPatients, setLoadingPatients] = useState(false);
   
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdFromUrl || '');
   const [encounterType, setEncounterType] = useState('initial');
@@ -104,6 +113,34 @@ function SOAPNotePage() {
       navigate('/login');
     }
   }, [isAuthenticated, navigate]);
+  
+  // Fetch patients from API
+  useEffect(() => {
+    if (!user) return;
+    
+    const fetchPatients = async () => {
+      setLoadingPatients(true);
+      try {
+        const response = await fetch(apiUrl('/api/patients'), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role,
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const patientArray = Array.isArray(data) ? data : (data.data || []);
+          setPatients(patientArray);
+        }
+      } catch (err) {
+        console.error('Failed to fetch patients:', err);
+      } finally {
+        setLoadingPatients(false);
+      }
+    };
+    
+    fetchPatients();
+  }, [user]);
   
   // SUBJECTIVE
   const [chiefComplaint, setChiefComplaint] = useState('');
@@ -267,7 +304,7 @@ function SOAPNotePage() {
         },
       };
 
-      const response = await fetch(`${apiUrl}/api/clinical/soap`, {
+      const response = await fetch(apiUrl('/api/clinical/soap'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -347,29 +384,32 @@ function SOAPNotePage() {
           
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-patient-id" className="block text-sm font-medium text-gray-700 mb-2">
                 Patient ID *
               </label>
               <select
+                id="soap-patient-id"
                 value={selectedPatientId}
                 onChange={(e) => setSelectedPatientId(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 required
+                disabled={loadingPatients}
               >
-                <option value="">Select a patient...</option>
-                {recentPatients.map((patient) => (
-                  <option key={patient.patientId} value={patient.patientId}>
-                    {patient.fullName} ({patient.patientId})
+                <option value="">{loadingPatients ? 'Loading patients...' : 'Select a patient...'}</option>
+                {patients.map((patient) => (
+                  <option key={patient.patient_id} value={patient.patient_id}>
+                    {patient.full_name} ({patient.patient_id})
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-encounter-type" className="block text-sm font-medium text-gray-700 mb-2">
                 Encounter Type *
               </label>
               <select
+                id="soap-encounter-type"
                 value={encounterType}
                 onChange={(e) => setEncounterType(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
@@ -393,10 +433,11 @@ function SOAPNotePage() {
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-chief-complaint" className="block text-sm font-medium text-gray-700 mb-2">
                 Chief Complaint *
               </label>
               <input
+                id="soap-chief-complaint"
                 type="text"
                 value={chiefComplaint}
                 onChange={(e) => setChiefComplaint(e.target.value)}
@@ -407,10 +448,11 @@ function SOAPNotePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-hpi" className="block text-sm font-medium text-gray-700 mb-2">
                 History of Present Illness (HPI)
               </label>
               <textarea
+                id="soap-hpi"
                 value={hpi}
                 onChange={(e) => setHpi(e.target.value)}
                 placeholder="Detailed narrative of symptoms, onset, duration, severity, progression..."
@@ -421,10 +463,11 @@ function SOAPNotePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-symptoms" className="block text-sm font-medium text-gray-700 mb-2">
                   Symptoms (comma-separated)
                 </label>
                 <input
+                  id="soap-symptoms"
                   type="text"
                   value={symptoms}
                   onChange={(e) => setSymptoms(e.target.value)}
@@ -434,10 +477,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-symptom-duration" className="block text-sm font-medium text-gray-700 mb-2">
                   Symptom Duration
                 </label>
                 <input
+                  id="soap-symptom-duration"
                   type="text"
                   value={symptomDuration}
                   onChange={(e) => setSymptomDuration(e.target.value)}
@@ -448,11 +492,10 @@ function SOAPNotePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-review-of-systems" className="block text-sm font-medium text-gray-700 mb-2">
                 Review of Systems (ROS)
               </label>
-              <textarea
-                value={reviewOfSystems}
+              <textarea                id="soap-review-of-systems"                value={reviewOfSystems}
                 onChange={(e) => setReviewOfSystems(e.target.value)}
                 placeholder="Constitutional, Respiratory, Cardiovascular, GI, GU, Neuro, etc."
                 rows={3}
@@ -462,10 +505,11 @@ function SOAPNotePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-modifying-factors" className="block text-sm font-medium text-gray-700 mb-2">
                   Modifying Factors
                 </label>
                 <input
+                  id="soap-modifying-factors"
                   type="text"
                   value={modifyingFactors}
                   onChange={(e) => setModifyingFactors(e.target.value)}
@@ -475,10 +519,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-previous-treatments" className="block text-sm font-medium text-gray-700 mb-2">
                   Previous Treatments
                 </label>
                 <input
+                  id="soap-previous-treatments"
                   type="text"
                   value={previousTreatments}
                   onChange={(e) => setPreviousTreatments(e.target.value)}
@@ -500,10 +545,11 @@ function SOAPNotePage() {
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-general-appearance" className="block text-sm font-medium text-gray-700 mb-2">
                 General Appearance
               </label>
               <input
+                id="soap-general-appearance"
                 type="text"
                 value={generalAppearance}
                 onChange={(e) => setGeneralAppearance(e.target.value)}
@@ -514,11 +560,12 @@ function SOAPNotePage() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor="soap-physical-exam-system" className="text-sm font-medium text-gray-700">
                   Physical Examination
                 </label>
                 <div className="flex gap-2">
                   <select
+                    id="soap-physical-exam-system"
                     onChange={(e) => {
                       if (e.target.value) {
                         addPhysicalExam(e.target.value);
@@ -577,10 +624,11 @@ function SOAPNotePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-lab-results" className="block text-sm font-medium text-gray-700 mb-2">
                   Lab Results (comma-separated)
                 </label>
                 <input
+                  id="soap-lab-results"
                   type="text"
                   value={labResults}
                   onChange={(e) => setLabResults(e.target.value)}
@@ -590,10 +638,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-imaging-results" className="block text-sm font-medium text-gray-700 mb-2">
                   Imaging Results (comma-separated)
                 </label>
                 <input
+                  id="soap-imaging-results"
                   type="text"
                   value={imagingResults}
                   onChange={(e) => setImagingResults(e.target.value)}
@@ -616,10 +665,11 @@ function SOAPNotePage() {
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-primary-diagnosis" className="block text-sm font-medium text-gray-700 mb-2">
                   Primary Diagnosis
                 </label>
                 <input
+                  id="soap-primary-diagnosis"
                   type="text"
                   value={primaryDiagnosis}
                   onChange={(e) => setPrimaryDiagnosis(e.target.value)}
@@ -629,10 +679,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-icd10-code" className="block text-sm font-medium text-gray-700 mb-2">
                   ICD-10 Code
                 </label>
                 <input
+                  id="soap-icd10-code"
                   type="text"
                   value={primaryICD10}
                   onChange={(e) => setPrimaryICD10(e.target.value)}
@@ -644,11 +695,10 @@ function SOAPNotePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-diagnosis-status" className="block text-sm font-medium text-gray-700 mb-2">
                   Diagnosis Status
                 </label>
-                <select
-                  value={primaryStatus}
+                <select                  id="soap-diagnosis-status"                  value={primaryStatus}
                   onChange={(e) => setPrimaryStatus(e.target.value as any)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 >
@@ -659,10 +709,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-severity" className="block text-sm font-medium text-gray-700 mb-2">
                   Severity
                 </label>
                 <input
+                  id="soap-severity"
                   type="text"
                   value={severity}
                   onChange={(e) => setSeverity(e.target.value)}
@@ -673,11 +724,10 @@ function SOAPNotePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-clinical-summary" className="block text-sm font-medium text-gray-700 mb-2">
                 Clinical Summary *
               </label>
-              <textarea
-                value={clinicalSummary}
+              <textarea                id="soap-clinical-summary"                value={clinicalSummary}
                 onChange={(e) => setClinicalSummary(e.target.value)}
                 placeholder="Summary of findings, differential diagnoses, clinical reasoning..."
                 rows={4}
@@ -698,10 +748,11 @@ function SOAPNotePage() {
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-treatment-plan" className="block text-sm font-medium text-gray-700 mb-2">
                 Treatment Plan *
               </label>
               <textarea
+                id="soap-treatment-plan"
                 value={treatmentPlan}
                 onChange={(e) => setTreatmentPlan(e.target.value)}
                 placeholder="Overall treatment strategy and goals..."
@@ -713,10 +764,11 @@ function SOAPNotePage() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor="soap-add-medication" className="text-sm font-medium text-gray-700">
                   Medications/Prescriptions
                 </label>
                 <button
+                  id="soap-add-medication"
                   type="button"
                   onClick={addMedication}
                   className="text-sm px-3 py-1 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
@@ -789,10 +841,11 @@ function SOAPNotePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-procedures" className="block text-sm font-medium text-gray-700 mb-2">
                   Procedures (comma-separated)
                 </label>
                 <input
+                  id="soap-procedures"
                   type="text"
                   value={procedures}
                   onChange={(e) => setProcedures(e.target.value)}
@@ -802,10 +855,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-lab-orders" className="block text-sm font-medium text-gray-700 mb-2">
                   Lab Orders (comma-separated)
                 </label>
                 <input
+                  id="soap-lab-orders"
                   type="text"
                   value={labOrders}
                   onChange={(e) => setLabOrders(e.target.value)}
@@ -817,11 +871,10 @@ function SOAPNotePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-imaging-orders" className="block text-sm font-medium text-gray-700 mb-2">
                   Imaging Orders (comma-separated)
                 </label>
-                <input
-                  type="text"
+                <input                  id="soap-imaging-orders"                  type="text"
                   value={imagingOrders}
                   onChange={(e) => setImagingOrders(e.target.value)}
                   placeholder="e.g., Chest X-ray, CT abdomen"
@@ -830,10 +883,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-referrals" className="block text-sm font-medium text-gray-700 mb-2">
                   Referrals (comma-separated)
                 </label>
                 <input
+                  id="soap-referrals"
                   type="text"
                   value={referrals}
                   onChange={(e) => setReferrals(e.target.value)}
@@ -844,11 +898,10 @@ function SOAPNotePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-patient-education" className="block text-sm font-medium text-gray-700 mb-2">
                 Patient Education (comma-separated)
               </label>
-              <input
-                type="text"
+              <input                id="soap-patient-education"                type="text"
                 value={patientEducation}
                 onChange={(e) => setPatientEducation(e.target.value)}
                 placeholder="e.g., Rest, Fluids, Wound care instructions"
@@ -858,11 +911,12 @@ function SOAPNotePage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="flex text-sm font-medium text-gray-700 mb-2 items-center gap-1">
+                <label htmlFor="soap-follow-up" className="flex text-sm font-medium text-gray-700 mb-2 items-center gap-1">
                   <Calendar size={16} />
                   Follow-up Instructions
                 </label>
                 <input
+                  id="soap-follow-up"
                   type="text"
                   value={followUp}
                   onChange={(e) => setFollowUp(e.target.value)}
@@ -872,10 +926,11 @@ function SOAPNotePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="soap-activity-restrictions" className="block text-sm font-medium text-gray-700 mb-2">
                   Activity Restrictions
                 </label>
                 <input
+                  id="soap-activity-restrictions"
                   type="text"
                   value={activityRestrictions}
                   onChange={(e) => setActivityRestrictions(e.target.value)}
@@ -886,11 +941,10 @@ function SOAPNotePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="soap-return-precautions" className="block text-sm font-medium text-gray-700 mb-2">
                 Return Precautions (Red Flags - comma-separated)
               </label>
-              <input
-                type="text"
+              <input                id="soap-return-precautions"                type="text"
                 value={returnPrecautions}
                 onChange={(e) => setReturnPrecautions(e.target.value)}
                 placeholder="e.g., Fever >38.5°C, Worsening pain, Shortness of breath"

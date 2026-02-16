@@ -133,7 +133,7 @@ function DischargePage() {
   const fetchPatients = async () => {
     if (!user) return;
     try {
-      const response = await fetch(apiUrl('/api/patients/list'), {
+      const response = await fetch(apiUrl('/api/patients'), {
         headers: { 
           'X-User-Id': user.walletAddress,
           'X-Provider-Role': user.role,
@@ -141,7 +141,8 @@ function DischargePage() {
       });
       if (response.ok) {
         const data = await response.json();
-        setPatients(data.patients || []);
+        const patientArray = Array.isArray(data) ? data : (data.data || []);
+        setPatients(patientArray);
         setApiConnected(true);
       } else {
         setApiConnected(false);
@@ -553,10 +554,11 @@ function DischargePage() {
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               {/* Patient Selection */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                <label htmlFor="dc-patient" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
                   <User size={16} /> Patient
                 </label>
                 <select
+                  id="dc-patient"
                   value={selectedPatient}
                   onChange={(e) => setSelectedPatient(e.target.value)}
                   className="w-full p-3 border border-gray-200 rounded-lg"
@@ -572,10 +574,11 @@ function DischargePage() {
               {/* Diagnoses */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <label htmlFor="dc-primary-diagnosis" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
                     <Heart size={16} /> Primary Diagnosis
                   </label>
                   <input
+                    id="dc-primary-diagnosis"
                     type="text"
                     value={formData.primary_diagnosis}
                     onChange={(e) => setFormData({ ...formData, primary_diagnosis: e.target.value })}
@@ -585,10 +588,11 @@ function DischargePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <label htmlFor="dc-discharge-disposition" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
                     <Clipboard size={16} /> Discharge Disposition
                   </label>
                   <select
+                    id="dc-discharge-disposition"
                     value={formData.discharge_disposition}
                     onChange={(e) => setFormData({ ...formData, discharge_disposition: e.target.value })}
                     className="w-full p-3 border border-gray-200 rounded-lg"
@@ -605,8 +609,9 @@ function DischargePage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1">Secondary Diagnoses (one per line)</label>
+                <label htmlFor="dc-secondary-diagnoses" className="text-sm font-medium text-gray-700 mb-1">Secondary Diagnoses (one per line)</label>
                 <textarea
+                  id="dc-secondary-diagnoses"
                   value={formData.secondary_diagnoses}
                   onChange={(e) => setFormData({ ...formData, secondary_diagnoses: e.target.value })}
                   className="w-full p-3 border border-gray-200 rounded-lg"
@@ -617,8 +622,8 @@ function DischargePage() {
 
               {/* Discharge Condition */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1">Discharge Condition</label>
-                <div className="grid grid-cols-4 gap-2">
+                <label id="dc-discharge-condition-label" className="text-sm font-medium text-gray-700 mb-1">Discharge Condition</label>
+                <div className="grid grid-cols-4 gap-2" role="group" aria-labelledby="dc-discharge-condition-label">
                   {['improved', 'stable', 'unchanged', 'declined'].map((condition) => (
                     <button
                       key={condition}
@@ -756,10 +761,11 @@ function DischargePage() {
 
               {/* Warning Signs */}
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                <label htmlFor="dc-warning-signs" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
                   <AlertTriangle size={16} /> Warning Signs (one per line)
                 </label>
                 <textarea
+                  id="dc-warning-signs"
                   value={formData.warning_signs}
                   onChange={(e) => setFormData({ ...formData, warning_signs: e.target.value })}
                   className="w-full p-3 border border-gray-200 rounded-lg"
@@ -771,8 +777,9 @@ function DischargePage() {
               {/* Diet & Activity */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1">Diet Instructions</label>
+                  <label htmlFor="dc-diet-instructions" className="text-sm font-medium text-gray-700 mb-1">Diet Instructions</label>
                   <textarea
+                    id="dc-diet-instructions"
                     value={formData.diet_instructions}
                     onChange={(e) => setFormData({ ...formData, diet_instructions: e.target.value })}
                     className="w-full p-3 border border-gray-200 rounded-lg"
@@ -780,8 +787,9 @@ function DischargePage() {
                   />
                 </div>
                 <div>
-                  <label className="text-sm font-medium text-gray-700 mb-1">Activity Restrictions</label>
+                  <label htmlFor="dc-activity-restrictions" className="text-sm font-medium text-gray-700 mb-1">Activity Restrictions</label>
                   <textarea
+                    id="dc-activity-restrictions"
                     value={formData.activity_restrictions}
                     onChange={(e) => setFormData({ ...formData, activity_restrictions: e.target.value })}
                     className="w-full p-3 border border-gray-200 rounded-lg"

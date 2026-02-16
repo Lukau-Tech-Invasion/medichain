@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Layout } from '@shared/components';
+import { Layout } from '@medichain/shared';
+import { ToastProvider } from './components/Toast';
 import {
   LoginPage,
   DashboardPage,
@@ -43,6 +44,7 @@ import {
  */
 function App() {
   return (
+    <ToastProvider>
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
@@ -78,6 +80,7 @@ function App() {
       {/* Catch all - redirect to dashboard */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    </ToastProvider>
   );
 }
 

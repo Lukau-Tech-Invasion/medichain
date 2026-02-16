@@ -7644,6 +7644,27 @@ pub enum AdherenceAction {
 // PHASE 21: DRUG INTERACTION CHECKING
 // ============================================================================
 
+/// Drug reference information (for drug lookup/search)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DrugReference {
+    /// Unique drug identifier
+    pub drug_id: String,
+    /// Drug name
+    pub name: String,
+    /// Generic name
+    pub generic_name: String,
+    /// Brand names
+    pub brand_names: Vec<String>,
+    /// Drug class
+    pub drug_class: String,
+    /// Route of administration
+    pub route: String,
+    /// Dosage form
+    pub form: String,
+    /// Common doses
+    pub common_doses: Vec<String>,
+}
+
 /// Drug interaction check request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DrugInteractionCheckRequest {

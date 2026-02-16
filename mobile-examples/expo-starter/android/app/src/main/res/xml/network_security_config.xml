@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Network Security Configuration for MediChain Mobile App
+  
+  DEVELOPMENT ONLY - This config allows cleartext (HTTP) traffic for local development.
+  Remove or restrict domain-config entries for production builds!
+  
+  See: https://developer.android.com/training/articles/security-config
+-->
+<network-security-config>
+    <!-- Base configuration for all connections -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- DEVELOPMENT ONLY: Allow cleartext to local development servers -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Android emulator localhost alias -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+
+        <!-- Common local network ranges for development -->
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">192.168.1.0</domain>
+        <domain includeSubdomains="true">192.168.2.0</domain>
+
+        <!-- localhost alternatives -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+
+    <!-- Production: MediChain API (HTTPS only) -->
+    <!-- Uncomment and configure for production deployment
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.medichain.app</domain>
+        <pin-set expiration="2027-01-01">
+            <pin digest="SHA-256">YOUR_CERTIFICATE_PIN_HERE</pin>
+            <pin digest="SHA-256">BACKUP_PIN_HERE</pin>
+        </pin-set>
+    </domain-config>
+    -->
+</network-security-config>

@@ -16,13 +16,19 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+
 pub mod mock;
 pub mod tests;
+pub mod weights;
 
 pub use pallet::*;
+pub use weights::WeightInfo;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::weights::WeightInfo;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
 
@@ -30,6 +36,8 @@ pub mod pallet {
     pub const MAX_ID_LENGTH: u32 = 64;
     /// Maximum length for name fields
     pub const MAX_NAME_LENGTH: u32 = 128;
+    /// Maximum length for language code (ISO 639-1)
+    pub const MAX_LANGUAGE_LENGTH: u32 = 8;
 
     /// Supported national ID types across Africa
     #[derive(
@@ -45,6 +53,22 @@ pub mod pallet {
         NIN,
         /// South Africa's Smart ID Card
         SmartID,
+    }
+
+    /// DNR (Do Not Resuscitate) status
+    #[derive(
+        Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+    )]
+    pub enum DnrStatus {
+        /// No DNR on file (default)
+        #[default]
+        None,
+        /// Full DNR - Do not resuscitate
+        Full,
+        /// Partial - Limited interventions allowed
+        Partial,
+        /// Unknown/Not specified
+        Unknown,
     }
 
     /// Identity struct stored on-chain
@@ -63,6 +87,14 @@ pub mod pallet {
         pub registered_at: BlockNumberFor<T>,
         /// Who registered this patient (healthcare provider)
         pub registered_by: T::AccountId,
+        /// Organ donor status
+        pub organ_donor: bool,
+        /// Do Not Resuscitate status
+        pub dnr_status: DnrStatus,
+        /// Preferred language (ISO 639-1 code, e.g., "en", "am", "sw")
+        pub preferred_language: BoundedVec<u8, ConstU32<MAX_LANGUAGE_LENGTH>>,
+        /// Hash of photo ID document (optional)
+        pub photo_id_hash: Option<[u8; 32]>,
     }
 
     #[pallet::pallet]
@@ -72,6 +104,8 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_access_control::Config {
         /// The overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// Weight information for extrinsics in this pallet
+        type WeightInfo: crate::weights::WeightInfo;
     }
 
     /// Storage: Map account to identity
@@ -100,6 +134,27 @@ pub mod pallet {
         IdentityVerified {
             who: T::AccountId,
             verifier: T::AccountId,
+        },
+        /// Organ donor status updated
+        OrganDonorStatusUpdated {
+            who: T::AccountId,
+            organ_donor: bool,
+        },
+        /// DNR status updated
+        DnrStatusUpdated {
+            who: T::AccountId,
+            dnr_status: DnrStatus,
+        },
+        /// Preferred language updated
+        PreferredLanguageUpdated {
+            who: T::AccountId,
+            language: BoundedVec<u8, ConstU32<MAX_LANGUAGE_LENGTH>>,
+        },
+        /// Photo ID updated
+        PhotoIdUpdated {
+            patient: T::AccountId,
+            photo_hash: [u8; 32],
+            updated_by: T::AccountId,
         },
     }
 
@@ -139,7 +194,7 @@ pub mod pallet {
         /// * `AlreadyRegistered` - Account already has an identity
         /// * `IdAlreadyLinked` - ID hash linked to another account
         #[pallet::call_index(0)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::register_patient())]
         pub fn register_patient(
             origin: OriginFor<T>,
             patient: T::AccountId,
@@ -173,6 +228,10 @@ pub mod pallet {
                 verified: false,
                 registered_at: current_block,
                 registered_by: registrar.clone(),
+                organ_donor: false,
+                dnr_status: DnrStatus::None,
+                preferred_language: BoundedVec::default(),
+                photo_id_hash: None,
             };
 
             // Store identity
@@ -214,7 +273,7 @@ pub mod pallet {
         /// * `NotAuthorizedToVerify` - Caller is not a healthcare provider
         /// * `IdentityNotFound` - Target has no registered identity
         #[pallet::call_index(1)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::verify_identity())]
         pub fn verify_identity(origin: OriginFor<T>, target: T::AccountId) -> DispatchResult {
             let verifier = ensure_signed(origin)?;
 
@@ -235,6 +294,130 @@ pub mod pallet {
                 Self::deposit_event(Event::IdentityVerified {
                     who: target.clone(),
                     verifier,
+                });
+
+                Ok(())
+            })
+        }
+
+        /// Update organ donor status
+        ///
+        /// Patients can update their own organ donor status, or healthcare providers
+        /// can update it on behalf of verified patients.
+        ///
+        /// # Arguments
+        /// * `organ_donor` - New organ donor status
+        #[pallet::call_index(2)]
+        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        pub fn set_organ_donor_status(origin: OriginFor<T>, organ_donor: bool) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Identities::<T>::try_mutate(&who, |maybe_identity| -> DispatchResult {
+                let identity = maybe_identity
+                    .as_mut()
+                    .ok_or(Error::<T>::IdentityNotFound)?;
+
+                identity.organ_donor = organ_donor;
+
+                Self::deposit_event(Event::OrganDonorStatusUpdated {
+                    who: who.clone(),
+                    organ_donor,
+                });
+
+                Ok(())
+            })
+        }
+
+        /// Update DNR (Do Not Resuscitate) status
+        ///
+        /// Patients can update their own DNR status. This is a critical medical directive.
+        ///
+        /// # Arguments
+        /// * `dnr_status` - New DNR status
+        #[pallet::call_index(3)]
+        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        pub fn set_dnr_status(origin: OriginFor<T>, dnr_status: DnrStatus) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Identities::<T>::try_mutate(&who, |maybe_identity| -> DispatchResult {
+                let identity = maybe_identity
+                    .as_mut()
+                    .ok_or(Error::<T>::IdentityNotFound)?;
+
+                identity.dnr_status = dnr_status.clone();
+
+                Self::deposit_event(Event::DnrStatusUpdated {
+                    who: who.clone(),
+                    dnr_status,
+                });
+
+                Ok(())
+            })
+        }
+
+        /// Update preferred language
+        ///
+        /// Patients can set their preferred language for medical communications.
+        ///
+        /// # Arguments
+        /// * `language` - ISO 639-1 language code (e.g., "en", "am", "sw")
+        #[pallet::call_index(4)]
+        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        pub fn set_preferred_language(
+            origin: OriginFor<T>,
+            language: BoundedVec<u8, ConstU32<MAX_LANGUAGE_LENGTH>>,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            Identities::<T>::try_mutate(&who, |maybe_identity| -> DispatchResult {
+                let identity = maybe_identity
+                    .as_mut()
+                    .ok_or(Error::<T>::IdentityNotFound)?;
+
+                identity.preferred_language = language.clone();
+
+                Self::deposit_event(Event::PreferredLanguageUpdated {
+                    who: who.clone(),
+                    language,
+                });
+
+                Ok(())
+            })
+        }
+
+        /// Set photo ID hash
+        ///
+        /// Healthcare providers can upload a hash of the patient's photo ID.
+        ///
+        /// # Arguments
+        /// * `patient` - Patient account
+        /// * `photo_hash` - Blake2_256 hash of the photo ID document
+        #[pallet::call_index(5)]
+        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        pub fn set_photo_id(
+            origin: OriginFor<T>,
+            patient: T::AccountId,
+            photo_hash: [u8; 32],
+        ) -> DispatchResult {
+            let provider = ensure_signed(origin)?;
+
+            // Only healthcare providers can set photo ID
+            ensure!(
+                pallet_access_control::Pallet::<T>::is_healthcare_provider(&provider),
+                Error::<T>::NotHealthcareProvider
+            );
+
+            Identities::<T>::try_mutate(&patient, |maybe_identity| -> DispatchResult {
+                let identity = maybe_identity
+                    .as_mut()
+                    .ok_or(Error::<T>::IdentityNotFound)?;
+
+                identity.photo_id_hash = Some(photo_hash);
+
+                Self::deposit_event(Event::PhotoIdUpdated {
+                    patient: patient.clone(),
+                    photo_hash,
+                    updated_by: provider.clone(),
                 });
 
                 Ok(())

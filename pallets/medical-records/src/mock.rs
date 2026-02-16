@@ -55,10 +55,12 @@ impl frame_system::Config for Test {
 
 impl pallet_access_control::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
 }
 
 impl pallet_medical_records::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = ();
 }
 
 /// Test account constants for RBAC testing

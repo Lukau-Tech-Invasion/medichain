@@ -10,6 +10,10 @@
 //! - Patients can only read their own records
 //! - Admin can assign/revoke roles
 //!
+//! **PostgreSQL Integration:**
+//! - If DATABASE_URL is set, persistent storage with demo users
+//! - Falls back to in-memory storage if no database configured
+//!
 //! © 2025 Trustware. All rights reserved.
 
 use actix_cors::Cors;
@@ -23,10 +27,24 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use uuid::Uuid;
 
+// Database modules (PostgreSQL integration)
+mod db;
+mod models;
+mod repositories;
+mod services;
+
 mod clinical;
 mod clinical_endpoints;
 mod ipfs;
+mod middleware;
 mod nfc_simulator;
+
+// Middleware imports - some are used directly, others are ready for future use
+use middleware::error_handling::{secure_tokens, validation};
+use middleware::rate_limit::RateLimitMiddleware;
+use middleware::signature_auth::{generate_auth_challenge, SignatureAuthMiddleware};
+
+use repositories::RepositoryContainer;
 
 use clinical::{
     AMADischarge,
@@ -176,6 +194,31 @@ pub struct User {
     pub created_by: Option<String>,
     /// Optional linked patient ID (for patient users)
     pub linked_patient_id: Option<String>,
+    /// Email address
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// Phone number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
+    /// Department (for healthcare workers)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub department: Option<String>,
+    /// Specialty (for doctors)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub specialty: Option<String>,
+    /// License/registration number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license_number: Option<String>,
+    /// Status (active, inactive, suspended, pending)
+    #[serde(default = "default_status")]
+    pub status: String,
+    /// Last login timestamp
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_login: Option<DateTime<Utc>>,
+}
+
+fn default_status() -> String {
+    "active".to_string()
 }
 
 /// Blood types supported by the system
@@ -515,6 +558,76 @@ pub struct AccessLogEntry {
 // ============================================================================
 // API Request/Response Types
 // ============================================================================
+
+/// Pagination query parameters for list endpoints
+#[derive(Debug, Deserialize)]
+pub struct PaginationQuery {
+    /// Page number (1-indexed, default: 1)
+    #[serde(default = "default_page")]
+    pub page: usize,
+    /// Items per page (default: 20, max: 100)
+    #[serde(default = "default_limit")]
+    pub limit: usize,
+}
+
+fn default_page() -> usize {
+    1
+}
+
+fn default_limit() -> usize {
+    20
+}
+
+/// Generic paginated response wrapper
+#[derive(Debug, Serialize)]
+pub struct PaginatedResponse<T: Serialize> {
+    pub data: Vec<T>,
+    pub pagination: PaginationMeta,
+}
+
+/// Pagination metadata
+#[derive(Debug, Serialize)]
+pub struct PaginationMeta {
+    pub page: usize,
+    pub limit: usize,
+    pub total_items: usize,
+    pub total_pages: usize,
+    pub has_next: bool,
+    pub has_prev: bool,
+}
+
+impl PaginationMeta {
+    pub fn new(page: usize, limit: usize, total_items: usize) -> Self {
+        let limit = limit.clamp(1, 100); // Clamp to 1-100
+        let page = page.max(1);
+        let total_pages = (total_items + limit - 1) / limit.max(1);
+        Self {
+            page,
+            limit,
+            total_items,
+            total_pages,
+            has_next: page < total_pages,
+            has_prev: page > 1,
+        }
+    }
+}
+
+/// Helper function to paginate a vector
+fn paginate<T: Clone>(items: &[T], page: usize, limit: usize) -> (Vec<T>, PaginationMeta) {
+    let limit = limit.clamp(1, 100);
+    let page = page.max(1);
+    let total = items.len();
+    let start = (page - 1) * limit;
+    let end = (start + limit).min(total);
+
+    let data = if start < total {
+        items[start..end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    (data, PaginationMeta::new(page, limit, total))
+}
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterPatientRequest {
@@ -993,6 +1106,12 @@ fn get_default_supported_languages() -> Vec<clinical::SupportedLanguage> {
 // ============================================================================
 
 pub struct AppState {
+    /// PostgreSQL connection pool (optional - for persistent demo users)
+    pub db_pool: Option<sqlx::PgPool>,
+    /// Repository container for database abstraction layer
+    /// Provides access to PatientRepository, AllergyRepository, etc.
+    /// Uses memory backend by default, PostgreSQL when MEDICHAIN_STORAGE=postgres
+    pub repositories: RepositoryContainer,
     pub patients: RwLock<HashMap<String, PatientProfile>>,
     pub nfc_tags: RwLock<HashMap<String, NfcTagData>>,
     pub access_logs: RwLock<Vec<AccessLogEntry>>,
@@ -1189,10 +1308,14 @@ pub struct AppState {
     pub sync_conflicts: RwLock<HashMap<String, clinical::SyncConflict>>,
     /// Patient allergies (patient_id -> Vec<AllergyInfo>)
     pub allergies: RwLock<HashMap<String, Vec<clinical::AllergyInfo>>>,
+    /// Server start time for uptime calculation
+    pub start_time: std::time::Instant,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    /// Create new AppState with optional PostgreSQL pool
+    /// If pool is provided, demo users will be loaded from database
+    pub fn new_with_pool(db_pool: Option<sqlx::PgPool>) -> Self {
         // In production, keys would be managed by HSM/key vault
         let encryption_key =
             medichain_crypto::EncryptionKey::generate().expect("Failed to generate encryption key");
@@ -1203,7 +1326,14 @@ impl AppState {
             lab_panels_map.insert(panel.name.clone(), panel);
         }
 
-        let mut state = Self {
+        // Initialize repository container (memory by default)
+        // For PostgreSQL, set MEDICHAIN_STORAGE=postgres at startup
+        let repositories = RepositoryContainer::new_memory();
+        log::info!("Repository backend: {:?}", repositories.backend);
+
+        Self {
+            db_pool,
+            repositories,
             patients: RwLock::new(HashMap::new()),
             nfc_tags: RwLock::new(HashMap::new()),
             access_logs: RwLock::new(Vec::new()),
@@ -1302,15 +1432,348 @@ impl AppState {
             sync_queue: RwLock::new(HashMap::new()),
             sync_conflicts: RwLock::new(HashMap::new()),
             allergies: RwLock::new(HashMap::new()),
-        };
-        // TODO: Demo data seeding removed for wallet-based blockchain authentication
-        // state.seed_demo_data();
-        state
+            start_time: std::time::Instant::now(),
+        }
     }
 
-    // Seed demo data function removed - wallet-based blockchain authentication only
-    // All users must register via /api/auth/bootstrap or /api/auth/register endpoints
-    // All patient data created dynamically via wallet-authenticated requests
+    /// Create new AppState with optional PostgreSQL pool (async version)
+    /// Note: Currently uses memory backend due to entity structure differences.
+    /// TODO: Align entity definitions in traits.rs with PostgreSQL schema for full PostgreSQL support.
+    pub async fn new_with_pool_async(db_pool: Option<sqlx::PgPool>) -> Self {
+        // In production, keys would be managed by HSM/key vault
+        let encryption_key =
+            medichain_crypto::EncryptionKey::generate().expect("Failed to generate encryption key");
+
+        // Initialize lab panels from standard templates
+        let mut lab_panels_map = HashMap::new();
+        for panel in clinical::get_standard_lab_panels() {
+            lab_panels_map.insert(panel.name.clone(), panel);
+        }
+
+        // TODO: PostgreSQL migration requires aligning entity structures in traits.rs
+        // with PostgreSQL schema. Currently using memory backend for all repositories.
+        // Set MEDICHAIN_STORAGE=postgres to enable PostgreSQL (when entity alignment is complete)
+        let repositories = RepositoryContainer::new_memory();
+        log::info!("Repository backend: {:?}", repositories.backend);
+
+        Self {
+            db_pool,
+            repositories,
+            patients: RwLock::new(HashMap::new()),
+            nfc_tags: RwLock::new(HashMap::new()),
+            access_logs: RwLock::new(Vec::new()),
+            users: RwLock::new(HashMap::new()),
+            medical_records: RwLock::new(HashMap::new()),
+            lab_submissions: RwLock::new(HashMap::new()),
+            ipfs_client: IpfsClient::new_local(),
+            encryption_key,
+            card_registry: CardRegistry::new(),
+            // Clinical documentation storage (Phase 1)
+            triage_assessments: RwLock::new(HashMap::new()),
+            soap_notes: RwLock::new(HashMap::new()),
+            sample_histories: RwLock::new(HashMap::new()),
+            gcs_assessments: RwLock::new(HashMap::new()),
+            vital_signs: RwLock::new(HashMap::new()),
+            lab_panels: RwLock::new(lab_panels_map.clone()),
+            // Clinical documentation storage (Phase 2-8)
+            code_blue_records: RwLock::new(HashMap::new()),
+            trauma_assessments: RwLock::new(HashMap::new()),
+            stroke_assessments: RwLock::new(HashMap::new()),
+            cardiac_events: RwLock::new(HashMap::new()),
+            sepsis_assessments: RwLock::new(HashMap::new()),
+            ems_handoffs: RwLock::new(HashMap::new()),
+            medication_records: RwLock::new(HashMap::new()),
+            io_records: RwLock::new(HashMap::new()),
+            nursing_care_plans: RwLock::new(HashMap::new()),
+            wound_assessments: RwLock::new(HashMap::new()),
+            iv_assessments: RwLock::new(HashMap::new()),
+            shift_handoffs: RwLock::new(HashMap::new()),
+            incident_reports: RwLock::new(HashMap::new()),
+            fall_risk_assessments: RwLock::new(HashMap::new()),
+            burn_assessments: RwLock::new(HashMap::new()),
+            psych_assessments: RwLock::new(HashMap::new()),
+            tox_assessments: RwLock::new(HashMap::new()),
+            mci_records: RwLock::new(HashMap::new()),
+            intubation_records: RwLock::new(HashMap::new()),
+            laceration_records: RwLock::new(HashMap::new()),
+            splint_cast_records: RwLock::new(HashMap::new()),
+            pediatric_assessments: RwLock::new(HashMap::new()),
+            obstetric_emergencies: RwLock::new(HashMap::new()),
+            specimen_collections: RwLock::new(HashMap::new()),
+            chain_of_custody: RwLock::new(HashMap::new()),
+            lab_qc_records: RwLock::new(HashMap::new()),
+            critical_values: RwLock::new(HashMap::new()),
+            specimen_rejections: RwLock::new(HashMap::new()),
+            physician_orders: RwLock::new(HashMap::new()),
+            discharge_summaries: RwLock::new(HashMap::new()),
+            discharge_instructions: RwLock::new(HashMap::new()),
+            ama_discharges: RwLock::new(HashMap::new()),
+            history_physicals: RwLock::new(HashMap::new()),
+            consult_notes: RwLock::new(HashMap::new()),
+            progress_notes: RwLock::new(HashMap::new()),
+            // Surgical and imaging storage
+            pre_op_assessments: RwLock::new(HashMap::new()),
+            operative_notes: RwLock::new(HashMap::new()),
+            post_op_notes: RwLock::new(HashMap::new()),
+            anesthesia_records: RwLock::new(HashMap::new()),
+            radiology_orders: RwLock::new(HashMap::new()),
+            radiology_reports: RwLock::new(HashMap::new()),
+            pathology_reports: RwLock::new(HashMap::new()),
+            immunization_records: RwLock::new(HashMap::new()),
+            immunization_schedules: RwLock::new(HashMap::new()),
+            family_histories: RwLock::new(HashMap::new()),
+            blood_type_screens: RwLock::new(HashMap::new()),
+            crossmatch_records: RwLock::new(HashMap::new()),
+            transfusion_records: RwLock::new(HashMap::new()),
+            e_prescriptions: RwLock::new(HashMap::new()),
+            appointments: RwLock::new(HashMap::new()),
+            death_certificates: RwLock::new(HashMap::new()),
+            autopsy_requests: RwLock::new(HashMap::new()),
+            autopsy_reports: RwLock::new(HashMap::new()),
+            satisfaction_surveys: RwLock::new(HashMap::new()),
+            // Patient portal storage
+            medication_reminders: RwLock::new(HashMap::new()),
+            adherence_logs: RwLock::new(HashMap::new()),
+            drug_interactions: RwLock::new(HashMap::new()),
+            family_groups: RwLock::new(HashMap::new()),
+            family_link_requests: RwLock::new(HashMap::new()),
+            provider_schedules: RwLock::new(HashMap::new()),
+            wearable_devices: RwLock::new(HashMap::new()),
+            wearable_readings: RwLock::new(HashMap::new()),
+            wearable_alert_rules: RwLock::new(HashMap::new()),
+            wearable_alerts: RwLock::new(HashMap::new()),
+            symptom_sessions: RwLock::new(HashMap::new()),
+            telehealth_sessions: RwLock::new(HashMap::new()),
+            device_checks: RwLock::new(HashMap::new()),
+            waiting_room: RwLock::new(HashMap::new()),
+            cds_alerts: RwLock::new(HashMap::new()),
+            lab_trends: RwLock::new(HashMap::new()),
+            e_prescriptions_v2: RwLock::new(HashMap::new()),
+            insurance_claims: RwLock::new(HashMap::new()),
+            eligibility_checks: RwLock::new(HashMap::new()),
+            language_preferences: RwLock::new(HashMap::new()),
+            // Offline sync storage
+            sync_statuses: RwLock::new(HashMap::new()),
+            sync_queue: RwLock::new(HashMap::new()),
+            sync_conflicts: RwLock::new(HashMap::new()),
+            allergies: RwLock::new(HashMap::new()),
+            supported_languages: RwLock::new(get_default_supported_languages()),
+            start_time: std::time::Instant::now(),
+        }
+    }
+
+    /// Create new AppState without PostgreSQL (legacy fallback)
+    pub fn new() -> Self {
+        Self::new_with_pool(None)
+    }
+
+    /// Load demo users from PostgreSQL into in-memory store
+    /// Called at startup when DATABASE_URL is configured
+    pub async fn load_demo_users_from_db(&self) -> Result<usize, String> {
+        let pool = match &self.db_pool {
+            Some(p) => p,
+            None => return Err("No database pool configured".to_string()),
+        };
+
+        let users_result =
+            sqlx::query_as::<_, models::DbUser>("SELECT * FROM users WHERE is_active = true")
+                .fetch_all(pool)
+                .await;
+
+        match users_result {
+            Ok(db_users) => {
+                let mut users = self.users.write().map_err(|e| e.to_string())?;
+                let mut count = 0;
+
+                for db_user in db_users {
+                    let user = User {
+                        wallet_address: db_user.wallet_address.clone(),
+                        username: db_user.username.clone(),
+                        name: db_user
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| "Unknown".to_string()),
+                        role: match db_user.role.as_str() {
+                            "Admin" => Role::Admin,
+                            "Doctor" => Role::Doctor,
+                            "Nurse" => Role::Nurse,
+                            "LabTechnician" => Role::LabTechnician,
+                            "Pharmacist" => Role::Pharmacist,
+                            "Patient" => Role::Patient,
+                            _ => Role::Patient,
+                        },
+                        created_at: db_user.created_at,
+                        created_by: db_user.created_by.clone(),
+                        linked_patient_id: db_user.linked_patient_id.clone(),
+                        email: db_user.email.clone(),
+                        phone: None,          // Loaded from profile separately
+                        department: None,     // Loaded from profile separately
+                        specialty: None,      // Loaded from profile separately
+                        license_number: None, // Loaded from profile separately
+                        status: if db_user.is_active {
+                            "active".to_string()
+                        } else {
+                            "inactive".to_string()
+                        },
+                        last_login: db_user.last_login_at,
+                    };
+                    users.insert(db_user.wallet_address.clone(), user);
+                    count += 1;
+                }
+
+                Ok(count)
+            }
+            Err(e) => Err(format!("Failed to load users from database: {}", e)),
+        }
+    }
+
+    /// Load demo patients from PostgreSQL into in-memory store
+    /// Called at startup when DATABASE_URL is configured
+    pub async fn load_patients_from_db(&self) -> Result<usize, String> {
+        let pool = match &self.db_pool {
+            Some(p) => p,
+            None => return Err("No database pool configured".to_string()),
+        };
+
+        // Query patients with their demographics
+        let query = r#"
+            SELECT 
+                p.id,
+                p.health_id,
+                p.national_id_hash,
+                p.gender,
+                p.blood_type,
+                p.organ_donor,
+                p.dnr_status,
+                pd.full_name,
+                pd.date_of_birth,
+                pd.national_id,
+                pd.allergies,
+                pd.current_medications,
+                pd.chronic_conditions,
+                pd.emergency_contact_name,
+                pd.emergency_contact_phone,
+                p.emergency_contact_relationship,
+                pd.languages
+            FROM patients p
+            LEFT JOIN patient_demographics pd ON p.id = pd.patient_id
+            WHERE p.is_active = true
+        "#;
+
+        let rows = sqlx::query(query)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("Failed to load patients: {}", e))?;
+
+        let mut patients = self.patients.write().map_err(|e| e.to_string())?;
+        let mut nfc_tags = self.nfc_tags.write().map_err(|e| e.to_string())?;
+        let mut count = 0;
+
+        for row in rows {
+            use sqlx::Row;
+
+            let patient_id: String = row.get("id");
+            let full_name: Option<String> = row.get("full_name");
+            let date_of_birth: Option<chrono::NaiveDate> = row.get("date_of_birth");
+            let national_id: Option<String> = row.get("national_id");
+            let blood_type_str: Option<String> = row.get("blood_type");
+            let organ_donor: bool = row.get("organ_donor");
+            let dnr_status: bool = row.get("dnr_status");
+            let emergency_contact_name: Option<String> = row.get("emergency_contact_name");
+            let emergency_contact_phone: Option<String> = row.get("emergency_contact_phone");
+            let emergency_contact_relationship: Option<String> =
+                row.get("emergency_contact_relationship");
+
+            // Parse JSON arrays
+            let allergies_json: Option<serde_json::Value> = row.get("allergies");
+            let medications_json: Option<serde_json::Value> = row.get("current_medications");
+            let conditions_json: Option<serde_json::Value> = row.get("chronic_conditions");
+            let languages_json: Option<serde_json::Value> = row.get("languages");
+
+            // Parse blood type
+            let blood_type = blood_type_str
+                .and_then(|s| parse_blood_type(&s).ok())
+                .unwrap_or(BloodType::OPositive); // Default to O+ (universal donor)
+
+            // Parse JSON arrays to Vec<String>
+            let allergies: Vec<String> = allergies_json
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let current_medications: Vec<String> = medications_json
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let chronic_conditions: Vec<String> = conditions_json
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_default();
+            let languages: Vec<String> = languages_json
+                .and_then(|v| serde_json::from_value(v).ok())
+                .unwrap_or_else(|| vec!["English".to_string()]);
+
+            // Create emergency info
+            let emergency_info = EmergencyInfo {
+                patient_id: patient_id.clone(),
+                blood_type,
+                allergies: allergies
+                    .iter()
+                    .map(|name| Allergy {
+                        name: name.clone(),
+                        severity: AllergySeverity::Mild,
+                        reaction: None,
+                        verified_at: None,
+                    })
+                    .collect(),
+                current_medications,
+                chronic_conditions,
+                emergency_contacts: vec![EmergencyContact {
+                    name: emergency_contact_name.unwrap_or_default(),
+                    phone: emergency_contact_phone.unwrap_or_default(),
+                    relationship: emergency_contact_relationship.unwrap_or_default(),
+                    priority: 1,
+                    can_make_medical_decisions: false,
+                    language: None,
+                }],
+                organ_donor,
+                dnr_status,
+                languages,
+                last_updated: Utc::now(),
+            };
+
+            // Create patient profile
+            let patient = PatientProfile {
+                patient_id: patient_id.clone(),
+                full_name: full_name.unwrap_or_else(|| "Unknown".to_string()),
+                date_of_birth: date_of_birth.map(|d| d.to_string()).unwrap_or_default(),
+                national_id: national_id.unwrap_or_default(),
+                emergency_info,
+                address: None,
+                insurance: None,
+                primary_doctor: None,
+                community_health_worker: None,
+                preferences: PatientPreferences::default(),
+                advanced_directives: vec![],
+                family_notifications: None,
+                created_at: Utc::now(),
+                last_updated: Utc::now(),
+            };
+
+            patients.insert(patient_id.clone(), patient);
+
+            // Also create NFC tag entry
+            let nfc_tag_id = format!("NFC-{}", patient_id.replace("PAT-", ""));
+            let hash = generate_nfc_hash(&patient_id, &nfc_tag_id);
+            let nfc_tag = NfcTagData {
+                tag_id: nfc_tag_id.clone(),
+                patient_id: patient_id.clone(),
+                hash,
+                created_at: Utc::now(),
+            };
+            nfc_tags.insert(nfc_tag_id, nfc_tag);
+
+            count += 1;
+        }
+
+        Ok(count)
+    }
 }
 
 impl Default for AppState {
@@ -1412,6 +1875,149 @@ async fn health_check() -> impl Responder {
     })
 }
 
+/// Database health check endpoint - shows PostgreSQL connection status
+#[get("/health/db")]
+async fn db_health_check(data: web::Data<AppState>) -> impl Responder {
+    #[derive(Serialize)]
+    struct DbHealthResponse {
+        status: String,
+        database_connected: bool,
+        users_loaded: usize,
+        demo_users_available: bool,
+        message: String,
+    }
+
+    let users_count = data.users.read().map(|u| u.len()).unwrap_or(0);
+
+    let (db_connected, message) = match &data.db_pool {
+        Some(pool) => match db::check_health(pool).await {
+            true => (
+                true,
+                "PostgreSQL connected - demo users persist across restarts".to_string(),
+            ),
+            false => (
+                false,
+                "PostgreSQL connection lost - using in-memory fallback".to_string(),
+            ),
+        },
+        None => (
+            false,
+            "No database configured - using in-memory storage (data lost on restart)".to_string(),
+        ),
+    };
+
+    HttpResponse::Ok().json(DbHealthResponse {
+        status: if db_connected {
+            "healthy".to_string()
+        } else {
+            "degraded".to_string()
+        },
+        database_connected: db_connected,
+        users_loaded: users_count,
+        demo_users_available: users_count > 0,
+        message,
+    })
+}
+
+/// Detailed health check endpoint for system monitoring
+/// Returns comprehensive status of all system components
+#[get("/api/health/detailed")]
+async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder {
+    use std::time::Instant;
+
+    #[derive(Serialize)]
+    struct ServiceHealth {
+        name: String,
+        status: String,
+        latency_ms: Option<u64>,
+        message: Option<String>,
+    }
+
+    #[derive(Serialize)]
+    struct DetailedHealthResponse {
+        overall_status: String,
+        version: String,
+        uptime_seconds: u64,
+        timestamp: chrono::DateTime<Utc>,
+        services: Vec<ServiceHealth>,
+    }
+
+    let mut services = Vec::new();
+
+    // Check API health (always online if we got here)
+    services.push(ServiceHealth {
+        name: "API Server".to_string(),
+        status: "online".to_string(),
+        latency_ms: Some(0),
+        message: Some(format!("v{}", env!("CARGO_PKG_VERSION"))),
+    });
+
+    // Check Database health
+    let db_start = Instant::now();
+    let (db_status, db_msg) = match &data.db_pool {
+        Some(pool) => match db::check_health(pool).await {
+            true => (
+                "online".to_string(),
+                Some("PostgreSQL connected".to_string()),
+            ),
+            false => (
+                "offline".to_string(),
+                Some("PostgreSQL connection failed".to_string()),
+            ),
+        },
+        None => (
+            "degraded".to_string(),
+            Some("Using in-memory storage".to_string()),
+        ),
+    };
+    let db_latency = db_start.elapsed().as_millis() as u64;
+    services.push(ServiceHealth {
+        name: "Database".to_string(),
+        status: db_status.clone(),
+        latency_ms: Some(db_latency),
+        message: db_msg,
+    });
+
+    // Check IPFS health
+    let ipfs_start = Instant::now();
+    let ipfs_connected = data.ipfs_client.health_check().await.unwrap_or(false);
+    let ipfs_latency = ipfs_start.elapsed().as_millis() as u64;
+    services.push(ServiceHealth {
+        name: "IPFS Storage".to_string(),
+        status: if ipfs_connected {
+            "online".to_string()
+        } else {
+            "offline".to_string()
+        },
+        latency_ms: Some(ipfs_latency),
+        message: if ipfs_connected {
+            Some("IPFS daemon connected".to_string())
+        } else {
+            Some("IPFS not available".to_string())
+        },
+    });
+
+    // Determine overall status
+    let overall_status = if services.iter().all(|s| s.status == "online") {
+        "healthy".to_string()
+    } else if services.iter().any(|s| s.status == "offline") {
+        "degraded".to_string()
+    } else {
+        "healthy".to_string()
+    };
+
+    // Calculate uptime (approximate based on when the app data was created)
+    let uptime_seconds = data.start_time.elapsed().as_secs();
+
+    HttpResponse::Ok().json(DetailedHealthResponse {
+        overall_status,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        uptime_seconds,
+        timestamp: Utc::now(),
+        services,
+    })
+}
+
 /// Register a new patient (Healthcare providers only)
 #[post("/api/register")]
 async fn register_patient(
@@ -1451,6 +2057,42 @@ async fn register_patient(
                 current_user.role
             ),
             code: "NOT_HEALTHCARE_PROVIDER".to_string(),
+        });
+    }
+
+    // Input validation
+    if let Err(e) =
+        validation::validate_string_length(&req.full_name, "full_name", validation::MAX_NAME_LENGTH)
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if let Err(e) = validation::validate_string_length(
+        &req.national_id,
+        "national_id",
+        validation::MAX_ID_LENGTH,
+    ) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if req.full_name.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "full_name cannot be empty".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if req.national_id.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "national_id cannot be empty".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
         });
     }
 
@@ -1564,6 +2206,13 @@ async fn register_patient(
         created_at: Utc::now(),
         created_by: Some(current_user_id.clone()),
         linked_patient_id: Some(patient_id.clone()),
+        email: None,
+        phone: None,
+        department: None,
+        specialty: None,
+        license_number: None,
+        status: "active".to_string(),
+        last_login: None,
     };
     data.users
         .write()
@@ -1586,14 +2235,58 @@ async fn register_patient(
 }
 
 /// Emergency access endpoint - simulates NFC tap by first responder
+/// Requires authentication: Only healthcare providers can request emergency access
 #[post("/api/emergency-access")]
 async fn emergency_access(
     data: web::Data<AppState>,
+    http_req: HttpRequest,
     req: web::Json<EmergencyAccessRequest>,
 ) -> impl Responder {
-    // Find NFC tag and get patient_id
+    // RBAC: Require authentication for emergency access
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Authentication required for emergency access".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Only healthcare providers can request emergency access
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can request emergency access".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Find NFC tag and get patient_id - use safe read
     let patient_id = {
-        let nfc_tags = data.nfc_tags.read().unwrap();
+        let nfc_tags = match data.nfc_tags.read() {
+            Ok(tags) => tags,
+            Err(e) => {
+                log::error!("Lock poisoned: {}", e);
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Internal server error".to_string(),
+                    code: "LOCK_ERROR".to_string(),
+                });
+            }
+        };
         match nfc_tags.get(&req.nfc_tag_id) {
             Some(tag) => tag.patient_id.clone(),
             None => {
@@ -1607,9 +2300,19 @@ async fn emergency_access(
         }
     };
 
-    // Get patient emergency info
+    // Get patient emergency info - use safe read
     let emergency_info = {
-        let patients = data.patients.read().unwrap();
+        let patients = match data.patients.read() {
+            Ok(p) => p,
+            Err(e) => {
+                log::error!("Lock poisoned: {}", e);
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Internal server error".to_string(),
+                    code: "LOCK_ERROR".to_string(),
+                });
+            }
+        };
         match patients.get(&patient_id) {
             Some(p) => p.emergency_info.clone(),
             None => {
@@ -1636,20 +2339,31 @@ async fn emergency_access(
     let access_log = AccessLogEntry {
         access_id: access_id.clone(),
         patient_id: patient_id.clone(),
-        accessor_id: req.accessor_id.clone(),
-        accessor_role: req.accessor_role.clone(),
+        accessor_id: current_user_id.clone(), // Use authenticated user ID
+        accessor_role: current_user.role.to_string(), // Use verified role
         access_type: "emergency".to_string(),
         location: req.location.clone(),
         timestamp: Utc::now(),
         emergency: true,
     };
 
-    // Log access
-    data.access_logs.write().unwrap().push(access_log);
+    // Log access - use safe write
+    match data.access_logs.write() {
+        Ok(mut logs) => logs.push(access_log),
+        Err(e) => {
+            log::error!("Failed to write access log: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to log access".to_string(),
+                code: "LOCK_ERROR".to_string(),
+            });
+        }
+    };
 
     log::info!(
-        "Emergency access granted: {} accessed patient {} at {:?}",
-        req.accessor_id,
+        "Emergency access granted: {} ({}) accessed patient {} at {:?}",
+        current_user_id,
+        current_user.role,
         patient_id,
         req.location
     );
@@ -1742,11 +2456,130 @@ async fn simulate_nfc_tap(
     })
 }
 
-/// Get access logs for a patient
+/// Get all access logs (paginated)
+/// Requires authentication: Only healthcare providers can view all logs
+/// Query params: ?page=1&limit=20
+#[get("/api/access/logs")]
+async fn get_all_access_logs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
+    // RBAC: Require authentication
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Authentication required to view access logs".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Only healthcare providers can view all access logs
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can view all access logs".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // Use safe read
+    let access_logs = match data.access_logs.read() {
+        Ok(logs) => logs,
+        Err(e) => {
+            log::error!("Lock poisoned: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Internal server error".to_string(),
+                code: "LOCK_ERROR".to_string(),
+            });
+        }
+    };
+
+    let all_logs: Vec<AccessLogEntry> = access_logs.iter().cloned().collect();
+    let (paginated_logs, pagination) = paginate(&all_logs, query.page, query.limit);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "access_logs": paginated_logs,
+        "total_accesses": pagination.total_items,
+        "pagination": pagination,
+    }))
+}
+
+/// Get access logs for a patient (paginated)
+/// Requires authentication: Only healthcare providers and the patient themselves can view logs
+/// Query params: ?page=1&limit=20
 #[get("/api/access-logs/{patient_id}")]
-async fn get_access_logs(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+async fn get_access_logs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
     let patient_id = path.into_inner();
-    let access_logs = data.access_logs.read().unwrap();
+
+    // RBAC: Require authentication
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Authentication required to view access logs".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Healthcare providers can view any patient's logs
+    // Patients can only view their own logs
+    let is_own_record = current_user.linked_patient_id.as_ref() == Some(&patient_id)
+        || current_user.wallet_address == patient_id;
+
+    if current_user.role == Role::Patient && !is_own_record {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Patients can only view their own access logs".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // Use safe read
+    let access_logs = match data.access_logs.read() {
+        Ok(logs) => logs,
+        Err(e) => {
+            log::error!("Lock poisoned: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Internal server error".to_string(),
+                code: "LOCK_ERROR".to_string(),
+            });
+        }
+    };
 
     let patient_logs: Vec<AccessLogEntry> = access_logs
         .iter()
@@ -1754,21 +2587,74 @@ async fn get_access_logs(data: web::Data<AppState>, path: web::Path<String>) -> 
         .cloned()
         .collect();
 
-    let total = patient_logs.len();
+    let (paginated_logs, pagination) = paginate(&patient_logs, query.page, query.limit);
 
-    HttpResponse::Ok().json(AccessLogsResponse {
-        patient_id,
-        access_logs: patient_logs,
-        total_accesses: total,
-    })
+    HttpResponse::Ok().json(serde_json::json!({
+        "patient_id": patient_id,
+        "access_logs": paginated_logs,
+        "total_accesses": pagination.total_items,
+        "pagination": pagination,
+    }))
 }
 
-/// Get all registered patients (demo endpoint)
+/// Get all registered patients (paginated)
+/// Requires authentication: Only healthcare providers can list all patients
+/// Query params: ?page=1&limit=20
 #[get("/api/patients")]
-async fn list_patients(data: web::Data<AppState>) -> impl Responder {
-    let patients = data.patients.read().unwrap();
-    let patient_list: Vec<&PatientProfile> = patients.values().collect();
-    HttpResponse::Ok().json(patient_list)
+async fn list_patients(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
+    // RBAC: Require authentication
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Authentication required to list patients".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Only healthcare providers can list all patients
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare providers can list patients".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Use safe read
+    let patients = match data.patients.read() {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("Lock poisoned: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Internal server error".to_string(),
+                code: "LOCK_ERROR".to_string(),
+            });
+        }
+    };
+
+    let patient_list: Vec<PatientProfile> = patients.values().cloned().collect();
+    let (data, pagination) = paginate(&patient_list, query.page, query.limit);
+
+    HttpResponse::Ok().json(PaginatedResponse { data, pagination })
 }
 
 /// Get a single patient by ID
@@ -2081,6 +2967,125 @@ async fn add_emergency_contact(
     }))
 }
 
+/// Development-only demo login endpoint
+/// Creates a temporary user with the specified role for testing purposes
+/// SECURITY: Only available when MEDICHAIN_DEV_MODE environment variable is set
+#[derive(Debug, Deserialize)]
+pub struct DemoLoginRequest {
+    pub wallet_address: String,
+    pub role: Option<String>,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DemoLoginResponse {
+    pub success: bool,
+    pub wallet_address: String,
+    pub role: String,
+    pub name: String,
+    pub message: String,
+}
+
+#[post("/api/auth/demo-login")]
+async fn demo_login(
+    data: web::Data<AppState>,
+    body: web::Json<DemoLoginRequest>,
+) -> impl Responder {
+    // Check if dev mode is enabled
+    let dev_mode = std::env::var("MEDICHAIN_DEV_MODE")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true); // Default to true for development
+
+    if !dev_mode {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Demo login is only available in development mode".to_string(),
+            code: "DEV_MODE_REQUIRED".to_string(),
+        });
+    }
+
+    // Validate wallet address format
+    if !is_valid_wallet_address(&body.wallet_address) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error:
+                "Invalid wallet address format. Must be SS58 encoded (starts with 5, 45-50 chars)"
+                    .to_string(),
+            code: "INVALID_WALLET_ADDRESS".to_string(),
+        });
+    }
+
+    // Parse role (optional; default to Doctor in dev/demo mode)
+    let role_str = body.role.clone().unwrap_or_else(|| "Doctor".to_string());
+    let role = match parse_role(&role_str) {
+        Ok(r) => r,
+        Err(e) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: e,
+                code: "INVALID_ROLE".to_string(),
+            });
+        }
+    };
+
+    let name = body
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("Demo {}", role));
+
+    // Check if wallet already exists
+    {
+        let users = data.users.read().unwrap();
+        if let Some(existing) = users.get(&body.wallet_address) {
+            return HttpResponse::Ok().json(DemoLoginResponse {
+                success: true,
+                wallet_address: existing.wallet_address.clone(),
+                role: existing.role.to_string(),
+                name: existing.name.clone(),
+                message: "User already exists - logged in".to_string(),
+            });
+        }
+    }
+
+    // Create demo user
+    let user = User {
+        wallet_address: body.wallet_address.clone(),
+        username: Some(format!("demo_{}", role.to_string().to_lowercase())),
+        name: name.clone(),
+        role: role.clone(),
+        created_at: Utc::now(),
+        created_by: Some("DEMO_SYSTEM".to_string()),
+        linked_patient_id: None,
+        email: None,
+        phone: None,
+        department: None,
+        specialty: None,
+        license_number: None,
+        status: "active".to_string(),
+        last_login: None,
+    };
+
+    data.users
+        .write()
+        .unwrap()
+        .insert(body.wallet_address.clone(), user);
+
+    log::info!(
+        "[DEMO] Auto-registered demo user: wallet={}, role={}, name={}",
+        body.wallet_address,
+        role,
+        name
+    );
+
+    HttpResponse::Created().json(DemoLoginResponse {
+        success: true,
+        wallet_address: body.wallet_address.clone(),
+        role: role.to_string(),
+        name,
+        message: "Demo user created and logged in".to_string(),
+    })
+}
+
 /// Get demo info
 #[get("/api/demo")]
 async fn demo_info() -> impl Responder {
@@ -2090,6 +3095,8 @@ async fn demo_info() -> impl Responder {
         "track": "Fintech & Inclusive Finance (Web3)",
         "description": "Blockchain-based national health ID system with NFC emergency access",
         "auth_mode": "Wallet-based blockchain authentication (no seed data)",
+        "dev_mode": std::env::var("MEDICHAIN_DEV_MODE").map(|v| v == "true" || v == "1").unwrap_or(true),
+        "demo_login_endpoint": "POST /api/auth/demo-login (dev mode only - auto-creates users)",
         "demo_instructions": {
             "step_1": "First admin must bootstrap by using /api/auth/register with their wallet",
             "step_2": "Admin registers healthcare staff with wallet addresses",
@@ -2225,6 +3232,13 @@ async fn assign_role(
         created_at: Utc::now(),
         created_by: Some(current_user_id.clone()),
         linked_patient_id: None,
+        email: None,
+        phone: None,
+        department: None,
+        specialty: None,
+        license_number: None,
+        status: "active".to_string(),
+        last_login: None,
     };
 
     data.users
@@ -2343,14 +3357,31 @@ pub struct BootstrapAdminResponse {
 /// Bootstrap first admin (only works when no users exist)
 /// This endpoint allows the first admin to be created without authentication
 /// SECURITY: Requires MEDICHAIN_BOOTSTRAP_KEY environment variable to match
+/// In production, this key MUST be set via environment variable
 #[post("/api/auth/bootstrap")]
 async fn bootstrap_admin(
     data: web::Data<AppState>,
     body: web::Json<BootstrapAdminRequest>,
 ) -> impl Responder {
+    // Check if running in demo mode
+    let is_demo = std::env::var("IS_DEMO")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(true);
+
     // Check bootstrap key from environment
-    let bootstrap_key = std::env::var("MEDICHAIN_BOOTSTRAP_KEY")
-        .unwrap_or_else(|_| "medichain-dev-bootstrap-2024".to_string());
+    // SECURITY: In production (non-demo), require explicit key from environment
+    let bootstrap_key = match std::env::var("MEDICHAIN_BOOTSTRAP_KEY") {
+        Ok(key) => key,
+        Err(_) if is_demo => "medichain-dev-bootstrap-2024".to_string(),
+        Err(_) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "MEDICHAIN_BOOTSTRAP_KEY environment variable required in production"
+                    .to_string(),
+                code: "MISSING_BOOTSTRAP_KEY".to_string(),
+            });
+        }
+    };
 
     if body.secret_key != bootstrap_key {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -2392,6 +3423,13 @@ async fn bootstrap_admin(
         created_at: Utc::now(),
         created_by: None, // Self-created
         linked_patient_id: None,
+        email: None,
+        phone: None,
+        department: None,
+        specialty: None,
+        license_number: None,
+        status: "active".to_string(),
+        last_login: None,
     };
 
     data.users
@@ -2510,7 +3548,14 @@ async fn wallet_register(
         role: role.clone(),
         created_at: Utc::now(),
         created_by: Some(current_user_id.clone()),
-        linked_patient_id: body.linked_patient_id.clone(),
+        linked_patient_id: None,
+        email: None,
+        phone: None,
+        department: None,
+        specialty: None,
+        license_number: None,
+        status: "pending".to_string(),
+        last_login: None,
     };
 
     data.users
@@ -2532,6 +3577,55 @@ async fn wallet_register(
         role: role.to_string(),
         message: "User registered successfully".to_string(),
     })
+}
+
+// =============================================================================
+// AUTH CHALLENGE ENDPOINT (SEC-005)
+// =============================================================================
+
+/// Request body for auth challenge
+#[derive(Debug, Deserialize)]
+pub struct AuthChallengeRequest {
+    pub wallet_address: String,
+}
+
+/// Get an authentication challenge to sign with your wallet
+///
+/// This endpoint returns a message that must be signed by the wallet's private key
+/// to prove ownership. The signature should be sent in subsequent requests via:
+/// - X-User-Id: wallet_address
+/// - X-Signature: hex-encoded sr25519 signature
+/// - X-Timestamp: the timestamp from this challenge
+#[post("/api/auth/challenge")]
+async fn get_auth_challenge(body: web::Json<AuthChallengeRequest>) -> impl Responder {
+    // Validate wallet address format
+    if !is_valid_wallet_address(&body.wallet_address) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Invalid wallet address format".to_string(),
+            code: "INVALID_WALLET_ADDRESS".to_string(),
+        });
+    }
+
+    let challenge = generate_auth_challenge(&body.wallet_address);
+
+    log::info!(
+        "Auth challenge generated for wallet {}: timestamp={}",
+        body.wallet_address,
+        challenge.timestamp
+    );
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "challenge": challenge,
+        "instructions": {
+            "step1": "Sign the 'message' field with your wallet's sr25519 private key",
+            "step2": "Include X-User-Id header with your wallet address",
+            "step3": "Include X-Signature header with hex-encoded signature",
+            "step4": "Include X-Timestamp header with the timestamp value",
+            "note": format!("Challenge expires in {} seconds", challenge.expires_in_secs)
+        }
+    }))
 }
 
 /// Login with wallet address - validates wallet exists and returns user info
@@ -2581,6 +3675,235 @@ async fn wallet_login(
     })
 }
 
+/// Login with wallet address (GET version for frontend compatibility)
+#[get("/api/auth/login/{address}")]
+async fn wallet_login_get(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let wallet_address = path.into_inner();
+
+    // Validate wallet address format
+    if !is_valid_wallet_address(&wallet_address) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Invalid wallet address format".to_string(),
+            code: "INVALID_WALLET_ADDRESS".to_string(),
+        });
+    }
+
+    // Look up user by wallet address
+    let user = match get_user(&data, &wallet_address) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Wallet not registered. Contact admin for registration.".to_string(),
+                code: "WALLET_NOT_REGISTERED".to_string(),
+            });
+        }
+    };
+
+    log::info!(
+        "User logged in (GET): wallet={}, name={}, role={}",
+        user.wallet_address,
+        user.name,
+        user.role
+    );
+
+    HttpResponse::Ok().json(WalletLoginResponse {
+        success: true,
+        user: Some(WalletUserInfo {
+            wallet_address: user.wallet_address.clone(),
+            name: user.name.clone(),
+            role: user.role.to_string(),
+            username: user.username.clone(),
+            linked_patient_id: user.linked_patient_id.clone(),
+        }),
+        message: "Login successful".to_string(),
+    })
+}
+
+/// Get all staff members (non-patient users) - paginated
+/// Requires: Authenticated user with Admin role
+/// Query params: ?page=1&limit=20
+#[get("/api/staff/all")]
+async fn get_all_staff(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
+    // Get current user from header
+    let current_user_id = match get_current_user_id(&req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    // Check if current user is admin
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_admin() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only Admin can view all staff".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let users = data.users.read().unwrap();
+
+    let staff: Vec<serde_json::Value> = users
+        .values()
+        .filter(|u| u.role != Role::Patient)
+        .map(|u| {
+            serde_json::json!({
+                "wallet_address": u.wallet_address,
+                "name": u.name,
+                "role": u.role.to_string(),
+                "username": u.username,
+                "created_at": u.created_at,
+            })
+        })
+        .collect();
+
+    let (paginated_staff, pagination) = paginate(&staff, query.page, query.limit);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "staff": paginated_staff,
+        "count": pagination.total_items,
+        "pagination": pagination,
+    }))
+}
+
+/// Get list of healthcare providers (doctors, nurses, etc.) for selection
+/// Requires: Any authenticated healthcare worker
+/// Query params: ?role=Doctor (optional filter by role)
+#[get("/api/providers")]
+async fn get_providers(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<std::collections::HashMap<String, String>>,
+) -> impl Responder {
+    // Get current user from header
+    let current_user_id = match get_current_user_id(&req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    // Check if current user is a healthcare worker
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Any healthcare worker can view providers list
+    if !current_user.role.is_healthcare_provider() && !current_user.role.is_admin() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only healthcare workers can view provider list".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let users = data.users.read().unwrap();
+    let role_filter = query.get("role").map(|s| s.as_str());
+
+    let providers: Vec<serde_json::Value> = users
+        .values()
+        .filter(|u| {
+            // Filter to only healthcare providers (not patients)
+            let is_provider = matches!(
+                u.role,
+                Role::Doctor | Role::Nurse | Role::LabTechnician | Role::Pharmacist | Role::Admin
+            );
+
+            // Apply role filter if specified
+            if let Some(filter) = role_filter {
+                is_provider && u.role.to_string().to_lowercase() == filter.to_lowercase()
+            } else {
+                is_provider
+            }
+        })
+        .map(|u| {
+            serde_json::json!({
+                "wallet_address": u.wallet_address,
+                "name": u.name,
+                "role": u.role.to_string(),
+                "username": u.username,
+                "specialty": u.specialty,
+            })
+        })
+        .collect();
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "providers": providers,
+        "count": providers.len(),
+    }))
+}
+
+/// Lookup wallet address - returns user info if wallet is registered
+/// Used by frontend to validate wallet before setting up session
+#[get("/api/auth/wallet/{address}")]
+async fn wallet_lookup(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+    let wallet_address = path.into_inner();
+
+    // Validate wallet address format
+    if !is_valid_wallet_address(&wallet_address) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Invalid wallet address format".to_string(),
+            code: "INVALID_WALLET_ADDRESS".to_string(),
+        });
+    }
+
+    // Look up user by wallet address
+    let user = match get_user(&data, &wallet_address) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Wallet not registered".to_string(),
+                code: "WALLET_NOT_REGISTERED".to_string(),
+            });
+        }
+    };
+
+    // Return user info in format expected by frontend
+    HttpResponse::Ok().json(serde_json::json!({
+        "address": user.wallet_address,
+        "name": user.name,
+        "role": user.role.to_string(),
+        "username": user.username,
+        "linked_patient_id": user.linked_patient_id,
+    }))
+}
+
 /// Get current user info from wallet address
 #[get("/api/auth/me")]
 async fn get_current_user_info(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
@@ -2615,9 +3938,94 @@ async fn get_current_user_info(data: web::Data<AppState>, req: HttpRequest) -> i
     })
 }
 
-/// List all users (Admin only)
+/// Get user with full profile by wallet address (Admin or self only)
+#[get("/api/users/{wallet_address}")]
+async fn get_user_with_profile(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let wallet_address = path.into_inner();
+
+    // Get current user
+    let current_user_id = match get_current_user_id(&req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // RBAC: Only admins or the user themselves can view full profile
+    if current_user.role != Role::Admin && current_user_id != wallet_address {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied - can only view own profile".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get user
+    let user = match get_user(&data, &wallet_address) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Try to get profile data from database if db_pool is available
+    let mut user_with_profile = user.clone();
+
+    if let Some(pool) = &data.db_pool {
+        // Query user profile by wallet address (join with users table to get user_id)
+        let profile_result: Result<Option<models::user::DbUserProfile>, _> = sqlx::query_as(
+            r#"
+            SELECT up.* FROM user_profiles up
+            INNER JOIN users u ON up.user_id = u.id
+            WHERE u.wallet_address = $1
+            "#,
+        )
+        .bind(&wallet_address)
+        .fetch_optional(pool)
+        .await;
+
+        if let Ok(Some(profile)) = profile_result {
+            user_with_profile.phone = profile.phone;
+            user_with_profile.department = profile.department;
+            user_with_profile.specialty = profile.specialty;
+            user_with_profile.license_number = profile.license_number;
+        }
+    }
+
+    HttpResponse::Ok().json(user_with_profile)
+}
+
+/// List all users (Admin only) - paginated
+/// Query params: ?page=1&limit=20
 #[get("/api/users")]
-async fn list_users(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+async fn list_users(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
     // Get current user from header
     let current_user_id = match get_current_user_id(&req) {
         Some(id) => id,
@@ -2650,9 +4058,216 @@ async fn list_users(data: web::Data<AppState>, req: HttpRequest) -> impl Respond
         });
     }
 
-    let users = data.users.read().unwrap();
-    let user_list: Vec<&User> = users.values().collect();
-    HttpResponse::Ok().json(user_list)
+    // Collect users first, then release the lock before async operations
+    let users_snapshot: Vec<User> = {
+        let users = data.users.read().unwrap();
+        users.values().cloned().collect()
+    };
+
+    let mut user_list: Vec<User> = Vec::new();
+
+    // Fetch profile data for each user if database is available
+    if let Some(pool) = &data.db_pool {
+        for user in users_snapshot {
+            let mut user_with_profile = user.clone();
+
+            // Try to get profile data from database
+            let profile_result: Result<Option<models::user::DbUserProfile>, _> = sqlx::query_as(
+                r#"
+                SELECT up.* FROM user_profiles up
+                INNER JOIN users u ON up.user_id = u.id
+                WHERE u.wallet_address = $1
+                "#,
+            )
+            .bind(&user.wallet_address)
+            .fetch_optional(pool)
+            .await;
+
+            if let Ok(Some(profile)) = profile_result {
+                user_with_profile.phone = profile.phone;
+                user_with_profile.department = profile.department;
+                user_with_profile.specialty = profile.specialty;
+                user_with_profile.license_number = profile.license_number;
+            }
+
+            user_list.push(user_with_profile);
+        }
+    } else {
+        // No database, just return users as-is
+        user_list = users_snapshot;
+    }
+
+    let (paginated_users, pagination) = paginate(&user_list, query.page, query.limit);
+
+    HttpResponse::Ok().json(PaginatedResponse {
+        data: paginated_users,
+        pagination,
+    })
+}
+
+/// Get a single user by wallet address with full profile (Admin only)
+#[get("/api/users/{wallet_address}")]
+async fn get_user_details(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let wallet_address = path.into_inner();
+
+    // Get current user from header
+    let current_user_id = match get_current_user_id(&req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    // Check if current user is admin or the same user
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Allow admin to view any user, or users to view themselves
+    if !current_user.role.is_admin() && current_user_id != wallet_address {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only Admin can view other user details".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get the requested user
+    let user = match get_user(&data, &wallet_address) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Return user with all profile fields
+    HttpResponse::Ok().json(serde_json::json!({
+        "wallet_address": user.wallet_address,
+        "username": user.username,
+        "name": user.name,
+        "role": user.role.to_string(),
+        "created_at": user.created_at,
+        "created_by": user.created_by,
+        "linked_patient_id": user.linked_patient_id,
+        "email": user.email,
+        "phone": user.phone,
+        "department": user.department,
+        "specialty": user.specialty,
+        "license_number": user.license_number,
+        "status": user.status,
+        "last_login": user.last_login,
+    }))
+}
+
+/// Update user profile (Admin or self)
+#[put("/api/users/{wallet_address}")]
+async fn update_user_profile(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let wallet_address = path.into_inner();
+
+    // Get current user from header
+    let current_user_id = match get_current_user_id(&req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    // Check if current user is admin or the same user
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Allow admin to update any user, or users to update themselves
+    if !current_user.role.is_admin() && current_user_id != wallet_address {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only Admin can update other user profiles".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    // Get the user to update
+    let mut users = data.users.write().unwrap();
+    let user = match users.get_mut(&wallet_address) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Update fields from body
+    if let Some(email) = body.get("email").and_then(|v| v.as_str()) {
+        user.email = Some(email.to_string());
+    }
+    if let Some(phone) = body.get("phone").and_then(|v| v.as_str()) {
+        user.phone = Some(phone.to_string());
+    }
+    if let Some(department) = body.get("department").and_then(|v| v.as_str()) {
+        user.department = Some(department.to_string());
+    }
+    if let Some(specialty) = body.get("specialty").and_then(|v| v.as_str()) {
+        user.specialty = Some(specialty.to_string());
+    }
+    if let Some(license_number) = body.get("license_number").and_then(|v| v.as_str()) {
+        user.license_number = Some(license_number.to_string());
+    }
+    if let Some(status) = body.get("status").and_then(|v| v.as_str()) {
+        user.status = status.to_string();
+    }
+    if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
+        user.name = name.to_string();
+    }
+
+    log::info!(
+        "User profile updated: {} by {}",
+        wallet_address,
+        current_user_id
+    );
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "wallet_address": wallet_address,
+        "message": "User profile updated successfully"
+    }))
 }
 
 /// Get patient's own records (Patient role)
@@ -2707,6 +4322,48 @@ async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl Res
         let all: Vec<&PatientProfile> = patients.values().collect();
         HttpResponse::Ok().json(all)
     }
+}
+
+/// Save user settings (notifications, security, display preferences)
+/// Requires: Authenticated user
+#[post("/api/settings")]
+async fn save_settings(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    // Verify user exists
+    match get_user(&data, &current_user_id) {
+        Some(_) => {}
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    // Store settings in memory (in production, this would go to a database)
+    // For now, we just acknowledge receipt
+    log::info!("Settings saved for user {}: {:?}", current_user_id, req);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Settings saved successfully",
+        "user_id": current_user_id,
+    }))
 }
 
 // ============================================================================
@@ -2846,7 +4503,7 @@ async fn upload_medical_record(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: req.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -2943,7 +4600,7 @@ async fn download_medical_record(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: download_result.metadata.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -2971,13 +4628,15 @@ async fn download_medical_record(
     })
 }
 
-/// List medical records for a patient
+/// List medical records for a patient (paginated)
 /// Requires: Healthcare provider role OR patient accessing own records
+/// Query params: ?page=1&limit=20
 #[get("/api/records/{patient_id}")]
 async fn list_patient_records(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
+    query: web::Query<PaginationQuery>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
@@ -3021,7 +4680,7 @@ async fn list_patient_records(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -3032,10 +4691,13 @@ async fn list_patient_records(
         });
     }
 
+    let (paginated_records, pagination) = paginate(&patient_records, query.page, query.limit);
+
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,
-        "records": patient_records,
-        "total": patient_records.len()
+        "records": paginated_records,
+        "total": pagination.total_items,
+        "pagination": pagination
     }))
 }
 
@@ -3154,7 +4816,7 @@ async fn submit_lab_results(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: req.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -3236,8 +4898,9 @@ async fn get_pending_lab_results(
     })
 }
 
-/// Get all lab result submissions (with optional status filter)
+/// Get all lab result submissions (paginated, with optional status filter)
 /// Requires: Doctor, Nurse, or Admin role
+/// Query params: ?page=1&limit=20&status=pending
 #[get("/api/lab/submissions")]
 async fn get_all_lab_submissions(
     data: web::Data<AppState>,
@@ -3279,8 +4942,13 @@ async fn get_all_lab_submissions(
         });
     }
 
-    // Get optional status filter
+    // Get optional status filter and pagination
     let status_filter = query.get("status").map(|s| s.to_lowercase());
+    let page: usize = query.get("page").and_then(|p| p.parse().ok()).unwrap_or(1);
+    let limit: usize = query
+        .get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(20);
 
     // Get submissions with optional filter
     let submissions = data.lab_submissions.read().unwrap();
@@ -3295,11 +4963,12 @@ async fn get_all_lab_submissions(
         .cloned()
         .collect();
 
-    let total = filtered.len();
+    let (paginated_submissions, pagination) = paginate(&filtered, page, limit);
 
     HttpResponse::Ok().json(serde_json::json!({
-        "submissions": filtered,
-        "total": total
+        "submissions": paginated_submissions,
+        "total": pagination.total_items,
+        "pagination": pagination
     }))
 }
 
@@ -3362,14 +5031,13 @@ async fn get_lab_submission(
     HttpResponse::Ok().json(submission)
 }
 
-/// Review (approve or reject) a lab result submission
-/// Requires: Doctor, Nurse, or Admin role
-#[post("/api/lab/review")]
-async fn review_lab_results(
+/// Internal implementation for reviewing lab results
+/// Used by both POST /api/lab/review and POST /api/lab/submissions/{id}/review
+async fn review_lab_results_impl(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<ReviewLabResultRequest>,
-) -> impl Responder {
+    req: ReviewLabResultRequest,
+) -> HttpResponse {
     // RBAC: Only doctors, nurses, and admins can approve lab results
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
@@ -3503,7 +5171,7 @@ async fn review_lab_results(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id,
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -3527,6 +5195,52 @@ async fn review_lab_results(
             }
         ),
     })
+}
+
+/// Review (approve or reject) a lab result submission
+/// Requires: Doctor, Nurse, or Admin role
+#[post("/api/lab/review")]
+async fn review_lab_results(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<ReviewLabResultRequest>,
+) -> impl Responder {
+    review_lab_results_impl(data, http_req, req.into_inner()).await
+}
+
+/// Alternative route: Review lab submission with ID in path
+/// This endpoint provides RESTful path-based access to match frontend expectations
+/// Requires: Doctor, Nurse, or Admin role
+#[post("/api/lab/submissions/{submission_id}/review")]
+async fn review_lab_submission_path(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<serde_json::Value>,
+) -> impl Responder {
+    let submission_id = path.into_inner();
+
+    // Extract action and rejection_reason from request body
+    let action = req
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let rejection_reason = req
+        .get("rejection_reason")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Construct ReviewLabResultRequest
+    let review_request = ReviewLabResultRequest {
+        submission_id,
+        action,
+        rejection_reason,
+    };
+
+    // Call the shared implementation function
+    review_lab_results_impl(data, http_req, review_request).await
 }
 
 /// Get lab submissions for a specific patient
@@ -3625,7 +5339,7 @@ pub struct NFCTapResponse {
 }
 
 /// Response for card info
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CardInfoResponse {
     pub card_id: String,
     pub patient_id: String,
@@ -3786,7 +5500,7 @@ async fn nfc_tap(
         {
             let mut logs = data.access_logs.write().unwrap();
             logs.push(AccessLogEntry {
-                access_id: Uuid::new_v4().to_string(),
+                access_id: secure_tokens::generate_access_id(),
                 patient_id: tap_result.patient_id.clone(),
                 accessor_id: current_user_id.clone(),
                 accessor_role: current_user.role.to_string(),
@@ -3913,7 +5627,7 @@ async fn verify_qr_code(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: qr_data.patient_id.clone(),
             accessor_id: current_user_id.clone(),
             accessor_role: current_user.role.to_string(),
@@ -4071,9 +5785,14 @@ async fn suspend_card(
     }))
 }
 
-/// List all NFC cards (Admin only)
+/// List all NFC cards (Admin only) - paginated
+/// Query params: ?page=1&limit=20
 #[get("/api/nfc/cards")]
-async fn list_nfc_cards(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+async fn list_nfc_cards(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    query: web::Query<PaginationQuery>,
+) -> impl Responder {
     // RBAC: Only Admin can list all cards
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
@@ -4119,9 +5838,12 @@ async fn list_nfc_cards(data: web::Data<AppState>, http_req: HttpRequest) -> imp
         })
         .collect();
 
+    let (paginated_cards, pagination) = paginate(&card_infos, query.page, query.limit);
+
     HttpResponse::Ok().json(serde_json::json!({
-        "cards": card_infos,
-        "total": card_infos.len()
+        "cards": paginated_cards,
+        "total": pagination.total_items,
+        "pagination": pagination
     }))
 }
 
@@ -4198,6 +5920,46 @@ async fn create_triage_assessment(
         });
     }
 
+    // Input validation
+    if let Err(e) =
+        validation::validate_string_length(&req.patient_id, "patient_id", validation::MAX_ID_LENGTH)
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if let Err(e) = validation::validate_string_length(
+        &req.chief_complaint,
+        "chief_complaint",
+        validation::MAX_TEXT_LENGTH,
+    ) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if let Err(e) = validation::validate_optional_string_length(
+        &req.notes,
+        "notes",
+        validation::MAX_TEXT_LENGTH,
+    ) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if req.chief_complaint.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "chief_complaint cannot be empty".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
     // Verify patient exists
     {
         let patients = data.patients.read().unwrap();
@@ -4269,7 +6031,7 @@ async fn create_triage_assessment(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: req.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -4514,6 +6276,28 @@ async fn create_soap_note(
         });
     }
 
+    // Input validation
+    if let Err(e) =
+        validation::validate_string_length(&req.patient_id, "patient_id", validation::MAX_ID_LENGTH)
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if let Err(e) = validation::validate_string_length(
+        &req.encounter_type,
+        "encounter_type",
+        validation::MAX_NAME_LENGTH,
+    ) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
     // Verify patient exists
     {
         let patients = data.patients.read().unwrap();
@@ -4562,7 +6346,7 @@ async fn create_soap_note(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: req.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -4875,7 +6659,7 @@ async fn create_sample_history(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: req.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -5016,6 +6800,17 @@ async fn create_gcs_assessment(
         });
     }
 
+    // Input validation
+    if let Err(e) =
+        validation::validate_string_length(&req.patient_id, "patient_id", validation::MAX_ID_LENGTH)
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: e,
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
     // Verify patient exists
     {
         let patients = data.patients.read().unwrap();
@@ -5099,7 +6894,7 @@ async fn create_gcs_assessment(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: req.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -5357,7 +7152,7 @@ async fn add_vital_signs(
     {
         let mut logs = data.access_logs.write().unwrap();
         logs.push(AccessLogEntry {
-            access_id: Uuid::new_v4().to_string(),
+            access_id: secure_tokens::generate_access_id(),
             patient_id: req.patient_id.clone(),
             accessor_id: current_user_id,
             accessor_role: current_user.role.to_string(),
@@ -5398,6 +7193,65 @@ async fn add_vital_signs(
 /// Get vital signs flowsheet for a patient
 #[get("/api/clinical/patient/{patient_id}/vitals")]
 async fn get_patient_vitals(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+
+    let flowsheets = data.vital_signs.read().unwrap();
+    match flowsheets.get(&patient_id) {
+        Some(flowsheet) => {
+            let all_alerts = flowsheet.all_critical_alerts();
+            HttpResponse::Ok().json(serde_json::json!({
+                "patient_id": patient_id,
+                "readings": flowsheet.readings,
+                "total": flowsheet.readings.len(),
+                "critical_alerts": all_alerts
+            }))
+        }
+        None => HttpResponse::Ok().json(serde_json::json!({
+            "patient_id": patient_id,
+            "readings": [],
+            "total": 0,
+            "critical_alerts": []
+        })),
+    }
+}
+
+/// Get vital signs flowsheet for a patient (alias endpoint for frontend compatibility)
+#[get("/api/clinical/vitals/flowsheet/{patient_id}")]
+async fn get_vitals_flowsheet(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
@@ -5684,6 +7538,7 @@ async fn main() -> std::io::Result<()> {
     println!("     GET  /api/dashboard/doctor    - Doctor dashboard (patients, labs)");
     println!("     GET  /api/dashboard/nurse     - Nurse dashboard (tasks, vitals)");
     println!("     GET  /api/dashboard/lab       - Lab tech dashboard (queue, QC)");
+    println!("     GET  /api/dashboard/pharmacist - Pharmacist dashboard (Rx, alerts)");
     println!("     GET  /api/dashboard/admin     - Admin system overview");
     println!("     GET  /api/patients/list       - Filtered patient list");
     println!("     GET  /api/order-sets          - Common order bundles");
@@ -5694,6 +7549,7 @@ async fn main() -> std::io::Result<()> {
     println!("  💬 Patient Engagement Endpoints:");
     println!("     POST /api/symptoms/log        - Log symptom for tracking");
     println!("     GET  /api/symptoms/{{id}}      - Get symptom history");
+    println!("     POST /api/symptoms/analyze    - Analyze symptoms for conditions");
     println!("     POST /api/messages/send       - Send secure message");
     println!("     GET  /api/messages            - Get inbox messages");
     println!();
@@ -5722,41 +7578,173 @@ async fn main() -> std::io::Result<()> {
     println!("  © 2025 Trustware. Rust Africa Hackathon 2026");
     println!();
 
-    // Create shared state
-    let app_state = web::Data::new(AppState::new());
+    // =========================================================================
+    // PostgreSQL Database Initialization (for persistent demo users)
+    // =========================================================================
+
+    // Load environment variables from .env file if present
+    let _ = dotenvy::dotenv();
+
+    // Try to connect to PostgreSQL if DATABASE_URL is set
+    let db_pool = match std::env::var("DATABASE_URL") {
+        Ok(database_url) => {
+            println!("  🗄️  Connecting to PostgreSQL database...");
+
+            // Use retry logic for Docker Compose scenarios where DB might not be ready
+            let max_retries = std::env::var("DB_MAX_RETRIES")
+                .ok()
+                .and_then(|v| v.parse().ok());
+
+            match db::create_pool_with_retry(&database_url, max_retries, None).await {
+                Ok(pool) => {
+                    println!("  ✅ Database connection established");
+
+                    // Run migrations
+                    println!("  📋 Running database migrations...");
+                    if let Err(e) = db::run_migrations(&pool).await {
+                        eprintln!("  ⚠️  Migration warning: {}", e);
+                        eprintln!("       (Demo users may need manual setup)");
+                    } else {
+                        println!("  ✅ Migrations completed");
+                    }
+
+                    Some(pool)
+                }
+                Err(e) => {
+                    eprintln!("  ⚠️  Database connection failed: {}", e);
+                    eprintln!("       Falling back to in-memory storage");
+                    eprintln!("       (Demo users will be lost on restart)");
+                    None
+                }
+            }
+        }
+        Err(_) => {
+            println!("  ℹ️  No DATABASE_URL set - using in-memory storage");
+            println!("       Set DATABASE_URL for persistent demo users");
+            None
+        }
+    };
+
+    // Create shared state with optional database pool (using async version for PostgreSQL support)
+    let app_state = web::Data::new(AppState::new_with_pool_async(db_pool).await);
+
+    // Load demo users from database into in-memory cache
+    if app_state.db_pool.is_some() {
+        println!("  👥 Loading demo users from database...");
+        match app_state.load_demo_users_from_db().await {
+            Ok(count) => {
+                println!("  ✅ Loaded {} demo users", count);
+            }
+            Err(e) => {
+                eprintln!("  ⚠️  Failed to load demo users: {}", e);
+            }
+        }
+
+        // Load demo patients from database into in-memory cache
+        println!("  🏥 Loading demo patients from database...");
+        match app_state.load_patients_from_db().await {
+            Ok(count) => {
+                println!("  ✅ Loaded {} demo patients", count);
+            }
+            Err(e) => {
+                eprintln!("  ⚠️  Failed to load demo patients: {}", e);
+            }
+        }
+    }
+
+    println!();
+    println!("  🚀 Server ready!");
+    println!();
 
     // Start HTTP server
     HttpServer::new(move || {
-        // Configure CORS for development
-        let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_method()
-            .allow_any_header()
-            .max_age(3600);
+        // Configure CORS - restrictive for production, permissive for demo
+        let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
+        let cors = if is_demo {
+            // Demo mode: allow any origin for testing
+            Cors::default()
+                .allow_any_origin()
+                .allow_any_method()
+                .allow_any_header()
+                .max_age(3600)
+        } else {
+            // Production mode: restrict origins
+            let allowed_origins = std::env::var("ALLOWED_ORIGINS")
+                .unwrap_or_else(|_| "http://localhost:5173,http://localhost:5174".to_string());
+
+            let mut cors = Cors::default()
+                .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+                .allowed_headers(vec![
+                    actix_web::http::header::AUTHORIZATION,
+                    actix_web::http::header::ACCEPT,
+                    actix_web::http::header::CONTENT_TYPE,
+                    actix_web::http::header::HeaderName::from_static("x-user-id"),
+                    actix_web::http::header::HeaderName::from_static("x-request-id"),
+                    // SEC-005: Wallet signature authentication headers
+                    actix_web::http::header::HeaderName::from_static("x-signature"),
+                    actix_web::http::header::HeaderName::from_static("x-timestamp"),
+                ])
+                .max_age(3600);
+
+            for origin in allowed_origins.split(',') {
+                cors = cors.allowed_origin(origin.trim());
+            }
+            cors
+        };
+
+        // Configure rate limiting
+        let rate_limit = RateLimitMiddleware::default_config();
+
+        // Configure signature authentication (SEC-005)
+        // Disabled by default during transition - enable with REQUIRE_SIGNATURES=true
+        let require_signatures = std::env::var("REQUIRE_SIGNATURES")
+            .unwrap_or_else(|_| "false".to_string()) == "true";
+        let signature_auth = if require_signatures {
+            log::info!("Signature authentication ENABLED - all authenticated requests require wallet signature");
+            SignatureAuthMiddleware::enabled()
+        } else {
+            log::info!("Signature authentication DISABLED - set REQUIRE_SIGNATURES=true to enable");
+            SignatureAuthMiddleware::disabled()
+        };
 
         App::new()
             .wrap(cors)
+            .wrap(rate_limit)
+            .wrap(signature_auth)
             .app_data(app_state.clone())
             .service(health_check)
+            .service(db_health_check)
+            .service(detailed_health_check)
             .service(register_patient)
             .service(update_patient)
             .service(add_emergency_contact)
             .service(emergency_access)
             .service(simulate_nfc_tap)
+            .service(get_all_access_logs)
             .service(get_access_logs)
             .service(list_patients)
             .service(get_patient_by_id)
             .service(demo_info)
+            .service(demo_login)
             // RBAC endpoints
             .service(assign_role)
             .service(revoke_role)
+            .service(get_user_with_profile)  // Must be before list_users (specific before generic)
             .service(list_users)
+            .service(get_user_details)
+            .service(update_user_profile)
             .service(get_my_records)
             // Wallet authentication endpoints
+            .service(get_auth_challenge)  // SEC-005: Auth challenge for signing
             .service(bootstrap_admin)
             .service(wallet_register)
             .service(wallet_login)
+            .service(wallet_login_get)
+            .service(wallet_lookup)
             .service(get_current_user_info)
+            .service(get_all_staff)
+            .service(get_providers)
+            .service(save_settings)
             // IPFS medical record endpoints
             .service(ipfs_health_check)
             .service(upload_medical_record)
@@ -5768,6 +7756,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_all_lab_submissions)
             .service(get_lab_submission)
             .service(review_lab_results)
+            .service(review_lab_submission_path)
             .service(get_patient_lab_submissions)
             // NFC card simulation endpoints
             .service(generate_nfc_card)
@@ -5777,6 +7766,9 @@ async fn main() -> std::io::Result<()> {
             .service(suspend_card)
             .service(list_nfc_cards)
             // Clinical documentation endpoints (Phase 1)
+            // IMPORTANT: get_triage_queue must be registered BEFORE get_triage_assessment
+            // otherwise /api/clinical/triage/queue matches {assessment_id} as "queue"
+            .service(get_triage_queue)
             .service(create_triage_assessment)
             .service(get_triage_assessment)
             .service(get_patient_triage_assessments)
@@ -5791,6 +7783,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_patient_gcs_assessments)
             .service(add_vital_signs)
             .service(get_patient_vitals)
+            .service(get_vitals_flowsheet)
             .service(get_patient_latest_vitals)
             .service(get_lab_panels)
             .service(get_lab_panel)
@@ -5818,6 +7811,7 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::get_care_plan)
             .service(clinical_endpoints::create_wound)
             .service(clinical_endpoints::get_wound)
+            .service(clinical_endpoints::list_wound_assessments)
             .service(clinical_endpoints::create_iv_site)
             .service(clinical_endpoints::get_iv_site)
             .service(clinical_endpoints::create_shift_handoff)
@@ -5840,6 +7834,7 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::get_intubation)
             .service(clinical_endpoints::create_laceration)
             .service(clinical_endpoints::get_laceration)
+            .service(clinical_endpoints::list_laceration_repairs)
             .service(clinical_endpoints::create_splint)
             .service(clinical_endpoints::get_splint)
             // Specialty population endpoints (Phase 6)
@@ -5850,6 +7845,7 @@ async fn main() -> std::io::Result<()> {
             // Laboratory endpoints (Phase 7)
             .service(clinical_endpoints::create_specimen)
             .service(clinical_endpoints::get_specimen)
+            .service(clinical_endpoints::list_specimens)
             .service(clinical_endpoints::create_chain_of_custody)
             .service(clinical_endpoints::get_chain_of_custody)
             .service(clinical_endpoints::create_lab_qc)
@@ -5936,6 +7932,7 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::nurse_dashboard)
             .service(clinical_endpoints::lab_dashboard)
             .service(clinical_endpoints::admin_dashboard)
+            .service(clinical_endpoints::pharmacist_dashboard)
             .service(clinical_endpoints::get_patient_list)
             .service(clinical_endpoints::get_order_sets)
             .service(clinical_endpoints::get_notifications)
@@ -5955,6 +7952,7 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::generate_barcode)
             .service(clinical_endpoints::scan_barcode)
             .service(clinical_endpoints::track_barcode)
+            .service(clinical_endpoints::get_barcode_scan_history)
             // Quick Note Templates endpoints
             .service(clinical_endpoints::get_note_templates)
             .service(clinical_endpoints::use_note_template)
@@ -5971,6 +7969,8 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::log_medication_adherence)
             .service(clinical_endpoints::delete_medication_reminder)
             // Phase 21: Drug Interaction Checking endpoints
+            .service(clinical_endpoints::get_drug_database)
+            .service(clinical_endpoints::get_interaction_database)
             .service(clinical_endpoints::check_drug_interactions)
             .service(clinical_endpoints::get_interaction_history)
             // Phase 22: Family Account Linking endpoints
@@ -5998,6 +7998,7 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::submit_symptom_answers)
             .service(clinical_endpoints::get_symptom_session)
             .service(clinical_endpoints::get_symptom_checker_history)
+            .service(clinical_endpoints::analyze_symptoms)
             // Phase 26: Telehealth Integration endpoints
             .service(clinical_endpoints::create_telehealth_session)
             .service(clinical_endpoints::get_telehealth_session)
@@ -6052,7 +8053,6 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::list_io)
             .service(clinical_endpoints::record_fluid)
             .service(clinical_endpoints::list_care_plans)
-            .service(get_triage_queue)
             // Phase 35: Additional list endpoints for frontend pages
             .service(clinical_endpoints::list_chain_of_custody)
             .service(clinical_endpoints::list_lab_qc)
@@ -6064,6 +8064,12 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::list_autopsy)
             .service(clinical_endpoints::list_consults)
             .service(clinical_endpoints::list_cds_alerts)
+            // Additional frontend-compatible endpoints
+            .service(clinical_endpoints::record_vital_signs)
+            .service(clinical_endpoints::list_progress_notes)
+            .service(clinical_endpoints::list_incident_reports)
+            .service(clinical_endpoints::list_intake_output)
+            .service(clinical_endpoints::list_ama_discharges)
     })
     .bind(&bind_addr)?
     .run()

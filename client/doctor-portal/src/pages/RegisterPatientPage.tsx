@@ -177,9 +177,10 @@ function RegisterPatientPage() {
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+              <label htmlFor="register-full-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
               <input
                 type="text"
+                id="register-full-name"
                 name="fullName"
                 value={formData.fullName}
                 onChange={handleChange}
@@ -190,9 +191,10 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth *</label>
+              <label htmlFor="register-date-of-birth" className="block text-sm font-medium text-gray-700 mb-1">Date of Birth *</label>
               <input
                 type="date"
+                id="register-date-of-birth"
                 name="dateOfBirth"
                 value={formData.dateOfBirth}
                 onChange={handleChange}
@@ -202,9 +204,10 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">National ID *</label>
+              <label htmlFor="register-national-id" className="block text-sm font-medium text-gray-700 mb-1">National ID *</label>
               <input
                 type="text"
+                id="register-national-id"
                 name="nationalId"
                 value={formData.nationalId}
                 onChange={handleChange}
@@ -215,8 +218,9 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Blood Type *</label>
+              <label htmlFor="register-blood-type" className="block text-sm font-medium text-gray-700 mb-1">Blood Type *</label>
               <select
+                id="register-blood-type"
                 name="bloodType"
                 value={formData.bloodType}
                 onChange={handleChange}
@@ -237,11 +241,12 @@ function RegisterPatientPage() {
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="register-allergies" className="block text-sm font-medium text-gray-700 mb-1">
                 Allergies <span className="text-gray-400">(comma-separated)</span>
               </label>
               <input
                 type="text"
+                id="register-allergies"
                 name="allergies"
                 value={formData.allergies}
                 onChange={handleChange}
@@ -251,10 +256,11 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="register-current-medications" className="block text-sm font-medium text-gray-700 mb-1">
                 Current Medications <span className="text-gray-400">(comma-separated)</span>
               </label>
               <textarea
+                id="register-current-medications"
                 name="currentMedications"
                 value={formData.currentMedications}
                 onChange={handleChange}
@@ -265,11 +271,12 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="register-chronic-conditions" className="block text-sm font-medium text-gray-700 mb-1">
                 Chronic Conditions <span className="text-gray-400">(comma-separated)</span>
               </label>
               <input
                 type="text"
+                id="register-chronic-conditions"
                 name="chronicConditions"
                 value={formData.chronicConditions}
                 onChange={handleChange}
@@ -279,9 +286,10 @@ function RegisterPatientPage() {
             </div>
 
             <div className="flex gap-6 pt-2">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label htmlFor="register-organ-donor" className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
+                  id="register-organ-donor"
                   name="organDonor"
                   checked={formData.organDonor}
                   onChange={handleChange}
@@ -290,9 +298,10 @@ function RegisterPatientPage() {
                 <span className="text-sm text-gray-700">Organ Donor</span>
               </label>
               
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label htmlFor="register-dnr-status" className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
+                  id="register-dnr-status"
                   name="dnrStatus"
                   checked={formData.dnrStatus}
                   onChange={handleChange}
@@ -309,9 +318,10 @@ function RegisterPatientPage() {
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name *</label>
+              <label htmlFor="register-emergency-contact-name" className="block text-sm font-medium text-gray-700 mb-1">Contact Name *</label>
               <input
                 type="text"
+                id="register-emergency-contact-name"
                 name="emergencyContactName"
                 value={formData.emergencyContactName}
                 onChange={handleChange}
@@ -322,9 +332,10 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+              <label htmlFor="register-emergency-contact-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
               <input
                 type="tel"
+                id="register-emergency-contact-phone"
                 name="emergencyContactPhone"
                 value={formData.emergencyContactPhone}
                 onChange={handleChange}
@@ -335,9 +346,10 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Relationship *</label>
+              <label htmlFor="register-emergency-contact-relationship" className="block text-sm font-medium text-gray-700 mb-1">Relationship *</label>
               <input
                 type="text"
+                id="register-emergency-contact-relationship"
                 name="emergencyContactRelationship"
                 value={formData.emergencyContactRelationship}
                 onChange={handleChange}

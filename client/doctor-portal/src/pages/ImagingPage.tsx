@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
+import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
 import { getPatients } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
@@ -46,6 +47,7 @@ const bodyParts = [
 
 const ImagingPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [orders, setOrders] = useState<ImagingOrder[]>([]);
   const [activeTab, setActiveTab] = useState<'orders' | 'new' | 'results'>('orders');
@@ -80,7 +82,7 @@ const ImagingPage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient || !indication) {
-      alert('Please fill required fields');
+      showWarning('Please fill required fields');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -95,7 +97,7 @@ const ImagingPage: React.FC = () => {
       contrast, allergies, creatinine, pregnant, criticalValue: false
     };
     setOrders([order, ...orders]);
-    alert('Imaging order placed!');
+    showSuccess('Imaging order placed!');
     setActiveTab('orders');
   };
 
@@ -120,8 +122,8 @@ const ImagingPage: React.FC = () => {
   const filteredOrders = orders.filter(o => {
     if (filterStatus !== 'all' && o.status !== filterStatus) return false;
     if (filterModality !== 'all' && o.modality !== filterModality) return false;
-    if (searchTerm && !o.patientName.toLowerCase().includes(searchTerm.toLowerCase())
-        && !o.study.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (searchTerm && !(o.patientName?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+        && !(o.study?.toLowerCase() || '').includes(searchTerm.toLowerCase())) return false;
     return true;
   });
 
@@ -246,8 +248,9 @@ const ImagingPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Patient *</label>
+                  <label htmlFor="imaging-patient" className="text-sm text-gray-600">Patient *</label>
                   <select
+                    id="imaging-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
@@ -259,8 +262,9 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Modality</label>
+                  <label htmlFor="imaging-modality" className="text-sm text-gray-600">Modality</label>
                   <select
+                    id="imaging-modality"
                     value={modality}
                     onChange={e => setModality(e.target.value as ImagingModality)}
                     className="w-full border rounded p-2"
@@ -271,8 +275,9 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Body Part</label>
+                  <label htmlFor="imaging-body-part" className="text-sm text-gray-600">Body Part</label>
                   <select
+                    id="imaging-body-part"
                     value={bodyPart}
                     onChange={e => setBodyPart(e.target.value)}
                     className="w-full border rounded p-2"
@@ -281,8 +286,9 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Laterality</label>
+                  <label htmlFor="imaging-laterality" className="text-sm text-gray-600">Laterality</label>
                   <select
+                    id="imaging-laterality"
                     value={laterality}
                     onChange={e => setLaterality(e.target.value as 'left' | 'right' | 'bilateral' | 'na')}
                     className="w-full border rounded p-2"
@@ -294,8 +300,9 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Priority</label>
+                  <label htmlFor="imaging-priority" className="text-sm text-gray-600">Priority</label>
                   <select
+                    id="imaging-priority"
                     value={priority}
                     onChange={e => setPriority(e.target.value as ImagingPriority)}
                     className="w-full border rounded p-2"
@@ -306,8 +313,9 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Study Name (optional)</label>
+                  <label htmlFor="imaging-study-name" className="text-sm text-gray-600">Study Name (optional)</label>
                   <input
+                    id="imaging-study-name"
                     type="text"
                     value={study}
                     onChange={e => setStudy(e.target.value)}
@@ -317,8 +325,9 @@ const ImagingPage: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4">
-                <label className="text-sm text-gray-600">Clinical Indication *</label>
+                <label htmlFor="imaging-clinical-indication" className="text-sm text-gray-600">Clinical Indication *</label>
                 <textarea
+                  id="imaging-clinical-indication"
                   value={indication}
                   onChange={e => setIndication(e.target.value)}
                   className="w-full border rounded p-2 h-20"
@@ -333,15 +342,17 @@ const ImagingPage: React.FC = () => {
               <div className="grid md:grid-cols-4 gap-4">
                 <div className="flex items-center gap-2">
                   <input
+                    id="imaging-contrast-required"
                     type="checkbox"
                     checked={contrast}
                     onChange={e => setContrast(e.target.checked)}
                   />
-                  <label className="text-sm">Contrast Required</label>
+                  <label htmlFor="imaging-contrast-required" className="text-sm">Contrast Required</label>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Allergies</label>
+                  <label htmlFor="imaging-allergies" className="text-sm text-gray-600">Allergies</label>
                   <input
+                    id="imaging-allergies"
                     type="text"
                     value={allergies}
                     onChange={e => setAllergies(e.target.value)}
@@ -351,8 +362,9 @@ const ImagingPage: React.FC = () => {
                 </div>
                 {contrast && (
                   <div>
-                    <label className="text-sm text-gray-600">Creatinine</label>
+                    <label htmlFor="imaging-creatinine" className="text-sm text-gray-600">Creatinine</label>
                     <input
+                      id="imaging-creatinine"
                       type="number"
                       step="0.1"
                       value={creatinine || ''}
@@ -362,8 +374,9 @@ const ImagingPage: React.FC = () => {
                   </div>
                 )}
                 <div>
-                  <label className="text-sm text-gray-600">Pregnancy Status</label>
+                  <label htmlFor="imaging-pregnancy-status" className="text-sm text-gray-600">Pregnancy Status</label>
                   <select
+                    id="imaging-pregnancy-status"
                     value={pregnant}
                     onChange={e => setPregnant(e.target.value)}
                     className="w-full border rounded p-2"

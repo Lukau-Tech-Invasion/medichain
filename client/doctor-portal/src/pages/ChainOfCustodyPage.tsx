@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { getPatients, listChainOfCustody, createChainOfCustody } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import {
   Shield,
   CheckCircle,
@@ -64,6 +65,7 @@ interface ChainOfCustody {
 
 const ChainOfCustodyPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<ChainOfCustody[]>([]);
   const [activeTab, setActiveTab] = useState<'active' | 'new-collection' | 'transfer' | 'history'>('active');
@@ -153,7 +155,7 @@ const ChainOfCustodyPage: React.FC = () => {
 
   const handleCreateCustody = () => {
     if (!newCollection.patientId || !newCollection.specimenDescription || !newCollection.sealNumber) {
-      alert('Please fill in all required fields');
+      showWarning('Please fill in all required fields');
       return;
     }
 
@@ -203,12 +205,12 @@ const ChainOfCustodyPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    alert(`Chain of custody record ${newRecord.custodyId} created`);
+    showSuccess(`Chain of custody record ${newRecord.custodyId} created`);
   };
 
   const handleTransfer = () => {
     if (!selectedRecord || !transfer.transferredTo || !transfer.location) {
-      alert('Please fill in all required transfer fields');
+      showWarning('Please fill in all required transfer fields');
       return;
     }
 
@@ -248,7 +250,7 @@ const ChainOfCustodyPage: React.FC = () => {
       witnessSignature: '',
       notes: '',
     });
-    alert('Transfer documented successfully');
+    showSuccess('Transfer documented successfully');
   };
 
   const filteredRecords = records.filter((r) => {
@@ -462,10 +464,11 @@ const ChainOfCustodyPage: React.FC = () => {
           <div className="space-y-4 mb-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-patient" className="block text-sm font-semibold text-gray-700 mb-2">
                   Patient <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="coc-patient"
                   value={newCollection.patientId}
                   onChange={(e) => setNewCollection({ ...newCollection, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -480,10 +483,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-specimen-type" className="block text-sm font-semibold text-gray-700 mb-2">
                   Specimen Type <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="coc-specimen-type"
                   value={newCollection.specimenType}
                   onChange={(e) => setNewCollection({ ...newCollection, specimenType: e.target.value as SpecimenType })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -498,10 +502,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-specimen-description" className="block text-sm font-semibold text-gray-700 mb-2">
                   Specimen Description <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="coc-specimen-description"
                   type="text"
                   value={newCollection.specimenDescription}
                   onChange={(e) => setNewCollection({ ...newCollection, specimenDescription: e.target.value })}
@@ -511,10 +516,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-collection-date" className="block text-sm font-semibold text-gray-700 mb-2">
                   Collection Date <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="coc-collection-date"
                   type="date"
                   value={newCollection.collectionDate}
                   onChange={(e) => setNewCollection({ ...newCollection, collectionDate: e.target.value })}
@@ -523,10 +529,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-collection-time" className="block text-sm font-semibold text-gray-700 mb-2">
                   Collection Time <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="coc-collection-time"
                   type="time"
                   value={newCollection.collectionTime}
                   onChange={(e) => setNewCollection({ ...newCollection, collectionTime: e.target.value })}
@@ -535,10 +542,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-collection-location" className="block text-sm font-semibold text-gray-700 mb-2">
                   Collection Location <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="coc-collection-location"
                   type="text"
                   value={newCollection.collectionLocation}
                   onChange={(e) => setNewCollection({ ...newCollection, collectionLocation: e.target.value })}
@@ -548,10 +556,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-purpose" className="block text-sm font-semibold text-gray-700 mb-2">
                   Purpose <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="coc-purpose"
                   value={newCollection.purpose}
                   onChange={(e) => setNewCollection({ ...newCollection, purpose: e.target.value as CustodyPurpose })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -566,8 +575,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Case Number</label>
+                <label htmlFor="coc-case-number" className="block text-sm font-semibold text-gray-700 mb-2">Case Number</label>
                 <input
+                  id="coc-case-number"
                   type="text"
                   value={newCollection.caseNumber}
                   onChange={(e) => setNewCollection({ ...newCollection, caseNumber: e.target.value })}
@@ -577,8 +587,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Investigating Agency</label>
+                <label htmlFor="coc-investigating-agency" className="block text-sm font-semibold text-gray-700 mb-2">Investigating Agency</label>
                 <input
+                  id="coc-investigating-agency"
                   type="text"
                   value={newCollection.investigatingAgency}
                   onChange={(e) => setNewCollection({ ...newCollection, investigatingAgency: e.target.value })}
@@ -588,10 +599,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-seal-number" className="block text-sm font-semibold text-gray-700 mb-2">
                   Seal Number <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="coc-seal-number"
                   type="text"
                   value={newCollection.sealNumber}
                   onChange={(e) => setNewCollection({ ...newCollection, sealNumber: e.target.value })}
@@ -601,8 +613,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Container Type</label>
+                <label htmlFor="coc-container-type" className="block text-sm font-semibold text-gray-700 mb-2">Container Type</label>
                 <input
+                  id="coc-container-type"
                   type="text"
                   value={newCollection.containerType}
                   onChange={(e) => setNewCollection({ ...newCollection, containerType: e.target.value })}
@@ -612,8 +625,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
+                <label htmlFor="coc-quantity" className="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
                 <input
+                  id="coc-quantity"
                   type="text"
                   value={newCollection.quantity}
                   onChange={(e) => setNewCollection({ ...newCollection, quantity: e.target.value })}
@@ -623,8 +637,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Storage Conditions</label>
+                <label htmlFor="coc-storage-conditions" className="block text-sm font-semibold text-gray-700 mb-2">Storage Conditions</label>
                 <input
+                  id="coc-storage-conditions"
                   type="text"
                   value={newCollection.storageConditions}
                   onChange={(e) => setNewCollection({ ...newCollection, storageConditions: e.target.value })}
@@ -634,8 +649,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label htmlFor="coc-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
                 <textarea
+                  id="coc-notes"
                   value={newCollection.notes}
                   onChange={(e) => setNewCollection({ ...newCollection, notes: e.target.value })}
                   placeholder="Additional notes..."
@@ -723,10 +739,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-transfer-to" className="block text-sm font-semibold text-gray-700 mb-2">
                   Transfer To <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="coc-transfer-to"
                   type="text"
                   value={transfer.transferredTo}
                   onChange={(e) => setTransfer({ ...transfer, transferredTo: e.target.value })}
@@ -736,10 +753,11 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="coc-transfer-location" className="block text-sm font-semibold text-gray-700 mb-2">
                   Location <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="coc-transfer-location"
                   type="text"
                   value={transfer.location}
                   onChange={(e) => setTransfer({ ...transfer, location: e.target.value })}
@@ -749,8 +767,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Condition</label>
+                <label htmlFor="coc-transfer-condition" className="block text-sm font-semibold text-gray-700 mb-2">Condition</label>
                 <input
+                  id="coc-transfer-condition"
                   type="text"
                   value={transfer.condition}
                   onChange={(e) => setTransfer({ ...transfer, condition: e.target.value })}
@@ -761,17 +780,19 @@ const ChainOfCustodyPage: React.FC = () => {
 
               <div className="flex items-center gap-2">
                 <input
+                  id="coc-seal-intact"
                   type="checkbox"
                   checked={transfer.sealIntact}
                   onChange={(e) => setTransfer({ ...transfer, sealIntact: e.target.checked })}
                   className="w-5 h-5"
                 />
-                <label className="text-sm font-semibold text-gray-700">Seal Intact</label>
+                <label htmlFor="coc-seal-intact" className="text-sm font-semibold text-gray-700">Seal Intact</label>
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Witness Signature</label>
+                <label htmlFor="coc-witness-signature" className="block text-sm font-semibold text-gray-700 mb-2">Witness Signature</label>
                 <input
+                  id="coc-witness-signature"
                   type="text"
                   value={transfer.witnessSignature}
                   onChange={(e) => setTransfer({ ...transfer, witnessSignature: e.target.value })}
@@ -781,8 +802,9 @@ const ChainOfCustodyPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label htmlFor="coc-transfer-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
                 <textarea
+                  id="coc-transfer-notes"
                   value={transfer.notes}
                   onChange={(e) => setTransfer({ ...transfer, notes: e.target.value })}
                   placeholder="Transfer notes..."
@@ -815,10 +837,11 @@ const ChainOfCustodyPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="coc-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="coc-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -828,8 +851,9 @@ const ChainOfCustodyPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="coc-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
                 <select
+                  id="coc-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as SpecimenStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"

@@ -39,7 +39,7 @@ function walletUserToUser(walletUser: WalletUserInfo): User {
     username: walletUser.username,
     name: walletUser.name,
     role: walletUser.role,
-    created_at: walletUser.created_at,
+    created_at: walletUser.created_at ?? new Date().toISOString(),
     linked_patient_id: walletUser.linked_patient_id,
   };
 }

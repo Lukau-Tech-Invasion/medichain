@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { getPatients } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
 type MallampatiClass = 'I' | 'II' | 'III' | 'IV';
@@ -75,6 +76,7 @@ const complications = [
 
 const IntubationPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<IntubationRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
@@ -146,7 +148,7 @@ const IntubationPage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient || !formData.indication) {
-      alert('Please select a patient and indication');
+      showWarning('Please select a patient and indication');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -174,7 +176,7 @@ const IntubationPage: React.FC = () => {
       notes: formData.notes
     };
     setRecords([newRecord, ...records]);
-    alert('Intubation documented successfully!');
+    showSuccess('Intubation documented successfully!');
   };
 
   return (
@@ -239,8 +241,9 @@ const IntubationPage: React.FC = () => {
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Mallampati Class</label>
+                  <label htmlFor="intubation-mallampati" className="text-sm text-gray-600">Mallampati Class</label>
                   <select
+                    id="intubation-mallampati"
                     value={airway.mallampati}
                     onChange={e => setAirway({ ...airway, mallampati: e.target.value as MallampatiClass })}
                     className="w-full border rounded p-2"
@@ -252,8 +255,9 @@ const IntubationPage: React.FC = () => {
                   <p className="text-xs text-gray-500 mt-1">{mallampatiDescriptions[airway.mallampati]}</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Mouth Opening (cm)</label>
+                  <label htmlFor="intubation-mouth-opening" className="text-sm text-gray-600">Mouth Opening (cm)</label>
                   <input
+                    id="intubation-mouth-opening"
                     type="number"
                     value={airway.mouthOpening}
                     onChange={e => setAirway({ ...airway, mouthOpening: Number(e.target.value) })}
@@ -263,8 +267,9 @@ const IntubationPage: React.FC = () => {
                   <p className="text-xs text-gray-500">&lt;3cm = difficult</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Thyromental (cm)</label>
+                  <label htmlFor="intubation-thyromental" className="text-sm text-gray-600">Thyromental (cm)</label>
                   <input
+                    id="intubation-thyromental"
                     type="number"
                     value={airway.thyromental}
                     onChange={e => setAirway({ ...airway, thyromental: Number(e.target.value) })}
@@ -274,8 +279,9 @@ const IntubationPage: React.FC = () => {
                   <p className="text-xs text-gray-500">&lt;6cm = difficult</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Neck Mobility</label>
+                  <label htmlFor="intubation-neck-mobility" className="text-sm text-gray-600">Neck Mobility</label>
                   <select
+                    id="intubation-neck-mobility"
                     value={airway.neckMobility}
                     onChange={e => setAirway({ ...airway, neckMobility: e.target.value as 'full' | 'limited' | 'immobile' })}
                     className="w-full border rounded p-2"
@@ -286,8 +292,9 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Dentition</label>
+                  <label htmlFor="intubation-dentition" className="text-sm text-gray-600">Dentition</label>
                   <select
+                    id="intubation-dentition"
                     value={airway.dentition}
                     onChange={e => setAirway({ ...airway, dentition: e.target.value as 'normal' | 'loose' | 'dentures' | 'edentulous' })}
                     className="w-full border rounded p-2"
@@ -299,16 +306,18 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div className="flex items-center gap-4 col-span-2">
-                  <label className="flex items-center gap-2">
+                  <label htmlFor="intub-beard-present" className="flex items-center gap-2">
                     <input
+                      id="intub-beard-present"
                       type="checkbox"
                       checked={airway.beardPresent}
                       onChange={e => setAirway({ ...airway, beardPresent: e.target.checked })}
                     />
                     <span className="text-sm">Beard present</span>
                   </label>
-                  <label className="flex items-center gap-2">
+                  <label htmlFor="intub-obese-neck" className="flex items-center gap-2">
                     <input
+                      id="intub-obese-neck"
                       type="checkbox"
                       checked={airway.obeseNeck}
                       onChange={e => setAirway({ ...airway, obeseNeck: e.target.checked })}
@@ -330,8 +339,9 @@ const IntubationPage: React.FC = () => {
               <h2 className="font-semibold mb-3">Procedure Details</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Indication</label>
+                  <label htmlFor="intub-indication" className="text-sm text-gray-600">Indication</label>
                   <select
+                    id="intub-indication"
                     value={formData.indication}
                     onChange={e => setFormData({ ...formData, indication: e.target.value })}
                     className="w-full border rounded p-2"
@@ -343,8 +353,9 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Method</label>
+                  <label htmlFor="intub-method" className="text-sm text-gray-600">Method</label>
                   <select
+                    id="intub-method"
                     value={formData.method}
                     onChange={e => setFormData({ ...formData, method: e.target.value as IntubationMethod })}
                     className="w-full border rounded p-2"
@@ -356,8 +367,9 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Blade Type</label>
+                  <label htmlFor="intub-blade-type" className="text-sm text-gray-600">Blade Type</label>
                   <select
+                    id="intub-blade-type"
                     value={formData.bladeType}
                     onChange={e => setFormData({ ...formData, bladeType: e.target.value as BladeType })}
                     className="w-full border rounded p-2"
@@ -369,8 +381,9 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Blade Size</label>
+                  <label htmlFor="intub-blade-size" className="text-sm text-gray-600">Blade Size</label>
                   <select
+                    id="intub-blade-size"
                     value={formData.bladeSize}
                     onChange={e => setFormData({ ...formData, bladeSize: Number(e.target.value) })}
                     className="w-full border rounded p-2"
@@ -381,8 +394,9 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">ETT Size (mm)</label>
+                  <label htmlFor="intub-ett-size" className="text-sm text-gray-600">ETT Size (mm)</label>
                   <select
+                    id="intub-ett-size"
                     value={formData.tubeSize}
                     onChange={e => setFormData({ ...formData, tubeSize: Number(e.target.value) })}
                     className="w-full border rounded p-2"
@@ -393,8 +407,9 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Depth at Lip (cm)</label>
+                  <label htmlFor="intub-depth-at-lip" className="text-sm text-gray-600">Depth at Lip (cm)</label>
                   <input
+                    id="intub-depth-at-lip"
                     type="number"
                     value={formData.tubeDepth}
                     onChange={e => setFormData({ ...formData, tubeDepth: Number(e.target.value) })}
@@ -402,8 +417,9 @@ const IntubationPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Cuff Pressure (cmH2O)</label>
+                  <label htmlFor="intub-cuff-pressure" className="text-sm text-gray-600">Cuff Pressure (cmH2O)</label>
                   <input
+                    id="intub-cuff-pressure"
                     type="number"
                     value={formData.cuffPressure}
                     onChange={e => setFormData({ ...formData, cuffPressure: Number(e.target.value) })}
@@ -411,8 +427,9 @@ const IntubationPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Attempts</label>
+                  <label htmlFor="intub-attempts" className="text-sm text-gray-600">Attempts</label>
                   <select
+                    id="intub-attempts"
                     value={formData.attempts}
                     onChange={e => setFormData({ ...formData, attempts: Number(e.target.value) })}
                     className="w-full border rounded p-2"
@@ -424,16 +441,18 @@ const IntubationPage: React.FC = () => {
                 </div>
               </div>
               <div className="flex gap-4 mt-4">
-                <label className="flex items-center gap-2">
+                <label htmlFor="intub-pre-oxygenation" className="flex items-center gap-2">
                   <input
+                    id="intub-pre-oxygenation"
                     type="checkbox"
                     checked={formData.preOxygenation}
                     onChange={e => setFormData({ ...formData, preOxygenation: e.target.checked })}
                   />
                   <span>Pre-oxygenation performed</span>
                 </label>
-                <label className="flex items-center gap-2">
+                <label htmlFor="intub-rsi-used" className="flex items-center gap-2">
                   <input
+                    id="intub-rsi-used"
                     type="checkbox"
                     checked={formData.rsiUsed}
                     onChange={e => setFormData({ ...formData, rsiUsed: e.target.checked })}

@@ -357,8 +357,10 @@ export default function SepsisPage() {
                   Patient Selection
                 </h2>
                 <div className="relative mb-4">
+                  <label htmlFor="sepsis-patient-search" className="sr-only">Search patients</label>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
+                    id="sepsis-patient-search"
                     type="text"
                     placeholder="Search patients..."
                     value={searchTerm}
@@ -366,7 +368,9 @@ export default function SepsisPage() {
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
                 </div>
+                <label htmlFor="sepsis-patient-select" className="sr-only">Select patient</label>
                 <select
+                  id="sepsis-patient-select"
                   value={selectedPatient}
                   onChange={(e) => setSelectedPatient(e.target.value)}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
@@ -415,7 +419,7 @@ export default function SepsisPage() {
                 </h2>
                 <div className="space-y-4">
                   <div>
-                    <label className="flex items-center justify-between">
+                    <label htmlFor="sepsis-respiratory-rate" className="flex items-center justify-between">
                       <span className="text-sm text-gray-700">
                         <Wind className="h-4 w-4 inline mr-1" />
                         RR ≥22 /min
@@ -425,6 +429,7 @@ export default function SepsisPage() {
                       </span>
                     </label>
                     <input
+                      id="sepsis-respiratory-rate"
                       type="range"
                       min="10"
                       max="40"
@@ -435,7 +440,7 @@ export default function SepsisPage() {
                     <p className="text-xs text-gray-500 text-center">{respiratoryRate} /min</p>
                   </div>
                   <div>
-                    <label className="flex items-center justify-between">
+                    <label htmlFor="sepsis-systolic-bp" className="flex items-center justify-between">
                       <span className="text-sm text-gray-700">
                         <Heart className="h-4 w-4 inline mr-1" />
                         SBP ≤100 mmHg
@@ -445,6 +450,7 @@ export default function SepsisPage() {
                       </span>
                     </label>
                     <input
+                      id="sepsis-systolic-bp"
                       type="range"
                       min="60"
                       max="180"
@@ -455,7 +461,7 @@ export default function SepsisPage() {
                     <p className="text-xs text-gray-500 text-center">{systolicBP} mmHg</p>
                   </div>
                   <div>
-                    <label className="flex items-center justify-between">
+                    <label htmlFor="sepsis-gcs-score" className="flex items-center justify-between">
                       <span className="text-sm text-gray-700">
                         <Brain className="h-4 w-4 inline mr-1" />
                         GCS &lt;15
@@ -465,6 +471,7 @@ export default function SepsisPage() {
                       </span>
                     </label>
                     <input
+                      id="sepsis-gcs-score"
                       type="range"
                       min="3"
                       max="15"
@@ -553,7 +560,9 @@ export default function SepsisPage() {
                   Lactate Trending
                 </h2>
                 <div className="flex space-x-2 mb-4">
+                  <label htmlFor="sepsis-lactate" className="sr-only">Lactate (mmol/L)</label>
                   <input
+                    id="sepsis-lactate"
                     type="number"
                     step="0.1"
                     value={newLactate}
@@ -609,8 +618,9 @@ export default function SepsisPage() {
 
               {/* Infection Source */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Infection Source</h2>
+                <label htmlFor="sepsis-infection-source" className="text-lg font-semibold text-gray-900 mb-4 block">Infection Source</label>
                 <select
+                  id="sepsis-infection-source"
                   value={infectionSource}
                   onChange={(e) => setInfectionSource(e.target.value)}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 mb-4"
@@ -620,7 +630,9 @@ export default function SepsisPage() {
                     <option key={src} value={src}>{src}</option>
                   ))}
                 </select>
+                <label htmlFor="sepsis-suspected-organism" className="sr-only">Suspected organism</label>
                 <input
+                  id="sepsis-suspected-organism"
                   type="text"
                   value={suspectedOrganism}
                   onChange={(e) => setSuspectedOrganism(e.target.value)}
@@ -640,8 +652,9 @@ export default function SepsisPage() {
                 </h2>
                 <div className="grid grid-cols-2 gap-2">
                   {antibioticOptions.map(abx => (
-                    <label key={abx} className="flex items-center space-x-2 p-2 bg-gray-50 rounded">
+                    <label key={abx} htmlFor={`sepsis-antibiotic-${abx.toLowerCase().replace(/[^a-z0-9]/g, '-')}`} className="flex items-center space-x-2 p-2 bg-gray-50 rounded">
                       <input
+                        id={`sepsis-antibiotic-${abx.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                         type="checkbox"
                         checked={antibioticsGiven.includes(abx)}
                         onChange={(e) => {
@@ -670,10 +683,11 @@ export default function SepsisPage() {
                 </h2>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="sepsis-fluid-volume" className="block text-sm font-medium text-gray-700 mb-1">
                       Crystalloid Volume (mL)
                     </label>
                     <input
+                      id="sepsis-fluid-volume"
                       type="number"
                       value={fluidVolume}
                       onChange={(e) => {
@@ -692,10 +706,11 @@ export default function SepsisPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="sepsis-vasopressor" className="block text-sm font-medium text-gray-700 mb-1">
                       Vasopressor (if needed)
                     </label>
                     <select
+                      id="sepsis-vasopressor"
                       value={vasopressorType}
                       onChange={(e) => {
                         setVasopressorType(e.target.value);
@@ -756,8 +771,9 @@ export default function SepsisPage() {
 
               {/* Clinical Narrative */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Clinical Narrative</h2>
+                <label htmlFor="sepsis-narrative" className="text-lg font-semibold text-gray-900 mb-4 block">Clinical Narrative</label>
                 <textarea
+                  id="sepsis-narrative"
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value)}
                   placeholder="Document clinical course, response to treatment, concerns..."

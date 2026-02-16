@@ -128,16 +128,19 @@ impl pallet_transaction_payment::Config for Runtime {
 /// Patient Identity pallet configuration
 impl pallet_patient_identity::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_patient_identity::weights::SubstrateWeight<Runtime>;
 }
 
 /// Medical Records pallet configuration
 impl pallet_medical_records::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_medical_records::weights::SubstrateWeight<Runtime>;
 }
 
 /// Access Control pallet configuration
 impl pallet_access_control::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
+    type WeightInfo = pallet_access_control::weights::SubstrateWeight<Runtime>;
 }
 
 // Construct the runtime by composing all pallets

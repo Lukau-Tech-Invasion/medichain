@@ -370,8 +370,9 @@ function OrdersPage() {
             <h2 className="text-xl font-bold mb-4">Create New Order</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
+                <label htmlFor="order-patient-id" className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
                 <input
+                  id="order-patient-id"
                   type="text"
                   value={newOrder.patient_id}
                   onChange={(e) => setNewOrder({ ...newOrder, patient_id: e.target.value })}
@@ -382,8 +383,9 @@ function OrdersPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Order Type</label>
+                  <label htmlFor="order-type" className="block text-sm font-medium text-gray-700 mb-1">Order Type</label>
                   <select
+                    id="order-type"
                     value={newOrder.order_type}
                     onChange={(e) => setNewOrder({ ...newOrder, order_type: e.target.value })}
                     className="w-full px-4 py-2 border rounded-lg"
@@ -394,8 +396,9 @@ function OrdersPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                  <label htmlFor="order-priority" className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
                   <select
+                    id="order-priority"
                     value={newOrder.priority}
                     onChange={(e) => setNewOrder({ ...newOrder, priority: e.target.value })}
                     className="w-full px-4 py-2 border rounded-lg"
@@ -407,8 +410,9 @@ function OrdersPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Order Details</label>
+                <label htmlFor="order-details" className="block text-sm font-medium text-gray-700 mb-1">Order Details</label>
                 <textarea
+                  id="order-details"
                   value={newOrder.order_details}
                   onChange={(e) => setNewOrder({ ...newOrder, order_details: e.target.value })}
                   className="w-full px-4 py-2 border rounded-lg"
@@ -418,8 +422,9 @@ function OrdersPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                <label htmlFor="order-notes" className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
                 <textarea
+                  id="order-notes"
                   value={newOrder.notes}
                   onChange={(e) => setNewOrder({ ...newOrder, notes: e.target.value })}
                   className="w-full px-4 py-2 border rounded-lg"

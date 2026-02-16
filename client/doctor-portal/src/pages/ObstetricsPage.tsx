@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { getPatients } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
 type FetalHeartCategory = 'I' | 'II' | 'III';
@@ -61,6 +62,7 @@ const obInterventions = [
 
 const ObstetricsPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [assessments, setAssessments] = useState<ObAssessment[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
@@ -123,7 +125,7 @@ const ObstetricsPage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient) {
-      alert('Please select a patient');
+      showWarning('Please select a patient');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -139,7 +141,7 @@ const ObstetricsPage: React.FC = () => {
       complications: selectedComplications, interventions: selectedInterventions, notes
     };
     setAssessments([newAssessment, ...assessments]);
-    alert('OB assessment saved!');
+    showSuccess('OB assessment saved!');
   };
 
   return (
@@ -190,8 +192,9 @@ const ObstetricsPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="ob-patient" className="text-sm text-gray-600">Patient</label>
                   <select
+                    id="ob-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
@@ -203,8 +206,9 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">G (Gravida)</label>
+                  <label htmlFor="ob-gravida" className="text-sm text-gray-600">G (Gravida)</label>
                   <input
+                    id="ob-gravida"
                     type="number"
                     value={gravida}
                     onChange={e => setGravida(Number(e.target.value))}
@@ -213,8 +217,9 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">P (Para)</label>
+                  <label htmlFor="ob-para" className="text-sm text-gray-600">P (Para)</label>
                   <input
+                    id="ob-para"
                     type="number"
                     value={para}
                     onChange={e => setPara(Number(e.target.value))}
@@ -223,8 +228,9 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">GA (weeks)</label>
+                  <label htmlFor="ob-gestational-age" className="text-sm text-gray-600">GA (weeks)</label>
                   <input
+                    id="ob-gestational-age"
                     type="number"
                     value={gestationalAge}
                     onChange={e => setGestationalAge(Number(e.target.value))}
@@ -233,8 +239,9 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">EDD</label>
+                  <label htmlFor="ob-edd" className="text-sm text-gray-600">EDD</label>
                   <input
+                    id="ob-edd"
                     type="date"
                     value={edd}
                     onChange={e => setEdd(e.target.value)}
@@ -242,8 +249,9 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div className="flex items-center">
-                  <label className="flex items-center gap-2">
+                  <label htmlFor="ob-prenatal-care" className="flex items-center gap-2">
                     <input
+                      id="ob-prenatal-care"
                       type="checkbox"
                       checked={prenatalCare}
                       onChange={e => setPrenatalCare(e.target.checked)}
@@ -252,8 +260,9 @@ const ObstetricsPage: React.FC = () => {
                   </label>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="text-sm text-gray-600">Chief Complaint</label>
+                  <label htmlFor="ob-chief-complaint" className="text-sm text-gray-600">Chief Complaint</label>
                   <input
+                    id="ob-chief-complaint"
                     type="text"
                     value={chiefComplaint}
                     onChange={e => setChiefComplaint(e.target.value)}
@@ -271,8 +280,9 @@ const ObstetricsPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label className="flex items-center gap-2 mb-2">
+                  <label htmlFor="ob-contractions" className="flex items-center gap-2 mb-2">
                     <input
+                      id="ob-contractions"
                       type="checkbox"
                       checked={contractions.present}
                       onChange={e => setContractions({ ...contractions, present: e.target.checked })}
@@ -281,14 +291,18 @@ const ObstetricsPage: React.FC = () => {
                   </label>
                   {contractions.present && (
                     <div className="space-y-2">
+                      <label htmlFor="ob-contractions-frequency" className="sr-only">Contraction Frequency</label>
                       <input
+                        id="ob-contractions-frequency"
                         type="text"
                         value={contractions.frequency}
                         onChange={e => setContractions({ ...contractions, frequency: e.target.value })}
                         className="w-full border rounded p-2"
                         placeholder="Frequency (e.g., q3min)"
                       />
+                      <label htmlFor="ob-contractions-duration" className="sr-only">Contraction Duration</label>
                       <input
+                        id="ob-contractions-duration"
                         type="text"
                         value={contractions.duration}
                         onChange={e => setContractions({ ...contractions, duration: e.target.value })}
@@ -299,8 +313,9 @@ const ObstetricsPage: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Membrane Status</label>
+                  <label htmlFor="ob-membrane-status" className="text-sm text-gray-600">Membrane Status</label>
                   <select
+                    id="ob-membrane-status"
                     value={membraneStatus}
                     onChange={e => setMembraneStatus(e.target.value as 'intact' | 'ruptured' | 'unknown')}
                     className="w-full border rounded p-2"
@@ -311,13 +326,17 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                   {membraneStatus === 'ruptured' && (
                     <>
+                      <label htmlFor="ob-rupture-time" className="sr-only">Rupture Time</label>
                       <input
+                        id="ob-rupture-time"
                         type="datetime-local"
                         value={ruptureTime}
                         onChange={e => setRuptureTime(e.target.value)}
                         className="w-full border rounded p-2 mt-2"
                       />
+                      <label htmlFor="ob-fluid-color" className="sr-only">Fluid Color</label>
                       <select
+                        id="ob-fluid-color"
                         value={fluidColor}
                         onChange={e => setFluidColor(e.target.value as 'clear' | 'meconium' | 'bloody' | 'unknown')}
                         className="w-full border rounded p-2 mt-2"
@@ -331,8 +350,9 @@ const ObstetricsPage: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Presentation</label>
+                  <label htmlFor="ob-presentation" className="text-sm text-gray-600">Presentation</label>
                   <select
+                    id="ob-presentation"
                     value={presentation}
                     onChange={e => setPresentation(e.target.value as 'cephalic' | 'breech' | 'transverse' | 'unknown')}
                     className="w-full border rounded p-2"
@@ -344,8 +364,9 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Labor Stage</label>
+                  <label htmlFor="ob-labor-stage" className="text-sm text-gray-600">Labor Stage</label>
                   <select
+                    id="ob-labor-stage"
                     value={laborStage}
                     onChange={e => setLaborStage(e.target.value as LaborStage)}
                     className="w-full border rounded p-2"
@@ -360,8 +381,9 @@ const ObstetricsPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-3 gap-4 mt-4">
                 <div>
-                  <label className="text-sm text-gray-600">Dilation (cm)</label>
+                  <label htmlFor="ob-dilation" className="text-sm text-gray-600">Dilation (cm)</label>
                   <input
+                    id="ob-dilation"
                     type="number"
                     value={cervicalExam.dilation}
                     onChange={e => setCervicalExam({ ...cervicalExam, dilation: Number(e.target.value) })}
@@ -370,8 +392,9 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Effacement (%)</label>
+                  <label htmlFor="ob-effacement" className="text-sm text-gray-600">Effacement (%)</label>
                   <input
+                    id="ob-effacement"
                     type="number"
                     value={cervicalExam.effacement}
                     onChange={e => setCervicalExam({ ...cervicalExam, effacement: Number(e.target.value) })}
@@ -380,8 +403,9 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Station (-3 to +3)</label>
+                  <label htmlFor="ob-station" className="text-sm text-gray-600">Station (-3 to +3)</label>
                   <select
+                    id="ob-station"
                     value={cervicalExam.station}
                     onChange={e => setCervicalExam({ ...cervicalExam, station: Number(e.target.value) })}
                     className="w-full border rounded p-2"
@@ -407,8 +431,9 @@ const ObstetricsPage: React.FC = () => {
               <p className="text-sm text-gray-600 mb-4">{fhrCategories[fhr.category].desc}</p>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Baseline (bpm)</label>
+                  <label htmlFor="ob-fhr-baseline" className="text-sm text-gray-600">Baseline (bpm)</label>
                   <input
+                    id="ob-fhr-baseline"
                     type="number"
                     value={fhr.baseline}
                     onChange={e => setFhr({ ...fhr, baseline: Number(e.target.value) })}
@@ -417,8 +442,9 @@ const ObstetricsPage: React.FC = () => {
                   <p className="text-xs text-gray-400">Normal: 110-160</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Variability</label>
+                  <label htmlFor="ob-fhr-variability" className="text-sm text-gray-600">Variability</label>
                   <select
+                    id="ob-fhr-variability"
                     value={fhr.variability}
                     onChange={e => setFhr({ ...fhr, variability: e.target.value as 'absent' | 'minimal' | 'moderate' | 'marked' })}
                     className="w-full border rounded p-2"
@@ -430,8 +456,9 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Accelerations</label>
+                  <label htmlFor="ob-fhr-accelerations" className="text-sm text-gray-600">Accelerations</label>
                   <select
+                    id="ob-fhr-accelerations"
                     value={fhr.accelerations ? 'yes' : 'no'}
                     onChange={e => setFhr({ ...fhr, accelerations: e.target.value === 'yes' })}
                     className="w-full border rounded p-2"
@@ -441,8 +468,9 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Decelerations</label>
+                  <label htmlFor="ob-fhr-decelerations" className="text-sm text-gray-600">Decelerations</label>
                   <select
+                    id="ob-fhr-decelerations"
                     value={fhr.decelerations}
                     onChange={e => setFhr({ ...fhr, decelerations: e.target.value as 'none' | 'early' | 'variable' | 'late' | 'prolonged' })}
                     className="w-full border rounded p-2"
@@ -505,8 +533,9 @@ const ObstetricsPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Notes</h2>
+              <label htmlFor="ob-notes" className="font-semibold mb-3 block">Notes</label>
               <textarea
+                id="ob-notes"
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 className="w-full border rounded p-2 h-24"

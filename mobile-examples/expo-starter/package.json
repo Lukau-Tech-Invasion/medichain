@@ -1,0 +1,42 @@
+{
+  "name": "medichain-expo-starter",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "test": "jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "~48.0.0",
+    "expo-constants": "~14.2.0",
+    "expo-secure-store": "~12.1.0",
+    "expo-local-authentication": "~13.3.0",
+    "expo-linking": "~4.0.0",
+    "react": "18.2.0",
+    "react-native": "0.71.14",
+    "react-native-get-random-values": "~1.9.0",
+    "@react-native-async-storage/async-storage": "1.17.11",
+    "@react-native-community/netinfo": "9.3.7",
+    "buffer": "^6.0.3",
+    "stream-browserify": "^3.0.0",
+    "react-native-crypto": "^2.2.0",
+    "process": "^0.11.10",
+    "events": "^3.3.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.12.9",
+    "@types/react": "~18.0.27",
+    "@types/node": "^18.0.0",
+    "typescript": "^4.9.0"
+  },
+  "expo": {
+    "extra": {
+      "apiUrl": "${EXPO_PUBLIC_API_URL}",
+      "wsUrl": "${EXPO_PUBLIC_SUBSTRATE_WS_URL}"
+    }
+  }
+}

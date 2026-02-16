@@ -55,12 +55,16 @@ interface CriticalValue {
 }
 
 interface CodeBlueRecord {
-  record_id: string;
+  // API fields (from backend)
+  event_id?: string;
+  code_leader?: string;
+  // Legacy/expected fields
+  record_id?: string;
   patient_id: string;
   location: string;
-  initiated_at: string;
+  initiated_at?: string;
   team_leader?: string;
-  outcome?: string;
+  outcome?: string | { toString: () => string };
 }
 
 interface PhysicianOrder {
@@ -138,7 +142,7 @@ function StatCard({
 
 function DashboardPage() {
   const navigate = useNavigate();
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated, logout, restoreSession } = useAuthStore();
   const { recentPatients, setRecentPatients } = usePatientStore();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -190,6 +194,14 @@ function DashboardPage() {
             }));
             setRecentPatients(mappedPatients);
           }
+        } else if (response.status === 401) {
+          // Session invalid - try to restore or logout
+          const restored = await restoreSession();
+          if (!restored) {
+            logout();
+            navigate('/login');
+          }
+          return;
         } else {
           const errData = await response.json().catch(() => ({}));
           setError(errData.error || `API Error: ${response.status}`);
@@ -416,35 +428,59 @@ function DashboardPage() {
 
       {/* Recent Code Blues */}
       {dashboard?.recent_code_blues && dashboard.recent_code_blues.length > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl mb-8">
-          <div className="p-4 border-b border-blue-200">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl mb-8 dark:bg-slate-800 dark:border-slate-600">
+          <div className="p-4 border-b border-blue-200 dark:border-slate-600">
             <div className="flex items-center gap-2">
-              <Heart className="text-blue-600" size={20} />
-              <h2 className="font-semibold text-blue-800">Recent Code Blues</h2>
+              <Heart className="text-blue-600 dark:text-blue-400" size={20} />
+              <h2 className="font-semibold text-blue-800 dark:text-blue-300">Recent Code Blues</h2>
             </div>
           </div>
-          <div className="divide-y divide-blue-200">
-            {dashboard.recent_code_blues.slice(0, 3).map((code) => (
-              <div
-                key={code.record_id}
-                className="flex items-center justify-between p-4"
-              >
-                <div>
-                  <p className="font-medium text-gray-900">Patient: {code.patient_id}</p>
-                  <p className="text-sm text-gray-600">Location: {code.location}</p>
+          <div className="divide-y divide-blue-200 dark:divide-slate-600">
+            {dashboard.recent_code_blues.slice(0, 3).map((code) => {
+              // Handle both API field names (event_id/code_leader) and legacy names (record_id/team_leader)
+              const recordId = code.event_id || code.record_id || 'unknown';
+              const teamLeader = code.code_leader || code.team_leader;
+              
+              // Convert outcome to readable string - handle enum values
+              const outcomeValue = code.outcome ? String(code.outcome) : null;
+              const outcomeDisplay = (() => {
+                if (!outcomeValue) return 'In Progress';
+                // Handle enum values from API
+                switch (outcomeValue) {
+                  case 'ROSC': return 'ROSC Achieved';
+                  case 'Death': return 'Deceased';
+                  case 'TransferredOngoing': return 'Transferred';
+                  case 'FamilyRequestedTermination': return 'Terminated by Family';
+                  default: return outcomeValue;
+                }
+              })();
+              
+              const outcomeClass = (() => {
+                if (!outcomeValue || outcomeValue === 'TransferredOngoing') 
+                  return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300';
+                if (outcomeValue === 'ROSC') 
+                  return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
+                return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+              })();
+
+              return (
+                <div
+                  key={recordId}
+                  className="flex items-center justify-between p-4"
+                >
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-white">Patient: {code.patient_id}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Location: {code.location}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{teamLeader || 'No team leader assigned'}</p>
+                    <p className={`text-xs px-2 py-1 rounded ${outcomeClass}`}>
+                      {outcomeDisplay}
+                    </p>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-600">{code.team_leader || 'No team leader assigned'}</p>
-                  <p className={`text-xs px-2 py-1 rounded ${
-                    code.outcome === 'ROSC' ? 'bg-green-100 text-green-700' : 
-                    code.outcome === 'Deceased' ? 'bg-gray-100 text-gray-700' : 
-                    'bg-yellow-100 text-yellow-700'
-                  }`}>
-                    {code.outcome || 'In Progress'}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

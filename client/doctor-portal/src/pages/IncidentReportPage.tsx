@@ -12,8 +12,13 @@ import {
   CheckCircle,
   Users,
   Shield,
-  Printer
+  Printer,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
+import PatientSelect from '../components/PatientSelect';
 
 /**
  * IncidentReportPage
@@ -57,6 +62,9 @@ const IncidentReportPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [formStep, setFormStep] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuthStore();
 
   const [formData, setFormData] = useState({
     type: 'fall' as IncidentType,
@@ -73,80 +81,51 @@ const IncidentReportPage: React.FC = () => {
   });
 
   useEffect(() => {
-    setIncidents([
-      {
-        id: 'INC-2024-00089',
-        type: 'fall',
-        severity: 'moderate',
-        status: 'under-investigation',
-        dateTime: new Date('2024-01-15T08:30:00'),
-        location: 'Room 412, Bed A',
-        department: 'Medical-Surgical Unit',
-        description: 'Patient found on floor beside bed. States attempted to get up to use bathroom without calling for assistance. No witnessed fall.',
-        patientInvolved: true,
-        patientId: 'PAT-12345',
-        patientName: 'Ahmed Al-Rashid',
-        staffInvolved: ['Nurse Maria Santos', 'CNA James Wilson'],
-        witnesses: [],
-        immediateActions: 'Patient assessed for injuries. VS stable. Neuro checks initiated. MD notified. X-ray ordered for right hip.',
-        reportedBy: 'Maria Santos, RN',
-        reportedAt: new Date('2024-01-15T08:45:00'),
-        assignedTo: 'Dr. Sarah Ahmed',
-        followUpActions: [
-          { action: 'Complete post-fall protocol', dueDate: new Date('2024-01-15'), completed: true },
-          { action: 'Fall risk reassessment', dueDate: new Date('2024-01-16'), completed: false },
-          { action: 'Family notification', dueDate: new Date('2024-01-15'), completed: true }
-        ]
-      },
-      {
-        id: 'INC-2024-00088',
-        type: 'medication-error',
-        severity: 'near-miss',
-        status: 'closed',
-        dateTime: new Date('2024-01-14T14:15:00'),
-        location: 'Pharmacy',
-        department: 'Pharmacy',
-        description: 'Wrong dose prepared for patient. 500mg instead of 250mg. Caught during double-check before dispensing.',
-        patientInvolved: true,
-        patientId: 'PAT-67890',
-        patientName: 'Fatima Hassan',
-        staffInvolved: ['Pharmacist John Lee', 'Pharmacy Tech Susan Kim'],
-        witnesses: ['Pharmacist John Lee'],
-        immediateActions: 'Medication discarded. Correct dose prepared and verified. Event documented.',
-        reportedBy: 'John Lee, PharmD',
-        reportedAt: new Date('2024-01-14T14:30:00'),
-        rootCause: 'Similar packaging between different strengths of same medication',
-        preventiveMeasures: 'Tall-man lettering implemented. Storage locations separated.',
-        followUpActions: [
-          { action: 'Review with pharmacy staff', dueDate: new Date('2024-01-15'), completed: true },
-          { action: 'Update storage protocol', dueDate: new Date('2024-01-16'), completed: true }
-        ]
-      },
-      {
-        id: 'INC-2024-00087',
-        type: 'equipment-failure',
-        severity: 'minor',
-        status: 'pending-review',
-        dateTime: new Date('2024-01-14T10:00:00'),
-        location: 'ICU Bay 3',
-        department: 'Intensive Care Unit',
-        description: 'Cardiac monitor displaying erratic readings. Backup monitor used. Patient not affected.',
-        patientInvolved: true,
-        patientId: 'PAT-11223',
-        patientName: 'Omar Khalil',
-        staffInvolved: ['Nurse David Chen'],
-        witnesses: ['Nurse David Chen', 'RT Mark Johnson'],
-        immediateActions: 'Backup monitor connected. Biomedical engineering notified. Faulty monitor removed from service.',
-        reportedBy: 'David Chen, RN',
-        reportedAt: new Date('2024-01-14T10:15:00'),
-        assignedTo: 'Biomedical Engineering',
-        followUpActions: [
-          { action: 'Equipment inspection', dueDate: new Date('2024-01-15'), completed: true },
-          { action: 'Repair or replace decision', dueDate: new Date('2024-01-17'), completed: false }
-        ]
+    const fetchIncidents = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
       }
-    ]);
-  }, []);
+      
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const response = await fetch(apiUrl('/api/clinical/incident-reports'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch incidents: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        // Convert date strings to Date objects
+        const incidentsWithDates = (data || []).map((incident: Incident) => ({
+          ...incident,
+          dateTime: new Date(incident.dateTime),
+          reportedAt: new Date(incident.reportedAt),
+          followUpActions: (incident.followUpActions || []).map((action: { action: string; dueDate: string | Date; completed: boolean }) => ({
+            ...action,
+            dueDate: new Date(action.dueDate)
+          }))
+        }));
+        setIncidents(incidentsWithDates);
+      } catch (err) {
+        console.error('Error fetching incidents:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load incidents');
+        setIncidents([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchIncidents();
+  }, [user]);
 
   const getTypeBadge = (type: IncidentType) => {
     const config: Record<IncidentType, { bg: string; icon: React.ReactNode }> = {
@@ -226,50 +205,72 @@ const IncidentReportPage: React.FC = () => {
         <p className="text-rose-200">Document and track safety incidents</p>
       </div>
 
-      {/* Stats Bar */}
-      <div className="bg-white border-b px-6 py-4">
-        <div className="grid grid-cols-4 gap-4">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-blue-600">{stats.open}</p>
-            <p className="text-xs text-gray-500">Open</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-yellow-600">{stats.investigating}</p>
-            <p className="text-xs text-gray-500">Investigating</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-gray-600">{stats.thisWeek}</p>
-            <p className="text-xs text-gray-500">This Week</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-red-600">{stats.sentinel}</p>
-            <p className="text-xs text-gray-500">Sentinel</p>
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-rose-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading incidents...</p>
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="flex">
-          {(['list', 'new', 'dashboard'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize ${
-                activeTab === tab ? 'text-rose-700 border-b-2 border-rose-700' : 'text-gray-500'
-              }`}
-            >
-              {tab === 'new' ? 'Report Incident' : tab === 'list' ? 'All Incidents' : 'Dashboard'}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Stats Bar */}
+          <div className="bg-white border-b px-6 py-4">
+            <div className="grid grid-cols-4 gap-4">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-blue-600">{stats.open}</p>
+                <p className="text-xs text-gray-500">Open</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-yellow-600">{stats.investigating}</p>
+                <p className="text-xs text-gray-500">Investigating</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-gray-600">{stats.thisWeek}</p>
+                <p className="text-xs text-gray-500">This Week</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-red-600">{stats.sentinel}</p>
+                <p className="text-xs text-gray-500">Sentinel</p>
+              </div>
+            </div>
+          </div>
 
-      {/* List Tab */}
-      {activeTab === 'list' && (
-        <div className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4 mb-6">
-            <div className="relative flex-1">
+          {/* Tabs */}
+          <div className="bg-white border-b">
+            <div className="flex">
+              {(['list', 'new', 'dashboard'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 py-4 text-sm font-medium capitalize ${
+                    activeTab === tab ? 'text-rose-700 border-b-2 border-rose-700' : 'text-gray-500'
+                  }`}
+                >
+                  {tab === 'new' ? 'Report Incident' : tab === 'list' ? 'All Incidents' : 'Dashboard'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* List Tab */}
+          {activeTab === 'list' && (
+            <div className="p-6">
+              <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="text"
@@ -391,8 +392,9 @@ const IncidentReportPage: React.FC = () => {
                 <h3 className="font-medium text-gray-900">Incident Details</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Incident Type *</label>
+                    <label htmlFor="inc-incident-type" className="block text-sm font-medium mb-1">Incident Type *</label>
                     <select
+                      id="inc-incident-type"
                       value={formData.type}
                       onChange={(e) => setFormData({ ...formData, type: e.target.value as IncidentType })}
                       className="w-full border rounded-lg px-3 py-2"
@@ -407,8 +409,9 @@ const IncidentReportPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Severity *</label>
+                    <label htmlFor="inc-severity" className="block text-sm font-medium mb-1">Severity *</label>
                     <select
+                      id="inc-severity"
                       value={formData.severity}
                       onChange={(e) => setFormData({ ...formData, severity: e.target.value as IncidentSeverity })}
                       className="w-full border rounded-lg px-3 py-2"
@@ -423,12 +426,12 @@ const IncidentReportPage: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">Date & Time *</label>
-                    <input type="datetime-local" className="w-full border rounded-lg px-3 py-2" />
+                    <label htmlFor="inc-date-time" className="block text-sm font-medium mb-1">Date & Time *</label>
+                    <input id="inc-date-time" type="datetime-local" className="w-full border rounded-lg px-3 py-2" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-1">Department *</label>
-                    <select className="w-full border rounded-lg px-3 py-2">
+                    <label htmlFor="inc-department" className="block text-sm font-medium mb-1">Department *</label>
+                    <select id="inc-department" className="w-full border rounded-lg px-3 py-2">
                       <option>Emergency Department</option>
                       <option>Medical-Surgical Unit</option>
                       <option>ICU</option>
@@ -438,8 +441,8 @@ const IncidentReportPage: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Exact Location *</label>
-                  <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Room 412, Bed A" />
+                  <label htmlFor="inc-exact-location" className="block text-sm font-medium mb-1">Exact Location *</label>
+                  <input id="inc-exact-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Room 412, Bed A" />
                 </div>
               </div>
             )}
@@ -448,31 +451,35 @@ const IncidentReportPage: React.FC = () => {
               <div className="space-y-4">
                 <h3 className="font-medium text-gray-900">Description & People Involved</h3>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Description of Incident *</label>
-                  <textarea className="w-full border rounded-lg px-3 py-2 h-32" placeholder="Describe what happened..." />
+                  <label htmlFor="inc-description" className="block text-sm font-medium mb-1">Description of Incident *</label>
+                  <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder="Describe what happened..." />
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <input
+                    id="inc-patient-involved"
                     type="checkbox"
                     checked={formData.patientInvolved}
                     onChange={(e) => setFormData({ ...formData, patientInvolved: e.target.checked })}
                     className="w-5 h-5"
                   />
-                  <span className="font-medium">Patient Involved</span>
+                  <label htmlFor="inc-patient-involved" className="font-medium">Patient Involved</label>
                 </div>
                 {formData.patientInvolved && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Patient ID</label>
-                    <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="Search patient..." />
-                  </div>
+                  <PatientSelect
+                    id="inc-patient-id"
+                    label="Patient"
+                    value={formData.patientId}
+                    onChange={(patientId) => setFormData({ ...formData, patientId })}
+                    placeholder="Search and select a patient..."
+                  />
                 )}
                 <div>
-                  <label className="block text-sm font-medium mb-1">Staff Involved</label>
-                  <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="Names of staff involved" />
+                  <label htmlFor="inc-staff-involved" className="block text-sm font-medium mb-1">Staff Involved</label>
+                  <input id="inc-staff-involved" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="Names of staff involved" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Witnesses</label>
-                  <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="Names of witnesses" />
+                  <label htmlFor="inc-witnesses" className="block text-sm font-medium mb-1">Witnesses</label>
+                  <input id="inc-witnesses" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="Names of witnesses" />
                 </div>
               </div>
             )}
@@ -481,8 +488,8 @@ const IncidentReportPage: React.FC = () => {
               <div className="space-y-4">
                 <h3 className="font-medium text-gray-900">Immediate Actions & Review</h3>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Immediate Actions Taken *</label>
-                  <textarea className="w-full border rounded-lg px-3 py-2 h-32" placeholder="What actions were taken immediately?" />
+                  <label htmlFor="inc-immediate-actions" className="block text-sm font-medium mb-1">Immediate Actions Taken *</label>
+                  <textarea id="inc-immediate-actions" className="w-full border rounded-lg px-3 py-2 h-32" placeholder="What actions were taken immediately?" />
                 </div>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <div className="flex items-start gap-2">
@@ -549,6 +556,7 @@ const IncidentReportPage: React.FC = () => {
           </div>
         </div>
       )}
+      </>)}
 
       {/* Detail Modal */}
       {selectedIncident && (

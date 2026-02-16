@@ -17,6 +17,7 @@ import {
   debugLog,
   IS_DEVELOPMENT,
   generateHealthId,
+  syncApiClientUserId,
 } from '@medichain/shared';
 
 /**
@@ -124,6 +125,9 @@ export const usePatientAuthStore = create<AuthState>()(
               name: patient.fullName,
             });
             
+            // Sync API client with new userId
+            syncApiClientUserId();
+            
             set({
               patient,
               isAuthenticated: true,
@@ -191,6 +195,9 @@ export const usePatientAuthStore = create<AuthState>()(
             name: patient.fullName,
           });
           
+          // Sync API client with new userId
+          syncApiClientUserId();
+          
           set({
             patient,
             isAuthenticated: true,
@@ -213,6 +220,8 @@ export const usePatientAuthStore = create<AuthState>()(
 
       logout: () => {
         clearStoredAuth();
+        // Clear API client userId
+        syncApiClientUserId();
         set({
           patient: null,
           isAuthenticated: false,
@@ -228,6 +237,8 @@ export const usePatientAuthStore = create<AuthState>()(
           healthId: patient.healthId,
           name: patient.fullName,
         });
+        // Sync API client with new userId
+        syncApiClientUserId();
         set({
           patient,
           isAuthenticated: true,

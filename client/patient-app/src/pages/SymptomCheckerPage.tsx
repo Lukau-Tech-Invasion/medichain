@@ -19,8 +19,11 @@ import {
   Brain,
   Bone,
   Eye,
-  Ear
+  Ear,
+  Loader2
 } from 'lucide-react';
+import { analyzeSymptoms as analyzeSymptomAPI } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 
 /**
  * SymptomCheckerPage
@@ -174,13 +177,58 @@ const SymptomCheckerPage: React.FC = () => {
     }
   };
 
-  const analyzeSymptoms = () => {
+  const analyzeSymptoms = async () => {
     setIsTyping(true);
     
-    setTimeout(() => {
-      setIsTyping(false);
-      
-      // Determine triage level based on symptoms
+    // Helper to map API triage level to local severity
+    const mapTriageToSeverity = (triage: string): Severity => {
+      switch (triage) {
+        case 'emergency': return 'emergency';
+        case 'urgent_care': return 'urgent';
+        case 'schedule_appointment': return 'moderate';
+        case 'self_care': return 'self-care';
+        default: return 'mild';
+      }
+    };
+
+    // Helper to get title from triage level
+    const getTriageTitle = (triage: string): string => {
+      switch (triage) {
+        case 'emergency': return 'Seek Emergency Care Immediately';
+        case 'urgent_care': return 'Seek Medical Attention';
+        case 'schedule_appointment': return 'Schedule an Appointment';
+        case 'self_care': return 'Self-Care May Be Appropriate';
+        default: return 'Consider Medical Consultation';
+      }
+    };
+
+    try {
+      // Call the actual API
+      const symptomNames = selectedSymptoms.map(s => s.name);
+      const apiResult = await analyzeSymptomAPI({
+        symptoms: symptomNames,
+        patient_age: age ? parseInt(age, 10) : undefined,
+        patient_gender: gender || undefined,
+      });
+
+      // Map API result to local TriageResult format
+      const result: TriageResult = {
+        severity: mapTriageToSeverity(apiResult.triage_level),
+        title: getTriageTitle(apiResult.triage_level),
+        description: apiResult.triage_message,
+        recommendations: [
+          ...apiResult.recommendations,
+          ...apiResult.self_care_advice,
+          ...apiResult.when_to_seek_care
+        ],
+        possibleConditions: apiResult.possible_conditions.map(c => c.condition_name)
+      };
+
+      setTriageResult(result);
+      setStep('result');
+    } catch (error) {
+      console.error('API call failed, using fallback analysis:', error);
+      // Fallback to local analysis if API fails
       let result: TriageResult;
       const hasChestPain = selectedSymptoms.some(s => s.name.toLowerCase().includes('chest'));
       const hasBreathing = selectedSymptoms.some(s => s.name.toLowerCase().includes('breath'));
@@ -243,7 +291,9 @@ const SymptomCheckerPage: React.FC = () => {
 
       setTriageResult(result);
       setStep('result');
-    }, 2000);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const getSeverityColor = (severity: Severity) => {
@@ -296,9 +346,10 @@ const SymptomCheckerPage: React.FC = () => {
             {/* Basic Info */}
             <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Your Age</label>
+                <label htmlFor="symptom-checker-age" className="block text-sm font-medium text-gray-700 mb-1">Your Age</label>
                 <input
                   type="number"
+                  id="symptom-checker-age"
                   value={age}
                   onChange={(e) => setAge(e.target.value)}
                   placeholder="Enter your age"
@@ -306,8 +357,8 @@ const SymptomCheckerPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
-                <div className="flex gap-3">
+                <label id="symptom-checker-gender-label" className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                <div className="flex gap-3" role="group" aria-labelledby="symptom-checker-gender-label">
                   {(['male', 'female', 'other'] as const).map(g => (
                     <button
                       key={g}

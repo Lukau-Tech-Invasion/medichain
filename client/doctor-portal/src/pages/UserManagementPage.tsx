@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { getUsers, assignRole } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 
 type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'radiologist' | 'patient';
 type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
@@ -32,6 +33,7 @@ interface Permission {
 
 const UserManagementPage: React.FC = () => {
   const { user: _user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,9 +78,17 @@ const UserManagementPage: React.FC = () => {
     setError(null);
     try {
       const fetchedUsers = await getUsers();
+      
+      // Defensive check: ensure we have an array
+      if (!Array.isArray(fetchedUsers)) {
+        console.warn('[MediChain] getUsers returned non-array:', fetchedUsers);
+        setUsers([]);
+        return;
+      }
+      
       // Map API response to SystemUser interface
-      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; userId?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
-        userId: u.user_id || u.userId || '',
+      const mappedUsers: SystemUser[] = fetchedUsers.map((u: { user_id?: string; userId?: string; wallet_address?: string; name?: string; email?: string; phone?: string; role?: string; status?: string; department?: string; license_number?: string; licenseNumber?: string; specialization?: string; created_at?: string; createdAt?: string; last_login?: string; lastLogin?: string; permissions?: string[]; emergency_contact?: string; emergencyContact?: string; notes?: string }) => ({
+        userId: u.wallet_address || u.user_id || u.userId || '',
         name: u.name || '',
         email: u.email || '',
         phone: u.phone || '',
@@ -108,7 +118,7 @@ const UserManagementPage: React.FC = () => {
 
   const handleCreateUser = () => {
     if (!newUser.name || !newUser.email || !newUser.phone) {
-      alert('Please fill in required fields');
+      showWarning('Please fill in required fields');
       return;
     }
 
@@ -163,7 +173,7 @@ const UserManagementPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('users');
-    alert(`User ${newSystemUser.userId} created successfully`);
+    showSuccess(`User ${newSystemUser.userId} created successfully`);
   };
 
   const handleUpdateUser = () => {
@@ -172,13 +182,13 @@ const UserManagementPage: React.FC = () => {
     setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u)));
     setShowEditModal(false);
     setSelectedUser(null);
-    alert('User updated successfully');
+    showSuccess('User updated successfully');
   };
 
   const handleDeleteUser = (userId: string) => {
     if (confirm('Are you sure you want to delete this user?')) {
       setUsers(users.filter((u) => u.userId !== userId));
-      alert('User deleted successfully');
+      showSuccess('User deleted successfully');
     }
   };
 
@@ -195,7 +205,7 @@ const UserManagementPage: React.FC = () => {
 
   const handleStatusChange = (userId: string, newStatus: UserStatus) => {
     setUsers(users.map((u) => (u.userId === userId ? { ...u, status: newStatus } : u)));
-    alert(`User status changed to ${newStatus}`);
+    showSuccess(`User status changed to ${newStatus}`);
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -240,9 +250,9 @@ const UserManagementPage: React.FC = () => {
 
   const filteredUsers = users.filter((u) => {
     const matchesSearch =
-      u.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchTerm.toLowerCase());
+      (u.userId?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (u.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (u.email?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     const matchesRole = roleFilter === 'all' || u.role === roleFilter;
     const matchesStatus = statusFilter === 'all' || u.status === statusFilter;
     return matchesSearch && matchesRole && matchesStatus;
@@ -301,10 +311,11 @@ const UserManagementPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="user-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="user-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -314,8 +325,9 @@ const UserManagementPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
+                <label htmlFor="user-role-filter" className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
                 <select
+                  id="user-role-filter"
                   value={roleFilter}
                   onChange={(e) => setRoleFilter(e.target.value as UserRole | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -330,8 +342,9 @@ const UserManagementPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="user-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
                 <select
+                  id="user-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as UserStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -528,10 +541,11 @@ const UserManagementPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="new-user-name" className="block text-sm font-semibold text-gray-700 mb-2">
                   Full Name <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="new-user-name"
                   type="text"
                   value={newUser.name}
                   onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
@@ -541,10 +555,11 @@ const UserManagementPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="new-user-role" className="block text-sm font-semibold text-gray-700 mb-2">
                   Role <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="new-user-role"
                   value={newUser.role}
                   onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -562,10 +577,11 @@ const UserManagementPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="new-user-email" className="block text-sm font-semibold text-gray-700 mb-2">
                   Email <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="new-user-email"
                   type="email"
                   value={newUser.email}
                   onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
@@ -575,10 +591,11 @@ const UserManagementPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="new-user-phone" className="block text-sm font-semibold text-gray-700 mb-2">
                   Phone <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="new-user-phone"
                   type="tel"
                   value={newUser.phone}
                   onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
@@ -591,8 +608,9 @@ const UserManagementPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Department</label>
+                <label htmlFor="new-user-department" className="block text-sm font-semibold text-gray-700 mb-2">Department</label>
                 <input
+                  id="new-user-department"
                   type="text"
                   value={newUser.department}
                   onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
@@ -601,8 +619,9 @@ const UserManagementPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">License Number</label>
+                <label htmlFor="new-user-license" className="block text-sm font-semibold text-gray-700 mb-2">License Number</label>
                 <input
+                  id="new-user-license"
                   type="text"
                   value={newUser.licenseNumber}
                   onChange={(e) => setNewUser({ ...newUser, licenseNumber: e.target.value })}
@@ -614,8 +633,9 @@ const UserManagementPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Specialization</label>
+                <label htmlFor="new-user-specialization" className="block text-sm font-semibold text-gray-700 mb-2">Specialization</label>
                 <input
+                  id="new-user-specialization"
                   type="text"
                   value={newUser.specialization}
                   onChange={(e) => setNewUser({ ...newUser, specialization: e.target.value })}
@@ -624,8 +644,9 @@ const UserManagementPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Emergency Contact</label>
+                <label htmlFor="new-user-emergency-contact" className="block text-sm font-semibold text-gray-700 mb-2">Emergency Contact</label>
                 <input
+                  id="new-user-emergency-contact"
                   type="tel"
                   value={newUser.emergencyContact}
                   onChange={(e) => setNewUser({ ...newUser, emergencyContact: e.target.value })}
@@ -636,8 +657,9 @@ const UserManagementPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+              <label htmlFor="new-user-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
               <textarea
+                id="new-user-notes"
                 value={newUser.notes}
                 onChange={(e) => setNewUser({ ...newUser, notes: e.target.value })}
                 placeholder="Additional notes..."
@@ -752,8 +774,9 @@ const UserManagementPage: React.FC = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Full Name</label>
+                  <label htmlFor="usermgmt-full-name" className="block text-sm font-semibold text-gray-700 mb-2">Full Name</label>
                   <input
+                    id="usermgmt-full-name"
                     type="text"
                     value={selectedUser.name}
                     onChange={(e) => setSelectedUser({ ...selectedUser, name: e.target.value })}
@@ -761,8 +784,9 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
+                  <label htmlFor="usermgmt-role" className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
                   <select
+                    id="usermgmt-role"
                     value={selectedUser.role}
                     onChange={(e) => setSelectedUser({ ...selectedUser, role: e.target.value as UserRole })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -779,8 +803,9 @@ const UserManagementPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+                  <label htmlFor="usermgmt-email" className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
                   <input
+                    id="usermgmt-email"
                     type="email"
                     value={selectedUser.email}
                     onChange={(e) => setSelectedUser({ ...selectedUser, email: e.target.value })}
@@ -788,8 +813,9 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Phone</label>
+                  <label htmlFor="usermgmt-phone" className="block text-sm font-semibold text-gray-700 mb-2">Phone</label>
                   <input
+                    id="usermgmt-phone"
                     type="tel"
                     value={selectedUser.phone}
                     onChange={(e) => setSelectedUser({ ...selectedUser, phone: e.target.value })}
@@ -800,8 +826,9 @@ const UserManagementPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Department</label>
+                  <label htmlFor="usermgmt-department" className="block text-sm font-semibold text-gray-700 mb-2">Department</label>
                   <input
+                    id="usermgmt-department"
                     type="text"
                     value={selectedUser.department || ''}
                     onChange={(e) => setSelectedUser({ ...selectedUser, department: e.target.value })}
@@ -809,8 +836,9 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">License Number</label>
+                  <label htmlFor="usermgmt-license-number" className="block text-sm font-semibold text-gray-700 mb-2">License Number</label>
                   <input
+                    id="usermgmt-license-number"
                     type="text"
                     value={selectedUser.licenseNumber || ''}
                     onChange={(e) => setSelectedUser({ ...selectedUser, licenseNumber: e.target.value })}
@@ -820,8 +848,9 @@ const UserManagementPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Specialization</label>
+                <label htmlFor="usermgmt-specialization" className="block text-sm font-semibold text-gray-700 mb-2">Specialization</label>
                 <input
+                  id="usermgmt-specialization"
                   type="text"
                   value={selectedUser.specialization || ''}
                   onChange={(e) => setSelectedUser({ ...selectedUser, specialization: e.target.value })}
@@ -830,8 +859,9 @@ const UserManagementPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label htmlFor="usermgmt-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
                 <textarea
+                  id="usermgmt-notes"
                   value={selectedUser.notes || ''}
                   onChange={(e) => setSelectedUser({ ...selectedUser, notes: e.target.value })}
                   rows={3}
@@ -936,7 +966,7 @@ const UserManagementPage: React.FC = () => {
                   setShowPermissionsModal(false);
                   setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u)));
                   setSelectedUser(null);
-                  alert('Permissions updated successfully');
+                  showSuccess('Permissions updated successfully');
                 }}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-colors"
               >

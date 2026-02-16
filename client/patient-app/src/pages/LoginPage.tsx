@@ -1,8 +1,58 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, IS_DEVELOPMENT } from '@medichain/shared';
-import { Heart, Shield, Lock, Eye, EyeOff, Wallet, UserPlus, Zap } from 'lucide-react';
+import { apiUrl, IS_DEVELOPMENT, FEATURES } from '@medichain/shared';
+import { Heart, Shield, Lock, Eye, EyeOff, Wallet, UserPlus, Zap, UserCircle } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
+
+/**
+ * Demo patient accounts with actual wallet addresses from the database
+ * These are pre-registered accounts for testing and hackathon demos
+ */
+interface DemoPatient {
+  name: string;
+  displayName: string;
+  walletAddress: string;
+  icon: string;
+  condition: string;
+}
+
+const DEMO_PATIENTS: DemoPatient[] = [
+  { 
+    name: 'Thabo Mokoena', 
+    displayName: 'Thabo (Cardiac)', 
+    walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z', 
+    icon: '🧑', 
+    condition: 'Cardiac' 
+  },
+  { 
+    name: 'Nomvula Dlamini', 
+    displayName: 'Nomvula (Diabetic)', 
+    walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ', 
+    icon: '👩', 
+    condition: 'Diabetic' 
+  },
+  { 
+    name: 'Sipho Nkosi', 
+    displayName: 'Sipho (Asthma)', 
+    walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ', 
+    icon: '👨', 
+    condition: 'Asthma' 
+  },
+  { 
+    name: 'Lerato Khumalo', 
+    displayName: 'Lerato (Allergies)', 
+    walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjZ', 
+    icon: '👧', 
+    condition: 'Allergies' 
+  },
+  { 
+    name: 'Bongani Zulu', 
+    displayName: 'Bongani (Elderly)', 
+    walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFZ', 
+    icon: '👴', 
+    condition: 'Cardiac/DNR' 
+  },
+];
 
 /**
  * Patient Login Page
@@ -52,6 +102,18 @@ export function LoginPage() {
     }
 
     const success = await login(walletAddress);
+    if (success) {
+      navigate('/dashboard');
+    }
+  };
+
+  /**
+   * Quick login with a demo patient's wallet address
+   */
+  const handleDemoPatientLogin = async (patient: DemoPatient) => {
+    clearError();
+    setLocalError('');
+    const success = await login(patient.walletAddress);
     if (success) {
       navigate('/dashboard');
     }
@@ -148,6 +210,42 @@ export function LoginPage() {
                 )}
               </button>
             </form>
+
+            {/* Demo Patients - Quick Login Section */}
+            {FEATURES.DEMO_WALLET_GENERATION && (
+              <>
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-neutral-200" />
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-4 bg-white text-neutral-500 flex items-center gap-1">
+                      <UserCircle className="w-4 h-4" />
+                      Quick Login - Demo Patients
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {DEMO_PATIENTS.map((patient) => (
+                    <button
+                      key={patient.walletAddress}
+                      onClick={() => handleDemoPatientLogin(patient)}
+                      disabled={isLoading}
+                      className="p-3 border border-teal-200 rounded-xl bg-teal-50 hover:bg-teal-100 transition-all text-center disabled:opacity-50"
+                    >
+                      <span className="block text-2xl mb-1">{patient.icon}</span>
+                      <span className="block text-xs font-semibold text-gray-800 truncate">{patient.name.split(' ')[0]}</span>
+                      <span className="block text-xs text-teal-600">{patient.condition}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <p className="mt-3 text-xs text-center text-neutral-400">
+                  Click any patient to instantly login with their wallet
+                </p>
+              </>
+            )}
 
             {/* Divider */}
             <div className="relative my-6">

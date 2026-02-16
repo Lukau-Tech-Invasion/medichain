@@ -17,6 +17,7 @@ actix-rt = "2.10"
 
 # Async runtime
 tokio = { version = "1.42", features = ["full"] }
+futures = "0.3"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -27,6 +28,10 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 log = "0.4"
 env_logger = "0.11"
+
+# Async traits and error handling
+async-trait = "0.1"
+thiserror = "1.0"
 
 # Cryptography for NFC simulation
 sha3 = "0.10"
@@ -42,3 +47,27 @@ reqwest = { version = "0.12", features = ["json", "multipart"] }
 
 # Crypto module
 medichain-crypto = { path = "../crypto" }
+
+# PostgreSQL Database
+sqlx = { version = "0.7", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "migrate",
+    "rust_decimal"
+] }
+
+# Decimal handling for precise medical measurements
+rust_decimal = { version = "1.32", features = ["serde-with-str", "db-postgres"] }
+
+# Environment configuration
+dotenvy = "0.15"
+
+[features]
+default = ["postgres"]
+postgres = []
+
+[dev-dependencies]
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres"] }

@@ -1,7 +1,62 @@
+# Rust
 target/
 **/*.rs.bk
+Cargo.lock.bak
+
+# Node/Frontend
 node_modules/
+dist/
+*.local
+.cache/
+
+# Build artifacts
+*.log
+*.tsbuildinfo
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# IDE/Editor
 .idea/
 .vscode/
+*.swp
+*.swo
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# PostgreSQL & Database
+*.db
+*.db-shm
+*.db-wal
+*.sql.backup
+pgdata/
+
+# Docker
+docker-compose.override.yml
+
+# Test/Debug artifacts
+api-test-results.json
+docs/logs/
+*.runlog.txt
+coverage/
+
+# Temporary documentation (internal planning - remove after project completion)
+# These are development artifacts that should not be in final release:
+# docs/ACTION_PLAN_REPORT.md
+# docs/INVESTIGATION_REPORT.md
+# docs/DOC_UPDATE_PLAN.md
+# docs/DEPRECATION_RECOMMENDATIONS.md
+# docs/PENDING_TASKS.md
+# docs/CONNECTION_FIXES_SUMMARY.md
+# docs/CONNECTION_TROUBLESHOOTING_RUNBOOK.md
+# docs/COMPREHENSIVE_CONNECTION_ANALYSIS.md
+# docs/BLOCKCHAIN_MOBILE_AMD.md
+# docs/MOBILE_AUTH_FLOW.md
+# docs/MOBILE_INTEGRATION_CHECKLIST.md
+# docs/PROJECT_PROGRESS.md
+# docs/PR_SUMMARY.md
+# docs/ROLE_BASED_DASHBOARD_RESEARCH.md

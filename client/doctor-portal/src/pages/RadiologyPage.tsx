@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Scan, Search, FileText, AlertCircle, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import { getPatients, listRadiology, createRadiologyOrder } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -33,6 +34,7 @@ interface RadiologyStudy {
 
 const RadiologyPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [_patients, setPatients] = useState<PatientProfile[]>([]);
   const [studies, setStudies] = useState<RadiologyStudy[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -118,7 +120,7 @@ const RadiologyPage: React.FC = () => {
   const saveReport = (asFinal: boolean) => {
     if (!selectedStudy) return;
     if (criticalFindings && !communicatedTo) {
-      alert('Critical findings must be communicated before finalizing');
+      showWarning('Critical findings must be communicated before finalizing');
       return;
     }
     const updatedStudy: RadiologyStudy = {
@@ -131,7 +133,7 @@ const RadiologyPage: React.FC = () => {
       reportedAt: new Date().toISOString()
     };
     setStudies(studies.map(s => s.id === selectedStudy.id ? updatedStudy : s));
-    alert(`Report saved as ${asFinal ? 'FINAL' : 'PRELIMINARY'}`);
+    showSuccess(`Report saved as ${asFinal ? 'FINAL' : 'PRELIMINARY'}`);
     setSelectedStudy(null);
     setActiveTab('worklist');
   };
@@ -320,8 +322,9 @@ const RadiologyPage: React.FC = () => {
             <div className="bg-gray-800 rounded-lg p-4 space-y-4">
               <h2 className="font-semibold text-blue-400">Radiology Report</h2>
               <div>
-                <label className="text-sm text-gray-400">Technique</label>
+                <label htmlFor="rad-technique" className="text-sm text-gray-400">Technique</label>
                 <textarea
+                  id="rad-technique"
                   value={technique}
                   onChange={e => setTechnique(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-16"
@@ -329,8 +332,9 @@ const RadiologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-400">Comparison</label>
+                <label htmlFor="rad-comparison" className="text-sm text-gray-400">Comparison</label>
                 <input
+                  id="rad-comparison"
                   type="text"
                   value={comparison}
                   onChange={e => setComparison(e.target.value)}
@@ -339,8 +343,9 @@ const RadiologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-400">Findings</label>
+                <label htmlFor="rad-findings" className="text-sm text-gray-400">Findings</label>
                 <textarea
+                  id="rad-findings"
                   value={findings}
                   onChange={e => setFindings(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-32"
@@ -348,8 +353,9 @@ const RadiologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-sm text-gray-400">Impression</label>
+                <label htmlFor="rad-impression" className="text-sm text-gray-400">Impression</label>
                 <textarea
+                  id="rad-impression"
                   value={impression}
                   onChange={e => setImpression(e.target.value)}
                   className="w-full bg-gray-900 border border-gray-600 rounded p-2 h-20"
@@ -359,8 +365,9 @@ const RadiologyPage: React.FC = () => {
 
               {/* Critical Findings */}
               <div className={`p-3 rounded ${criticalFindings ? 'bg-red-900/50 border border-red-500' : 'bg-gray-900'}`}>
-                <label className="flex items-center gap-2">
+                <label htmlFor="rad-critical-finding" className="flex items-center gap-2">
                   <input
+                    id="rad-critical-finding"
                     type="checkbox"
                     checked={criticalFindings}
                     onChange={e => setCriticalFindings(e.target.checked)}
@@ -370,8 +377,9 @@ const RadiologyPage: React.FC = () => {
                 </label>
                 {criticalFindings && (
                   <div className="mt-2">
-                    <label className="text-sm text-gray-400">Communicated To *</label>
+                    <label htmlFor="rad-communicated-to" className="text-sm text-gray-400">Communicated To *</label>
                     <input
+                      id="rad-communicated-to"
                       type="text"
                       value={communicatedTo}
                       onChange={e => setCommunicatedTo(e.target.value)}

@@ -16,13 +16,19 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+
 pub mod mock;
 pub mod tests;
+pub mod weights;
 
 pub use pallet::*;
+pub use weights::WeightInfo;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::weights::WeightInfo;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
@@ -102,6 +108,8 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_access_control::Config {
         /// The overarching event type
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// Weight information for extrinsics in this pallet
+        type WeightInfo: crate::weights::WeightInfo;
     }
 
     /// Storage: Map patient account to health record
@@ -166,7 +174,7 @@ pub mod pallet {
         /// * `RecordAlreadyExists` - Patient already has a record
         /// * `InvalidIpfsHash` - IPFS hash exceeds maximum length
         #[pallet::call_index(0)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::create_health_record())]
         pub fn create_health_record(
             origin: OriginFor<T>,
             patient: T::AccountId,
@@ -229,7 +237,7 @@ pub mod pallet {
         /// * `TooManyAlerts` - Maximum 10 alerts reached
         /// * `InvalidSeverity` - Severity must be 1-5
         #[pallet::call_index(1)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::add_alert())]
         pub fn add_alert(
             origin: OriginFor<T>,
             patient: T::AccountId,
@@ -288,7 +296,7 @@ pub mod pallet {
         /// * `RecordNotFound` - No health record for patient
         /// * `InvalidIpfsHash` - Hash exceeds maximum length
         #[pallet::call_index(2)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::update_ipfs_hash())]
         pub fn update_ipfs_hash(
             origin: OriginFor<T>,
             patient: T::AccountId,
