@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { listLabQc, createLabQc } from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
+import { useToastActions } from '../components/Toast';
 
 /**
  * LabQCPage
@@ -58,6 +59,7 @@ interface Calibration {
 
 const LabQCPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [qcTests, setQcTests] = useState<QCTest[]>([]);
   const [calibrations, setCalibrations] = useState<Calibration[]>([]);
   const [activeTab, setActiveTab] = useState<'qcTests' | 'newQC' | 'calibrations' | 'newCalibration'>('qcTests');
@@ -151,7 +153,7 @@ const LabQCPage: React.FC = () => {
   const handleSubmitQC = (e: React.FormEvent) => {
     e.preventDefault();
     if (!instrument || !analyte || !observedValue || !expectedMean || !expectedSD) {
-      alert('Please fill in all required fields');
+      showWarning('Please fill in all required fields');
       return;
     }
 
@@ -193,7 +195,7 @@ const LabQCPage: React.FC = () => {
     };
 
     setQcTests([...qcTests, newTest]);
-    alert(`QC test ${newTest.testId} recorded - Result: ${result.toUpperCase()}`);
+    showSuccess(`QC test ${newTest.testId} recorded - Result: ${result.toUpperCase()}`);
 
     // Reset form
     setInstrument('');
@@ -213,7 +215,7 @@ const LabQCPage: React.FC = () => {
   const handleSubmitCalibration = (e: React.FormEvent) => {
     e.preventDefault();
     if (!calInstrument || !calibratorLot || !calExpiryDate) {
-      alert('Please fill in all required fields');
+      showWarning('Please fill in all required fields');
       return;
     }
 
@@ -231,7 +233,7 @@ const LabQCPage: React.FC = () => {
     };
 
     setCalibrations([...calibrations, newCalibration]);
-    alert(`Calibration ${newCalibration.calibrationId} recorded successfully`);
+    showSuccess(`Calibration ${newCalibration.calibrationId} recorded successfully`);
 
     // Reset form
     setCalInstrument('');
@@ -355,11 +357,12 @@ const LabQCPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-4 mb-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-search" className="block text-sm font-medium text-gray-700 mb-1">
                   <Search className="inline h-4 w-4 mr-1" />
                   Search
                 </label>
                 <input
+                  id="labqc-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -368,8 +371,9 @@ const LabQCPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Instrument</label>
+                <label htmlFor="labqc-instrument-filter" className="block text-sm font-medium text-gray-700 mb-1">Instrument</label>
                 <select
+                  id="labqc-instrument-filter"
                   value={instrumentFilter}
                   onChange={(e) => setInstrumentFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -381,8 +385,9 @@ const LabQCPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Result</label>
+                <label htmlFor="labqc-result-filter" className="block text-sm font-medium text-gray-700 mb-1">Result</label>
                 <select
+                  id="labqc-result-filter"
                   value={resultFilter}
                   onChange={(e) => setResultFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -494,10 +499,11 @@ const LabQCPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Instrument */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-instrument" className="block text-sm font-medium text-gray-700 mb-1">
                   Instrument <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="labqc-instrument"
                   value={instrument}
                   onChange={(e) => setInstrument(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -514,10 +520,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Analyte */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-analyte" className="block text-sm font-medium text-gray-700 mb-1">
                   Analyte <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-analyte"
                   type="text"
                   value={analyte}
                   onChange={(e) => setAnalyte(e.target.value)}
@@ -529,10 +536,11 @@ const LabQCPage: React.FC = () => {
 
               {/* QC Level */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-level" className="block text-sm font-medium text-gray-700 mb-1">
                   QC Level <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="labqc-level"
                   value={level}
                   onChange={(e) => setLevel(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -546,10 +554,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Lot Number */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-lot-number" className="block text-sm font-medium text-gray-700 mb-1">
                   Lot Number <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-lot-number"
                   type="text"
                   value={lotNumber}
                   onChange={(e) => setLotNumber(e.target.value)}
@@ -561,10 +570,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Expiry Date */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-expiry-date" className="block text-sm font-medium text-gray-700 mb-1">
                   Expiry Date <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-expiry-date"
                   type="date"
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
@@ -575,10 +585,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Observed Value */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-observed-value" className="block text-sm font-medium text-gray-700 mb-1">
                   Observed Value <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-observed-value"
                   type="number"
                   step="0.01"
                   value={observedValue}
@@ -591,10 +602,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Expected Mean */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-expected-mean" className="block text-sm font-medium text-gray-700 mb-1">
                   Expected Mean <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-expected-mean"
                   type="number"
                   step="0.01"
                   value={expectedMean}
@@ -607,10 +619,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Expected SD */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-expected-sd" className="block text-sm font-medium text-gray-700 mb-1">
                   Expected SD <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-expected-sd"
                   type="number"
                   step="0.01"
                   value={expectedSD}
@@ -623,10 +636,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Unit */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-unit" className="block text-sm font-medium text-gray-700 mb-1">
                   Unit <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-unit"
                   type="text"
                   value={unit}
                   onChange={(e) => setUnit(e.target.value)}
@@ -638,10 +652,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Corrective Action */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-corrective-action" className="block text-sm font-medium text-gray-700 mb-1">
                   Corrective Action (if out of range)
                 </label>
                 <textarea
+                  id="labqc-corrective-action"
                   value={correctiveAction}
                   onChange={(e) => setCorrectiveAction(e.target.value)}
                   rows={2}
@@ -652,8 +667,9 @@ const LabQCPage: React.FC = () => {
 
               {/* Comments */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
+                <label htmlFor="labqc-comments" className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
                 <textarea
+                  id="labqc-comments"
                   value={qcComments}
                   onChange={(e) => setQcComments(e.target.value)}
                   rows={2}
@@ -776,10 +792,11 @@ const LabQCPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Instrument */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-cal-instrument" className="block text-sm font-medium text-gray-700 mb-1">
                   Instrument <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="labqc-cal-instrument"
                   value={calInstrument}
                   onChange={(e) => setCalInstrument(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -796,10 +813,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Calibration Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-cal-type" className="block text-sm font-medium text-gray-700 mb-1">
                   Calibration Type <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="labqc-cal-type"
                   value={calibrationType}
                   onChange={(e) => setCalibrationType(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -813,10 +831,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Calibrator Lot */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-cal-lot" className="block text-sm font-medium text-gray-700 mb-1">
                   Calibrator Lot Number <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-cal-lot"
                   type="text"
                   value={calibratorLot}
                   onChange={(e) => setCalibratorLot(e.target.value)}
@@ -828,10 +847,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Expiry Date */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-cal-expiry-date" className="block text-sm font-medium text-gray-700 mb-1">
                   Expiry Date <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="labqc-cal-expiry-date"
                   type="date"
                   value={calExpiryDate}
                   onChange={(e) => setCalExpiryDate(e.target.value)}
@@ -842,10 +862,11 @@ const LabQCPage: React.FC = () => {
 
               {/* Result */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="labqc-cal-result" className="block text-sm font-medium text-gray-700 mb-1">
                   Result <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="labqc-cal-result"
                   value={calResult}
                   onChange={(e) => setCalResult(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -858,8 +879,9 @@ const LabQCPage: React.FC = () => {
 
               {/* Comments */}
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
+                <label htmlFor="labqc-cal-comments" className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
                 <textarea
+                  id="labqc-cal-comments"
                   value={calComments}
                   onChange={(e) => setCalComments(e.target.value)}
                   rows={3}

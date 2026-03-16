@@ -86,8 +86,8 @@ export default function CardiacPage() {
   };
 
   const filteredPatients = patients.filter(p =>
-    p.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.patient_id.toLowerCase().includes(searchTerm.toLowerCase())
+    (p.full_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (p.patient_id?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
   const selectedPatientData = patients.find(p => p.patient_id === selectedPatient);
@@ -353,8 +353,9 @@ export default function CardiacPage() {
                 </h2>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Chief Complaint</label>
+                    <label htmlFor="cardiac-chief-complaint" className="block text-sm font-medium text-gray-700 mb-1">Chief Complaint</label>
                     <input
+                      id="cardiac-chief-complaint"
                       type="text"
                       value={chiefComplaint}
                       onChange={(e) => setChiefComplaint(e.target.value)}
@@ -363,8 +364,9 @@ export default function CardiacPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Symptom Onset</label>
+                    <label htmlFor="cardiac-symptom-onset" className="block text-sm font-medium text-gray-700 mb-1">Symptom Onset</label>
                     <input
+                      id="cardiac-symptom-onset"
                       type="datetime-local"
                       value={symptomOnset}
                       onChange={(e) => setSymptomOnset(e.target.value)}
@@ -372,8 +374,9 @@ export default function CardiacPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Chest Pain Character</label>
+                    <label htmlFor="cardiac-chest-pain-character" className="block text-sm font-medium text-gray-700 mb-1">Chest Pain Character</label>
                     <select
+                      id="cardiac-chest-pain-character"
                       value={chestPainCharacter}
                       onChange={(e) => setChestPainCharacter(e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
@@ -438,8 +441,9 @@ export default function CardiacPage() {
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Vitals & Labs</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Heart Rate (bpm)</label>
+                    <label htmlFor="cardiac-heart-rate" className="block text-sm font-medium text-gray-700 mb-1">Heart Rate (bpm)</label>
                     <input
+                      id="cardiac-heart-rate"
                       type="number"
                       value={heartRate}
                       onChange={(e) => setHeartRate(e.target.value)}
@@ -448,8 +452,9 @@ export default function CardiacPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
+                    <label htmlFor="cardiac-blood-pressure" className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
                     <input
+                      id="cardiac-blood-pressure"
                       type="text"
                       value={bloodPressure}
                       onChange={(e) => setBloodPressure(e.target.value)}
@@ -458,8 +463,9 @@ export default function CardiacPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Troponin (ng/mL)</label>
+                    <label htmlFor="cardiac-troponin" className="block text-sm font-medium text-gray-700 mb-1">Troponin (ng/mL)</label>
                     <input
+                      id="cardiac-troponin"
                       type="number"
                       step="0.001"
                       value={troponinLevel}
@@ -474,8 +480,9 @@ export default function CardiacPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">BNP (pg/mL)</label>
+                    <label htmlFor="cardiac-bnp" className="block text-sm font-medium text-gray-700 mb-1">BNP (pg/mL)</label>
                     <input
+                      id="cardiac-bnp"
                       type="number"
                       value={bnpLevel}
                       onChange={(e) => setBnpLevel(e.target.value)}
@@ -544,8 +551,9 @@ export default function CardiacPage() {
                 {showECGForm && (
                   <div className="mb-4 p-4 bg-gray-50 rounded-lg space-y-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Rhythm</label>
+                      <label htmlFor="cardiac-ecg-rhythm" className="block text-sm font-medium text-gray-700 mb-1">Rhythm</label>
                       <select
+                        id="cardiac-ecg-rhythm"
                         value={newECG.rhythm}
                         onChange={(e) => setNewECG({ ...newECG, rhythm: e.target.value })}
                         className="w-full p-2 border border-gray-300 rounded-lg text-sm"
@@ -556,8 +564,9 @@ export default function CardiacPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Rate (bpm)</label>
+                      <label htmlFor="cardiac-ecg-rate" className="block text-sm font-medium text-gray-700 mb-1">Rate (bpm)</label>
                       <input
+                        id="cardiac-ecg-rate"
                         type="number"
                         value={newECG.rate}
                         onChange={(e) => setNewECG({ ...newECG, rate: parseInt(e.target.value) })}
@@ -601,8 +610,9 @@ export default function CardiacPage() {
                       </div>
                     )}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Interpretation</label>
+                      <label htmlFor="cardiac-ecg-interpretation" className="block text-sm font-medium text-gray-700 mb-1">Interpretation</label>
                       <textarea
+                        id="cardiac-ecg-interpretation"
                         value={newECG.interpretation}
                         onChange={(e) => setNewECG({ ...newECG, interpretation: e.target.value })}
                         placeholder="ECG findings..."
@@ -672,8 +682,10 @@ export default function CardiacPage() {
 
               {/* Disposition & Narrative */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Disposition</h2>
+                <h2 id="cardiac-disposition-heading" className="text-lg font-semibold text-gray-900 mb-4">Disposition</h2>
                 <select
+                  id="cardiac-disposition"
+                  aria-labelledby="cardiac-disposition-heading"
                   value={disposition}
                   onChange={(e) => setDisposition(e.target.value)}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 mb-4"
@@ -689,8 +701,9 @@ export default function CardiacPage() {
                   <option value="deceased">Deceased</option>
                 </select>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Clinical Narrative</label>
+                  <label htmlFor="cardiac-clinical-narrative" className="block text-sm font-medium text-gray-700 mb-1">Clinical Narrative</label>
                   <textarea
+                    id="cardiac-clinical-narrative"
                     value={narrative}
                     onChange={(e) => setNarrative(e.target.value)}
                     placeholder="Document the clinical course..."

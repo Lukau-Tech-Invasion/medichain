@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { getMyFamilyGroups, createFamilyGroup } from '@shared/api/endpoints';
+import { getMyFamilyGroups, createFamilyGroup } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 
 export function FamilyGroupPage() {
   const { patient } = usePatientAuthStore();
+  const { showSuccess, showError } = useToastActions();
   const [groups, setGroups] = useState<any[]>([]);
   const [newGroupName, setNewGroupName] = useState('');
   const [loading, setLoading] = useState(true); 
@@ -33,7 +35,7 @@ export function FamilyGroupPage() {
       loadGroups();
     } catch (err) {
       console.error(err);
-      alert('Failed to create group');
+      showError('Failed to create group');
     }
   };
 
@@ -44,7 +46,9 @@ export function FamilyGroupPage() {
       <h1 className="text-xl font-bold mb-4">Family Groups</h1>
       
       <form onSubmit={handleCreateGroup} className="mb-6 flex gap-2">
+        <label htmlFor="family-group-name" className="sr-only">Group Name</label>
         <input 
+          id="family-group-name"
           value={newGroupName}
           onChange={e => setNewGroupName(e.target.value)}
           placeholder="New Group Name"

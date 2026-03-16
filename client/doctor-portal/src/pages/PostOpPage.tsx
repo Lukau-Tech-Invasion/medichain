@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { getPatients } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
 interface AldreteCriteria {
@@ -59,6 +60,7 @@ const dischargeCriteriaList = [
 
 const PostOpPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [notes, setNotes] = useState<PostOpNote[]>([]);
   const [activeTab, setActiveTab] = useState<'assessment' | 'history'>('assessment');
@@ -106,7 +108,7 @@ const PostOpPage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient) {
-      alert('Please select a patient');
+      showWarning('Please select a patient');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -124,7 +126,7 @@ const PostOpPage: React.FC = () => {
       complications, notes: notes2
     };
     setNotes([note, ...notes]);
-    alert('Post-Op note saved!');
+    showSuccess('Post-Op note saved!');
   };
 
   return (
@@ -181,8 +183,9 @@ const PostOpPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="postop-patient" className="text-sm text-gray-600">Patient</label>
                   <select
+                    id="postop-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
@@ -194,8 +197,9 @@ const PostOpPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Procedure</label>
+                  <label htmlFor="postop-procedure" className="text-sm text-gray-600">Procedure</label>
                   <input
+                    id="postop-procedure"
                     type="text"
                     value={procedure}
                     onChange={e => setProcedure(e.target.value)}
@@ -203,8 +207,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Surgeon</label>
+                  <label htmlFor="postop-surgeon" className="text-sm text-gray-600">Surgeon</label>
                   <input
+                    id="postop-surgeon"
                     type="text"
                     value={surgeon}
                     onChange={e => setSurgeon(e.target.value)}
@@ -212,8 +217,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Anesthesia</label>
+                  <label htmlFor="postop-anesthesia" className="text-sm text-gray-600">Anesthesia</label>
                   <input
+                    id="postop-anesthesia"
                     type="text"
                     value={anesthesiaType}
                     onChange={e => setAnesthesiaType(e.target.value)}
@@ -222,8 +228,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">PACU Arrival Time</label>
+                  <label htmlFor="postop-arrival-time" className="text-sm text-gray-600">PACU Arrival Time</label>
                   <input
+                    id="postop-arrival-time"
                     type="time"
                     value={arrivalTime}
                     onChange={e => setArrivalTime(e.target.value)}
@@ -276,8 +283,9 @@ const PostOpPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-5 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">BP</label>
+                  <label htmlFor="postop-bp" className="text-sm text-gray-600">BP</label>
                   <input
+                    id="postop-bp"
                     type="text"
                     value={vitals.bp}
                     onChange={e => setVitals({ ...vitals, bp: e.target.value })}
@@ -285,8 +293,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">HR</label>
+                  <label htmlFor="postop-hr" className="text-sm text-gray-600">HR</label>
                   <input
+                    id="postop-hr"
                     type="number"
                     value={vitals.hr}
                     onChange={e => setVitals({ ...vitals, hr: Number(e.target.value) })}
@@ -294,8 +303,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">RR</label>
+                  <label htmlFor="postop-rr" className="text-sm text-gray-600">RR</label>
                   <input
+                    id="postop-rr"
                     type="number"
                     value={vitals.rr}
                     onChange={e => setVitals({ ...vitals, rr: Number(e.target.value) })}
@@ -303,8 +313,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">SpO2 %</label>
+                  <label htmlFor="postop-spo2" className="text-sm text-gray-600">SpO2 %</label>
                   <input
+                    id="postop-spo2"
                     type="number"
                     value={vitals.spo2}
                     onChange={e => setVitals({ ...vitals, spo2: Number(e.target.value) })}
@@ -312,8 +323,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Temp °C</label>
+                  <label htmlFor="postop-temp" className="text-sm text-gray-600">Temp °C</label>
                   <input
+                    id="postop-temp"
                     type="number"
                     step="0.1"
                     value={vitals.temp}
@@ -324,8 +336,9 @@ const PostOpPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-4 gap-4 mt-4">
                 <div>
-                  <label className="text-sm text-gray-600">Pain Score (0-10)</label>
+                  <label htmlFor="postop-pain-score" className="text-sm text-gray-600">Pain Score (0-10)</label>
                   <input
+                    id="postop-pain-score"
                     type="range"
                     min="0" max="10"
                     value={painScore}
@@ -335,8 +348,9 @@ const PostOpPage: React.FC = () => {
                   <p className="text-center font-medium">{painScore}</p>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Nausea/Vomiting</label>
+                  <label htmlFor="postop-nausea" className="text-sm text-gray-600">Nausea/Vomiting</label>
                   <select
+                    id="postop-nausea"
                     value={nauseaVomiting}
                     onChange={e => setNauseaVomiting(e.target.value as 'none' | 'mild' | 'moderate' | 'severe')}
                     className="w-full border rounded p-2"
@@ -348,8 +362,9 @@ const PostOpPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Bleeding</label>
+                  <label htmlFor="postop-bleeding" className="text-sm text-gray-600">Bleeding</label>
                   <select
+                    id="postop-bleeding"
                     value={bleeding}
                     onChange={e => setBleeding(e.target.value as 'none' | 'minimal' | 'moderate' | 'significant')}
                     className="w-full border rounded p-2"
@@ -368,8 +383,9 @@ const PostOpPage: React.FC = () => {
               <h2 className="font-semibold mb-3">Intake/Output & Care</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Urine Output</label>
+                  <label htmlFor="postop-urine-output" className="text-sm text-gray-600">Urine Output</label>
                   <input
+                    id="postop-urine-output"
                     type="text"
                     value={urineOutput}
                     onChange={e => setUrineOutput(e.target.value)}
@@ -378,8 +394,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">IV Fluid Intake</label>
+                  <label htmlFor="postop-fluid-intake" className="text-sm text-gray-600">IV Fluid Intake</label>
                   <input
+                    id="postop-fluid-intake"
                     type="text"
                     value={fluidIntake}
                     onChange={e => setFluidIntake(e.target.value)}
@@ -388,8 +405,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Oral Intake</label>
+                  <label htmlFor="postop-oral-intake" className="text-sm text-gray-600">Oral Intake</label>
                   <input
+                    id="postop-oral-intake"
                     type="text"
                     value={oralIntake}
                     onChange={e => setOralIntake(e.target.value)}
@@ -398,8 +416,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">IV Access</label>
+                  <label htmlFor="postop-iv-access" className="text-sm text-gray-600">IV Access</label>
                   <input
+                    id="postop-iv-access"
                     type="text"
                     value={ivAccess}
                     onChange={e => setIvAccess(e.target.value)}
@@ -408,8 +427,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Medications Given</label>
+                  <label htmlFor="postop-medications" className="text-sm text-gray-600">Medications Given</label>
                   <input
+                    id="postop-medications"
                     type="text"
                     value={medications}
                     onChange={e => setMedications(e.target.value)}
@@ -418,8 +438,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Dressing Status</label>
+                  <label htmlFor="postop-dressing" className="text-sm text-gray-600">Dressing Status</label>
                   <input
+                    id="postop-dressing"
                     type="text"
                     value={dressingStatus}
                     onChange={e => setDressingStatus(e.target.value)}
@@ -428,8 +449,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Drains</label>
+                  <label htmlFor="postop-drains" className="text-sm text-gray-600">Drains</label>
                   <input
+                    id="postop-drains"
                     type="text"
                     value={drains}
                     onChange={e => setDrains(e.target.value)}
@@ -461,8 +483,9 @@ const PostOpPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Discharge Time</label>
+                  <label htmlFor="postop-discharge-time" className="text-sm text-gray-600">Discharge Time</label>
                   <input
+                    id="postop-discharge-time"
                     type="time"
                     value={dischargeTime}
                     onChange={e => setDischargeTime(e.target.value)}
@@ -470,8 +493,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Disposition</label>
+                  <label htmlFor="postop-disposition" className="text-sm text-gray-600">Disposition</label>
                   <input
+                    id="postop-disposition"
                     type="text"
                     value={dischargeDisposition}
                     onChange={e => setDischargeDisposition(e.target.value)}
@@ -487,8 +511,9 @@ const PostOpPage: React.FC = () => {
               <h2 className="font-semibold mb-3">Complications & Notes</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm text-gray-600">Complications</label>
+                  <label htmlFor="postop-complications" className="text-sm text-gray-600">Complications</label>
                   <input
+                    id="postop-complications"
                     type="text"
                     value={complications}
                     onChange={e => setComplications(e.target.value)}
@@ -497,8 +522,9 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Notes</label>
+                  <label htmlFor="postop-notes" className="text-sm text-gray-600">Notes</label>
                   <textarea
+                    id="postop-notes"
                     value={notes2}
                     onChange={e => setNotes2(e.target.value)}
                     className="w-full border rounded p-2 h-24"

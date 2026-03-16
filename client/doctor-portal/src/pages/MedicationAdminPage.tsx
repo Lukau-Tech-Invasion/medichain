@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/authStore';
 import { getPatients, listMar, administerMedication } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Search, FileText, Activity, RefreshCw } from 'lucide-react';
+import { useToastActions } from '../components/Toast';
 
 /**
  * MedicationAdminPage
@@ -56,6 +57,7 @@ interface MedicationAdmin {
 
 const MedicationAdminPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [medications, setMedications] = useState<ScheduledMedication[]>([]);
   const [administrations, setAdministrations] = useState<MedicationAdmin[]>([]);
@@ -85,12 +87,14 @@ const MedicationAdminPage: React.FC = () => {
     try {
       // Fetch patients
       const loadedPatients = await getPatients();
-      setPatients(loadedPatients);
+      setPatients(Array.isArray(loadedPatients) ? loadedPatients : []);
 
       // Fetch MAR (Medication Administration Records)
       const marData = await listMar();
+      // Ensure marData is an array
+      const marArray = Array.isArray(marData) ? marData : [];
       // Map API response to ScheduledMedication interface
-      const mappedMeds: ScheduledMedication[] = (marData as Array<{
+      const mappedMeds: ScheduledMedication[] = (marArray as Array<{
         med_id?: string; medId?: string;
         patient_id?: string; patientId?: string;
         patient_name?: string; patientName?: string;
@@ -157,17 +161,17 @@ const MedicationAdminPage: React.FC = () => {
     e.preventDefault();
     
     if (!selectedMed || !actualTime) {
-      alert('Please fill in required fields');
+      showWarning('Please fill in required fields');
       return;
     }
 
     if (status === 'given' && !fiveRightsVerified) {
-      alert('Five Rights must be verified before administering medication');
+      showWarning('Five Rights must be verified before administering medication');
       return;
     }
 
     if ((status === 'not-given' || status === 'held' || status === 'refused') && !reasonNotGiven) {
-      alert('Please provide a reason for not administering the medication');
+      showWarning('Please provide a reason for not administering the medication');
       return;
     }
 
@@ -213,12 +217,12 @@ const MedicationAdminPage: React.FC = () => {
       };
 
       setAdministrations([...administrations, newAdmin]);
-      alert(`Medication administration recorded successfully`);
+      showSuccess('Medication administration recorded successfully');
       setActiveTab('mar');
       setSelectedMed(null);
     } catch (err) {
       console.error('Failed to record medication administration:', err);
-      alert('Failed to record medication administration. Please try again.');
+      showError('Failed to record medication administration. Please try again.');
     }
   };
 
@@ -292,11 +296,12 @@ const MedicationAdminPage: React.FC = () => {
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="medadmin-patient" className="block text-sm font-medium text-gray-700 mb-1">
               <User className="inline h-4 w-4 mr-1" />
               Patient
             </label>
             <select
+              id="medadmin-patient"
               value={selectedPatientId}
               onChange={(e) => setSelectedPatientId(e.target.value)}
               className="w-full px-3 py-2 border rounded-md"
@@ -310,11 +315,12 @@ const MedicationAdminPage: React.FC = () => {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="medadmin-date" className="block text-sm font-medium text-gray-700 mb-1">
               <Calendar className="inline h-4 w-4 mr-1" />
               Date
             </label>
             <input
+              id="medadmin-date"
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
@@ -322,11 +328,12 @@ const MedicationAdminPage: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="medadmin-search" className="block text-sm font-medium text-gray-700 mb-1">
               <Search className="inline h-4 w-4 mr-1" />
               Search Medication
             </label>
             <input
+              id="medadmin-search"
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -544,8 +551,9 @@ const MedicationAdminPage: React.FC = () => {
                 <span className="ml-2 text-gray-700">{selectedTime}</span>
               </label>
               <div className="mt-4 pt-4 border-t">
-                <label className="flex items-center">
+                <label htmlFor="medadmin-five-rights" className="flex items-center">
                   <input
+                    id="medadmin-five-rights"
                     type="checkbox"
                     checked={fiveRightsVerified}
                     onChange={(e) => setFiveRightsVerified(e.target.checked)}
@@ -561,10 +569,11 @@ const MedicationAdminPage: React.FC = () => {
           <form onSubmit={handleSubmitAdministration}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="medadmin-status" className="block text-sm font-medium text-gray-700 mb-1">
                   Administration Status <span className="text-red-500">*</span>
                 </label>
                 <select
+                  id="medadmin-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value as any)}
                   className="w-full px-3 py-2 border rounded-md"
@@ -578,10 +587,11 @@ const MedicationAdminPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="medadmin-actual-time" className="block text-sm font-medium text-gray-700 mb-1">
                   Actual Time <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="medadmin-actual-time"
                   type="time"
                   value={actualTime}
                   onChange={(e) => setActualTime(e.target.value)}
@@ -592,10 +602,11 @@ const MedicationAdminPage: React.FC = () => {
 
               {(status === 'not-given' || status === 'held' || status === 'refused') && (
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="medadmin-reason-not-given" className="block text-sm font-medium text-gray-700 mb-1">
                     Reason Not Given <span className="text-red-500">*</span>
                   </label>
                   <textarea
+                    id="medadmin-reason-not-given"
                     value={reasonNotGiven}
                     onChange={(e) => setReasonNotGiven(e.target.value)}
                     rows={3}
@@ -609,13 +620,14 @@ const MedicationAdminPage: React.FC = () => {
               {status === 'given' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="medadmin-site" className="block text-sm font-medium text-gray-700 mb-1">
                       Administration Site
                       {(selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV') && 
                         <span className="text-red-500"> *</span>
                       }
                     </label>
                     <input
+                      id="medadmin-site"
                       type="text"
                       value={administrationSite}
                       onChange={(e) => setAdministrationSite(e.target.value)}
@@ -626,8 +638,9 @@ const MedicationAdminPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Witnessed By</label>
+                    <label htmlFor="medadmin-witnessed-by" className="block text-sm font-medium text-gray-700 mb-1">Witnessed By</label>
                     <input
+                      id="medadmin-witnessed-by"
                       type="text"
                       value={witnessedBy}
                       onChange={(e) => setWitnessedBy(e.target.value)}
@@ -637,8 +650,9 @@ const MedicationAdminPage: React.FC = () => {
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Patient Response</label>
+                    <label htmlFor="medadmin-patient-response" className="block text-sm font-medium text-gray-700 mb-1">Patient Response</label>
                     <textarea
+                      id="medadmin-patient-response"
                       value={patientResponse}
                       onChange={(e) => setPatientResponse(e.target.value)}
                       rows={3}
@@ -650,8 +664,9 @@ const MedicationAdminPage: React.FC = () => {
               )}
 
               <div className="md:col-span-2">
-                <label className="flex items-center">
+                <label htmlFor="medadmin-barcode-scanned" className="flex items-center">
                   <input
+                    id="medadmin-barcode-scanned"
                     type="checkbox"
                     checked={barcodeScanned}
                     onChange={(e) => setBarcodeScanned(e.target.checked)}

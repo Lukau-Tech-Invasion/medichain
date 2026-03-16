@@ -20,8 +20,11 @@ import {
   Settings,
   Clock,
   Bluetooth,
-  Zap
+  Zap,
+  Loader2
 } from 'lucide-react';
+import { getWearableDevices, getWearableReadings } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 
 /**
  * WearablesPage
@@ -72,9 +75,50 @@ const WearablesPage: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedMetric, setSelectedMetric] = useState<HealthMetric | null>(null);
   const [activityRings, setActivityRings] = useState<ActivityRing[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { patient } = usePatientAuthStore();
 
   useEffect(() => {
-    // Sample connected devices
+    loadWearableData();
+  }, [patient]);
+
+  const loadWearableData = async () => {
+    setLoading(true);
+    
+    // Try to load from API first
+    if (patient?.walletAddress) {
+      try {
+        const [apiDevices, apiReadings] = await Promise.all([
+          getWearableDevices() as Promise<Device[]>,
+          getWearableReadings(patient.walletAddress) as Promise<HealthMetric[]>
+        ]);
+        
+        if (apiDevices && Array.isArray(apiDevices) && apiDevices.length > 0) {
+          setDevices(apiDevices);
+        } else {
+          loadDemoDevices();
+        }
+        
+        if (apiReadings && Array.isArray(apiReadings) && apiReadings.length > 0) {
+          setMetrics(apiReadings);
+        } else {
+          loadDemoMetrics();
+        }
+        
+        setLoading(false);
+        return;
+      } catch (err) {
+        console.warn('No wearable data from API, using demo data:', err);
+      }
+    }
+    
+    // Fallback to demo data
+    loadDemoDevices();
+    loadDemoMetrics();
+    setLoading(false);
+  };
+
+  const loadDemoDevices = () => {
     setDevices([
       {
         id: 'd1',
@@ -95,7 +139,9 @@ const WearablesPage: React.FC = () => {
         batteryLevel: 45
       }
     ]);
+  };
 
+  const loadDemoMetrics = () => {
     // Sample health metrics
     setMetrics([
       {
@@ -204,7 +250,7 @@ const WearablesPage: React.FC = () => {
       { name: 'Exercise', current: 28, goal: 30, color: 'rgb(34, 197, 94)' },
       { name: 'Stand', current: 10, goal: 12, color: 'rgb(59, 130, 246)' }
     ]);
-  }, []);
+  };
 
   const handleSync = () => {
     setIsSyncing(true);
@@ -283,6 +329,16 @@ const WearablesPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
+      {/* Loading State */}
+      {loading && (
+        <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+            <span className="text-gray-600">Loading wearable data...</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white p-6">
         <div className="flex items-center justify-between mb-2">

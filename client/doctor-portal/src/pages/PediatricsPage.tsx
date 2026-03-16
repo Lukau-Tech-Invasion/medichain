@@ -292,8 +292,8 @@ const PediatricsPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Patient *</label>
-                <select className="w-full border rounded-lg px-3 py-2">
+                <label htmlFor="peds-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                <select id="peds-patient" className="w-full border rounded-lg px-3 py-2">
                   <option value="">Select patient...</option>
                   {patients.map(p => (
                     <option key={p.id} value={p.id}>{p.name} - {getAgeDisplay(p.ageMonths)}</option>
@@ -303,34 +303,34 @@ const PediatricsPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Weight (kg) *</label>
-                  <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
+                  <label htmlFor="peds-weight" className="block text-sm font-medium mb-1">Weight (kg) *</label>
+                  <input id="peds-weight" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Height (cm) *</label>
-                  <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
+                  <label htmlFor="peds-height" className="block text-sm font-medium mb-1">Height (cm) *</label>
+                  <input id="peds-height" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Head Circumference (cm)</label>
-                  <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="Optional" />
+                  <label htmlFor="peds-head-circumference" className="block text-sm font-medium mb-1">Head Circumference (cm)</label>
+                  <input id="peds-head-circumference" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="Optional" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Temperature (°C)</label>
-                  <input type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="36.5" />
+                  <label htmlFor="peds-temperature" className="block text-sm font-medium mb-1">Temperature (°C)</label>
+                  <input id="peds-temperature" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="36.5" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Developmental Milestones</label>
-                <div className="bg-sky-50 border border-sky-200 rounded-lg p-4">
+                <span id="peds-milestones-label" className="block text-sm font-medium mb-2">Developmental Milestones</span>
+                <div className="bg-sky-50 border border-sky-200 rounded-lg p-4" role="group" aria-labelledby="peds-milestones-label">
                   <p className="text-sm text-sky-700 mb-2">Select achieved milestones:</p>
                   <div className="space-y-2">
                     {developmentalMilestones['infant'].map((milestone, idx) => (
-                      <label key={idx} className="flex items-center gap-2">
-                        <input type="checkbox" className="w-4 h-4" />
+                      <label key={idx} htmlFor={`peds-milestone-${idx}`} className="flex items-center gap-2">
+                        <input id={`peds-milestone-${idx}`} type="checkbox" className="w-4 h-4" />
                         <span className="text-sm">{milestone}</span>
                       </label>
                     ))}
@@ -339,8 +339,8 @@ const PediatricsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Notes</label>
-                <textarea className="w-full border rounded-lg px-3 py-2" rows={3} placeholder="Assessment notes..." />
+                <label htmlFor="peds-notes" className="block text-sm font-medium mb-1">Notes</label>
+                <textarea id="peds-notes" className="w-full border rounded-lg px-3 py-2" rows={3} placeholder="Assessment notes..." />
               </div>
 
               <button className="w-full py-3 bg-sky-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">

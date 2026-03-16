@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import { getPatients } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -89,6 +90,7 @@ const decontaminationMethods = [
 
 const ToxicologyPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [cases, setCases] = useState<ToxCase[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
@@ -133,7 +135,7 @@ const ToxicologyPage: React.FC = () => {
 
   const handleSubmit = () => {
     if (!selectedPatient || !substance) {
-      alert('Please select patient and substance');
+      showWarning('Please select patient and substance');
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -155,7 +157,7 @@ const ToxicologyPage: React.FC = () => {
       notes
     };
     setCases([newCase, ...cases]);
-    alert('Toxicology case saved!');
+    showSuccess('Toxicology case saved!');
   };
 
   return (
@@ -205,8 +207,9 @@ const ToxicologyPage: React.FC = () => {
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="tox-patient" className="text-sm text-gray-600">Patient</label>
                   <select
+                    id="tox-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
@@ -218,8 +221,9 @@ const ToxicologyPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Substance</label>
+                  <label htmlFor="tox-substance" className="text-sm text-gray-600">Substance</label>
                   <select
+                    id="tox-substance"
                     value={substance}
                     onChange={e => setSubstance(e.target.value)}
                     className="w-full border rounded p-2"
@@ -231,8 +235,9 @@ const ToxicologyPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Amount/Dose</label>
+                  <label htmlFor="tox-amount" className="text-sm text-gray-600">Amount/Dose</label>
                   <input
+                    id="tox-amount"
                     type="text"
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
@@ -241,8 +246,9 @@ const ToxicologyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Time of Exposure</label>
+                  <label htmlFor="tox-time-of-exposure" className="text-sm text-gray-600">Time of Exposure</label>
                   <input
+                    id="tox-time-of-exposure"
                     type="datetime-local"
                     value={timeOfExposure}
                     onChange={e => setTimeOfExposure(e.target.value)}
@@ -250,8 +256,9 @@ const ToxicologyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Route</label>
+                  <label htmlFor="tox-route" className="text-sm text-gray-600">Route</label>
                   <select
+                    id="tox-route"
                     value={route}
                     onChange={e => setRoute(e.target.value as ExposureRoute)}
                     className="w-full border rounded p-2"
@@ -265,8 +272,9 @@ const ToxicologyPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600">Severity</label>
+                  <label htmlFor="tox-severity" className="text-sm text-gray-600">Severity</label>
                   <select
+                    id="tox-severity"
                     value={severity}
                     onChange={e => setSeverity(e.target.value as Severity)}
                     className="w-full border rounded p-2"
@@ -279,8 +287,9 @@ const ToxicologyPage: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4">
-                <label className="flex items-center gap-2">
+                <label htmlFor="tox-intentional" className="flex items-center gap-2">
                   <input
+                    id="tox-intentional"
                     type="checkbox"
                     checked={intentional}
                     onChange={e => setIntentional(e.target.checked)}
@@ -416,8 +425,9 @@ const ToxicologyPage: React.FC = () => {
             {/* Poison Control */}
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2">
+                <label htmlFor="tox-poison-control" className="flex items-center gap-2">
                   <input
+                    id="tox-poison-control"
                     type="checkbox"
                     checked={poisonControlCalled}
                     onChange={e => setPoisonControlCalled(e.target.checked)}

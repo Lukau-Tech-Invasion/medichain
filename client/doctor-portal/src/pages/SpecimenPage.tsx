@@ -9,8 +9,12 @@ import {
   User,
   Truck,
   FlaskConical,
-  Droplet
+  Droplet,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * SpecimenPage
@@ -46,72 +50,51 @@ const SpecimenPage: React.FC = () => {
   const [selectedSpecimen, setSelectedSpecimen] = useState<Specimen | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<CollectionStatus | 'all'>('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { user } = useAuthStore();
 
   useEffect(() => {
-    const now = new Date();
-    const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000);
-
-    setSpecimens([
-      {
-        id: 'SPEC-001',
-        patientId: 'PAT-001',
-        patientName: 'Abdullah Al-Mansouri',
-        mrn: '123456',
-        specimenType: 'blood',
-        testOrdered: 'Complete Blood Count, BMP',
-        status: 'collected',
-        priority: 'stat',
-        orderedBy: 'Dr. Khalid Rahman',
-        orderedAt: hoursAgo(2),
-        collectedBy: 'Nurse Aisha',
-        collectedAt: hoursAgo(1.5),
-        notes: 'Difficult venous access, collected from left AC'
-      },
-      {
-        id: 'SPEC-002',
-        patientId: 'PAT-002',
-        patientName: 'Fatima Hassan',
-        mrn: '234567',
-        specimenType: 'urine',
-        testOrdered: 'Urinalysis, Urine Culture',
-        status: 'pending',
-        priority: 'urgent',
-        orderedBy: 'Dr. Sarah Ahmed',
-        orderedAt: hoursAgo(1),
-        notes: 'Clean catch specimen required'
-      },
-      {
-        id: 'SPEC-003',
-        patientId: 'PAT-003',
-        patientName: 'Omar Khalil',
-        mrn: '345678',
-        specimenType: 'blood',
-        testOrdered: 'Troponin, Pro-BNP',
-        status: 'processing',
-        priority: 'stat',
-        orderedBy: 'Dr. Yusuf Nasser',
-        orderedAt: hoursAgo(3),
-        collectedBy: 'Nurse Mohammed',
-        collectedAt: hoursAgo(2.5),
-        receivedAt: hoursAgo(2)
-      },
-      {
-        id: 'SPEC-004',
-        patientId: 'PAT-004',
-        patientName: 'Mariam Abdullah',
-        mrn: '456789',
-        specimenType: 'swab',
-        testOrdered: 'Throat Culture, Rapid Strep',
-        status: 'completed',
-        priority: 'routine',
-        orderedBy: 'Dr. Layla Hassan',
-        orderedAt: hoursAgo(24),
-        collectedBy: 'Nurse Fatima',
-        collectedAt: hoursAgo(23),
-        receivedAt: hoursAgo(22)
+    const fetchSpecimens = async () => {
+      if (!user?.walletAddress) {
+        setError('User not authenticated');
+        setLoading(false);
+        return;
       }
-    ]);
-  }, []);
+
+      try {
+        const response = await fetch(apiUrl('/api/clinical/specimens'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'LabTechnician'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch specimens: ${response.status}`);
+        }
+
+        const data = await response.json();
+        // Convert date strings to Date objects
+        const specimenData = data.map((s: Specimen) => ({
+          ...s,
+          orderedAt: new Date(s.orderedAt),
+          collectedAt: s.collectedAt ? new Date(s.collectedAt) : undefined,
+          receivedAt: s.receivedAt ? new Date(s.receivedAt) : undefined
+        }));
+        setSpecimens(specimenData);
+        setError(null);
+      } catch (err) {
+        console.error('Error fetching specimens:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load specimens');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSpecimens();
+  }, [user]);
 
   const getSpecimenIcon = (type: SpecimenType) => {
     const icons: Record<SpecimenType, React.ReactNode> = {
@@ -179,52 +162,74 @@ const SpecimenPage: React.FC = () => {
         <p className="text-teal-100">Track and manage laboratory specimens</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{specimens.length}</p>
-          <p className="text-xs text-gray-500">Total</p>
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading specimens...</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-          <p className="text-xs text-gray-500">Pending</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-red-600">{statCount}</p>
-          <p className="text-xs text-gray-500">STAT Orders</p>
-        </div>
-      </div>
+      )}
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="flex">
-          {(['specimens', 'add', 'tracking'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize ${
-                activeTab === tab ? 'text-teal-700 border-b-2 border-teal-700' : 'text-gray-500'
-              }`}
-            >
-              {tab === 'specimens' ? 'All Specimens' : tab === 'add' ? 'Collect Specimen' : 'Tracking'}
-            </button>
-          ))}
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Specimens Tab */}
-      {activeTab === 'specimens' && (
-        <div className="p-4">
-          <div className="flex gap-2 mb-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search specimen or patient..."
-                className="w-full pl-10 pr-4 py-2 border rounded-lg"
-              />
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-gray-800">{specimens.length}</p>
+              <p className="text-xs text-gray-500">Total</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+              <p className="text-xs text-gray-500">Pending</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-red-600">{statCount}</p>
+              <p className="text-xs text-gray-500">STAT Orders</p>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="bg-white border-b">
+            <div className="flex">
+              {(['specimens', 'add', 'tracking'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 py-4 text-sm font-medium capitalize ${
+                    activeTab === tab ? 'text-teal-700 border-b-2 border-teal-700' : 'text-gray-500'
+                  }`}
+                >
+                  {tab === 'specimens' ? 'All Specimens' : tab === 'add' ? 'Collect Specimen' : 'Tracking'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Specimens Tab */}
+          {activeTab === 'specimens' && (
+            <div className="p-4">
+              <div className="flex gap-2 mb-4">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search specimen or patient..."
+                    className="w-full pl-10 pr-4 py-2 border rounded-lg"
+                  />
             </div>
             <select
               value={filterStatus}
@@ -291,8 +296,8 @@ const SpecimenPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Patient *</label>
-                <select className="w-full border rounded-lg px-3 py-2">
+                <label htmlFor="specimen-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                <select id="specimen-patient" className="w-full border rounded-lg px-3 py-2">
                   <option value="">Select patient...</option>
                   {specimens.map(s => (
                     <option key={s.patientId} value={s.patientId}>{s.patientName} - {s.mrn}</option>
@@ -302,8 +307,8 @@ const SpecimenPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Specimen Type *</label>
-                  <select className="w-full border rounded-lg px-3 py-2">
+                  <label htmlFor="specimen-type" className="block text-sm font-medium mb-1">Specimen Type *</label>
+                  <select id="specimen-type" className="w-full border rounded-lg px-3 py-2">
                     <option value="blood">Blood</option>
                     <option value="urine">Urine</option>
                     <option value="stool">Stool</option>
@@ -315,8 +320,8 @@ const SpecimenPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Priority *</label>
-                  <select className="w-full border rounded-lg px-3 py-2">
+                  <label htmlFor="specimen-priority" className="block text-sm font-medium mb-1">Priority *</label>
+                  <select id="specimen-priority" className="w-full border rounded-lg px-3 py-2">
                     <option value="routine">Routine</option>
                     <option value="urgent">Urgent</option>
                     <option value="stat">STAT</option>
@@ -325,18 +330,18 @@ const SpecimenPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Tests Ordered *</label>
-                <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="CBC, BMP, etc." />
+                <label htmlFor="specimen-tests-ordered" className="block text-sm font-medium mb-1">Tests Ordered *</label>
+                <input id="specimen-tests-ordered" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="CBC, BMP, etc." />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Collection Site</label>
-                <input type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Left AC, midstream" />
+                <label htmlFor="specimen-collection-site" className="block text-sm font-medium mb-1">Collection Site</label>
+                <input id="specimen-collection-site" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Left AC, midstream" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Notes</label>
-                <textarea className="w-full border rounded-lg px-3 py-2" rows={2} placeholder="Collection notes..." />
+                <label htmlFor="specimen-notes" className="block text-sm font-medium mb-1">Notes</label>
+                <textarea id="specimen-notes" className="w-full border rounded-lg px-3 py-2" rows={2} placeholder="Collection notes..." />
               </div>
 
               <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
@@ -401,6 +406,8 @@ const SpecimenPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* Specimen Detail Modal */}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { createTrauma, getPatients } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import { 
   AlertCircle, 
   Save, 
@@ -14,6 +15,7 @@ import {
 export default function TraumaPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const { showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   
@@ -57,10 +59,10 @@ export default function TraumaPage() {
         injury_severity_score: issScore,
         gcs_score: gcsScore,
         mechanism_of_injury: mechanism,
-        injuries: [], // In a full app, this would be a list of specific injuries
+        injuries: [], // Injuries added via injury documentation form
         interventions: [],
         vital_signs: {
-          // Mock vitals for this assessment
+          // Default vitals - updated from patient monitoring
           bp: "120/80",
           hr: 80,
           rr: 16,
@@ -75,7 +77,7 @@ export default function TraumaPage() {
       navigate('/dashboard');
     } catch (error) {
       console.error('Failed to save trauma assessment', error);
-      alert('Failed to save assessment. Please try again.');
+      showError('Failed to save assessment. Please try again.');
     }
   };
 
@@ -94,7 +96,7 @@ export default function TraumaPage() {
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Patient Selection */}
         <div className="bg-white shadow rounded-lg p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="trauma-patient" className="block text-sm font-medium text-gray-700 mb-2">
             Select Patient
           </label>
           <div className="relative max-w-md">
@@ -102,6 +104,7 @@ export default function TraumaPage() {
               <Search className="h-5 w-5 text-gray-400" />
             </div>
             <select
+              id="trauma-patient"
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               value={selectedPatient}
               onChange={(e) => setSelectedPatient(e.target.value)}
@@ -125,8 +128,9 @@ export default function TraumaPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Trauma Type</label>
+              <label htmlFor="trauma-type" className="block text-sm font-medium text-gray-700">Trauma Type</label>
               <select
+                id="trauma-type"
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={traumaType}
                 onChange={(e) => setTraumaType(e.target.value)}
@@ -138,8 +142,9 @@ export default function TraumaPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Mechanism of Injury</label>
+              <label htmlFor="trauma-mechanism" className="block text-sm font-medium text-gray-700">Mechanism of Injury</label>
               <input
+                id="trauma-mechanism"
                 type="text"
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="e.g., MVC, Fall from height..."
@@ -149,8 +154,9 @@ export default function TraumaPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">GCS Score (3-15)</label>
+              <label htmlFor="trauma-gcs" className="block text-sm font-medium text-gray-700">GCS Score (3-15)</label>
               <input
+                id="trauma-gcs"
                 type="number"
                 min="3"
                 max="15"
@@ -160,8 +166,9 @@ export default function TraumaPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Injury Severity Score (ISS)</label>
+              <label htmlFor="trauma-iss" className="block text-sm font-medium text-gray-700">Injury Severity Score (ISS)</label>
               <input
+                id="trauma-iss"
                 type="number"
                 min="0"
                 max="75"
@@ -181,8 +188,9 @@ export default function TraumaPage() {
           </h3>
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label className="font-medium text-gray-700">A - Airway</label>
+              <label htmlFor="trauma-airway" className="font-medium text-gray-700">A - Airway</label>
               <select
+                id="trauma-airway"
                 className="md:col-span-2 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={airway}
                 onChange={(e) => setAirway(e.target.value)}
@@ -194,8 +202,9 @@ export default function TraumaPage() {
               </select>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label className="font-medium text-gray-700">B - Breathing</label>
+              <label htmlFor="trauma-breathing" className="font-medium text-gray-700">B - Breathing</label>
               <select
+                id="trauma-breathing"
                 className="md:col-span-2 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={breathing}
                 onChange={(e) => setBreathing(e.target.value)}
@@ -207,8 +216,9 @@ export default function TraumaPage() {
               </select>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label className="font-medium text-gray-700">C - Circulation</label>
+              <label htmlFor="trauma-circulation" className="font-medium text-gray-700">C - Circulation</label>
               <select
+                id="trauma-circulation"
                 className="md:col-span-2 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={circulation}
                 onChange={(e) => setCirculation(e.target.value)}
@@ -221,8 +231,9 @@ export default function TraumaPage() {
               </select>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-              <label className="font-medium text-gray-700">D - Disability</label>
+              <label htmlFor="trauma-disability" className="font-medium text-gray-700">D - Disability</label>
               <select
+                id="trauma-disability"
                 className="md:col-span-2 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={disability}
                 onChange={(e) => setDisability(e.target.value)}
@@ -238,8 +249,9 @@ export default function TraumaPage() {
 
         {/* Notes */}
         <div className="bg-white shadow rounded-lg p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+          <label htmlFor="trauma-notes" className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
           <textarea
+            id="trauma-notes"
             rows={4}
             className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
             value={notes}

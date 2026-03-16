@@ -388,8 +388,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                  <label htmlFor="death-first-name" className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
                   <input
+                    id="death-first-name"
                     type="text"
                     value={deceasedInfo.firstName}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, firstName: e.target.value })}
@@ -398,8 +399,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
+                  <label htmlFor="death-middle-name" className="block text-sm font-medium text-gray-700 mb-1">Middle Name</label>
                   <input
+                    id="death-middle-name"
                     type="text"
                     value={deceasedInfo.middleName}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, middleName: e.target.value })}
@@ -407,8 +409,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+                  <label htmlFor="death-last-name" className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
                   <input
+                    id="death-last-name"
                     type="text"
                     value={deceasedInfo.lastName}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, lastName: e.target.value })}
@@ -420,8 +423,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">SSN / National ID</label>
+                  <label htmlFor="death-ssn" className="block text-sm font-medium text-gray-700 mb-1">SSN / National ID</label>
                   <input
+                    id="death-ssn"
                     type="text"
                     value={deceasedInfo.ssn}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, ssn: e.target.value })}
@@ -430,8 +434,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth *</label>
+                  <label htmlFor="death-date-of-birth" className="block text-sm font-medium text-gray-700 mb-1">Date of Birth *</label>
                   <input
+                    id="death-date-of-birth"
                     type="date"
                     value={deceasedInfo.dateOfBirth}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, dateOfBirth: e.target.value })}
@@ -440,8 +445,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Sex *</label>
+                  <label htmlFor="death-sex" className="block text-sm font-medium text-gray-700 mb-1">Sex *</label>
                   <select
+                    id="death-sex"
                     value={deceasedInfo.sex}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, sex: e.target.value as 'male' | 'female' })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -454,8 +460,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Marital Status</label>
+                  <label htmlFor="death-marital-status" className="block text-sm font-medium text-gray-700 mb-1">Marital Status</label>
                   <select
+                    id="death-marital-status"
                     value={deceasedInfo.maritalStatus}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, maritalStatus: e.target.value })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -468,8 +475,9 @@ const DeathCertificatePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Occupation</label>
+                  <label htmlFor="death-occupation" className="block text-sm font-medium text-gray-700 mb-1">Occupation</label>
                   <input
+                    id="death-occupation"
                     type="text"
                     value={deceasedInfo.occupation}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, occupation: e.target.value })}
@@ -480,8 +488,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Birthplace</label>
+                  <label htmlFor="death-birthplace" className="block text-sm font-medium text-gray-700 mb-1">Birthplace</label>
                   <input
+                    id="death-birthplace"
                     type="text"
                     value={deceasedInfo.birthplace}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, birthplace: e.target.value })}
@@ -490,8 +499,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Residence Address</label>
+                  <label htmlFor="death-residence" className="block text-sm font-medium text-gray-700 mb-1">Residence Address</label>
                   <input
+                    id="death-residence"
                     type="text"
                     value={deceasedInfo.residence}
                     onChange={(e) => setDeceasedInfo({ ...deceasedInfo, residence: e.target.value })}
@@ -521,8 +531,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date of Death *</label>
+                  <label htmlFor="death-date-of-death" className="block text-sm font-medium text-gray-700 mb-1">Date of Death *</label>
                   <input
+                    id="death-date-of-death"
                     type="date"
                     value={deathInfo.dateOfDeath}
                     onChange={(e) => setDeathInfo({ ...deathInfo, dateOfDeath: e.target.value })}
@@ -531,8 +542,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Time of Death *</label>
+                  <label htmlFor="death-time-of-death" className="block text-sm font-medium text-gray-700 mb-1">Time of Death *</label>
                   <input
+                    id="death-time-of-death"
                     type="time"
                     value={deathInfo.timeOfDeath}
                     onChange={(e) => setDeathInfo({ ...deathInfo, timeOfDeath: e.target.value })}
@@ -544,8 +556,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Place of Death *</label>
+                  <label htmlFor="death-place-of-death" className="block text-sm font-medium text-gray-700 mb-1">Place of Death *</label>
                   <select
+                    id="death-place-of-death"
                     value={deathInfo.placeOfDeath}
                     onChange={(e) => setDeathInfo({ ...deathInfo, placeOfDeath: e.target.value })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -561,8 +574,9 @@ const DeathCertificatePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Facility Name</label>
+                  <label htmlFor="death-facility-name" className="block text-sm font-medium text-gray-700 mb-1">Facility Name</label>
                   <input
+                    id="death-facility-name"
                     type="text"
                     value={deathInfo.facilityName}
                     onChange={(e) => setDeathInfo({ ...deathInfo, facilityName: e.target.value })}
@@ -573,8 +587,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                  <label htmlFor="death-city" className="block text-sm font-medium text-gray-700 mb-1">City</label>
                   <input
+                    id="death-city"
                     type="text"
                     value={deathInfo.cityOfDeath}
                     onChange={(e) => setDeathInfo({ ...deathInfo, cityOfDeath: e.target.value })}
@@ -582,8 +597,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">County/Province</label>
+                  <label htmlFor="death-county" className="block text-sm font-medium text-gray-700 mb-1">County/Province</label>
                   <input
+                    id="death-county"
                     type="text"
                     value={deathInfo.countyOfDeath}
                     onChange={(e) => setDeathInfo({ ...deathInfo, countyOfDeath: e.target.value })}
@@ -591,8 +607,9 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">State/Country</label>
+                  <label htmlFor="death-state" className="block text-sm font-medium text-gray-700 mb-1">State/Country</label>
                   <input
+                    id="death-state"
                     type="text"
                     value={deathInfo.stateOfDeath}
                     onChange={(e) => setDeathInfo({ ...deathInfo, stateOfDeath: e.target.value })}
@@ -605,8 +622,9 @@ const DeathCertificatePage: React.FC = () => {
                 <h3 className="font-medium text-gray-900 mb-4">Pronouncement</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Pronounced By</label>
+                    <label htmlFor="death-pronounced-by" className="block text-sm font-medium text-gray-700 mb-1">Pronounced By</label>
                     <input
+                      id="death-pronounced-by"
                       type="text"
                       value={deathInfo.pronouncedBy}
                       onChange={(e) => setDeathInfo({ ...deathInfo, pronouncedBy: e.target.value })}
@@ -614,8 +632,9 @@ const DeathCertificatePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date Pronounced</label>
+                    <label htmlFor="death-pronounced-date" className="block text-sm font-medium text-gray-700 mb-1">Date Pronounced</label>
                     <input
+                      id="death-pronounced-date"
                       type="date"
                       value={deathInfo.pronouncedDate}
                       onChange={(e) => setDeathInfo({ ...deathInfo, pronouncedDate: e.target.value })}
@@ -623,8 +642,9 @@ const DeathCertificatePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Time Pronounced</label>
+                    <label htmlFor="death-pronounced-time" className="block text-sm font-medium text-gray-700 mb-1">Time Pronounced</label>
                     <input
+                      id="death-pronounced-time"
                       type="time"
                       value={deathInfo.pronouncedTime}
                       onChange={(e) => setDeathInfo({ ...deathInfo, pronouncedTime: e.target.value })}
@@ -667,10 +687,11 @@ const DeathCertificatePage: React.FC = () => {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="md:col-span-3">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="death-immediate-cause" className="block text-sm font-medium text-gray-700 mb-1">
                         a. Immediate Cause *
                       </label>
                       <input
+                        id="death-immediate-cause"
                         type="text"
                         value={causeInfo.immediateCause}
                         onChange={(e) => setCauseInfo({ ...causeInfo, immediateCause: e.target.value })}
@@ -679,8 +700,9 @@ const DeathCertificatePage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Duration</label>
+                      <label htmlFor="death-immediate-duration" className="block text-sm font-medium text-gray-700 mb-1">Duration</label>
                       <input
+                        id="death-immediate-duration"
                         type="text"
                         value={causeInfo.immediateDuration}
                         onChange={(e) => setCauseInfo({ ...causeInfo, immediateDuration: e.target.value })}
@@ -736,8 +758,9 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Manner of Death *</label>
+                  <label htmlFor="death-manner-of-death" className="block text-sm font-medium text-gray-700 mb-1">Manner of Death *</label>
                   <select
+                    id="death-manner-of-death"
                     value={causeInfo.mannerOfDeath}
                     onChange={(e) => setCauseInfo({ ...causeInfo, mannerOfDeath: e.target.value as MannerOfDeath })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -751,8 +774,9 @@ const DeathCertificatePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Did Tobacco Use Contribute?</label>
+                  <label htmlFor="death-tobacco-contributed" className="block text-sm font-medium text-gray-700 mb-1">Did Tobacco Use Contribute?</label>
                   <select
+                    id="death-tobacco-contributed"
                     value={causeInfo.tobaccoContributed}
                     onChange={(e) => setCauseInfo({ ...causeInfo, tobaccoContributed: e.target.value as any })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -833,16 +857,17 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Certifier Type *</label>
-                  <select className="w-full border rounded-lg px-3 py-2">
+                  <label htmlFor="death-certifier-type" className="block text-sm font-medium text-gray-700 mb-1">Certifier Type *</label>
+                  <select id="death-certifier-type" className="w-full border rounded-lg px-3 py-2">
                     <option value="attending">Attending Physician</option>
                     <option value="pronouncing">Pronouncing Physician</option>
                     <option value="medical-examiner">Medical Examiner/Coroner</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">License Number *</label>
+                  <label htmlFor="death-license-number" className="block text-sm font-medium text-gray-700 mb-1">License Number *</label>
                   <input
+                    id="death-license-number"
                     type="text"
                     className="w-full border rounded-lg px-3 py-2"
                     placeholder="MD-XXXXXX"
@@ -852,12 +877,12 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Certifier Name *</label>
-                  <input type="text" className="w-full border rounded-lg px-3 py-2" />
+                  <label htmlFor="death-certifier-name" className="block text-sm font-medium text-gray-700 mb-1">Certifier Name *</label>
+                  <input id="death-certifier-name" type="text" className="w-full border rounded-lg px-3 py-2" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Date Signed *</label>
-                  <input type="date" className="w-full border rounded-lg px-3 py-2" />
+                  <label htmlFor="death-date-signed" className="block text-sm font-medium text-gray-700 mb-1">Date Signed *</label>
+                  <input id="death-date-signed" type="date" className="w-full border rounded-lg px-3 py-2" />
                 </div>
               </div>
 

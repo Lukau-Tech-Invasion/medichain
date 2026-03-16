@@ -11,8 +11,12 @@ import {
   Camera,
   MapPin,
   Activity,
-  ClipboardCheck
+  ClipboardCheck,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { apiUrl } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * LacerationRepairPage
@@ -48,11 +52,21 @@ interface LacerationRepair {
   notes?: string;
 }
 
+interface PatientOption {
+  id: string;
+  name: string;
+  mrn: string;
+}
+
 const LacerationRepairPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'repairs' | 'new' | 'follow-up'>('repairs');
   const [repairs, setRepairs] = useState<LacerationRepair[]>([]);
   const [selectedRepair, setSelectedRepair] = useState<LacerationRepair | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const { user } = useAuthStore();
 
   const [newRepair, setNewRepair] = useState({
     patientId: '',
@@ -69,76 +83,84 @@ const LacerationRepairPage: React.FC = () => {
     notes: ''
   });
 
+  // Fetch patients for dropdown
   useEffect(() => {
-    const now = new Date();
-    const daysAgo = (d: number) => new Date(now.getTime() - d * 86400000);
-    const daysFromNow = (d: number) => new Date(now.getTime() + d * 86400000);
-
-    setRepairs([
-      {
-        id: 'LAC-001',
-        patientId: 'PAT-12345',
-        patientName: 'Ahmed Al-Rashid',
-        mrn: '789012',
-        injuryDate: daysAgo(0),
-        repairDate: daysAgo(0),
-        location: 'Right forearm, dorsal aspect',
-        woundType: 'laceration',
-        length: 4.5,
-        depth: 'partial thickness',
-        closureMethod: 'sutures',
-        sutureType: '4-0 Nylon',
-        sutureCount: 8,
-        anesthesia: '1% Lidocaine with epinephrine',
-        tetanusGiven: true,
-        antibioticsPrescribed: false,
-        status: 'completed',
-        performedBy: 'Dr. Sarah Johnson',
-        followUpDate: daysFromNow(10),
-        notes: 'Clean laceration from glass. No neurovascular compromise.'
-      },
-      {
-        id: 'LAC-002',
-        patientId: 'PAT-67890',
-        patientName: 'Fatima Hassan',
-        mrn: '456789',
-        injuryDate: daysAgo(1),
-        repairDate: daysAgo(1),
-        location: 'Left knee',
-        woundType: 'abrasion',
-        length: 6,
-        depth: 'superficial',
-        closureMethod: 'dermabond',
-        anesthesia: 'None required',
-        tetanusGiven: false,
-        antibioticsPrescribed: false,
-        status: 'follow-up-needed',
-        performedBy: 'Dr. Michael Chen',
-        followUpDate: daysFromNow(3)
-      },
-      {
-        id: 'LAC-003',
-        patientId: 'PAT-11223',
-        patientName: 'Omar Khalil',
-        mrn: '334455',
-        injuryDate: daysAgo(7),
-        repairDate: daysAgo(7),
-        location: 'Scalp, occipital region',
-        woundType: 'laceration',
-        length: 3,
-        depth: 'full thickness to galea',
-        closureMethod: 'staples',
-        sutureCount: 5,
-        anesthesia: '1% Lidocaine',
-        tetanusGiven: true,
-        antibioticsPrescribed: true,
-        status: 'completed',
-        performedBy: 'Dr. Emily Rodriguez',
-        followUpDate: daysAgo(0),
-        notes: 'Fall injury. CT head negative. Staples ready for removal today.'
+    const fetchPatients = async () => {
+      if (!user?.walletAddress) return;
+      
+      try {
+        const response = await fetch(apiUrl('/api/patients'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor'
+          }
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          // Handle PaginatedResponse {data: [], pagination: {...}}
+          const patientData = result.data || result.patients || (Array.isArray(result) ? result : []);
+          const patientList = patientData.map((p: { patient_id?: string; id?: string; name?: string; full_name?: string; mrn?: string; medical_record_number?: string }) => ({
+            id: p.patient_id || p.id || '',
+            name: p.name || p.full_name || 'Unknown',
+            mrn: p.mrn || p.medical_record_number || ''
+          }));
+          setPatients(patientList);
+        }
+      } catch (err) {
+        console.error('Error fetching patients:', err);
       }
-    ]);
-  }, []);
+    };
+    
+    fetchPatients();
+  }, [user]);
+
+  useEffect(() => {
+    const fetchRepairs = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const response = await fetch(apiUrl('/api/clinical/laceration-repairs'), {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch repairs: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        // Handle PaginatedResponse or direct array
+        const repairData = result.data || result.repairs || (Array.isArray(result) ? result : []);
+        // Convert date strings to Date objects
+        const repairsWithDates = repairData.map((repair: LacerationRepair) => ({
+          ...repair,
+          injuryDate: new Date(repair.injuryDate),
+          repairDate: new Date(repair.repairDate),
+          followUpDate: repair.followUpDate ? new Date(repair.followUpDate) : undefined
+        }));
+        setRepairs(repairsWithDates);
+      } catch (err) {
+        console.error('Error fetching repairs:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load laceration repairs');
+        setRepairs([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchRepairs();
+  }, [user]);
 
   const getStatusBadge = (status: RepairStatus) => {
     const styles: Record<RepairStatus, { bg: string; text: string; icon: React.ReactNode }> = {
@@ -182,52 +204,74 @@ const LacerationRepairPage: React.FC = () => {
         <p className="text-pink-100">Document wound repairs and track follow-ups</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{repairs.length}</p>
-          <p className="text-xs text-gray-500">Total Repairs</p>
+      {/* Loading State */}
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-pink-600 animate-spin mb-2" />
+          <p className="text-gray-500">Loading laceration repairs...</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-orange-600">{followUpToday.length}</p>
-          <p className="text-xs text-gray-500">Follow-up Today</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-green-600">{repairs.filter(r => r.status === 'completed').length}</p>
-          <p className="text-xs text-gray-500">Completed</p>
-        </div>
-      </div>
+      )}
 
-      {/* Tabs */}
-      <div className="bg-white border-b">
-        <div className="flex">
-          {(['repairs', 'new', 'follow-up'] as const).map(tab => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize ${
-                activeTab === tab ? 'text-pink-700 border-b-2 border-pink-700' : 'text-gray-500'
-              }`}
-            >
-              {tab === 'repairs' ? 'All Repairs' : tab === 'new' ? 'New Repair' : 'Follow-up'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Repairs List */}
-      {activeTab === 'repairs' && (
-        <div className="p-4">
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by patient, MRN, or location..."
-              className="w-full pl-10 pr-4 py-2 border rounded-lg"
-            />
+      {/* Error State */}
+      {error && !loading && (
+        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
           </div>
+        </div>
+      )}
+
+      {/* Content (only show when loaded) */}
+      {!loading && !error && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-gray-800">{repairs.length}</p>
+              <p className="text-xs text-gray-500">Total Repairs</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-orange-600">{followUpToday.length}</p>
+              <p className="text-xs text-gray-500">Follow-up Today</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-green-600">{repairs.filter(r => r.status === 'completed').length}</p>
+              <p className="text-xs text-gray-500">Completed</p>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="bg-white border-b">
+            <div className="flex">
+              {(['repairs', 'new', 'follow-up'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`flex-1 py-4 text-sm font-medium capitalize ${
+                    activeTab === tab ? 'text-pink-700 border-b-2 border-pink-700' : 'text-gray-500'
+                  }`}
+                >
+                  {tab === 'repairs' ? 'All Repairs' : tab === 'new' ? 'New Repair' : 'Follow-up'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Repairs List */}
+          {activeTab === 'repairs' && (
+            <div className="p-4">
+              <div className="relative mb-4">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by patient, MRN, or location..."
+                  className="w-full pl-10 pr-4 py-2 border rounded-lg"
+                />
+              </div>
 
           <div className="space-y-3">
             {filteredRepairs.map(repair => (
@@ -286,18 +330,27 @@ const LacerationRepairPage: React.FC = () => {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Patient *</label>
-                <select className="w-full border rounded-lg px-3 py-2">
+                <label htmlFor="laceration-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                <select
+                  id="laceration-patient"
+                  value={newRepair.patientId}
+                  onChange={(e) => setNewRepair({ ...newRepair, patientId: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
+                >
                   <option value="">Select patient...</option>
-                  <option value="PAT-12345">Ahmed Al-Rashid (789012)</option>
-                  <option value="PAT-67890">Fatima Hassan (456789)</option>
+                  {patients.map((patient) => (
+                    <option key={patient.id} value={patient.id}>
+                      {patient.name} ({patient.mrn})
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Wound Type *</label>
+                  <label htmlFor="laceration-wound-type" className="block text-sm font-medium mb-1">Wound Type *</label>
                   <select
+                    id="laceration-wound-type"
                     value={newRepair.woundType}
                     onChange={(e) => setNewRepair({ ...newRepair, woundType: e.target.value as WoundType })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -310,8 +363,9 @@ const LacerationRepairPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Length (cm) *</label>
+                  <label htmlFor="laceration-length" className="block text-sm font-medium mb-1">Length (cm) *</label>
                   <input
+                    id="laceration-length"
                     type="number"
                     step="0.5"
                     value={newRepair.length || ''}
@@ -322,8 +376,9 @@ const LacerationRepairPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Location *</label>
+                <label htmlFor="laceration-location" className="block text-sm font-medium mb-1">Location *</label>
                 <input
+                  id="laceration-location"
                   type="text"
                   value={newRepair.location}
                   onChange={(e) => setNewRepair({ ...newRepair, location: e.target.value })}
@@ -333,8 +388,9 @@ const LacerationRepairPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Depth</label>
+                <label htmlFor="laceration-depth" className="block text-sm font-medium mb-1">Depth</label>
                 <select
+                  id="laceration-depth"
                   value={newRepair.depth}
                   onChange={(e) => setNewRepair({ ...newRepair, depth: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2"
@@ -348,8 +404,9 @@ const LacerationRepairPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Closure Method *</label>
+                  <label htmlFor="laceration-closure-method" className="block text-sm font-medium mb-1">Closure Method *</label>
                   <select
+                    id="laceration-closure-method"
                     value={newRepair.closureMethod}
                     onChange={(e) => setNewRepair({ ...newRepair, closureMethod: e.target.value as ClosureMethod })}
                     className="w-full border rounded-lg px-3 py-2"
@@ -362,8 +419,9 @@ const LacerationRepairPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Count</label>
+                  <label htmlFor="laceration-count" className="block text-sm font-medium mb-1">Count</label>
                   <input
+                    id="laceration-count"
                     type="number"
                     value={newRepair.sutureCount || ''}
                     onChange={(e) => setNewRepair({ ...newRepair, sutureCount: parseInt(e.target.value) || 0 })}
@@ -374,8 +432,9 @@ const LacerationRepairPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Anesthesia</label>
+                <label htmlFor="laceration-anesthesia" className="block text-sm font-medium mb-1">Anesthesia</label>
                 <input
+                  id="laceration-anesthesia"
                   type="text"
                   value={newRepair.anesthesia}
                   onChange={(e) => setNewRepair({ ...newRepair, anesthesia: e.target.value })}
@@ -406,8 +465,9 @@ const LacerationRepairPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Notes</label>
+                <label htmlFor="laceration-notes" className="block text-sm font-medium mb-1">Notes</label>
                 <textarea
+                  id="laceration-notes"
                   value={newRepair.notes}
                   onChange={(e) => setNewRepair({ ...newRepair, notes: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2"
@@ -459,6 +519,7 @@ const LacerationRepairPage: React.FC = () => {
           </div>
         </div>
       )}
+      </>)}
 
       {/* Detail Modal */}
       {selectedRepair && (

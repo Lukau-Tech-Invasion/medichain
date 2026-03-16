@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { createStroke, getPatients } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import {
   Activity,
   Brain,
@@ -15,6 +16,7 @@ import {
 export default function StrokePage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  const { showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
   
@@ -76,7 +78,7 @@ export default function StrokePage() {
       navigate('/dashboard');
     } catch (error) {
       console.error('Failed to save stroke assessment', error);
-      alert('Failed to save assessment. Please try again.');
+      showError('Failed to save assessment. Please try again.');
     }
   };
 
@@ -95,7 +97,7 @@ export default function StrokePage() {
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* Patient Selection */}
         <div className="bg-white shadow rounded-lg p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="stroke-patient" className="block text-sm font-medium text-gray-700 mb-2">
             Select Patient
           </label>
           <div className="relative max-w-md">
@@ -103,6 +105,7 @@ export default function StrokePage() {
               <Search className="h-5 w-5 text-gray-400" />
             </div>
             <select
+              id="stroke-patient"
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
               value={selectedPatient}
               onChange={(e) => setSelectedPatient(e.target.value)}
@@ -127,8 +130,9 @@ export default function StrokePage() {
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Last Known Well</label>
+                <label htmlFor="stroke-last-known-well" className="block text-sm font-medium text-gray-700">Last Known Well</label>
                 <input
+                  id="stroke-last-known-well"
                   type="datetime-local"
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                   value={lastKnownWell}
@@ -137,8 +141,9 @@ export default function StrokePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Symptom Discovery</label>
+                <label htmlFor="stroke-symptom-onset" className="block text-sm font-medium text-gray-700">Symptom Discovery</label>
                 <input
+                  id="stroke-symptom-onset"
                   type="datetime-local"
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                   value={symptomOnset}
@@ -197,8 +202,9 @@ export default function StrokePage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700">NIHSS Score (0-42)</label>
+              <label htmlFor="stroke-nihss-score" className="block text-sm font-medium text-gray-700">NIHSS Score (0-42)</label>
               <input
+                id="stroke-nihss-score"
                 type="number"
                 min="0"
                 max="42"
@@ -208,8 +214,9 @@ export default function StrokePage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Blood Glucose (mg/dL)</label>
+              <label htmlFor="stroke-blood-glucose" className="block text-sm font-medium text-gray-700">Blood Glucose (mg/dL)</label>
               <input
+                id="stroke-blood-glucose"
                 type="number"
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={bloodGlucose}
@@ -217,8 +224,9 @@ export default function StrokePage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">CT Head Result</label>
+              <label htmlFor="stroke-ct-head-result" className="block text-sm font-medium text-gray-700">CT Head Result</label>
               <select
+                id="stroke-ct-head-result"
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={ctHeadResult}
                 onChange={(e) => setCtHeadResult(e.target.value)}
@@ -231,8 +239,9 @@ export default function StrokePage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">tPA Eligibility</label>
+              <label htmlFor="stroke-tpa-eligibility" className="block text-sm font-medium text-gray-700">tPA Eligibility</label>
               <select
+                id="stroke-tpa-eligibility"
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={tpaCandidate}
                 onChange={(e) => setTpaCandidate(e.target.value)}
@@ -248,8 +257,9 @@ export default function StrokePage() {
 
         {/* Notes */}
         <div className="bg-white shadow rounded-lg p-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+          <label htmlFor="stroke-notes" className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
           <textarea
+            id="stroke-notes"
             rows={4}
             className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
             value={notes}

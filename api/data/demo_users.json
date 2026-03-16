@@ -1,0 +1,126 @@
+{
+  "description": "MediChain Demo Users for Hackathon Judging",
+  "version": "1.1.0",
+  "last_updated": "2025-01-21",
+  "note": "These users match the PostgreSQL migration exactly. Use wallet_address as X-User-Id header.",
+  "users": [
+    {
+      "wallet_address": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+      "username": "admin",
+      "name": "System Administrator",
+      "role": "Admin",
+      "description": "Primary admin account for system management"
+    },
+    {
+      "wallet_address": "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y",
+      "username": "judge",
+      "name": "Judge Admin",
+      "role": "Admin",
+      "description": "Secondary admin for hackathon judges"
+    },
+    {
+      "wallet_address": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
+      "username": "dr.mbeki",
+      "name": "Dr. Thabo Mbeki",
+      "role": "Doctor",
+      "specialty": "General Practice",
+      "department": "Emergency",
+      "license_number": "MP-12345",
+      "description": "Senior emergency medicine physician"
+    },
+    {
+      "wallet_address": "5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy",
+      "username": "dr.khumalo",
+      "name": "Dr. Naledi Khumalo",
+      "role": "Doctor",
+      "specialty": "Cardiology",
+      "department": "Cardiology",
+      "license_number": "MP-23456",
+      "description": "Cardiology specialist"
+    },
+    {
+      "wallet_address": "5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw",
+      "username": "dr.nkosi",
+      "name": "Dr. Sipho Nkosi",
+      "role": "Doctor",
+      "specialty": "Pediatrics",
+      "department": "Pediatrics",
+      "license_number": "MP-34567",
+      "description": "Pediatrics specialist"
+    },
+    {
+      "wallet_address": "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
+      "username": "nurse.dlamini",
+      "name": "Nurse Zanele Dlamini",
+      "role": "Nurse",
+      "specialty": "Emergency Care",
+      "department": "Emergency",
+      "license_number": "RN-45678",
+      "description": "Emergency department registered nurse"
+    },
+    {
+      "wallet_address": "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY",
+      "username": "nurse.molefe",
+      "name": "Nurse Thembi Molefe",
+      "role": "Nurse",
+      "specialty": "ICU",
+      "department": "Intensive Care",
+      "license_number": "RN-56789",
+      "description": "ICU registered nurse"
+    },
+    {
+      "wallet_address": "5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc",
+      "username": "lab.mokoena",
+      "name": "Lab Tech Mpho Mokoena",
+      "role": "LabTechnician",
+      "specialty": "Clinical Pathology",
+      "department": "Laboratory",
+      "license_number": "LT-67890",
+      "description": "Senior laboratory technician"
+    },
+    {
+      "wallet_address": "5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW",
+      "username": "pharm.sithole",
+      "name": "Pharm. Lerato Sithole",
+      "role": "Pharmacist",
+      "specialty": "Clinical Pharmacy",
+      "department": "Pharmacy",
+      "license_number": "PH-78901",
+      "description": "Clinical pharmacist"
+    },
+    {
+      "wallet_address": "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z",
+      "username": "patient.mokoena",
+      "name": "Thabo Mokoena",
+      "role": "Patient",
+      "description": "Demo patient - Cardiac/Hypertension"
+    },
+    {
+      "wallet_address": "5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ",
+      "username": "patient.dlamini",
+      "name": "Nomvula Dlamini",
+      "role": "Patient",
+      "description": "Demo patient - Diabetic"
+    },
+    {
+      "wallet_address": "5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ",
+      "username": "patient.nkosi",
+      "name": "Sipho Nkosi (Patient)",
+      "role": "Patient",
+      "description": "Demo patient - Asthma"
+    }
+  ],
+  "quick_reference": {
+    "admin_login": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+    "judge_login": "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y",
+    "doctor_login": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
+    "nurse_login": "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
+    "lab_login": "5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc",
+    "pharmacist_login": "5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW",
+    "patient_login": "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z"
+  },
+  "usage": {
+    "header_name": "X-User-Id",
+    "example_curl": "curl -H 'X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY' http://localhost:8080/api/users"
+  }
+}

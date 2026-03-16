@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import { getOrderSets } from '@medichain/shared';
 import {
   FileText,
@@ -56,6 +57,7 @@ interface OrderSet {
  */
 const OrderSetsPage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showWarning } = useToastActions();
   const [orderSets, setOrderSets] = useState<OrderSet[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +106,7 @@ const OrderSetsPage: React.FC = () => {
 
   const handleCreateOrderSet = () => {
     if (!newOrderSet.name || !newOrderSet.specialty || !newOrderSet.description || !newOrderSet.orders?.length) {
-      alert('Please fill all required fields and add at least one order');
+      showWarning('Please fill all required fields and add at least one order');
       return;
     }
 
@@ -136,12 +138,12 @@ const OrderSetsPage: React.FC = () => {
       isActive: true,
     });
     setActiveTab('all');
-    alert('Order set created successfully!');
+    showSuccess('Order set created successfully!');
   };
 
   const handleAddOrderToNewSet = () => {
     if (!newOrder.description) {
-      alert('Please enter order description');
+      showWarning('Please enter order description');
       return;
     }
 
@@ -187,7 +189,7 @@ const OrderSetsPage: React.FC = () => {
     };
 
     setOrderSets([...orderSets, duplicatedSet]);
-    alert('Order set duplicated successfully!');
+    showSuccess('Order set duplicated successfully!');
   };
 
   const handleDeleteSet = (setId: string) => {
@@ -314,10 +316,11 @@ const OrderSetsPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search Order Sets</label>
+                <label htmlFor="orderset-search" className="block text-sm font-semibold text-gray-700 mb-2">Search Order Sets</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="orderset-search"
                     type="text"
                     placeholder="Search by name, specialty, or description..."
                     value={searchTerm}
@@ -327,8 +330,9 @@ const OrderSetsPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Filter by Type</label>
+                <label htmlFor="orderset-filter-type" className="block text-sm font-semibold text-gray-700 mb-2">Filter by Type</label>
                 <select
+                  id="orderset-filter-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value as OrderSetType | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -482,10 +486,11 @@ const OrderSetsPage: React.FC = () => {
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="orderset-name" className="block text-sm font-semibold text-gray-700 mb-2">
                     Order Set Name <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="orderset-name"
                     type="text"
                     value={newOrderSet.name || ''}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, name: e.target.value })}
@@ -495,10 +500,11 @@ const OrderSetsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="orderset-type" className="block text-sm font-semibold text-gray-700 mb-2">
                     Type <span className="text-red-500">*</span>
                   </label>
                   <select
+                    id="orderset-type"
                     value={newOrderSet.type || 'admission'}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, type: e.target.value as OrderSetType })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -515,10 +521,11 @@ const OrderSetsPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="orderset-specialty" className="block text-sm font-semibold text-gray-700 mb-2">
                     Specialty <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id="orderset-specialty"
                     type="text"
                     value={newOrderSet.specialty || ''}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, specialty: e.target.value })}
@@ -528,8 +535,9 @@ const OrderSetsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Tags</label>
+                  <label htmlFor="orderset-tags" className="block text-sm font-semibold text-gray-700 mb-2">Tags</label>
                   <input
+                    id="orderset-tags"
                     type="text"
                     value={(newOrderSet.tags || []).join(', ')}
                     onChange={(e) =>
@@ -545,10 +553,11 @@ const OrderSetsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="orderset-description" className="block text-sm font-semibold text-gray-700 mb-2">
                   Description <span className="text-red-500">*</span>
                 </label>
                 <textarea
+                  id="orderset-description"
                   value={newOrderSet.description || ''}
                   onChange={(e) => setNewOrderSet({ ...newOrderSet, description: e.target.value })}
                   rows={3}
@@ -559,8 +568,9 @@ const OrderSetsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Indication</label>
+                <label htmlFor="orderset-indication" className="block text-sm font-semibold text-gray-700 mb-2">Indication</label>
                 <textarea
+                  id="orderset-indication"
                   value={newOrderSet.indication || ''}
                   onChange={(e) => setNewOrderSet({ ...newOrderSet, indication: e.target.value })}
                   rows={2}
@@ -601,8 +611,9 @@ const OrderSetsPage: React.FC = () => {
                   <h4 className="font-semibold text-gray-900 mb-3">Add Order</h4>
                   <div className="grid grid-cols-2 gap-4 mb-3">
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Order Type</label>
+                      <label htmlFor="orderset-order-type" className="block text-sm font-semibold text-gray-700 mb-2">Order Type</label>
                       <select
+                        id="orderset-order-type"
                         value={newOrder.type || 'medication'}
                         onChange={(e) => setNewOrder({ ...newOrder, type: e.target.value as OrderType })}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -617,8 +628,9 @@ const OrderSetsPage: React.FC = () => {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Priority</label>
+                      <label htmlFor="orderset-priority" className="block text-sm font-semibold text-gray-700 mb-2">Priority</label>
                       <select
+                        id="orderset-priority"
                         value={newOrder.priority || 'routine'}
                         onChange={(e) => setNewOrder({ ...newOrder, priority: e.target.value as OrderPriority })}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -632,8 +644,9 @@ const OrderSetsPage: React.FC = () => {
                   </div>
 
                   <div className="mb-3">
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+                    <label htmlFor="orderset-order-description" className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
                     <input
+                      id="orderset-order-description"
                       type="text"
                       value={newOrder.description || ''}
                       onChange={(e) => setNewOrder({ ...newOrder, description: e.target.value })}
@@ -643,8 +656,9 @@ const OrderSetsPage: React.FC = () => {
                   </div>
 
                   <div className="mb-3">
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Instructions</label>
+                    <label htmlFor="orderset-instructions" className="block text-sm font-semibold text-gray-700 mb-2">Instructions</label>
                     <input
+                      id="orderset-instructions"
                       type="text"
                       value={newOrder.instructions || ''}
                       onChange={(e) => setNewOrder({ ...newOrder, instructions: e.target.value })}
@@ -655,8 +669,9 @@ const OrderSetsPage: React.FC = () => {
 
                   <div className="grid grid-cols-3 gap-4 mb-3">
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Route</label>
+                      <label htmlFor="orderset-route" className="block text-sm font-semibold text-gray-700 mb-2">Route</label>
                       <input
+                        id="orderset-route"
                         type="text"
                         value={newOrder.route || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, route: e.target.value })}
@@ -665,8 +680,9 @@ const OrderSetsPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Frequency</label>
+                      <label htmlFor="orderset-frequency" className="block text-sm font-semibold text-gray-700 mb-2">Frequency</label>
                       <input
+                        id="orderset-frequency"
                         type="text"
                         value={newOrder.frequency || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, frequency: e.target.value })}
@@ -675,8 +691,9 @@ const OrderSetsPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Duration</label>
+                      <label htmlFor="orderset-duration" className="block text-sm font-semibold text-gray-700 mb-2">Duration</label>
                       <input
+                        id="orderset-duration"
                         type="text"
                         value={newOrder.duration || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, duration: e.target.value })}

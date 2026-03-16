@@ -1,6 +1,102 @@
+````markdown
+# MediChain API Reference (generated summary)
+
+Source: `api/src/main.rs` (routes scanned 2026-01-28)
+
+Note: This is a concise reference. For full request/response shapes see `api/src/models` and `api/src/clinical.rs`.
+
+## Health
+- GET /health — Public health check
+- GET /health/db — Database health (shows DB connection status)
+- GET /api/health/detailed — Detailed system health (services, uptime)
+
+## Authentication / Users
+- POST /api/auth/challenge — Get authentication challenge (wallet)
+- POST /api/auth/login — Login with signed challenge
+- GET /api/auth/login/{address} — Login (GET) for frontend compatibility
+- POST /api/auth/bootstrap — Bootstrap first admin (requires boot key)
+- POST /api/auth/register — Register new user (Admin only)
+- POST /api/auth/demo-login — Dev/demo login (dev mode only)
+- GET /api/auth/me — Get current user info (requires auth)
+- GET /api/auth/wallet/{address} — Lookup user by wallet (public-ish)
+
+## RBAC / Staff
+- POST /api/roles/assign — Assign role to wallet (Admin only)
+- DELETE /api/roles/revoke — Revoke role (Admin only)
+- GET /api/staff/all — List staff (Admin only)
+- GET /api/providers — List healthcare providers (filterable)
+- GET /api/users — List users
+- GET /api/users/{wallet_address} — Get user by wallet
+- PUT /api/users/{wallet_address} — Update user
+
+## Patients & Records
+- POST /api/register — Register a new patient (providers only)
+- GET /api/patients — List patients (providers only)
+- GET /api/patients/{patient_id} — Get patient (providers or self)
+- PUT /api/patients/{patient_id} — Update patient (Doctor/Nurse/Admin)
+- POST /api/patients/{patient_id}/emergency-contacts — Add emergency contact
+- GET /api/my-records — Patient: get own records
+
+## Emergency / NFC / QR
+- POST /api/emergency-access — Emergency access request (providers, logged)
+- POST /api/simulate-nfc-tap — Simulate NFC tap (dev/testing)
+- POST /api/nfc/generate — Generate NFC card (production flow)
+- POST /api/nfc/tap — NFC tap endpoint
+- POST /api/nfc/verify-qr — Verify QR code for NFC tag
+- GET /api/nfc/card/{patient_id} — Get NFC card info for patient
+- POST /api/nfc/suspend — Suspend NFC card
+- GET /api/nfc/cards — List NFC cards
+
+## Access Logs / Audit
+- GET /api/access/logs — List all access logs (providers only)
+- GET /api/access-logs/{patient_id} — Patient-specific access logs (providers or patient)
+
+## IPFS & File Storage
+- GET /api/ipfs/health — IPFS health
+- POST /api/records/upload — Upload encrypted medical record to IPFS (providers)
+- POST /api/records/download — Download/decrypt record (patient or provider)
+- GET /api/records/{patient_id} — List records for a patient
+
+## Lab APIs
+- POST /api/lab/submit — Submit lab request/sample
+- GET /api/lab/pending — List pending labs
+- GET /api/lab/submissions — List lab submissions
+- GET /api/lab/submissions/{submission_id} — Lab submission detail
+- POST /api/lab/submissions/{submission_id}/review — Review a submission
+- POST /api/lab/review — Review records (bulk)
+- GET /api/lab/patient/{patient_id} — Lab history for a patient
+
+## Clinical Endpoints (examples)
+The API exposes many clinical endpoints under `/api/clinical/*`. Examples:
+- POST /api/clinical/triage — Submit triage assessment
+- GET /api/clinical/triage/{assessment_id} — Get triage assessment
+- GET /api/clinical/patient/{patient_id}/triage — Patient triage list
+- POST /api/clinical/soap — Submit SOAP note
+- GET /api/clinical/soap/{note_id} — Get SOAP note
+- GET /api/clinical/patient/{patient_id}/soap — Patient SOAP notes
+- POST /api/clinical/sample — Laboratory sample entry
+- GET /api/clinical/sample/{patient_id} — Patient samples
+- POST /api/clinical/gcs — Submit GCS
+- GET /api/clinical/gcs/{assessment_id} — Get GCS
+- POST /api/clinical/vitals — Submit vitals
+- GET /api/clinical/patient/{patient_id}/vitals — Patient vitals
+- GET /api/clinical/lab-panels — List lab panels
+- GET /api/clinical/lab-panels/{panel_name} — Panel details
+
+## Demo & Misc
+- GET /api/demo — Demo project info
+- POST /api/settings — Update settings (authenticated)
+
+## Notes & Next Steps
+- This file is a generated summary. For full request/response schemas, inspect `api/src/models`, `api/src/clinical.rs`, and `client/shared` type definitions.
+- Recommended: run a small generator script to keep `docs/api.md` in sync with route macros.
+
+````
 # MediChain API
 
 © 2025 Trustware. All rights reserved.
+
+> Updated: 2026-01-28 — See `docs/PROJECT_STATUS_FOR_PRESENTATION.md` for current implementation notes and presentation summary.
 
 ## Overview
 
@@ -395,6 +491,32 @@ Get demo information and available endpoints.
   ]
 }
 ```
+
+---
+
+## Canonical API Notes (Implementation Truth)
+
+This section documents implementation details discovered during a repo audit to keep `docs/api.md` aligned with the source.
+
+- Base URL: `http://localhost:8080` (API server default in `api/`)
+- The server expects wallet-based authentication via the `X-User-Id` header (SS58 address). See `docs/DEV_AUTH.md` for developer guidance.
+- There are two health endpoints present in code: `/api/health` and `/api/health/detailed` (use `/api/health/detailed` for richer diagnostics).
+- Some client call-sites use a legacy route `/api/access/logs` while canonical server handlers use `/api/access-logs/{patient_id}`; both are supported by the API to preserve backward compatibility.
+- Demo and seeding endpoints exist (`/api/demo`, `/api/auth/demo-login`) and are used by client apps in development. These endpoints are gated to development in server configuration but may be enabled by environment or seed scripts.
+
+### Important Headers
+
+- `X-User-Id` (required for authenticated requests): SS58 wallet address of the caller.
+- `X-Provider-Role` (recommended for provider-scoped requests): role name such as `Doctor`, `Nurse`, `LabTechnician`, `Pharmacist`.
+- `X-Health-Id` (optional): patient health ID used by client apps when making patient-scoped requests.
+
+### Demo & Seed Guidance (short)
+
+- Demo users are provided in `api/data/demo_users.json` and seeded by `api` startup or seed scripts. Use `docs/DEV_AUTH.md` for step-by-step developer guidance to enable demo seeds safely.
+
+---
+
+*This file was augmented by the docs-sync audit on 2026-01-28.*
 
 ---
 

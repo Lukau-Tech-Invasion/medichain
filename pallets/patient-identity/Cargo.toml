@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
 sp-std = { workspace = true }
 parity-scale-codec = { workspace = true }
 scale-info = { workspace = true }
@@ -21,12 +22,18 @@ default = ["std"]
 std = [
 	"frame-support/std",
 	"frame-system/std",
+	"frame-benchmarking?/std",
 	"sp-std/std",
 	"parity-scale-codec/std",
 	"scale-info/std",
 	"pallet-access-control/std",
 ]
-
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+	"pallet-access-control/runtime-benchmarks",
+]
 
 [lib]
 name = "pallet_patient_identity"

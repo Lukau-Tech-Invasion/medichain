@@ -9,52 +9,16 @@
   "theme_color": "#0ea5e9",
   "icons": [
     {
-      "src": "/icon-72.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "/medichain.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
-      "src": "/icon-96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-152.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-512.png",
+      "src": "/medichain.svg",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ],
   "categories": ["medical", "health", "productivity"],
@@ -63,31 +27,13 @@
       "name": "Emergency Access",
       "short_name": "Emergency",
       "description": "Quick emergency patient access",
-      "url": "/emergency",
-      "icons": [{ "src": "/emergency-icon.png", "sizes": "192x192" }]
+      "url": "/emergency"
     },
     {
       "name": "Patient Search",
       "short_name": "Search",
       "description": "Search for patients",
-      "url": "/patients",
-      "icons": [{ "src": "/search-icon.png", "sizes": "192x192" }]
-    }
-  ],
-  "screenshots": [
-    {
-      "src": "/screenshot-dashboard.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Doctor Dashboard"
-    },
-    {
-      "src": "/screenshot-mobile.png",
-      "sizes": "750x1334",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Mobile View"
+      "url": "/patients"
     }
   ]
 }

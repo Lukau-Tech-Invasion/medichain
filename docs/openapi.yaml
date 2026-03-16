@@ -1,0 +1,1464 @@
+openapi: 3.0.3
+info:
+  title: MediChain API
+  description: |
+    MediChain REST API provides secure access to patient identity, medical records, 
+    and access control functionality for a blockchain-based national health ID system.
+    
+    © 2025 Trustware. All rights reserved.
+    
+    ## Authentication
+    
+    MediChain uses **wallet-based blockchain authentication** with SS58 addresses. 
+    For API testing, include the `X-User-Id` header with a valid wallet address.
+    
+    ## Role-Based Access Control
+    
+    All endpoints implement RBAC with the following roles:
+    - **Admin** - Full system access, user management
+    - **Doctor** - Patient registration, medical record access/edit
+    - **Nurse** - Patient registration, medical record access/edit
+    - **LabTechnician** - Lab results upload, limited record access
+    - **Pharmacist** - Prescription verification, medication records
+    - **Patient** - Read-only access to own records
+    
+    ## Pagination
+    
+    List endpoints support pagination via query parameters:
+    - `page` - Page number (1-indexed, default: 1)
+    - `limit` - Items per page (default: 20, max: 100)
+    
+  version: "1.0.0"
+  contact:
+    name: MediChain Support
+    email: support@medichain.ng
+  license:
+    name: Proprietary
+    url: https://medichain.ng/license
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.medichain.ng
+    description: Production server
+
+tags:
+  - name: Health
+    description: API health check endpoints
+  - name: Authentication
+    description: Wallet-based authentication endpoints
+  - name: Patients
+    description: Patient registration and management
+  - name: Records
+    description: Medical records management (IPFS-backed)
+  - name: Access Logs
+    description: Access audit trail
+  - name: Lab Results
+    description: Lab result submission and approval workflow
+  - name: NFC Cards
+    description: NFC health card management
+  - name: Clinical
+    description: Clinical documentation (Triage, SOAP, GCS, Vitals)
+  - name: Staff
+    description: Staff/user management (Admin only)
+
+security:
+  - WalletAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns API health status
+      security: []
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/db:
+    get:
+      tags: [Health]
+      summary: Database health check
+      description: Returns database connection status
+      security: []
+      responses:
+        '200':
+          description: Database is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  connected:
+                    type: boolean
+
+  /api/auth/bootstrap:
+    post:
+      tags: [Authentication]
+      summary: Bootstrap admin account
+      description: |
+        Creates the initial admin account. Only works once and requires 
+        BOOTSTRAP_KEY environment variable in production.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BootstrapRequest'
+      responses:
+        '201':
+          description: Admin account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BootstrapResponse'
+        '400':
+          description: Admin already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register new user
+      description: Register a new user with their wallet address. Only Admin can register healthcare providers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletRegisterRequest'
+      responses:
+        '201':
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletRegisterResponse'
+        '400':
+          description: Invalid request
+        '403':
+          description: Insufficient permissions
+
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login with wallet
+      description: Authenticate with wallet address
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet_address]
+              properties:
+                wallet_address:
+                  type: string
+                  description: SS58 encoded wallet address
+                  example: "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletLoginResponse'
+        '404':
+          description: Wallet not registered
+
+  /api/auth/login/{address}:
+    get:
+      tags: [Authentication]
+      summary: Login with wallet (GET)
+      description: Authenticate with wallet address (GET version for frontend compatibility)
+      security: []
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema:
+            type: string
+          description: SS58 wallet address
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletLoginResponse'
+        '404':
+          description: Wallet not registered
+
+  /api/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user
+      description: Returns the authenticated user's information
+      responses:
+        '200':
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletUserInfo'
+        '401':
+          description: Unauthorized
+
+  /api/register:
+    post:
+      tags: [Patients]
+      summary: Register new patient
+      description: Register a new patient with national ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterPatientRequest'
+      responses:
+        '201':
+          description: Patient registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterPatientResponse'
+        '403':
+          description: Only healthcare providers can register patients
+
+  /api/patients:
+    get:
+      tags: [Patients]
+      summary: List all patients
+      description: Get paginated list of all registered patients (healthcare providers only)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated patient list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPatients'
+        '403':
+          description: Only healthcare providers can list patients
+
+  /api/patients/{patient_id}:
+    get:
+      tags: [Patients]
+      summary: Get patient by ID
+      description: Get a single patient's information
+      parameters:
+        - name: patient_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Patient details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientProfile'
+        '404':
+          description: Patient not found
+
+    put:
+      tags: [Patients]
+      summary: Update patient
+      description: Update patient information (healthcare providers only)
+      parameters:
+        - name: patient_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePatientRequest'
+      responses:
+        '200':
+          description: Patient updated
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Patient not found
+
+  /api/access-logs/{patient_id}:
+    get:
+      tags: [Access Logs]
+      summary: Get access logs
+      description: Get paginated access logs for a patient
+      parameters:
+        - name: patient_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Access logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessLogsResponse'
+        '403':
+          description: Patients can only view their own logs
+
+  /api/emergency-access:
+    post:
+      tags: [Patients]
+      summary: Request emergency access
+      description: Request emergency access to a patient's records
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, reason]
+              properties:
+                patient_id:
+                  type: string
+                reason:
+                  type: string
+                  maxLength: 256
+      responses:
+        '200':
+          description: Emergency access granted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyAccessResponse'
+        '403':
+          description: Emergency access denied
+
+  /api/my-records:
+    get:
+      tags: [Records]
+      summary: Get my records
+      description: Get the authenticated patient's own records
+      responses:
+        '200':
+          description: Patient's records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  patient_id:
+                    type: string
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MedicalRecord'
+        '403':
+          description: Only patients can access this endpoint
+
+  /api/records/{patient_id}:
+    get:
+      tags: [Records]
+      summary: List patient records
+      description: Get paginated medical records for a patient
+      parameters:
+        - name: patient_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Medical records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRecords'
+        '403':
+          description: Patients can only view their own records
+
+  /api/records/upload:
+    post:
+      tags: [Records]
+      summary: Upload medical record
+      description: Upload an encrypted medical record to IPFS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, content_base64, filename, content_type, record_type]
+              properties:
+                patient_id:
+                  type: string
+                content_base64:
+                  type: string
+                  description: Base64 encoded file content
+                filename:
+                  type: string
+                content_type:
+                  type: string
+                  example: application/pdf
+                record_type:
+                  type: string
+                  enum: [lab_result, imaging, prescription, clinical_note]
+      responses:
+        '201':
+          description: Record uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadRecordResponse'
+
+  /api/records/download:
+    post:
+      tags: [Records]
+      summary: Download medical record
+      description: Download and decrypt a medical record from IPFS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id, ipfs_hash, metadata_hash, encryption_key]
+              properties:
+                patient_id:
+                  type: string
+                ipfs_hash:
+                  type: string
+                metadata_hash:
+                  type: string
+                encryption_key:
+                  type: string
+      responses:
+        '200':
+          description: Record content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadRecordResponse'
+
+  /api/lab/submit:
+    post:
+      tags: [Lab Results]
+      summary: Submit lab results
+      description: Submit lab results for doctor approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitLabResultRequest'
+      responses:
+        '201':
+          description: Lab result submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitLabResultResponse'
+
+  /api/lab/pending:
+    get:
+      tags: [Lab Results]
+      summary: Get pending lab results
+      description: Get all pending lab results awaiting review
+      responses:
+        '200':
+          description: Pending lab results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingLabResultsResponse'
+
+  /api/lab/submissions:
+    get:
+      tags: [Lab Results]
+      summary: List lab submissions
+      description: Get paginated list of all lab result submissions
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+          description: Filter by status
+      responses:
+        '200':
+          description: Lab submissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLabSubmissions'
+
+  /api/lab/submissions/{submission_id}/review:
+    post:
+      tags: [Lab Results]
+      summary: Review lab submission
+      description: Approve or reject a lab result submission
+      parameters:
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+                comments:
+                  type: string
+      responses:
+        '200':
+          description: Lab result reviewed
+        '404':
+          description: Submission not found
+
+  /api/nfc/generate:
+    post:
+      tags: [NFC Cards]
+      summary: Generate NFC card
+      description: Generate a new NFC health card for a patient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [patient_id]
+              properties:
+                patient_id:
+                  type: string
+      responses:
+        '201':
+          description: NFC card generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateNFCCardResponse'
+
+  /api/nfc/tap:
+    post:
+      tags: [NFC Cards]
+      summary: NFC card tap
+      description: Handle NFC card tap for patient identification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [card_hash]
+              properties:
+                card_hash:
+                  type: string
+      responses:
+        '200':
+          description: Patient identified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  patient_id:
+                    type: string
+                  patient:
+                    $ref: '#/components/schemas/PatientProfile'
+
+  /api/nfc/cards:
+    get:
+      tags: [NFC Cards]
+      summary: List NFC cards
+      description: Get paginated list of all NFC cards (Admin only)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: NFC cards
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNFCCards'
+        '403':
+          description: Only Admin can list cards
+
+  /api/clinical/triage:
+    post:
+      tags: [Clinical]
+      summary: Create triage assessment
+      description: Create a new triage assessment for a patient
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTriageRequest'
+      responses:
+        '201':
+          description: Triage created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriageAssessment'
+
+  /api/clinical/triage/queue:
+    get:
+      tags: [Clinical]
+      summary: Get triage queue
+      description: Get all patients in triage queue ordered by ESI level
+      responses:
+        '200':
+          description: Triage queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queue:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TriageAssessment'
+                  total:
+                    type: integer
+
+  /api/clinical/soap:
+    post:
+      tags: [Clinical]
+      summary: Create SOAP note
+      description: Create a new SOAP note for a patient encounter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSOAPNoteRequest'
+      responses:
+        '201':
+          description: SOAP note created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SOAPNote'
+
+  /api/clinical/gcs:
+    post:
+      tags: [Clinical]
+      summary: Create GCS assessment
+      description: Create a Glasgow Coma Scale assessment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGCSRequest'
+      responses:
+        '201':
+          description: GCS assessment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlasgowComaScale'
+
+  /api/clinical/vitals:
+    post:
+      tags: [Clinical]
+      summary: Record vital signs
+      description: Record a new vital signs reading
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordVitalsRequest'
+      responses:
+        '201':
+          description: Vitals recorded
+
+  /api/users:
+    get:
+      tags: [Staff]
+      summary: List users
+      description: Get paginated list of all users (Admin only)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUsers'
+        '403':
+          description: Only Admin can list users
+
+  /api/staff/all:
+    get:
+      tags: [Staff]
+      summary: List staff
+      description: Get paginated list of all staff members (Admin only)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Staff list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  staff:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StaffMember'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '403':
+          description: Only Admin can list staff
+
+  /api/roles/assign:
+    post:
+      tags: [Staff]
+      summary: Assign role
+      description: Assign a role to a user (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet_address, role]
+              properties:
+                wallet_address:
+                  type: string
+                role:
+                  type: string
+                  enum: [Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient]
+      responses:
+        '200':
+          description: Role assigned
+        '403':
+          description: Only Admin can assign roles
+
+  /api/roles/revoke:
+    delete:
+      tags: [Staff]
+      summary: Revoke role
+      description: Revoke a user's role (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet_address]
+              properties:
+                wallet_address:
+                  type: string
+      responses:
+        '200':
+          description: Role revoked
+        '403':
+          description: Only Admin can revoke roles
+
+components:
+  securitySchemes:
+    WalletAuth:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: SS58 encoded wallet address
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      description: Page number (1-indexed)
+    
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+      description: Items per page
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        message:
+          type: string
+          example: MediChain API is running
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+        code:
+          type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_items:
+          type: integer
+        total_pages:
+          type: integer
+        has_next:
+          type: boolean
+        has_prev:
+          type: boolean
+
+    WalletUserInfo:
+      type: object
+      properties:
+        wallet_address:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        username:
+          type: string
+        linked_patient_id:
+          type: string
+
+    WalletRegisterRequest:
+      type: object
+      required: [wallet_address, name, role]
+      properties:
+        wallet_address:
+          type: string
+        name:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+          enum: [Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient]
+
+    WalletRegisterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/WalletUserInfo'
+        message:
+          type: string
+
+    WalletLoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/WalletUserInfo'
+        message:
+          type: string
+
+    BootstrapRequest:
+      type: object
+      required: [wallet_address, name]
+      properties:
+        wallet_address:
+          type: string
+        name:
+          type: string
+        bootstrap_key:
+          type: string
+          description: Required in production
+
+    BootstrapResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        admin:
+          $ref: '#/components/schemas/WalletUserInfo'
+
+    PatientProfile:
+      type: object
+      properties:
+        patient_id:
+          type: string
+        national_health_id:
+          type: string
+        full_name:
+          type: string
+        date_of_birth:
+          type: string
+        blood_type:
+          type: string
+        allergies:
+          type: array
+          items:
+            $ref: '#/components/schemas/AllergyEntry'
+        current_medications:
+          type: array
+          items:
+            type: string
+        chronic_conditions:
+          type: array
+          items:
+            type: string
+        emergency_contacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmergencyContact'
+        organ_donor:
+          type: boolean
+        dnr_status:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        last_updated:
+          type: string
+          format: date-time
+
+    AllergyEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        severity:
+          type: string
+          enum: [Mild, Moderate, Severe, LifeThreatening]
+
+    EmergencyContact:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        relationship:
+          type: string
+
+    RegisterPatientRequest:
+      type: object
+      required: [full_name, date_of_birth, national_id, blood_type, emergency_contact_name, emergency_contact_phone, emergency_contact_relationship]
+      properties:
+        full_name:
+          type: string
+        date_of_birth:
+          type: string
+        national_id:
+          type: string
+        blood_type:
+          type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        current_medications:
+          type: array
+          items:
+            type: string
+        chronic_conditions:
+          type: array
+          items:
+            type: string
+        emergency_contact_name:
+          type: string
+        emergency_contact_phone:
+          type: string
+        emergency_contact_relationship:
+          type: string
+        organ_donor:
+          type: boolean
+        dnr_status:
+          type: boolean
+
+    RegisterPatientResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        patient_id:
+          type: string
+        national_health_id:
+          type: string
+
+    UpdatePatientRequest:
+      type: object
+      properties:
+        blood_type:
+          type: string
+        allergies:
+          type: array
+          items:
+            type: string
+        current_medications:
+          type: array
+          items:
+            type: string
+        chronic_conditions:
+          type: array
+          items:
+            type: string
+        organ_donor:
+          type: boolean
+        dnr_status:
+          type: boolean
+
+    PaginatedPatients:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatientProfile'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    AccessLogEntry:
+      type: object
+      properties:
+        access_id:
+          type: string
+        patient_id:
+          type: string
+        accessor_id:
+          type: string
+        accessor_role:
+          type: string
+        access_type:
+          type: string
+        location:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        emergency:
+          type: boolean
+
+    AccessLogsResponse:
+      type: object
+      properties:
+        patient_id:
+          type: string
+        access_logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccessLogEntry'
+        total_accesses:
+          type: integer
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    EmergencyAccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        access_id:
+          type: string
+        patient_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    MedicalRecord:
+      type: object
+      properties:
+        record_id:
+          type: string
+        ipfs_hash:
+          type: string
+        metadata_hash:
+          type: string
+        record_type:
+          type: string
+        filename:
+          type: string
+        uploaded_by:
+          type: string
+        uploaded_at:
+          type: integer
+
+    PaginatedRecords:
+      type: object
+      properties:
+        patient_id:
+          type: string
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/MedicalRecord'
+        total:
+          type: integer
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    UploadRecordResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        ipfs_hash:
+          type: string
+        metadata_hash:
+          type: string
+
+    DownloadRecordResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        content_base64:
+          type: string
+        filename:
+          type: string
+        content_type:
+          type: string
+
+    SubmitLabResultRequest:
+      type: object
+      required: [patient_id, test_type, results]
+      properties:
+        patient_id:
+          type: string
+        test_type:
+          type: string
+        results:
+          type: object
+        notes:
+          type: string
+
+    SubmitLabResultResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        submission_id:
+          type: string
+        message:
+          type: string
+
+    PendingLabResultsResponse:
+      type: object
+      properties:
+        submissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/LabResultSubmission'
+        total:
+          type: integer
+
+    LabResultSubmission:
+      type: object
+      properties:
+        submission_id:
+          type: string
+        patient_id:
+          type: string
+        submitted_by:
+          type: string
+        test_type:
+          type: string
+        results:
+          type: object
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        submitted_at:
+          type: string
+          format: date-time
+
+    PaginatedLabSubmissions:
+      type: object
+      properties:
+        submissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/LabResultSubmission'
+        total:
+          type: integer
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    GenerateNFCCardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        card_id:
+          type: string
+        card_hash:
+          type: string
+        qr_code_base64:
+          type: string
+
+    CardInfo:
+      type: object
+      properties:
+        card_id:
+          type: string
+        patient_id:
+          type: string
+        card_hash:
+          type: string
+        national_id_type:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: integer
+        last_used_at:
+          type: integer
+
+    PaginatedNFCCards:
+      type: object
+      properties:
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardInfo'
+        total:
+          type: integer
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    CreateTriageRequest:
+      type: object
+      required: [patient_id, esi_level, chief_complaint, vital_signs]
+      properties:
+        patient_id:
+          type: string
+        esi_level:
+          type: integer
+          minimum: 1
+          maximum: 5
+        chief_complaint:
+          type: string
+        vital_signs:
+          $ref: '#/components/schemas/TriageVitalSigns'
+        pain_scale:
+          type: integer
+          minimum: 0
+          maximum: 10
+
+    TriageVitalSigns:
+      type: object
+      properties:
+        heart_rate:
+          type: integer
+        blood_pressure_systolic:
+          type: integer
+        blood_pressure_diastolic:
+          type: integer
+        respiratory_rate:
+          type: integer
+        temperature:
+          type: number
+        oxygen_saturation:
+          type: integer
+
+    TriageAssessment:
+      type: object
+      properties:
+        assessment_id:
+          type: string
+        patient_id:
+          type: string
+        esi_level:
+          type: integer
+        chief_complaint:
+          type: string
+        vital_signs:
+          $ref: '#/components/schemas/TriageVitalSigns'
+        performed_by:
+          type: string
+        performed_at:
+          type: integer
+
+    CreateSOAPNoteRequest:
+      type: object
+      required: [patient_id, encounter_type, subjective, objective, assessment, plan]
+      properties:
+        patient_id:
+          type: string
+        encounter_type:
+          type: string
+        subjective:
+          type: object
+        objective:
+          type: object
+        assessment:
+          type: object
+        plan:
+          type: object
+
+    SOAPNote:
+      type: object
+      properties:
+        note_id:
+          type: string
+        patient_id:
+          type: string
+        encounter_type:
+          type: string
+        subjective:
+          type: object
+        objective:
+          type: object
+        assessment:
+          type: object
+        plan:
+          type: object
+        created_by:
+          type: string
+        created_at:
+          type: integer
+
+    CreateGCSRequest:
+      type: object
+      required: [patient_id, eye_response, verbal_response, motor_response]
+      properties:
+        patient_id:
+          type: string
+        eye_response:
+          type: integer
+          minimum: 1
+          maximum: 4
+        verbal_response:
+          type: integer
+          minimum: 1
+          maximum: 5
+        motor_response:
+          type: integer
+          minimum: 1
+          maximum: 6
+
+    GlasgowComaScale:
+      type: object
+      properties:
+        assessment_id:
+          type: string
+        patient_id:
+          type: string
+        eye_response:
+          type: integer
+        verbal_response:
+          type: integer
+        motor_response:
+          type: integer
+        total_score:
+          type: integer
+        performed_by:
+          type: string
+        performed_at:
+          type: integer
+
+    RecordVitalsRequest:
+      type: object
+      required: [patient_id]
+      properties:
+        patient_id:
+          type: string
+        heart_rate:
+          type: integer
+        blood_pressure_systolic:
+          type: integer
+        blood_pressure_diastolic:
+          type: integer
+        respiratory_rate:
+          type: integer
+        temperature:
+          type: number
+        oxygen_saturation:
+          type: integer
+        weight_kg:
+          type: number
+        height_cm:
+          type: number
+
+    StaffMember:
+      type: object
+      properties:
+        wallet_address:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        username:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    PaginatedUsers:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WalletUserInfo'
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'

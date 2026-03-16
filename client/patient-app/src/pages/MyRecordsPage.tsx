@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiUrl } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import {
   FileText,
   Download,
@@ -51,6 +52,7 @@ interface MedicalRecord {
  * © 2025 Trustware. All rights reserved.
  */
 export function MyRecordsPage() {
+  const { showError } = useToastActions();
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -211,11 +213,11 @@ export function MyRecordsPage() {
         URL.revokeObjectURL(url);
       } else {
         console.error('Failed to download record');
-        alert(`Unable to download: ${record.title}`);
+        showError(`Unable to download: ${record.title}`);
       }
     } catch (error) {
       console.error('Error downloading record:', error);
-      alert(`Error downloading: ${record.title}`);
+      showError(`Error downloading: ${record.title}`);
     } finally {
       setIsDownloading(null);
     }

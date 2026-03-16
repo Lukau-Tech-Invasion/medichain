@@ -301,7 +301,95 @@ interface LabTestResult {
 }
 ```
 
+```
+
+## 2.6 Postgres Indexer (Off-chain)
+
+To support fast queries, reporting, and joins that are inefficient on-chain, the API maintains an off-chain Postgres indexer. The indexer ingests blockchain events and API actions and stores denormalized views for read-heavy operations.
+
+Key design points:
+- The indexer is eventual-consistent and replayable from block/event logs.
+- Tables include `patients`, `users`, `health_records`, `lab_submissions`, `access_logs`, and `nfc_cards`.
+- Each table includes `source_block` (u64) and `source_tx` (varchar) for traceability to the on-chain event.
+- Soft-delete is handled by an `archived` boolean flag rather than physical deletes.
+
+Example high-level table schemas:
+
+``sql
+CREATE TABLE patients (
+    patient_id UUID PRIMARY KEY,
+    full_name TEXT NOT NULL,
+    date_of_birth DATE,
+    id_hash BYTEA, -- SHA-256
+    registered_by TEXT,
+    registered_at TIMESTAMP WITH TIME ZONE,
+    is_active BOOLEAN DEFAULT TRUE,
+    archived BOOLEAN DEFAULT FALSE,
+    source_block BIGINT,
+    source_tx TEXT
+);
+
+CREATE TABLE health_records (
+    id UUID PRIMARY KEY,
+    patient_id UUID REFERENCES patients(patient_id),
+    ipfs_hash TEXT,
+    record_type TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP WITH TIME ZONE,
+    last_modified_by TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE,
+    archived BOOLEAN DEFAULT FALSE,
+    source_block BIGINT,
+    source_tx TEXT
+);
+
+CREATE TABLE access_logs (
+    id UUID PRIMARY KEY,
+    patient_id UUID,
+    accessor TEXT,
+    access_type TEXT,
+    granted_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    reason_hash BYTEA,
+    revoked BOOLEAN DEFAULT FALSE,
+    source_block BIGINT,
+    source_tx TEXT
+);
+```
+
+Indexer migration/versioning:
+- Use `diesel` or `sqlx` migrations managed alongside the `api/` code. Include a `schema_version` table with migration timestamps.
+- Provide `POSTGRES_SETUP.md` with sample connection strings and `docker-compose` snippets.
+
 ---
+
+## Migration Notes
+
+When deploying the Postgres indexer you must run migrations before starting the API server. The indexer expects the following notable schema additions compared to the original on-chain-only model:
+
+- `archived BOOLEAN DEFAULT FALSE` on read tables to support soft-deletes and safe recovery.
+- `source_block BIGINT` and `source_tx TEXT` on denormalized tables to link back to the on-chain event that produced the row.
+- UUID primary keys for indexer tables (separate from on-chain numeric IDs) to support joins and external integrations.
+
+Recommended migration steps (example using `sqlx`):
+
+```bash
+# from repository root
+cd api
+# ensure DATABASE_URL is set in env or .env
+export DATABASE_URL=postgres://medichain:password@localhost:5432/medichain
+cargo install sqlx-cli --no-default-features --features postgres
+sqlx migrate run --source ../migrations
+```
+
+If you use `diesel` instead, maintain `diesel` migrations under `api/migrations` and run:
+
+```bash
+diesel migration run --database-url $DATABASE_URL
+```
+
+After successful migrations, start the API server and the indexer worker (if separate). The indexer can be replayed from a given block by providing `START_BLOCK` env var to the worker.
+
 
 ## 3. Clinical Documentation Types {#clinical-documentation}
 

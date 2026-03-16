@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getPatients, listCriticalValues, createCriticalValue } from '@medichain/shared';
+import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -81,6 +82,7 @@ const CRITICAL_THRESHOLDS: CriticalValueThreshold[] = [
 
 const CriticalValuePage: React.FC = () => {
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [notifications, setNotifications] = useState<CriticalValueNotification[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'report-new' | 'history' | 'thresholds'>('pending');
@@ -182,7 +184,7 @@ const CriticalValuePage: React.FC = () => {
 
   const handleReportCriticalValue = () => {
     if (!newCritical.patientId || !newCritical.analyte || !newCritical.value || !newCritical.orderingProvider) {
-      alert('Please fill in all required fields');
+      showWarning('Please fill in all required fields');
       return;
     }
 
@@ -193,7 +195,7 @@ const CriticalValuePage: React.FC = () => {
     const criticalInfo = determineCriticalLevel(newCritical.analyte, value);
 
     if (!criticalInfo) {
-      alert('This value does not meet critical thresholds');
+      showWarning('This value does not meet critical thresholds');
       return;
     }
 
@@ -221,7 +223,7 @@ const CriticalValuePage: React.FC = () => {
       orderingProvider: '',
     });
     setActiveTab('pending');
-    alert(`Critical value notification ${newNotification.notificationId} created`);
+    showSuccess(`Critical value notification ${newNotification.notificationId} created`);
   };
 
   const handleStartNotification = (notification: CriticalValueNotification) => {
@@ -238,7 +240,7 @@ const CriticalValuePage: React.FC = () => {
     if (!selectedNotification) return;
 
     if (!acknowledgment.notifiedProvider || !acknowledgment.readBackValue) {
-      alert('Provider name and read-back verification are required');
+      showWarning('Provider name and read-back verification are required');
       return;
     }
 
@@ -285,7 +287,7 @@ const CriticalValuePage: React.FC = () => {
       readBackValue: '',
       acknowledgmentNotes: '',
     });
-    alert('Critical value acknowledged and documented');
+    showSuccess('Critical value acknowledged and documented');
   };
 
   const handleCancelNotification = (notificationId: string, reason: string) => {
@@ -303,7 +305,7 @@ const CriticalValuePage: React.FC = () => {
     });
 
     setNotifications(updatedNotifications);
-    alert('Notification cancelled');
+    showSuccess('Notification cancelled');
   };
 
   const filteredNotifications = notifications.filter((n) => {
@@ -621,10 +623,11 @@ const CriticalValuePage: React.FC = () => {
 
                   {/* Notification Method */}
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="critval-notification-method" className="block text-sm font-semibold text-gray-700 mb-2">
                       Notification Method <span className="text-red-600">*</span>
                     </label>
                     <select
+                      id="critval-notification-method"
                       value={acknowledgment.notificationMethod}
                       onChange={(e) =>
                         setAcknowledgment({
@@ -643,10 +646,11 @@ const CriticalValuePage: React.FC = () => {
 
                   {/* Notified Provider */}
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="critval-notified-provider" className="block text-sm font-semibold text-gray-700 mb-2">
                       Provider Notified <span className="text-red-600">*</span>
                     </label>
                     <input
+                      id="critval-notified-provider"
                       type="text"
                       value={acknowledgment.notifiedProvider}
                       onChange={(e) =>
@@ -670,10 +674,11 @@ const CriticalValuePage: React.FC = () => {
                       The provider must read back the critical value to verify understanding. Enter
                       exactly what the provider stated.
                     </p>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="critval-read-back" className="block text-sm font-semibold text-gray-700 mb-2">
                       Provider Read-Back <span className="text-red-600">*</span>
                     </label>
                     <input
+                      id="critval-read-back"
                       type="text"
                       value={acknowledgment.readBackValue}
                       onChange={(e) =>
@@ -692,10 +697,11 @@ const CriticalValuePage: React.FC = () => {
 
                   {/* Acknowledgment Notes */}
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label htmlFor="critval-action-plan" className="block text-sm font-semibold text-gray-700 mb-2">
                       Provider Response / Action Plan
                     </label>
                     <textarea
+                      id="critval-action-plan"
                       value={acknowledgment.acknowledgmentNotes}
                       onChange={(e) =>
                         setAcknowledgment({
@@ -743,10 +749,11 @@ const CriticalValuePage: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               {/* Patient Selection */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="critval-patient" className="block text-sm font-semibold text-gray-700 mb-2">
                   Patient <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="critval-patient"
                   value={newCritical.patientId}
                   onChange={(e) => setNewCritical({ ...newCritical, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
@@ -762,10 +769,11 @@ const CriticalValuePage: React.FC = () => {
 
               {/* Analyte Selection */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="critval-analyte" className="block text-sm font-semibold text-gray-700 mb-2">
                   Analyte/Test <span className="text-red-600">*</span>
                 </label>
                 <select
+                  id="critval-analyte"
                   value={newCritical.analyte}
                   onChange={(e) => {
                     const selected = CRITICAL_THRESHOLDS.find((t) => t.analyte === e.target.value);
@@ -788,10 +796,11 @@ const CriticalValuePage: React.FC = () => {
 
               {/* Result Value */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="critval-result-value" className="block text-sm font-semibold text-gray-700 mb-2">
                   Result Value <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="critval-result-value"
                   type="number"
                   step="0.01"
                   value={newCritical.value}
@@ -803,10 +812,11 @@ const CriticalValuePage: React.FC = () => {
 
               {/* Unit */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="critval-unit" className="block text-sm font-semibold text-gray-700 mb-2">
                   Unit <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="critval-unit"
                   type="text"
                   value={newCritical.unit}
                   onChange={(e) => setNewCritical({ ...newCritical, unit: e.target.value })}
@@ -818,10 +828,11 @@ const CriticalValuePage: React.FC = () => {
 
               {/* Ordering Provider */}
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="critval-ordering-provider" className="block text-sm font-semibold text-gray-700 mb-2">
                   Ordering Provider <span className="text-red-600">*</span>
                 </label>
                 <input
+                  id="critval-ordering-provider"
                   type="text"
                   value={newCritical.orderingProvider}
                   onChange={(e) =>
@@ -901,10 +912,11 @@ const CriticalValuePage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="critval-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
+                    id="critval-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -914,8 +926,9 @@ const CriticalValuePage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="critval-status" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
                 <select
+                  id="critval-status"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as NotificationStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
