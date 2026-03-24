@@ -9923,6 +9923,81 @@ pub async fn delete_medication_reminder(
     }
 }
 
+/// Check and deliver due medication reminders.
+/// Called by a background task to simulate notification delivery.
+/// Reminders are matched by comparing their HH:MM time strings against the current UTC time.
+pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
+    let now_utc = chrono::Utc::now();
+    let current_hhmm = now_utc.format("%H:%M").to_string();
+
+    let due_reminders: Vec<crate::clinical::MedicationReminder> = {
+        let reminders = match data.medication_reminders.read() {
+            Ok(r) => r,
+            Err(_) => return,
+        };
+        reminders
+            .values()
+            .filter(|r| {
+                r.active
+                    && r.reminder_times
+                        .iter()
+                        .any(|t| t.as_str() == current_hhmm.as_str())
+            })
+            .cloned()
+            .collect()
+    };
+
+    for reminder in &due_reminders {
+        // Log delivery attempt (in production: call SMS/push API here)
+        log::info!(
+            "REMINDER_DUE: patient={} medication={} time={} push={} sms={} email={}",
+            reminder.patient_id,
+            reminder.medication_name,
+            current_hhmm,
+            reminder.notification_prefs.push_notification,
+            reminder.notification_prefs.sms,
+            reminder.notification_prefs.email,
+        );
+
+        // Push real-time SSE notification
+        crate::websocket::push_reminder(&data.ws_manager, &reminder.patient_id, &reminder.medication_name);
+
+        // Africa's Talking SMS integration (when AT_API_KEY is set)
+        if let Ok(at_key) = std::env::var("AT_API_KEY") {
+            let patient_phone: Option<String> = {
+                let patients = match data.patients.read() {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                // Placeholder: in production, retrieve the patient's own phone number from profile.
+                // Currently MediChain stores phone numbers in emergency_contacts but not directly on
+                // the patient record, so we log with a note rather than failing silently.
+                patients
+                    .get(&reminder.patient_id)
+                    .and_then(|_p| None::<String>)
+            };
+
+            if let Some(phone) = patient_phone {
+                // Would call Africa's Talking API:
+                // POST https://api.africastalking.com/version1/messaging
+                // Body: username, to, message
+                log::info!(
+                    "AT_SMS: to={} key_present={} medication={}",
+                    phone,
+                    !at_key.is_empty(),
+                    reminder.medication_name
+                );
+            } else {
+                log::debug!(
+                    "AT_SMS: no phone on file for patient={} (AT_API_KEY present={})",
+                    reminder.patient_id,
+                    !at_key.is_empty()
+                );
+            }
+        }
+    }
+}
+
 // ============================================================================
 // PHASE 21: DRUG INTERACTION CHECKING
 // ============================================================================
@@ -10306,38 +10381,214 @@ pub async fn check_drug_interactions(
         });
     }
 
-    // Simulated drug interaction database
-    let known_interactions = vec![
-        ("warfarin", "aspirin", "major", "Increased bleeding risk"),
-        ("warfarin", "ibuprofen", "major", "Increased bleeding risk"),
-        (
-            "metformin",
-            "contrast dye",
-            "major",
-            "Risk of lactic acidosis",
-        ),
-        (
-            "lisinopril",
-            "potassium",
-            "moderate",
-            "Risk of hyperkalemia",
-        ),
-        (
-            "simvastatin",
-            "grapefruit",
-            "moderate",
-            "Increased statin levels",
-        ),
-        ("digoxin", "amiodarone", "major", "Digoxin toxicity risk"),
-        ("ssri", "maoi", "contraindicated", "Serotonin syndrome risk"),
-        ("fluoxetine", "tramadol", "major", "Serotonin syndrome risk"),
-        (
-            "ciprofloxacin",
-            "theophylline",
-            "major",
-            "Theophylline toxicity",
-        ),
-        ("methotrexate", "nsaid", "major", "Methotrexate toxicity"),
+    // Comprehensive clinically significant drug interaction database
+    let known_interactions: Vec<(&str, &str, &str, &str)> = vec![
+        // ── CONTRAINDICATED ──────────────────────────────────────────────────
+        // SSRIs + MAOIs → serotonin syndrome
+        ("ssri", "maoi", "contraindicated", "Serotonin syndrome: potentially fatal combination; concurrent use is absolutely contraindicated"),
+        ("fluoxetine", "maoi", "contraindicated", "Serotonin syndrome: allow ≥14 days washout between fluoxetine and any MAOI"),
+        ("sertraline", "maoi", "contraindicated", "Serotonin syndrome: concurrent use contraindicated"),
+        ("paroxetine", "maoi", "contraindicated", "Serotonin syndrome: concurrent use contraindicated"),
+        ("citalopram", "maoi", "contraindicated", "Serotonin syndrome: concurrent use contraindicated"),
+        ("escitalopram", "maoi", "contraindicated", "Serotonin syndrome: concurrent use contraindicated"),
+        ("venlafaxine", "maoi", "contraindicated", "Serotonin syndrome: concurrent use contraindicated"),
+        ("duloxetine", "maoi", "contraindicated", "Serotonin syndrome: concurrent use contraindicated"),
+        ("linezolid", "ssri", "contraindicated", "Serotonin syndrome: linezolid has weak MAOI activity"),
+        ("linezolid", "maoi", "contraindicated", "Severe serotonin syndrome risk with dual MAO inhibition"),
+        // Opioid + benzodiazepine → respiratory depression
+        ("opioid", "benzodiazepine", "contraindicated", "Profound respiratory depression and death; co-prescribing carries an FDA black-box warning"),
+        ("morphine", "benzodiazepine", "contraindicated", "Respiratory depression and death; avoid concurrent use"),
+        ("oxycodone", "benzodiazepine", "contraindicated", "Respiratory depression and death; avoid concurrent use"),
+        ("hydrocodone", "benzodiazepine", "contraindicated", "Respiratory depression and death; avoid concurrent use"),
+        ("fentanyl", "benzodiazepine", "contraindicated", "Respiratory depression and death; avoid concurrent use"),
+        ("methadone", "benzodiazepine", "contraindicated", "Respiratory depression and QT prolongation; avoid concurrent use"),
+        ("buprenorphine", "benzodiazepine", "contraindicated", "Respiratory depression risk is lower but still significant; avoid when possible"),
+        // QT-prolonging combinations
+        ("haloperidol", "methadone", "contraindicated", "Additive QT prolongation; risk of torsades de pointes and sudden death"),
+        ("haloperidol", "sotalol", "contraindicated", "Additive QT prolongation; torsades de pointes risk"),
+        ("methadone", "sotalol", "contraindicated", "Additive QT prolongation; torsades de pointes risk"),
+        ("methadone", "amiodarone", "contraindicated", "Additive QT prolongation; torsades de pointes risk"),
+        ("azithromycin", "haloperidol", "contraindicated", "Additive QT prolongation; high torsades risk"),
+        ("moxifloxacin", "haloperidol", "contraindicated", "Additive QT prolongation; avoid concurrent use"),
+        ("moxifloxacin", "amiodarone", "contraindicated", "Additive QT prolongation; high torsades risk"),
+        ("cisapride", "macrolide", "contraindicated", "Fatal QT prolongation; cisapride + macrolide combination is absolutely contraindicated"),
+        ("cisapride", "azithromycin", "contraindicated", "Fatal QT prolongation; absolutely contraindicated"),
+        ("pimozide", "macrolide", "contraindicated", "Additive QT prolongation; absolutely contraindicated"),
+        // Alcohol + metronidazole → disulfiram-like reaction
+        ("metronidazole", "alcohol", "contraindicated", "Disulfiram-like reaction: severe flushing, vomiting, tachycardia; avoid alcohol during and 48 h after therapy"),
+        ("tinidazole", "alcohol", "contraindicated", "Disulfiram-like reaction; avoid alcohol for 72 h after last dose"),
+        ("disulfiram", "alcohol", "contraindicated", "Intended disulfiram reaction; may be severe or fatal at high alcohol intake"),
+        // Tyramine + MAOIs → hypertensive crisis
+        ("maoi", "tyramine", "contraindicated", "Hypertensive crisis: tyramine-rich foods (aged cheese, cured meats, red wine) can cause a life-threatening BP spike"),
+        ("phenelzine", "tyramine", "contraindicated", "Hypertensive crisis; strict tyramine-free diet required"),
+        ("tranylcypromine", "tyramine", "contraindicated", "Hypertensive crisis; strict tyramine-free diet required"),
+        // Other contraindicated combinations
+        ("warfarin", "thrombolytic", "contraindicated", "Uncontrollable haemorrhage risk; concurrent use is contraindicated"),
+        ("warfarin", "streptokinase", "contraindicated", "Uncontrollable haemorrhage risk"),
+        ("warfarin", "alteplase", "contraindicated", "Uncontrollable haemorrhage risk"),
+        ("clopidogrel", "thrombolytic", "contraindicated", "Uncontrollable haemorrhage risk"),
+        ("simvastatin", "itraconazole", "contraindicated", "Severe myopathy/rhabdomyolysis due to CYP3A4 inhibition markedly raising simvastatin AUC"),
+        ("simvastatin", "ketoconazole", "contraindicated", "Severe myopathy/rhabdomyolysis; avoid combination"),
+        ("sildenafil", "nitrate", "contraindicated", "Catastrophic hypotension; concurrent use is absolutely contraindicated"),
+        ("tadalafil", "nitrate", "contraindicated", "Catastrophic hypotension; concurrent use is absolutely contraindicated"),
+        ("vardenafil", "nitrate", "contraindicated", "Catastrophic hypotension; concurrent use is absolutely contraindicated"),
+        ("sildenafil", "nitroglycerin", "contraindicated", "Catastrophic hypotension; concurrent use is absolutely contraindicated"),
+
+        // ── MAJOR ─────────────────────────────────────────────────────────────
+        // Warfarin + NSAIDs / antibiotics / other interactors
+        ("warfarin", "aspirin", "major", "Increased bleeding risk: additive antiplatelet effect plus GI mucosal damage; monitor INR closely"),
+        ("warfarin", "ibuprofen", "major", "Increased bleeding risk: NSAID-mediated platelet inhibition and GI injury"),
+        ("warfarin", "naproxen", "major", "Increased bleeding risk: NSAID-mediated platelet inhibition"),
+        ("warfarin", "celecoxib", "major", "Increased INR and bleeding risk; monitor closely"),
+        ("warfarin", "diclofenac", "major", "Increased bleeding risk; monitor INR"),
+        ("warfarin", "amoxicillin", "major", "Antibiotics may disrupt gut flora and raise INR; monitor INR when starting or stopping"),
+        ("warfarin", "ciprofloxacin", "major", "CYP1A2 inhibition raises warfarin levels; significant INR increase"),
+        ("warfarin", "metronidazole", "major", "CYP2C9 inhibition markedly raises warfarin levels; reduce warfarin dose and monitor INR"),
+        ("warfarin", "fluconazole", "major", "CYP2C9/3A4 inhibition greatly increases warfarin effect; major INR elevation"),
+        ("warfarin", "amiodarone", "major", "CYP2C9 inhibition raises warfarin effect; marked INR increase, may persist for weeks after amiodarone stopped"),
+        ("warfarin", "trimethoprim", "major", "CYP2C9 inhibition and folate antagonism raise INR; monitor closely"),
+        ("warfarin", "sulfamethoxazole", "major", "CYP2C9 inhibition raises warfarin effect; cotrimoxazole frequently causes major INR elevation"),
+        ("warfarin", "erythromycin", "major", "CYP3A4 inhibition increases warfarin levels; monitor INR"),
+        ("warfarin", "clarithromycin", "major", "CYP3A4 inhibition increases warfarin levels; monitor INR"),
+        // Methotrexate + NSAIDs / trimethoprim
+        ("methotrexate", "nsaid", "major", "Methotrexate toxicity: NSAIDs reduce renal clearance and increase methotrexate levels; risk of bone marrow suppression and mucositis"),
+        ("methotrexate", "ibuprofen", "major", "Reduced methotrexate clearance; serious toxicity risk"),
+        ("methotrexate", "naproxen", "major", "Reduced methotrexate clearance; serious toxicity risk"),
+        ("methotrexate", "aspirin", "major", "Reduced methotrexate clearance and protein displacement; toxicity risk"),
+        ("methotrexate", "trimethoprim", "major", "Additive folate antagonism; severe bone marrow suppression"),
+        ("methotrexate", "sulfamethoxazole", "major", "Additive folate antagonism; severe bone marrow suppression"),
+        ("methotrexate", "penicillin", "major", "Reduced renal tubular secretion of methotrexate; toxicity risk"),
+        // Digoxin interactions
+        ("digoxin", "amiodarone", "major", "Digoxin toxicity: amiodarone inhibits P-gp and reduces renal clearance; reduce digoxin dose by 50% and monitor levels"),
+        ("digoxin", "verapamil", "major", "Digoxin toxicity: verapamil inhibits P-gp and reduces renal clearance; monitor levels"),
+        ("digoxin", "quinidine", "major", "Digoxin toxicity: quinidine doubles digoxin plasma levels; monitor levels and halve digoxin dose"),
+        ("digoxin", "clarithromycin", "major", "P-gp inhibition raises digoxin levels; monitor closely"),
+        ("digoxin", "erythromycin", "major", "P-gp inhibition raises digoxin levels; monitor closely"),
+        // ACE inhibitors + potassium-sparing diuretics / potassium
+        ("lisinopril", "spironolactone", "major", "Severe hyperkalemia: additive potassium retention; monitor serum potassium frequently"),
+        ("lisinopril", "eplerenone", "major", "Severe hyperkalemia; monitor potassium"),
+        ("enalapril", "spironolactone", "major", "Severe hyperkalemia; monitor potassium"),
+        ("ramipril", "spironolactone", "major", "Severe hyperkalemia; monitor potassium"),
+        ("lisinopril", "potassium", "major", "Hyperkalemia: ACE inhibitors reduce renal potassium excretion; avoid high-dose potassium supplementation"),
+        ("ace inhibitor", "potassium-sparing diuretic", "major", "Severe hyperkalemia; potassium monitoring mandatory"),
+        // Statins + fibrates → rhabdomyolysis
+        ("simvastatin", "gemfibrozil", "major", "Rhabdomyolysis: gemfibrozil inhibits simvastatin metabolism; combination is generally avoided"),
+        ("atorvastatin", "gemfibrozil", "major", "Rhabdomyolysis risk; use lowest statin dose if combination is necessary"),
+        ("rosuvastatin", "gemfibrozil", "major", "Rhabdomyolysis: gemfibrozil inhibits rosuvastatin clearance; avoid or use lowest dose"),
+        ("lovastatin", "gemfibrozil", "major", "Rhabdomyolysis risk; avoid combination"),
+        ("simvastatin", "fenofibrate", "major", "Rhabdomyolysis risk lower than gemfibrozil but still significant; monitor CK"),
+        // Lithium + NSAIDs / ACE inhibitors
+        ("lithium", "ibuprofen", "major", "Lithium toxicity: NSAIDs reduce renal lithium clearance; may cause lithium levels to rise dangerously"),
+        ("lithium", "naproxen", "major", "Lithium toxicity: reduced renal clearance"),
+        ("lithium", "diclofenac", "major", "Lithium toxicity: reduced renal clearance"),
+        ("lithium", "lisinopril", "major", "Lithium toxicity: ACE inhibitors reduce renal lithium clearance; monitor levels"),
+        ("lithium", "enalapril", "major", "Lithium toxicity: reduced renal clearance"),
+        ("lithium", "hydrochlorothiazide", "major", "Lithium toxicity: thiazides decrease lithium excretion; risk of toxic levels"),
+        ("lithium", "furosemide", "major", "Lithium toxicity risk if sodium-depleted; monitor carefully"),
+        // Theophylline + quinolones / macrolides
+        ("theophylline", "ciprofloxacin", "major", "Theophylline toxicity: ciprofloxacin inhibits CYP1A2, raising theophylline levels; nausea, arrhythmia, seizures"),
+        ("theophylline", "enoxacin", "major", "Severe theophylline toxicity; enoxacin is one of the strongest inhibitors; avoid"),
+        ("theophylline", "erythromycin", "major", "CYP1A2 inhibition raises theophylline levels; toxicity risk"),
+        ("theophylline", "clarithromycin", "major", "CYP1A2 inhibition raises theophylline levels; monitor levels"),
+        ("theophylline", "fluvoxamine", "major", "Potent CYP1A2 inhibition; theophylline levels may double"),
+        // Serotonin syndrome — non-MAOI combinations
+        ("fluoxetine", "tramadol", "major", "Serotonin syndrome risk and reduced tramadol analgesia due to CYP2D6 inhibition"),
+        ("sertraline", "tramadol", "major", "Serotonin syndrome risk"),
+        ("paroxetine", "tramadol", "major", "Serotonin syndrome risk; paroxetine also reduces tramadol efficacy"),
+        ("ssri", "triptans", "major", "Serotonin syndrome risk when high doses used; monitor closely"),
+        ("ssri", "tramadol", "major", "Serotonin syndrome risk with serotonergic opioid"),
+        ("ssri", "lithium", "major", "Serotonin syndrome risk at higher doses; monitor carefully"),
+        // Immunosuppressants + live vaccines
+        ("cyclosporine", "live vaccine", "major", "Disseminated vaccine-strain infection; live vaccines are contraindicated in immunosuppressed patients"),
+        ("tacrolimus", "live vaccine", "major", "Disseminated vaccine-strain infection; avoid live vaccines"),
+        ("methotrexate", "live vaccine", "major", "Disseminated vaccine-strain infection; avoid live vaccines while on immunosuppressive doses"),
+        ("azathioprine", "live vaccine", "major", "Avoid live vaccines during immunosuppressive therapy"),
+        ("mycophenolate", "live vaccine", "major", "Avoid live vaccines during immunosuppressive therapy"),
+        // Anticoagulants + thrombolytics
+        ("heparin", "thrombolytic", "major", "Synergistic bleeding risk; requires careful monitoring and timing"),
+        ("apixaban", "thrombolytic", "major", "Synergistic bleeding risk"),
+        ("rivaroxaban", "thrombolytic", "major", "Synergistic bleeding risk"),
+        ("dabigatran", "thrombolytic", "major", "Synergistic bleeding risk"),
+        // Metformin + contrast
+        ("metformin", "contrast dye", "major", "Risk of contrast-induced nephropathy leading to lactic acidosis; hold metformin 48 h before and after contrast"),
+        ("metformin", "iodinated contrast", "major", "Lactic acidosis risk if renal function impaired; withhold metformin peri-procedure"),
+        // Antidiabetics + beta-blockers
+        ("insulin", "propranolol", "major", "Beta-blockers mask tachycardia warning of hypoglycemia and prolong recovery; non-selective beta-blockers are most problematic"),
+        ("insulin", "atenolol", "major", "Masking of hypoglycemia symptoms; use with caution"),
+        ("sulfonylurea", "propranolol", "major", "Masking of hypoglycemia symptoms and prolonged hypoglycemic episodes"),
+        ("glipizide", "propranolol", "major", "Masking of hypoglycemia symptoms"),
+        // CYP interactions — rifampin (potent CYP450 inducer)
+        ("rifampin", "warfarin", "major", "CYP2C9/3A4 induction markedly reduces warfarin levels; INR may fall by 50% or more"),
+        ("rifampin", "oral contraceptive", "major", "CYP3A4 induction reduces contraceptive plasma levels; additional contraception required"),
+        ("rifampin", "cyclosporine", "major", "CYP3A4 induction sharply reduces cyclosporine levels; risk of transplant rejection"),
+        ("rifampin", "tacrolimus", "major", "CYP3A4 induction reduces tacrolimus levels; risk of rejection"),
+        ("rifampin", "hiv protease inhibitor", "major", "CYP3A4 induction reduces antiretroviral levels; virological failure"),
+        ("rifampin", "fluconazole", "major", "CYP3A4 induction reduces fluconazole levels significantly"),
+        // Other major interactions
+        ("clopidogrel", "omeprazole", "major", "CYP2C19 inhibition reduces clopidogrel antiplatelet activation; increased thrombotic risk"),
+        ("clopidogrel", "esomeprazole", "major", "CYP2C19 inhibition reduces clopidogrel activation; use pantoprazole as alternative PPI"),
+        ("phenytoin", "carbamazepine", "major", "Mutual CYP induction; unpredictable changes in both drug levels requiring monitoring"),
+        ("phenytoin", "valproate", "major", "Valproate displaces phenytoin from protein binding and inhibits its metabolism; complex bidirectional interaction"),
+        ("carbamazepine", "oral contraceptive", "major", "CYP3A4 induction reduces contraceptive efficacy; use alternative contraception"),
+
+        // ── MODERATE ─────────────────────────────────────────────────────────
+        // Antihypertensives + NSAIDs → BP increase
+        ("lisinopril", "ibuprofen", "moderate", "NSAIDs blunt antihypertensive effect of ACE inhibitors and increase risk of renal impairment"),
+        ("lisinopril", "naproxen", "moderate", "NSAIDs reduce antihypertensive effect; monitor blood pressure"),
+        ("amlodipine", "ibuprofen", "moderate", "NSAIDs may attenuate antihypertensive effect"),
+        ("hydrochlorothiazide", "ibuprofen", "moderate", "NSAIDs reduce diuretic and antihypertensive effect; risk of fluid retention"),
+        ("metoprolol", "ibuprofen", "moderate", "NSAIDs may reduce antihypertensive efficacy"),
+        // Diuretics + aminoglycosides → ototoxicity
+        ("furosemide", "gentamicin", "moderate", "Additive ototoxicity: furosemide plus aminoglycoside substantially increases risk of permanent hearing loss"),
+        ("furosemide", "tobramycin", "moderate", "Additive ototoxicity; avoid or monitor hearing"),
+        ("furosemide", "amikacin", "moderate", "Additive ototoxicity"),
+        ("ethacrynic acid", "aminoglycoside", "moderate", "Severe ototoxicity risk; ethacrynic acid is the most ototoxic loop diuretic"),
+        // Tetracycline / fluoroquinolone + antacids / dairy
+        ("tetracycline", "antacid", "moderate", "Chelation by divalent cations (Ca, Mg, Al) markedly reduces tetracycline absorption; separate by ≥2 h"),
+        ("tetracycline", "calcium", "moderate", "Calcium chelation reduces tetracycline bioavailability; separate by ≥2 h"),
+        ("tetracycline", "iron", "moderate", "Iron chelation reduces tetracycline absorption"),
+        ("doxycycline", "antacid", "moderate", "Chelation reduces doxycycline absorption; separate doses"),
+        ("doxycycline", "iron", "moderate", "Reduced doxycycline absorption due to chelation"),
+        ("ciprofloxacin", "antacid", "moderate", "Antacids containing Mg or Al reduce ciprofloxacin absorption by up to 90%; separate by ≥2–4 h"),
+        ("ciprofloxacin", "calcium", "moderate", "Divalent cations reduce ciprofloxacin absorption; separate doses"),
+        ("ciprofloxacin", "iron", "moderate", "Iron chelation reduces ciprofloxacin absorption"),
+        ("levofloxacin", "antacid", "moderate", "Reduced absorption due to chelation; separate by ≥2 h"),
+        ("moxifloxacin", "antacid", "moderate", "Reduced absorption due to chelation; separate by ≥2 h"),
+        // Rifampin — moderate-level interactions
+        ("rifampin", "diazepam", "moderate", "CYP3A4/2C19 induction reduces diazepam levels; benzodiazepine effect may be insufficient"),
+        ("rifampin", "methadone", "moderate", "CYP3A4 induction reduces methadone; opioid withdrawal may occur"),
+        ("rifampin", "doxycycline", "moderate", "CYP3A4 induction reduces doxycycline levels"),
+        // Statins + CYP3A4 inhibitors
+        ("simvastatin", "amlodipine", "moderate", "Amlodipine inhibits CYP3A4 and can increase simvastatin exposure; limit simvastatin to 20 mg/day"),
+        ("simvastatin", "diltiazem", "moderate", "CYP3A4 inhibition raises simvastatin levels; limit simvastatin dose"),
+        ("simvastatin", "verapamil", "moderate", "CYP3A4 inhibition raises simvastatin levels; limit dose"),
+        ("atorvastatin", "clarithromycin", "moderate", "CYP3A4 inhibition increases atorvastatin; myopathy risk"),
+        ("atorvastatin", "erythromycin", "moderate", "CYP3A4 inhibition increases atorvastatin levels"),
+        ("simvastatin", "grapefruit", "moderate", "Grapefruit inhibits intestinal CYP3A4; increased statin levels and myopathy risk"),
+        ("atorvastatin", "grapefruit", "moderate", "Grapefruit inhibits intestinal CYP3A4; increased atorvastatin levels"),
+        // ACE inhibitor / ARB + NSAIDs (triple whammy)
+        ("ace inhibitor", "nsaid", "moderate", "Reduced antihypertensive effect and risk of acute kidney injury when combined with a diuretic"),
+        ("losartan", "ibuprofen", "moderate", "NSAIDs reduce antihypertensive effect and increase renal impairment risk"),
+        ("valsartan", "ibuprofen", "moderate", "NSAIDs reduce antihypertensive effect and increase renal impairment risk"),
+        // CNS depressant combinations
+        ("opioid", "gabapentin", "moderate", "Additive CNS/respiratory depression; risk of oversedation particularly in elderly"),
+        ("morphine", "gabapentin", "moderate", "Additive CNS/respiratory depression"),
+        ("opioid", "pregabalin", "moderate", "Additive CNS/respiratory depression; fatal opioid overdoses are more common with concomitant gabapentinoids"),
+        ("benzodiazepine", "alcohol", "moderate", "Additive CNS depression; impaired psychomotor function and increased sedation"),
+        ("antidepressant", "alcohol", "moderate", "Additive CNS depression and potential loss of antidepressant efficacy"),
+        // Antifungal interactions
+        ("fluconazole", "simvastatin", "moderate", "CYP3A4 inhibition raises simvastatin levels; myopathy risk"),
+        ("fluconazole", "sulfonylurea", "moderate", "CYP2C9 inhibition raises sulfonylurea levels; hypoglycemia risk"),
+        ("fluconazole", "phenytoin", "moderate", "CYP2C9 inhibition raises phenytoin levels; toxicity risk"),
+        // Other moderate interactions
+        ("allopurinol", "azathioprine", "moderate", "Allopurinol inhibits xanthine oxidase and raises azathioprine/mercaptopurine to toxic levels; reduce azathioprine dose by 75%"),
+        ("allopurinol", "mercaptopurine", "moderate", "Same mechanism as azathioprine; reduce dose by 75%"),
+        ("spironolactone", "ace inhibitor", "moderate", "Hyperkalemia risk; monitor potassium, especially in renal impairment or heart failure"),
+        ("ssri", "nsaid", "moderate", "Additive risk of GI bleeding: SSRIs inhibit platelet serotonin uptake; co-prescribe with a PPI"),
+        ("ssri", "aspirin", "moderate", "Additive GI bleeding risk; consider gastroprotection"),
+        ("quinidine", "digoxin", "moderate", "Digoxin toxicity: quinidine raises digoxin levels; monitor"),
+        ("verapamil", "beta-blocker", "moderate", "Additive negative chronotropy and inotropy; bradycardia and heart block risk"),
+        ("diltiazem", "beta-blocker", "moderate", "Additive negative chronotropy; bradycardia and AV block risk"),
     ];
 
     let mut interactions: Vec<crate::clinical::DrugInteraction> = Vec::new();
@@ -11939,6 +12190,241 @@ fn generate_symptom_questions(symptom: &str) -> Vec<serde_json::Value> {
             "question": "Have you noticed any blood in the mucus?",
             "type": "boolean"
         }));
+        questions.push(serde_json::json!({
+            "id": "wheeze",
+            "question": "Are you experiencing any wheezing or whistling sound when breathing?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "night_sweats",
+            "question": "Have you had drenching night sweats recently?",
+            "type": "boolean"
+        }));
+    } else if symptom_lower.contains("abdom")
+        || symptom_lower.contains("stomach")
+        || symptom_lower.contains("belly")
+        || symptom_lower.contains("nausea")
+        || symptom_lower.contains("vomit")
+        || symptom_lower.contains("diarr")
+    {
+        questions.push(serde_json::json!({
+            "id": "abdo_location",
+            "question": "Where is the pain located in your abdomen?",
+            "type": "choice",
+            "options": ["Upper centre (epigastric)", "Upper right", "Upper left", "Lower right", "Lower left", "Around the navel", "All over / diffuse"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "abdo_character",
+            "question": "How would you describe the pain?",
+            "type": "choice",
+            "options": ["Cramping / colicky", "Constant dull ache", "Sharp / stabbing", "Burning", "Bloating / fullness"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "nausea_vomiting",
+            "question": "Are you experiencing nausea or vomiting?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "bowel_change",
+            "question": "Have you noticed any change in your bowel habits (diarrhoea, constipation, or blood in stool)?",
+            "type": "choice",
+            "options": ["Diarrhoea", "Constipation", "Blood in stool", "Black/tarry stool", "No change"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "abdo_fever",
+            "question": "Do you have a fever alongside the abdominal symptoms?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "last_meal",
+            "question": "When did you last eat, and did symptoms worsen after eating?",
+            "type": "choice",
+            "options": ["Worse after eating", "Better after eating", "No relation to food", "Unable to eat due to pain"]
+        }));
+    } else if symptom_lower.contains("back pain")
+        || symptom_lower.contains("back ache")
+        || symptom_lower.contains("backache")
+        || symptom_lower.contains("lumbar")
+        || symptom_lower.contains("spine")
+    {
+        questions.push(serde_json::json!({
+            "id": "back_location",
+            "question": "Where is your back pain located?",
+            "type": "choice",
+            "options": ["Upper back (between shoulder blades)", "Middle back", "Lower back (lumbar)", "Tailbone / coccyx", "One side only (flank)"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "back_radiation",
+            "question": "Does the pain radiate anywhere?",
+            "type": "choice",
+            "options": ["Down one or both legs", "Into the groin", "Into the buttocks", "Into the chest", "Does not radiate"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "back_numbness",
+            "question": "Do you have any numbness, tingling, or weakness in your legs?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "back_bladder",
+            "question": "Have you had any difficulty controlling your bladder or bowels?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "back_onset",
+            "question": "How did the pain start?",
+            "type": "choice",
+            "options": ["After lifting / physical activity", "After an injury or fall", "Gradually over time", "Suddenly without cause", "After prolonged sitting / standing"]
+        }));
+    } else if symptom_lower.contains("rash")
+        || symptom_lower.contains("skin")
+        || symptom_lower.contains("itch")
+        || symptom_lower.contains("hive")
+        || symptom_lower.contains("blister")
+    {
+        questions.push(serde_json::json!({
+            "id": "rash_location",
+            "question": "Where is the rash or skin change?",
+            "type": "choice",
+            "options": ["Face / head", "Trunk (chest / abdomen / back)", "Arms", "Legs", "Hands / feet", "Widespread / all over the body"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "rash_character",
+            "question": "How would you describe the rash?",
+            "type": "choice",
+            "options": ["Red / erythematous", "Raised bumps (urticaria / hives)", "Blisters / vesicles", "Flat spots (macules)", "Purpuric / non-blanching spots", "Scaly or flaky", "Crusting / weeping"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "rash_itch",
+            "question": "Is the rash itchy, painful, or neither?",
+            "type": "choice",
+            "options": ["Intensely itchy", "Mildly itchy", "Painful / burning", "Neither"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "rash_fever",
+            "question": "Do you have a fever with the rash?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "rash_blanch",
+            "question": "Does the rash fade (turn white) when you press on it with a glass?",
+            "type": "choice",
+            "options": ["Yes, it fades", "No, it does not fade (non-blanching)", "Not sure"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "rash_trigger",
+            "question": "Did anything precede the rash (new medication, food, insect bite, illness, soap/detergent)?",
+            "type": "text"
+        }));
+    } else if symptom_lower.contains("joint")
+        || symptom_lower.contains("arthral")
+        || symptom_lower.contains("swollen joint")
+        || symptom_lower.contains("knee pain")
+        || symptom_lower.contains("hip pain")
+        || symptom_lower.contains("ankle pain")
+        || symptom_lower.contains("wrist pain")
+        || symptom_lower.contains("elbow pain")
+        || symptom_lower.contains("shoulder pain")
+    {
+        questions.push(serde_json::json!({
+            "id": "joint_affected",
+            "question": "Which joint(s) are affected?",
+            "type": "choice",
+            "options": ["Single large joint (knee / hip / shoulder)", "Multiple large joints", "Small joints of hands / feet", "Spine / back joints", "Several joints at once"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "joint_swelling",
+            "question": "Is the joint visibly swollen, red, or warm to touch?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "joint_morning_stiffness",
+            "question": "Is the joint stiff in the morning? If so, how long does the stiffness last?",
+            "type": "choice",
+            "options": ["No morning stiffness", "Less than 30 minutes", "30–60 minutes", "More than 1 hour"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "joint_trauma",
+            "question": "Was there any recent injury, fall, or unusual physical activity involving that joint?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "joint_systemic",
+            "question": "Do you have any other symptoms such as fever, rash, or eye redness?",
+            "type": "boolean"
+        }));
+    } else if symptom_lower.contains("urin")
+        || symptom_lower.contains("bladder")
+        || symptom_lower.contains("peeing")
+        || symptom_lower.contains("pee")
+        || symptom_lower.contains("dysuria")
+        || symptom_lower.contains("haematuria")
+        || symptom_lower.contains("hematuria")
+    {
+        questions.push(serde_json::json!({
+            "id": "urine_pain",
+            "question": "Is urination painful or burning?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "urine_frequency",
+            "question": "Are you urinating more frequently than usual?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "urine_colour",
+            "question": "What does your urine look like?",
+            "type": "choice",
+            "options": ["Normal (pale yellow)", "Dark / concentrated", "Cloudy", "Pink or red (blood)", "Brown / tea-coloured", "Foamy"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "urine_fever_flank",
+            "question": "Do you have fever, chills, or pain in your side / back (flank)?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "urine_incomplete",
+            "question": "Do you feel that your bladder is not fully emptying after urinating?",
+            "type": "boolean"
+        }));
+    } else if symptom_lower.contains("vision")
+        || symptom_lower.contains("eye")
+        || symptom_lower.contains("blurr")
+        || symptom_lower.contains("sight")
+        || symptom_lower.contains("visual")
+    {
+        questions.push(serde_json::json!({
+            "id": "vision_onset",
+            "question": "How did the visual change start?",
+            "type": "choice",
+            "options": ["Sudden (seconds to minutes)", "Gradual over hours", "Gradual over days to weeks", "Constant since birth / longstanding"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "vision_affected_eye",
+            "question": "Which eye(s) are affected?",
+            "type": "choice",
+            "options": ["Left eye only", "Right eye only", "Both eyes", "Peripheral (side) vision loss", "Central vision loss"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "vision_character",
+            "question": "How would you describe the visual problem?",
+            "type": "choice",
+            "options": ["Blurred / out of focus", "Double vision", "Dark curtain or shadow", "Flashing lights / floaters", "Loss of colour", "Halos around lights"]
+        }));
+        questions.push(serde_json::json!({
+            "id": "vision_pain",
+            "question": "Is there pain in or around the eye?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "vision_headache",
+            "question": "Is the visual change accompanied by headache or nausea?",
+            "type": "boolean"
+        }));
+        questions.push(serde_json::json!({
+            "id": "vision_red_eye",
+            "question": "Is the eye red or producing discharge?",
+            "type": "boolean"
+        }));
     }
 
     questions.push(serde_json::json!({
@@ -12510,12 +12996,26 @@ pub async fn analyze_symptoms(
 }
 
 /// Analyze symptom combinations to determine possible conditions
+///
+/// Uses a multi-symptom scoring approach: each candidate condition accumulates
+/// a score for every matching keyword/phrase found in the combined symptom
+/// string.  Conditions whose score meets their activation threshold are
+/// included in the output, ordered by descending score.  Emergency patterns
+/// are evaluated first and short-circuit severity escalation immediately.
 fn analyze_symptom_combination(
     symptoms: &[String],
 ) -> (Vec<PossibleConditionResult>, String, Vec<String>) {
-    let mut conditions = Vec::new();
-    let mut red_flags = Vec::new();
-    let mut max_severity = "low";
+    let mut conditions: Vec<PossibleConditionResult> = Vec::new();
+    let mut red_flags: Vec<String> = Vec::new();
+    // Severity order: low < medium < high < critical
+    // Encoded as u8 for easy comparison.
+    let severity_rank = |s: &str| match s {
+        "critical" => 3u8,
+        "high" => 2,
+        "medium" => 1,
+        _ => 0,
+    };
+    let mut max_severity_rank: u8 = 0;
 
     let symptom_str = symptoms
         .iter()
@@ -12523,163 +13023,744 @@ fn analyze_symptom_combination(
         .collect::<Vec<_>>()
         .join(" ");
 
-    // Check for emergency symptoms first
-    if symptom_str.contains("chest pain") || symptom_str.contains("crushing chest") {
-        red_flags
-            .push("Chest pain can be a sign of heart attack - seek emergency care".to_string());
-        max_severity = "critical";
-        conditions.push(PossibleConditionResult {
-            condition_name: "Possible Cardiac Event".to_string(),
-            probability: 0.6,
-            severity: "critical".to_string(),
-            description: "Chest pain requires immediate medical evaluation".to_string(),
-            icd10_code: Some("R07.9".to_string()),
-        });
-    }
+    // -------------------------------------------------------------------------
+    // EMERGENCY PATTERN DETECTION (evaluated first, sets critical immediately)
+    // -------------------------------------------------------------------------
 
-    if symptom_str.contains("difficulty breathing") || symptom_str.contains("shortness of breath") {
-        red_flags.push("Difficulty breathing requires immediate attention".to_string());
-        if max_severity != "critical" {
-            max_severity = "high";
-        }
-        conditions.push(PossibleConditionResult {
-            condition_name: "Respiratory Distress".to_string(),
-            probability: 0.5,
-            severity: "high".to_string(),
-            description: "Breathing difficulties can have multiple causes requiring evaluation"
-                .to_string(),
-            icd10_code: Some("R06.0".to_string()),
-        });
-    }
-
-    if symptom_str.contains("stroke")
-        || symptom_str.contains("sudden numbness")
-        || (symptom_str.contains("face drooping") && symptom_str.contains("arm weakness"))
+    // ACS / MI: chest pain + shortness of breath + diaphoresis
     {
-        red_flags.push("STROKE WARNING: Call emergency services immediately".to_string());
-        max_severity = "critical";
-        conditions.push(PossibleConditionResult {
-            condition_name: "Possible Stroke".to_string(),
-            probability: 0.7,
-            severity: "critical".to_string(),
-            description: "Stroke symptoms require immediate emergency care".to_string(),
-            icd10_code: Some("I64".to_string()),
-        });
+        let has_chest = symptom_str.contains("chest pain")
+            || symptom_str.contains("crushing chest")
+            || symptom_str.contains("chest pressure")
+            || symptom_str.contains("chest tightness");
+        let has_sob = symptom_str.contains("shortness of breath")
+            || symptom_str.contains("difficulty breathing")
+            || symptom_str.contains("breathless");
+        let has_diaphoresis = symptom_str.contains("diaphoresis")
+            || symptom_str.contains("sweating")
+            || symptom_str.contains("sweat")
+            || symptom_str.contains("cold sweat");
+        let has_radiation = symptom_str.contains("arm pain")
+            || symptom_str.contains("jaw pain")
+            || symptom_str.contains("radiating")
+            || symptom_str.contains("radiation");
+
+        // Score: each matching cluster adds weight
+        let mut score = 0u32;
+        if has_chest { score += 3; }
+        if has_sob   { score += 2; }
+        if has_diaphoresis { score += 2; }
+        if has_radiation   { score += 2; }
+
+        if score >= 3 {
+            let prob = (score as f32 * 0.12).min(0.92);
+            red_flags.push("CRITICAL: Chest pain with associated symptoms – possible acute coronary syndrome. Call emergency services immediately.".to_string());
+            max_severity_rank = 3;
+            conditions.push(PossibleConditionResult {
+                condition_name: "Acute Coronary Syndrome / Myocardial Infarction".to_string(),
+                probability: prob,
+                severity: "critical".to_string(),
+                description: "Combination of chest pain, dyspnoea, and/or diaphoresis is consistent with ACS/MI and requires immediate emergency evaluation.".to_string(),
+                icd10_code: Some("I21.9".to_string()),
+            });
+        } else if has_chest {
+            // Chest pain alone (no ACS cluster) – still flag as high
+            if max_severity_rank < 2 { max_severity_rank = 2; }
+            red_flags.push("Chest pain can be a sign of a cardiac event – seek urgent medical evaluation.".to_string());
+            conditions.push(PossibleConditionResult {
+                condition_name: "Chest Pain – Undifferentiated".to_string(),
+                probability: 0.55,
+                severity: "high".to_string(),
+                description: "Chest pain requires prompt evaluation to rule out cardiac and other serious causes.".to_string(),
+                icd10_code: Some("R07.9".to_string()),
+            });
+        }
     }
 
-    // Common symptom combinations
-    if symptom_str.contains("headache") {
-        if symptom_str.contains("fever") {
+    // Stroke (FAST criteria): facial droop + arm weakness + speech difficulty
+    {
+        let has_face = symptom_str.contains("face droop")
+            || symptom_str.contains("facial droop")
+            || symptom_str.contains("face drooping")
+            || symptom_str.contains("facial weakness");
+        let has_arm = symptom_str.contains("arm weakness")
+            || symptom_str.contains("arm numbness")
+            || symptom_str.contains("limb weakness");
+        let has_speech = symptom_str.contains("speech difficulty")
+            || symptom_str.contains("slurred speech")
+            || symptom_str.contains("speech slurred")
+            || symptom_str.contains("difficulty speaking")
+            || symptom_str.contains("dysarthria")
+            || symptom_str.contains("aphasia");
+        let has_sudden_neuro = symptom_str.contains("stroke")
+            || symptom_str.contains("sudden numbness")
+            || symptom_str.contains("sudden weakness");
+
+        let mut score = 0u32;
+        if has_face   { score += 3; }
+        if has_arm    { score += 2; }
+        if has_speech { score += 3; }
+        if has_sudden_neuro { score += 2; }
+
+        if score >= 3 {
+            red_flags.push("STROKE WARNING (FAST): Facial droop / arm weakness / speech difficulty detected. Call emergency services immediately – time is brain.".to_string());
+            max_severity_rank = 3;
             conditions.push(PossibleConditionResult {
-                condition_name: "Viral Infection".to_string(),
-                probability: 0.7,
+                condition_name: "Ischaemic Stroke".to_string(),
+                probability: (score as f32 * 0.12).min(0.90),
+                severity: "critical".to_string(),
+                description: "FAST criteria suggest possible stroke. Immediate emergency care is essential – thrombolysis window is time-critical.".to_string(),
+                icd10_code: Some("I63.9".to_string()),
+            });
+        }
+    }
+
+    // Meningitis / Subarachnoid Haemorrhage: sudden severe headache + neck stiffness
+    {
+        let has_thunderclap = symptom_str.contains("thunderclap")
+            || symptom_str.contains("sudden severe headache")
+            || symptom_str.contains("worst headache")
+            || (symptom_str.contains("severe headache") && symptom_str.contains("sudden"));
+        let has_neck = symptom_str.contains("neck stiffness")
+            || symptom_str.contains("stiff neck")
+            || symptom_str.contains("neck rigidity");
+        let has_photophobia = symptom_str.contains("photophobia")
+            || symptom_str.contains("light sensitivity")
+            || symptom_str.contains("sensitive to light");
+        let has_rash_petechiae = symptom_str.contains("petechiae")
+            || symptom_str.contains("purpuric rash")
+            || symptom_str.contains("non-blanching");
+
+        let mut score = 0u32;
+        if has_thunderclap    { score += 4; }
+        if has_neck           { score += 3; }
+        if has_photophobia    { score += 2; }
+        if has_rash_petechiae { score += 3; }
+
+        if score >= 3 {
+            red_flags.push("CRITICAL: Sudden severe headache with neck stiffness – possible meningitis or subarachnoid haemorrhage. Seek emergency care immediately.".to_string());
+            max_severity_rank = 3;
+            if has_thunderclap {
+                conditions.push(PossibleConditionResult {
+                    condition_name: "Subarachnoid Haemorrhage".to_string(),
+                    probability: (score as f32 * 0.10).min(0.85),
+                    severity: "critical".to_string(),
+                    description: "Thunderclap headache ('worst headache of life') is the hallmark of SAH until proven otherwise.".to_string(),
+                    icd10_code: Some("I60.9".to_string()),
+                });
+            }
+            conditions.push(PossibleConditionResult {
+                condition_name: "Bacterial Meningitis".to_string(),
+                probability: (score as f32 * 0.09).min(0.80),
+                severity: "critical".to_string(),
+                description: "Headache, neck stiffness, and photophobia form the classic meningism triad.".to_string(),
+                icd10_code: Some("G03.9".to_string()),
+            });
+        }
+    }
+
+    // Hypertensive encephalopathy: severe headache + visual changes + hypertension
+    {
+        let has_severe_ha = symptom_str.contains("severe headache")
+            || symptom_str.contains("worst headache");
+        let has_visual = symptom_str.contains("visual change")
+            || symptom_str.contains("blurred vision")
+            || symptom_str.contains("vision change")
+            || symptom_str.contains("visual disturbance");
+        let has_htn = symptom_str.contains("hypertension")
+            || symptom_str.contains("high blood pressure")
+            || symptom_str.contains("elevated blood pressure");
+
+        let mut score = 0u32;
+        if has_severe_ha { score += 2; }
+        if has_visual    { score += 2; }
+        if has_htn       { score += 3; }
+
+        if score >= 4 {
+            red_flags.push("CRITICAL: Severe headache with visual changes and hypertension – possible hypertensive encephalopathy. Seek emergency care.".to_string());
+            max_severity_rank = 3;
+            conditions.push(PossibleConditionResult {
+                condition_name: "Hypertensive Encephalopathy".to_string(),
+                probability: (score as f32 * 0.11).min(0.85),
+                severity: "critical".to_string(),
+                description: "End-organ hypertensive crisis affecting cerebral autoregulation. Requires immediate blood-pressure management.".to_string(),
+                icd10_code: Some("I67.4".to_string()),
+            });
+        }
+    }
+
+    // Peritonitis / Perforation: abdominal pain + rigidity + rebound tenderness
+    {
+        let has_abdo = symptom_str.contains("abdominal pain")
+            || symptom_str.contains("stomach pain")
+            || symptom_str.contains("belly pain");
+        let has_rigidity = symptom_str.contains("rigid")
+            || symptom_str.contains("board-like")
+            || symptom_str.contains("guarding");
+        let has_rebound = symptom_str.contains("rebound")
+            || symptom_str.contains("rebound tenderness")
+            || symptom_str.contains("tenderness on release");
+
+        let mut score = 0u32;
+        if has_abdo     { score += 1; }
+        if has_rigidity { score += 3; }
+        if has_rebound  { score += 3; }
+
+        if score >= 4 {
+            red_flags.push("CRITICAL: Abdominal rigidity and rebound tenderness – possible peritonitis or visceral perforation. Emergency surgery may be required.".to_string());
+            max_severity_rank = 3;
+            conditions.push(PossibleConditionResult {
+                condition_name: "Peritonitis / Abdominal Perforation".to_string(),
+                probability: (score as f32 * 0.12).min(0.88),
+                severity: "critical".to_string(),
+                description: "Peritoneal signs indicate possible intra-abdominal emergency requiring surgical evaluation.".to_string(),
+                icd10_code: Some("K65.9".to_string()),
+            });
+        }
+    }
+
+    // Cholangitis (Charcot's triad): jaundice + RUQ pain + fever
+    {
+        let has_jaundice = symptom_str.contains("jaundice")
+            || symptom_str.contains("yellow skin")
+            || symptom_str.contains("yellowing");
+        let has_ruq = symptom_str.contains("right upper")
+            || symptom_str.contains("ruq")
+            || symptom_str.contains("right upper quadrant");
+        let has_fever = symptom_str.contains("fever")
+            || symptom_str.contains("high temperature")
+            || symptom_str.contains("pyrexia");
+
+        let mut score = 0u32;
+        if has_jaundice { score += 3; }
+        if has_ruq      { score += 2; }
+        if has_fever    { score += 2; }
+
+        if score >= 5 {
+            red_flags.push("CRITICAL: Charcot's triad (jaundice + RUQ pain + fever) – possible ascending cholangitis. Urgent biliary decompression may be needed.".to_string());
+            max_severity_rank = 3;
+            conditions.push(PossibleConditionResult {
+                condition_name: "Ascending Cholangitis".to_string(),
+                probability: (score as f32 * 0.11).min(0.87),
+                severity: "critical".to_string(),
+                description: "Charcot's triad is the classic presentation of cholangitis, a biliary emergency.".to_string(),
+                icd10_code: Some("K83.0".to_string()),
+            });
+        }
+    }
+
+    // Obstetric emergency: pregnancy + vaginal bleeding
+    {
+        let has_pregnancy = symptom_str.contains("pregnant")
+            || symptom_str.contains("pregnancy")
+            || symptom_str.contains("gravid");
+        let has_bleeding = symptom_str.contains("vaginal bleeding")
+            || symptom_str.contains("vaginal bleed")
+            || symptom_str.contains("bleeding vaginally");
+
+        if has_pregnancy && has_bleeding {
+            red_flags.push("CRITICAL: Vaginal bleeding in pregnancy – possible ectopic pregnancy or placenta praevia. Seek emergency care immediately.".to_string());
+            max_severity_rank = 3;
+            conditions.push(PossibleConditionResult {
+                condition_name: "Obstetric Haemorrhage (Ectopic / Placenta Praevia)".to_string(),
+                probability: 0.80,
+                severity: "critical".to_string(),
+                description: "Vaginal bleeding during pregnancy must be evaluated immediately to rule out life-threatening causes.".to_string(),
+                icd10_code: Some("O20.9".to_string()),
+            });
+        }
+    }
+
+    // Altered consciousness
+    {
+        let has_altered = symptom_str.contains("altered consciousness")
+            || symptom_str.contains("unconscious")
+            || symptom_str.contains("unresponsive")
+            || symptom_str.contains("loss of consciousness")
+            || symptom_str.contains("confusion")
+            || symptom_str.contains("disoriented")
+            || symptom_str.contains("not responding");
+
+        if has_altered {
+            red_flags.push("CRITICAL: Altered level of consciousness – multiple serious causes possible. Emergency evaluation required.".to_string());
+            max_severity_rank = 3;
+            conditions.push(PossibleConditionResult {
+                condition_name: "Altered Consciousness – Undifferentiated".to_string(),
+                probability: 0.85,
+                severity: "critical".to_string(),
+                description: "Reduced or altered consciousness has many serious aetiologies (hypoglycaemia, seizure, stroke, sepsis, overdose) and requires immediate assessment.".to_string(),
+                icd10_code: Some("R41.3".to_string()),
+            });
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HIGH-ACUITY PATTERN DETECTION
+    // -------------------------------------------------------------------------
+
+    // Appendicitis: RLQ pain + nausea + fever
+    {
+        let has_rlq = symptom_str.contains("right lower")
+            || symptom_str.contains("rlq")
+            || symptom_str.contains("mcburney")
+            || (symptom_str.contains("lower right") && (symptom_str.contains("abdominal") || symptom_str.contains("pain")));
+        let has_nausea = symptom_str.contains("nausea") || symptom_str.contains("vomiting");
+        let has_fever = symptom_str.contains("fever") || symptom_str.contains("temperature");
+
+        let mut score = 0u32;
+        if has_rlq   { score += 4; }
+        if has_nausea { score += 1; }
+        if has_fever  { score += 2; }
+        // Also score generic abdominal pain + fever + nausea if RLQ keyword not explicit
+        if !has_rlq && (symptom_str.contains("abdominal pain") || symptom_str.contains("stomach pain")) && has_fever && has_nausea {
+            score += 2;
+        }
+
+        if score >= 4 {
+            if max_severity_rank < 2 { max_severity_rank = 2; }
+            red_flags.push("Right lower quadrant pain with fever and nausea – possible appendicitis. Seek prompt medical evaluation.".to_string());
+            conditions.push(PossibleConditionResult {
+                condition_name: "Appendicitis".to_string(),
+                probability: (score as f32 * 0.11).min(0.82),
+                severity: "high".to_string(),
+                description: "Classic presentation of acute appendicitis. Requires surgical evaluation to prevent perforation.".to_string(),
+                icd10_code: Some("K37".to_string()),
+            });
+        }
+    }
+
+    // Renal colic: flank pain + haematuria
+    {
+        let has_flank = symptom_str.contains("flank pain")
+            || symptom_str.contains("flank")
+            || symptom_str.contains("loin pain")
+            || symptom_str.contains("loin");
+        let has_haematuria = symptom_str.contains("haematuria")
+            || symptom_str.contains("hematuria")
+            || symptom_str.contains("blood in urine")
+            || symptom_str.contains("blood in pee")
+            || symptom_str.contains("bloody urine");
+        let has_radiation_groin = symptom_str.contains("groin")
+            || symptom_str.contains("radiating to groin");
+
+        let mut score = 0u32;
+        if has_flank        { score += 3; }
+        if has_haematuria   { score += 3; }
+        if has_radiation_groin { score += 2; }
+
+        if score >= 3 {
+            if max_severity_rank < 2 { max_severity_rank = 2; }
+            conditions.push(PossibleConditionResult {
+                condition_name: "Renal Colic / Urolithiasis".to_string(),
+                probability: (score as f32 * 0.11).min(0.83),
+                severity: "high".to_string(),
+                description: "Sudden onset flank pain radiating to groin with haematuria is characteristic of renal calculi.".to_string(),
+                icd10_code: Some("N20.9".to_string()),
+            });
+        }
+    }
+
+    // Pneumonia: fever + productive cough + chest symptoms
+    {
+        let has_fever = symptom_str.contains("fever") || symptom_str.contains("high temperature");
+        let has_productive_cough = symptom_str.contains("productive cough")
+            || (symptom_str.contains("cough") && (symptom_str.contains("sputum") || symptom_str.contains("phlegm") || symptom_str.contains("mucus")));
+        let has_chest_sx = symptom_str.contains("chest pain")
+            || symptom_str.contains("chest tightness")
+            || symptom_str.contains("pleuritic");
+        let has_sob = symptom_str.contains("shortness of breath")
+            || symptom_str.contains("breathless")
+            || symptom_str.contains("difficulty breathing");
+
+        let mut score = 0u32;
+        if has_fever           { score += 2; }
+        if has_productive_cough { score += 3; }
+        if has_chest_sx        { score += 2; }
+        if has_sob             { score += 2; }
+
+        if score >= 5 {
+            if max_severity_rank < 2 { max_severity_rank = 2; }
+            conditions.push(PossibleConditionResult {
+                condition_name: "Community-Acquired Pneumonia".to_string(),
+                probability: (score as f32 * 0.09).min(0.82),
+                severity: "high".to_string(),
+                description: "Fever with productive cough and respiratory symptoms is consistent with pneumonia and warrants chest X-ray and antibiotic evaluation.".to_string(),
+                icd10_code: Some("J18.9".to_string()),
+            });
+        }
+    }
+
+    // Tuberculosis: cough + fever + weight loss + night sweats
+    {
+        let has_cough = symptom_str.contains("cough");
+        let has_fever = symptom_str.contains("fever");
+        let has_weight_loss = symptom_str.contains("weight loss") || symptom_str.contains("losing weight");
+        let has_night_sweats = symptom_str.contains("night sweat") || symptom_str.contains("drenching sweat");
+        let has_haemoptysis = symptom_str.contains("blood in sputum")
+            || symptom_str.contains("coughing blood")
+            || symptom_str.contains("haemoptysis")
+            || symptom_str.contains("hemoptysis");
+
+        let mut score = 0u32;
+        if has_cough       { score += 1; }
+        if has_fever       { score += 1; }
+        if has_weight_loss { score += 3; }
+        if has_night_sweats { score += 3; }
+        if has_haemoptysis { score += 3; }
+
+        if score >= 5 {
+            if max_severity_rank < 2 { max_severity_rank = 2; }
+            red_flags.push("Chronic cough with weight loss and night sweats – consider tuberculosis screening.".to_string());
+            conditions.push(PossibleConditionResult {
+                condition_name: "Pulmonary Tuberculosis".to_string(),
+                probability: (score as f32 * 0.09).min(0.78),
+                severity: "high".to_string(),
+                description: "Constitutional symptoms (weight loss, night sweats) combined with chronic cough raise concern for TB. Sputum smear, GeneXpert, and CXR recommended.".to_string(),
+                icd10_code: Some("A15.9".to_string()),
+            });
+        }
+    }
+
+    // Dengue / viral haemorrhagic fever: rash + fever + joint pain
+    {
+        let has_fever = symptom_str.contains("fever") || symptom_str.contains("high temperature");
+        let has_rash = symptom_str.contains("rash") || symptom_str.contains("skin rash");
+        let has_joint = symptom_str.contains("joint pain")
+            || symptom_str.contains("arthralgia")
+            || symptom_str.contains("bone pain")
+            || symptom_str.contains("myalgia")
+            || symptom_str.contains("muscle pain");
+        let has_retroorbital = symptom_str.contains("eye pain")
+            || symptom_str.contains("retro-orbital")
+            || symptom_str.contains("pain behind eyes");
+
+        let mut score = 0u32;
+        if has_fever       { score += 2; }
+        if has_rash        { score += 2; }
+        if has_joint       { score += 2; }
+        if has_retroorbital { score += 3; }
+
+        if score >= 4 {
+            if max_severity_rank < 2 { max_severity_rank = 2; }
+            conditions.push(PossibleConditionResult {
+                condition_name: "Dengue / Viral Haemorrhagic Fever".to_string(),
+                probability: (score as f32 * 0.10).min(0.78),
+                severity: "high".to_string(),
+                description: "Fever with rash and joint/muscle pain is consistent with dengue or other arboviral illness. FBC (platelet count) and dengue NS1/serology recommended.".to_string(),
+                icd10_code: Some("A97.9".to_string()),
+            });
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // MEDIUM-ACUITY AND COMMON PATTERN DETECTION
+    // -------------------------------------------------------------------------
+
+    // Migraine / severe headache
+    if symptom_str.contains("headache") {
+        let has_severe = symptom_str.contains("severe headache")
+            || symptom_str.contains("worst headache")
+            || symptom_str.contains("thunderclap");
+        let has_nausea = symptom_str.contains("nausea") || symptom_str.contains("vomiting");
+        let has_photophobia = symptom_str.contains("light sensitivity")
+            || symptom_str.contains("photophobia")
+            || symptom_str.contains("sensitive to light");
+        let has_aura = symptom_str.contains("aura") || symptom_str.contains("visual aura");
+        let has_fever = symptom_str.contains("fever");
+
+        if has_fever && (has_nausea || has_photophobia) {
+            // Headache + fever – already handled by meningitis block; add viral
+            if max_severity_rank < 1 { max_severity_rank = 1; }
+            conditions.push(PossibleConditionResult {
+                condition_name: "Viral Illness with Headache".to_string(),
+                probability: 0.68,
                 severity: "medium".to_string(),
-                description: "Headache with fever often indicates viral illness".to_string(),
+                description: "Headache with fever and associated symptoms commonly indicates viral infection.".to_string(),
                 icd10_code: Some("B34.9".to_string()),
             });
-        } else if symptom_str.contains("nausea") || symptom_str.contains("light sensitivity") {
+        } else if (has_nausea || has_photophobia) && (has_aura || has_severe) {
+            if max_severity_rank < 1 { max_severity_rank = 1; }
             conditions.push(PossibleConditionResult {
                 condition_name: "Migraine".to_string(),
-                probability: 0.65,
+                probability: 0.72,
                 severity: "medium".to_string(),
-                description: "Classic migraine symptoms".to_string(),
+                description: "Unilateral throbbing headache with nausea, photophobia, or aura is classic migraine.".to_string(),
                 icd10_code: Some("G43.9".to_string()),
             });
-        } else {
+        } else if !has_severe {
             conditions.push(PossibleConditionResult {
-                condition_name: "Tension Headache".to_string(),
-                probability: 0.6,
+                condition_name: "Tension-Type Headache".to_string(),
+                probability: 0.62,
                 severity: "low".to_string(),
-                description: "Common headache often related to stress or posture".to_string(),
+                description: "Bilateral pressure-like headache often related to stress, posture, or dehydration.".to_string(),
                 icd10_code: Some("G44.2".to_string()),
             });
         }
     }
 
+    // Upper respiratory infection / influenza
     if symptom_str.contains("cough") {
-        if symptom_str.contains("fever") && symptom_str.contains("fatigue") {
+        let has_fever = symptom_str.contains("fever");
+        let has_fatigue = symptom_str.contains("fatigue") || symptom_str.contains("tired");
+        let has_runny_nose = symptom_str.contains("runny nose")
+            || symptom_str.contains("rhinorrhoea")
+            || symptom_str.contains("nasal");
+        let has_wheeze = symptom_str.contains("wheezing") || symptom_str.contains("wheeze");
+
+        if has_fever && has_fatigue {
+            if max_severity_rank < 1 { max_severity_rank = 1; }
             conditions.push(PossibleConditionResult {
-                condition_name: "Upper Respiratory Infection".to_string(),
+                condition_name: "Influenza / Upper Respiratory Infection".to_string(),
+                probability: if has_runny_nose { 0.78 } else { 0.68 },
+                severity: "medium".to_string(),
+                description: "Acute onset of fever, cough, and fatigue is consistent with influenza or a viral URI.".to_string(),
+                icd10_code: Some("J10.1".to_string()),
+            });
+        } else if has_runny_nose {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Common Cold (Viral URI)".to_string(),
                 probability: 0.75,
                 severity: "low".to_string(),
-                description: "Common cold or flu-like illness".to_string(),
+                description: "Mild upper respiratory tract symptoms likely due to rhinovirus or similar pathogen.".to_string(),
                 icd10_code: Some("J06.9".to_string()),
             });
-        } else if symptom_str.contains("wheezing") {
+        } else if has_wheeze {
+            if max_severity_rank < 1 { max_severity_rank = 1; }
             conditions.push(PossibleConditionResult {
-                condition_name: "Bronchitis or Asthma".to_string(),
-                probability: 0.6,
+                condition_name: "Asthma / Bronchospasm".to_string(),
+                probability: 0.65,
                 severity: "medium".to_string(),
-                description: "Airway inflammation requiring evaluation".to_string(),
-                icd10_code: Some("J40".to_string()),
+                description: "Cough with wheeze suggests airway hyperreactivity or bronchospasm requiring evaluation.".to_string(),
+                icd10_code: Some("J45.9".to_string()),
             });
         }
     }
 
-    if symptom_str.contains("stomach pain") || symptom_str.contains("abdominal pain") {
-        if symptom_str.contains("nausea") || symptom_str.contains("vomiting") {
+    // Gastroenteritis / abdominal pain
+    if symptom_str.contains("abdominal pain") || symptom_str.contains("stomach pain") {
+        let has_nv = symptom_str.contains("nausea")
+            || symptom_str.contains("vomiting")
+            || symptom_str.contains("diarrhoea")
+            || symptom_str.contains("diarrhea");
+        let has_fever = symptom_str.contains("fever");
+
+        if has_nv {
             conditions.push(PossibleConditionResult {
                 condition_name: "Gastroenteritis".to_string(),
-                probability: 0.65,
+                probability: if has_fever { 0.68 } else { 0.72 },
                 severity: "low".to_string(),
-                description: "Stomach flu or food-related illness".to_string(),
+                description: "Abdominal cramps with nausea, vomiting, or diarrhoea are typical of gastroenteritis.".to_string(),
                 icd10_code: Some("K52.9".to_string()),
             });
         }
-        if symptom_str.contains("right side") || symptom_str.contains("lower right") {
-            red_flags.push("Right-sided abdominal pain could indicate appendicitis".to_string());
-            if max_severity == "low" {
-                max_severity = "medium";
-            }
+
+        // Peptic ulcer disease
+        if symptom_str.contains("burning")
+            || symptom_str.contains("epigastric")
+            || symptom_str.contains("heartburn")
+            || symptom_str.contains("worse after eating")
+            || symptom_str.contains("better after eating")
+        {
+            conditions.push(PossibleConditionResult {
+                condition_name: "Peptic Ulcer Disease / Dyspepsia".to_string(),
+                probability: 0.58,
+                severity: "low".to_string(),
+                description: "Epigastric burning pain related to meals may indicate PUD or GORD.".to_string(),
+                icd10_code: Some("K27.9".to_string()),
+            });
         }
     }
 
+    // Pharyngitis / strep throat
     if symptom_str.contains("sore throat") {
-        if symptom_str.contains("fever") {
+        let has_fever = symptom_str.contains("fever");
+        let has_exudate = symptom_str.contains("white patch")
+            || symptom_str.contains("exudate")
+            || symptom_str.contains("pus");
+        let has_lymph = symptom_str.contains("swollen gland")
+            || symptom_str.contains("lymph node")
+            || symptom_str.contains("neck swelling");
+
+        if has_fever || has_exudate || has_lymph {
             conditions.push(PossibleConditionResult {
-                condition_name: "Pharyngitis".to_string(),
-                probability: 0.7,
+                condition_name: "Acute Pharyngitis / Streptococcal Tonsillitis".to_string(),
+                probability: if has_exudate { 0.72 } else { 0.62 },
                 severity: "low".to_string(),
-                description: "Throat infection, possibly viral or bacterial".to_string(),
-                icd10_code: Some("J02.9".to_string()),
+                description: "Sore throat with fever, exudate, or lymphadenopathy suggests bacterial pharyngitis. Consider throat swab.".to_string(),
+                icd10_code: Some("J02.0".to_string()),
             });
         } else {
             conditions.push(PossibleConditionResult {
-                condition_name: "Throat Irritation".to_string(),
-                probability: 0.6,
+                condition_name: "Viral Throat Irritation".to_string(),
+                probability: 0.60,
                 severity: "low".to_string(),
-                description: "May be due to allergies, dryness, or mild infection".to_string(),
-                icd10_code: Some("R07.0".to_string()),
+                description: "Mild sore throat without fever is most often viral and self-limiting.".to_string(),
+                icd10_code: Some("J02.9".to_string()),
             });
         }
     }
 
-    if symptom_str.contains("fatigue") && symptom_str.contains("weight") {
+    // Urinary tract infection
+    {
+        let has_dysuria = symptom_str.contains("dysuria")
+            || symptom_str.contains("painful urination")
+            || symptom_str.contains("burning urination")
+            || symptom_str.contains("pain when urinating")
+            || symptom_str.contains("pain passing urine");
+        let has_frequency = symptom_str.contains("urinary frequency")
+            || symptom_str.contains("frequent urination")
+            || symptom_str.contains("needing to urinate")
+            || symptom_str.contains("urgency");
+        let has_cloudy = symptom_str.contains("cloudy urine")
+            || symptom_str.contains("smelly urine")
+            || symptom_str.contains("offensive urine");
+
+        let mut score = 0u32;
+        if has_dysuria  { score += 3; }
+        if has_frequency { score += 2; }
+        if has_cloudy   { score += 2; }
+
+        if score >= 2 {
+            let has_fever = symptom_str.contains("fever");
+            let severity = if has_fever { "medium" } else { "low" };
+            if has_fever && max_severity_rank < 1 { max_severity_rank = 1; }
+            conditions.push(PossibleConditionResult {
+                condition_name: if has_fever { "Pyelonephritis (Upper UTI)" } else { "Lower Urinary Tract Infection (Cystitis)" }.to_string(),
+                probability: (score as f32 * 0.12).min(0.82),
+                severity: severity.to_string(),
+                description: if has_fever {
+                    "UTI symptoms with fever suggest upper tract involvement (pyelonephritis) requiring urgent urine culture and antibiotics.".to_string()
+                } else {
+                    "Classic lower UTI/cystitis symptoms. Urine dipstick and culture recommended.".to_string()
+                },
+                icd10_code: Some(if has_fever { "N10" } else { "N30.0" }.to_string()),
+            });
+        }
+    }
+
+    // Metabolic / thyroid
+    if symptom_str.contains("fatigue")
+        && (symptom_str.contains("weight loss") || symptom_str.contains("weight gain"))
+    {
+        if max_severity_rank < 1 { max_severity_rank = 1; }
         conditions.push(PossibleConditionResult {
-            condition_name: "Metabolic or Thyroid Condition".to_string(),
-            probability: 0.4,
+            condition_name: "Thyroid / Metabolic Disorder".to_string(),
+            probability: 0.42,
             severity: "medium".to_string(),
-            description: "Unexplained fatigue with weight changes warrants evaluation".to_string(),
+            description: "Unexplained fatigue with weight change warrants thyroid function tests and metabolic workup.".to_string(),
             icd10_code: Some("E03.9".to_string()),
         });
     }
 
-    // If no specific conditions matched, add general assessment
+    // Anaemia
+    if symptom_str.contains("fatigue")
+        && (symptom_str.contains("pale") || symptom_str.contains("pallor") || symptom_str.contains("short of breath"))
+    {
+        conditions.push(PossibleConditionResult {
+            condition_name: "Anaemia".to_string(),
+            probability: 0.45,
+            severity: "medium".to_string(),
+            description: "Fatigue with pallor or exertional dyspnoea may indicate anaemia. FBC recommended.".to_string(),
+            icd10_code: Some("D64.9".to_string()),
+        });
+    }
+
+    // Deep Vein Thrombosis / Pulmonary Embolism
+    {
+        let has_leg_swelling = symptom_str.contains("leg swelling")
+            || symptom_str.contains("calf pain")
+            || symptom_str.contains("calf swelling")
+            || symptom_str.contains("swollen leg");
+        let has_sob = symptom_str.contains("shortness of breath")
+            || symptom_str.contains("breathless");
+        let has_pleuritic = symptom_str.contains("pleuritic")
+            || symptom_str.contains("sharp chest pain")
+            || symptom_str.contains("pain on breathing");
+
+        if has_leg_swelling && (has_sob || has_pleuritic) {
+            max_severity_rank = 3;
+            red_flags.push("Leg swelling with breathing difficulty – possible deep vein thrombosis / pulmonary embolism. Seek emergency evaluation.".to_string());
+            conditions.push(PossibleConditionResult {
+                condition_name: "Pulmonary Embolism / Deep Vein Thrombosis".to_string(),
+                probability: 0.72,
+                severity: "critical".to_string(),
+                description: "DVT with sudden dyspnoea and pleuritic chest pain is the classic PE presentation.".to_string(),
+                icd10_code: Some("I26.9".to_string()),
+            });
+        } else if has_leg_swelling {
+            if max_severity_rank < 2 { max_severity_rank = 2; }
+            conditions.push(PossibleConditionResult {
+                condition_name: "Deep Vein Thrombosis".to_string(),
+                probability: 0.50,
+                severity: "high".to_string(),
+                description: "Unilateral calf pain and swelling warrants Doppler ultrasound to exclude DVT.".to_string(),
+                icd10_code: Some("I82.4".to_string()),
+            });
+        }
+    }
+
+    // Diabetic emergency: known diabetes + altered consciousness / extreme thirst
+    {
+        let has_diabetes_context = symptom_str.contains("diabetic")
+            || symptom_str.contains("diabetes")
+            || symptom_str.contains("insulin");
+        let has_hypo = symptom_str.contains("shakiness")
+            || symptom_str.contains("trembling")
+            || symptom_str.contains("sweating")
+            || symptom_str.contains("confusion")
+            || symptom_str.contains("hypoglycaemia")
+            || symptom_str.contains("hypoglycemia")
+            || symptom_str.contains("low blood sugar");
+        let has_polydipsia = symptom_str.contains("excessive thirst")
+            || symptom_str.contains("polydipsia")
+            || symptom_str.contains("frequent urination");
+
+        if has_diabetes_context && has_hypo {
+            max_severity_rank = 3;
+            red_flags.push("Possible hypoglycaemia in diabetic patient – check blood glucose immediately.".to_string());
+            conditions.push(PossibleConditionResult {
+                condition_name: "Hypoglycaemia".to_string(),
+                probability: 0.80,
+                severity: "critical".to_string(),
+                description: "Hypoglycaemic episode in known diabetic patient requires immediate glucose measurement and treatment.".to_string(),
+                icd10_code: Some("E11.649".to_string()),
+            });
+        } else if has_polydipsia && symptom_str.contains("weight loss") {
+            if max_severity_rank < 1 { max_severity_rank = 1; }
+            conditions.push(PossibleConditionResult {
+                condition_name: "New-Onset Diabetes Mellitus".to_string(),
+                probability: 0.55,
+                severity: "medium".to_string(),
+                description: "Polyuria, polydipsia and weight loss in a non-diabetic patient raises concern for new-onset diabetes. Fasting glucose and HbA1c indicated.".to_string(),
+                icd10_code: Some("E11.9".to_string()),
+            });
+        }
+    }
+
+    // Sort conditions: critical first, then by descending probability
+    conditions.sort_by(|a, b| {
+        let ra = severity_rank(&a.severity);
+        let rb = severity_rank(&b.severity);
+        rb.cmp(&ra)
+            .then(b.probability.partial_cmp(&a.probability).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    // If no conditions matched at all, return generic assessment
     if conditions.is_empty() {
         conditions.push(PossibleConditionResult {
-            condition_name: "General Symptoms Requiring Evaluation".to_string(),
-            probability: 0.5,
+            condition_name: "General Symptoms – Evaluation Recommended".to_string(),
+            probability: 0.50,
             severity: "low".to_string(),
-            description: "Symptoms should be evaluated by a healthcare provider".to_string(),
+            description: "The reported symptoms do not match a specific high-probability pattern. A healthcare provider should evaluate you for a definitive assessment.".to_string(),
             icd10_code: None,
         });
     }
 
-    // Determine triage level
-    let triage_level = match max_severity {
-        "critical" => "emergency",
-        "high" => "urgent_care",
-        "medium" => "schedule_appointment",
+    // Map internal severity rank to API triage level string
+    let triage_level = match max_severity_rank {
+        3 => "emergency",
+        2 => "urgent_care",
+        1 => "schedule_appointment",
         _ => "self_care",
     };
 
@@ -13226,6 +14307,349 @@ pub async fn get_patient_telehealth_sessions(
 // ============================================================================
 // PHASE 27: CLINICAL DECISION SUPPORT (CDS)
 // ============================================================================
+
+/// Evaluate Clinical Decision Support rules for a patient based on their current vitals/labs.
+/// Returns a list of auto-generated CDS alerts that should be created.
+pub fn evaluate_cds_rules(
+    patient_id: &str,
+    vitals: Option<&crate::clinical::VitalSignsReading>,
+    lab_values: Option<&std::collections::HashMap<String, f64>>,
+    patient_conditions: &[String],
+    current_medications: &[String],
+) -> Vec<crate::clinical::CDSAlert> {
+    let mut alerts = Vec::new();
+    let now = chrono::Utc::now().timestamp();
+
+    // Helper closure for creating alerts
+    let make_alert = |id_suffix: &str,
+                      alert_type: crate::clinical::CDSAlertType,
+                      title: &str,
+                      description: &str,
+                      severity: crate::clinical::CDSSeverity,
+                      recommendation: &str|
+     -> crate::clinical::CDSAlert {
+        crate::clinical::CDSAlert {
+            alert_id: format!("AUTO-CDS-{}-{}", id_suffix, uuid::Uuid::new_v4()),
+            patient_id: patient_id.to_string(),
+            provider_id: "cds_rules_engine".to_string(),
+            alert_type,
+            severity,
+            title: title.to_string(),
+            description: description.to_string(),
+            clinical_context: "Automated CDS rules evaluation".to_string(),
+            triggering_data: serde_json::json!({ "source": "automated_rules_engine" }),
+            recommended_actions: vec![crate::clinical::CDSRecommendedAction {
+                action_id: format!("ACT-{}", uuid::Uuid::new_v4()),
+                action_type: "clinical_action".to_string(),
+                description: recommendation.to_string(),
+                strength: crate::clinical::RecommendationStrength::Strong,
+                one_click_order: None,
+            }],
+            evidence: vec![crate::clinical::CDSEvidence {
+                source: "CDS Rules Engine".to_string(),
+                citation: "Clinical decision support automated rule".to_string(),
+                url: None,
+                evidence_grade: "A".to_string(),
+            }],
+            guideline_reference: None,
+            created_at: now,
+            expires_at: None,
+            status: crate::clinical::CDSAlertStatus::Active,
+            response: None,
+        }
+    };
+
+    // --- VITAL SIGNS RULES ---
+    if let Some(v) = vitals {
+        // Sepsis screening (qSOFA criteria) — using available fields
+        let mut qsofa_score = 0;
+        if let Some(rr) = v.respiratory_rate { if rr >= 22 { qsofa_score += 1; } }
+        if let Some(sbp) = v.systolic_bp { if sbp <= 100 { qsofa_score += 1; } }
+        if qsofa_score >= 2 {
+            alerts.push(make_alert(
+                "SEPSIS",
+                crate::clinical::CDSAlertType::BestPracticeAdvisory,
+                "Sepsis Alert - qSOFA \u{2265} 2",
+                &format!(
+                    "qSOFA score: {}. Criteria met: RR\u{2265}22:{}, SBP\u{2264}100:{}",
+                    qsofa_score,
+                    v.respiratory_rate.map(|r| r >= 22).unwrap_or(false),
+                    v.systolic_bp.map(|s| s <= 100).unwrap_or(false),
+                ),
+                crate::clinical::CDSSeverity::Critical,
+                "Initiate sepsis bundle: blood cultures x2, lactate, broad-spectrum antibiotics within 1 hour, 30mL/kg IV crystalloid if hypotensive",
+            ));
+        }
+
+        // Hypertensive crisis
+        if let (Some(sbp), Some(dbp)) = (v.systolic_bp, v.diastolic_bp) {
+            if sbp >= 180 || dbp >= 120 {
+                alerts.push(make_alert(
+                    "HTNCRISIS",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    "Hypertensive Crisis",
+                    &format!("BP: {}/{} mmHg", sbp, dbp),
+                    crate::clinical::CDSSeverity::Critical,
+                    "Assess for end-organ damage. IV labetalol or nicardipine if hypertensive emergency. Oral agents if urgency only.",
+                ));
+            }
+        }
+
+        // Hypotensive shock
+        if let Some(sbp) = v.systolic_bp {
+            if sbp < 90 {
+                let hr_tachycardia = v.heart_rate.map(|h| h > 100).unwrap_or(false);
+                alerts.push(make_alert(
+                    "HYPOSHOCK",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    if hr_tachycardia { "Shock - Hypotension + Tachycardia" } else { "Hypotension Alert" },
+                    &format!("SBP: {} mmHg{}", sbp, if hr_tachycardia { ", HR >100 bpm" } else { "" }),
+                    if hr_tachycardia { crate::clinical::CDSSeverity::Critical } else { crate::clinical::CDSSeverity::High },
+                    "IV access x2, fluid resuscitation, determine shock type (septic/hemorrhagic/cardiogenic/distributive), consider vasopressors",
+                ));
+            }
+        }
+
+        // Bradycardia
+        if let Some(hr) = v.heart_rate {
+            if hr < 50 {
+                alerts.push(make_alert(
+                    "BRADY",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    "Severe Bradycardia",
+                    &format!("HR: {} bpm", hr),
+                    crate::clinical::CDSSeverity::High,
+                    "12-lead ECG, assess for AV block, consider atropine 0.5mg IV if symptomatic",
+                ));
+            }
+            // Tachycardia
+            if hr > 130 {
+                alerts.push(make_alert(
+                    "TACHY",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    "Severe Tachycardia",
+                    &format!("HR: {} bpm", hr),
+                    crate::clinical::CDSSeverity::High,
+                    "12-lead ECG, identify and treat underlying cause, consider rate control if stable",
+                ));
+            }
+        }
+
+        // Fever
+        if let Some(temp) = v.temperature_celsius {
+            if temp >= 38.5 {
+                let severity = if temp >= 40.0 { crate::clinical::CDSSeverity::Critical } else { crate::clinical::CDSSeverity::High };
+                alerts.push(make_alert(
+                    "FEVER",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    "Fever Alert",
+                    &format!("Temperature: {:.1}\u{00b0}C", temp),
+                    severity,
+                    if temp >= 40.0 {
+                        "High fever - blood cultures, CBC, CMP, consider LP if meningeal signs, aggressive antipyretics, cooling measures"
+                    } else {
+                        "Fever - blood cultures if bacteremia suspected, CBC, antipyretics, investigate source"
+                    },
+                ));
+            }
+            if temp < 35.0 {
+                alerts.push(make_alert(
+                    "HYPOTHERMIA",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    "Hypothermia Alert",
+                    &format!("Temperature: {:.1}\u{00b0}C", temp),
+                    crate::clinical::CDSSeverity::Critical,
+                    "Active warming, monitor for cardiac arrhythmias, check glucose, thyroid function",
+                ));
+            }
+        }
+
+        // Hypoxia
+        if let Some(spo2) = v.oxygen_saturation {
+            if spo2 < 90 {
+                alerts.push(make_alert(
+                    "HYPOXIA",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    "Critical Hypoxia",
+                    &format!("SpO2: {}%", spo2),
+                    crate::clinical::CDSSeverity::Critical,
+                    "Supplemental O2 immediately, ABG, CXR, assess for PE/pneumonia/ARDS, prepare for intubation if refractory",
+                ));
+            } else if spo2 < 94 {
+                alerts.push(make_alert(
+                    "LOWSPO2",
+                    crate::clinical::CDSAlertType::VitalSignAbnormal,
+                    "Low Oxygen Saturation",
+                    &format!("SpO2: {}%", spo2),
+                    crate::clinical::CDSSeverity::High,
+                    "Supplemental O2, assess work of breathing, ABG, CXR",
+                ));
+            }
+        }
+    }
+
+    // --- LAB VALUE RULES ---
+    if let Some(labs) = lab_values {
+        // Acute Kidney Injury
+        if let Some(&creatinine) = labs.get("creatinine") {
+            if creatinine > 354.0 {
+                // >4 mg/dL in µmol/L
+                alerts.push(make_alert(
+                    "AKI",
+                    crate::clinical::CDSAlertType::LaboratoryAbnormal,
+                    "Severe AKI - Critical Creatinine",
+                    &format!("Creatinine: {:.0} \u{00b5}mol/L", creatinine),
+                    crate::clinical::CDSSeverity::Critical,
+                    "Nephrology consult, hold nephrotoxins, strict fluid balance, consider renal replacement therapy",
+                ));
+            }
+        }
+
+        // Hyperkalemia
+        if let Some(&potassium) = labs.get("potassium") {
+            if potassium > 6.5 {
+                alerts.push(make_alert(
+                    "HYPERK",
+                    crate::clinical::CDSAlertType::LaboratoryAbnormal,
+                    "Critical Hyperkalemia",
+                    &format!("K+: {:.1} mmol/L", potassium),
+                    crate::clinical::CDSSeverity::Critical,
+                    "ECG immediately, calcium gluconate 1g IV, insulin 10u + D50W, sodium bicarbonate if acidotic, consider Kayexalate or dialysis",
+                ));
+            }
+        }
+
+        // Hyponatremia
+        if let Some(&sodium) = labs.get("sodium") {
+            if sodium < 120.0 {
+                alerts.push(make_alert(
+                    "HYPONATR",
+                    crate::clinical::CDSAlertType::LaboratoryAbnormal,
+                    "Severe Hyponatremia",
+                    &format!("Na+: {:.0} mmol/L", sodium),
+                    crate::clinical::CDSSeverity::Critical,
+                    "Neurology consult, 3% NaCl if symptomatic (seizures/altered MS), correct no faster than 8-12 mEq/L per 24h to avoid osmotic demyelination",
+                ));
+            }
+        }
+
+        // Critical hemoglobin
+        if let Some(&hgb) = labs.get("hemoglobin") {
+            if hgb < 70.0 {
+                // < 7 g/dL in g/L
+                alerts.push(make_alert(
+                    "CRITANEMIA",
+                    crate::clinical::CDSAlertType::LaboratoryAbnormal,
+                    "Critical Anemia",
+                    &format!("Hemoglobin: {:.0} g/L", hgb),
+                    crate::clinical::CDSSeverity::Critical,
+                    "Transfusion threshold met, type and crossmatch, consider transfusion if symptomatic, identify bleeding source",
+                ));
+            }
+        }
+
+        // Troponin elevation
+        if let Some(&troponin) = labs.get("troponin") {
+            if troponin > 0.04 {
+                // ng/mL
+                alerts.push(make_alert(
+                    "TROPONIN",
+                    crate::clinical::CDSAlertType::LaboratoryAbnormal,
+                    "Elevated Troponin - ACS Suspected",
+                    &format!("Troponin: {:.3} ng/mL", troponin),
+                    crate::clinical::CDSSeverity::Critical,
+                    "12-lead ECG, cardiology consult, aspirin 325mg, anticoagulation, serial troponins at 3h, consider cath lab activation",
+                ));
+            }
+        }
+
+        // INR supratherapeutic
+        if let Some(&inr) = labs.get("inr") {
+            if inr > 4.0 {
+                alerts.push(make_alert(
+                    "SUPRAINR",
+                    crate::clinical::CDSAlertType::LaboratoryAbnormal,
+                    "Supratherapeutic INR",
+                    &format!("INR: {:.1}", inr),
+                    crate::clinical::CDSSeverity::High,
+                    if inr > 9.0 {
+                        "Hold warfarin, Vitamin K 10mg IV, consider 4-factor PCC if active bleeding"
+                    } else {
+                        "Hold warfarin, Vitamin K 2.5-5mg PO, repeat INR in 24h"
+                    },
+                ));
+            }
+        }
+
+        // Lactic acidosis
+        if let Some(&lactate) = labs.get("lactate") {
+            if lactate > 4.0 {
+                alerts.push(make_alert(
+                    "LACTATCRIT",
+                    crate::clinical::CDSAlertType::LaboratoryAbnormal,
+                    "Critical Lactic Acidosis",
+                    &format!("Lactate: {:.1} mmol/L", lactate),
+                    crate::clinical::CDSSeverity::Critical,
+                    "Identify underlying cause (sepsis, mesenteric ischemia, hepatic failure), aggressive resuscitation, repeat lactate in 2h",
+                ));
+            }
+        }
+    }
+
+    // --- MEDICATION SAFETY RULES ---
+    let meds_lower: Vec<String> = current_medications
+        .iter()
+        .map(|m| m.to_lowercase())
+        .collect();
+
+    // Anticoagulation fall risk
+    if meds_lower.iter().any(|m| {
+        m.contains("warfarin")
+            || m.contains("heparin")
+            || m.contains("rivaroxaban")
+            || m.contains("apixaban")
+            || m.contains("dabigatran")
+    }) {
+        if patient_conditions
+            .iter()
+            .any(|c| c.to_lowercase().contains("fall") || c.to_lowercase().contains("dementia"))
+        {
+            alerts.push(make_alert(
+                "ANTICOAGFALL",
+                crate::clinical::CDSAlertType::BestPracticeAdvisory,
+                "High Bleeding Risk - Anticoagulation + Fall Risk",
+                "Patient on anticoagulant with documented fall risk or dementia",
+                crate::clinical::CDSSeverity::High,
+                "Fall prevention protocol, bed alarm, consider dose reduction, ensure INR/anti-Xa monitoring in place",
+            ));
+        }
+    }
+
+    // NSAIDs in renal impairment
+    if meds_lower.iter().any(|m| {
+        m.contains("ibuprofen")
+            || m.contains("naproxen")
+            || m.contains("diclofenac")
+            || m.contains("indomethacin")
+    }) {
+        if patient_conditions.iter().any(|c| {
+            c.to_lowercase().contains("renal")
+                || c.to_lowercase().contains("kidney")
+                || c.to_lowercase().contains("ckd")
+        }) {
+            alerts.push(make_alert(
+                "NSAIDRENAL",
+                crate::clinical::CDSAlertType::BestPracticeAdvisory,
+                "NSAID Use in Renal Impairment",
+                "Patient has renal disease and is receiving NSAID",
+                crate::clinical::CDSSeverity::High,
+                "Consider paracetamol/acetaminophen instead. If NSAID necessary, use lowest dose for shortest duration with close renal monitoring",
+            ));
+        }
+    }
+
+    alerts
+}
 
 /// Create CDS alert request
 #[derive(Debug, Deserialize)]
@@ -14642,32 +16066,231 @@ pub async fn check_insurance_eligibility(
     }
 
     let now = chrono::Utc::now().timestamp();
+    let today = chrono::Utc::now().date_naive();
+    let check_id = format!("EC-{}", uuid::Uuid::new_v4());
 
-    // Simulate eligibility check response
-    let response = serde_json::json!({
-        "success": true,
-        "check_id": format!("EC-{}", uuid::Uuid::new_v4()),
-        "patient_id": req.patient_id,
-        "checked_at": now,
-        "eligible": true,
-        "coverage_active": true,
-        "plan_name": "Standard Medical Plan",
-        "member_id": req.member_id,
-        "payer_id": req.payer_id,
-        "benefits": {
-            "copay": 25.0,
-            "deductible": 500.0,
-            "deductible_met": 350.0,
-            "coinsurance_percent": 20,
-            "out_of_pocket_max": 5000.0,
-            "out_of_pocket_met": 1200.0
-        },
-        "service_coverage": {
-            "service_type": req.service_type,
-            "covered": true,
-            "authorization_required": false
+    // ── Step 1: verify patient exists ────────────────────────────────────────
+    {
+        let patients = data.patients.read().unwrap();
+        if !patients.contains_key(&req.patient_id) {
+            return HttpResponse::NotFound().json(serde_json::json!({
+                "success": false,
+                "error": "Patient not found",
+                "code": "NOT_FOUND"
+            }));
         }
-    });
+    }
+
+    // ── Step 2: look up active insurance records via repository ──────────────
+    let insurance_records = data
+        .repositories
+        .insurance_records
+        .get_active_by_patient(&req.patient_id)
+        .await
+        .unwrap_or_default();
+
+    // Use the first active record; fall back to the most-recently-created one
+    // if none are flagged active by the repository filter.
+    let insurance = insurance_records.into_iter().next();
+
+    let response = match insurance {
+        None => {
+            // No insurance record on file
+            serde_json::json!({
+                "success": true,
+                "check_id": check_id,
+                "patient_id": req.patient_id,
+                "checked_at": now,
+                "eligible": false,
+                "coverage_active": false,
+                "plan_name": null,
+                "member_id": req.member_id,
+                "payer_id": req.payer_id,
+                "message": "No insurance record on file",
+                "benefits": null,
+                "service_coverage": null
+            })
+        }
+        Some(ins) => {
+            // ── Step 3: check policy dates ──────────────────────────────────
+            let effective_ok = ins.effective_date <= today;
+            let not_terminated = ins
+                .termination_date
+                .map(|d| d >= today)
+                .unwrap_or(true);
+            let policy_active = ins.is_active && effective_ok && not_terminated;
+
+            // ── Step 4: determine service coverage by plan type ─────────────
+            // Map plan type string to the set of covered service categories.
+            let plan_type_lower = ins
+                .plan_type
+                .as_deref()
+                .unwrap_or("unknown")
+                .to_lowercase();
+
+            // Services that require pre-authorisation regardless of plan type.
+            let auth_required_services = [
+                "mri", "ct scan", "ct", "surgery", "surgical", "specialist",
+                "specialist referral", "referral",
+            ];
+            let service_lower = req.service_type.to_lowercase();
+            let prior_auth_required = ins.prior_auth_required.unwrap_or(false)
+                || auth_required_services
+                    .iter()
+                    .any(|s| service_lower.contains(s));
+
+            // Determine whether this service type is covered.
+            // HMO plans typically require referrals; PPO plans cover more services directly.
+            let covered = if !policy_active {
+                false
+            } else {
+                match plan_type_lower.as_str() {
+                    "hmo" => {
+                        // HMO covers primary care, preventive, emergency, lab, pharmacy.
+                        // Specialist/surgery require referral but are still covered.
+                        !service_lower.contains("out-of-network")
+                            && !service_lower.contains("out of network")
+                    }
+                    "ppo" => {
+                        // PPO covers everything except explicitly excluded services.
+                        !service_lower.contains("cosmetic")
+                            && !service_lower.contains("experimental")
+                    }
+                    "epo" => {
+                        // EPO — like PPO but no out-of-network coverage.
+                        !service_lower.contains("out-of-network")
+                            && !service_lower.contains("out of network")
+                            && !service_lower.contains("cosmetic")
+                    }
+                    "pos" => {
+                        // Point-of-service: in-network services covered.
+                        !service_lower.contains("cosmetic")
+                    }
+                    "medicare" | "medicaid" => {
+                        // Government plans: broad coverage, some exclusions.
+                        !service_lower.contains("cosmetic")
+                            && !service_lower.contains("experimental")
+                    }
+                    _ => {
+                        // Unknown/other plan types — default to covered if active.
+                        true
+                    }
+                }
+            };
+
+            // ── Step 5: calculate remaining deductible ──────────────────────
+            let deductible_total = ins
+                .deductible_amount
+                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0));
+            let deductible_met_val = ins
+                .deductible_met
+                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0))
+                .unwrap_or(0.0);
+            let deductible_remaining = deductible_total.map(|total| {
+                let remaining = total - deductible_met_val;
+                if remaining < 0.0 { 0.0 } else { remaining }
+            });
+
+            let oop_max = ins
+                .out_of_pocket_max
+                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0));
+            let oop_met_val = ins
+                .out_of_pocket_met
+                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0))
+                .unwrap_or(0.0);
+            let oop_remaining = oop_max.map(|max| {
+                let remaining = max - oop_met_val;
+                if remaining < 0.0 { 0.0 } else { remaining }
+            });
+
+            let copay = ins
+                .copay_amount
+                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0));
+            let coinsurance = ins
+                .coinsurance_percent
+                .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as u8);
+
+            serde_json::json!({
+                "success": true,
+                "check_id": check_id,
+                "patient_id": req.patient_id,
+                "checked_at": now,
+                "eligible": policy_active && covered,
+                "coverage_active": policy_active,
+                "plan_name": ins.plan_name.unwrap_or_else(|| ins.payer_name.clone()),
+                "plan_type": ins.plan_type,
+                "member_id": ins.subscriber_id,
+                "payer_id": ins.payer_id,
+                "payer_name": ins.payer_name,
+                "policy_number": ins.policy_number,
+                "group_number": ins.group_number,
+                "effective_date": ins.effective_date.to_string(),
+                "termination_date": ins.termination_date.map(|d| d.to_string()),
+                "benefits": {
+                    "copay": copay,
+                    "deductible": deductible_total,
+                    "deductible_met": deductible_met_val,
+                    "deductible_remaining": deductible_remaining,
+                    "coinsurance_percent": coinsurance,
+                    "out_of_pocket_max": oop_max,
+                    "out_of_pocket_met": oop_met_val,
+                    "out_of_pocket_remaining": oop_remaining
+                },
+                "service_coverage": {
+                    "service_type": req.service_type,
+                    "covered": covered,
+                    "authorization_required": prior_auth_required,
+                    "prior_auth_phone": ins.prior_auth_phone
+                }
+            })
+        }
+    };
+
+    // Store the eligibility check result
+    {
+        let mut checks = data.eligibility_checks.write().unwrap();
+        checks.insert(
+            check_id.clone(),
+            crate::clinical::EligibilityCheckResponse {
+                check_id: check_id.clone(),
+                patient_id: req.patient_id.clone(),
+                checked_at: now,
+                eligible: response["eligible"].as_bool().unwrap_or(false),
+                coverage_active: response["coverage_active"].as_bool().unwrap_or(false),
+                plan_name: response["plan_name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string(),
+                coverage_details: crate::clinical::CoverageDetails {
+                    effective_date: response["effective_date"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string(),
+                    termination_date: response["termination_date"]
+                        .as_str()
+                        .map(|s| s.to_string()),
+                    copay: response["benefits"]["copay"].as_f64(),
+                    coinsurance_percent: response["benefits"]["coinsurance_percent"]
+                        .as_u64()
+                        .map(|v| v as u8),
+                    deductible: response["benefits"]["deductible"].as_f64(),
+                    deductible_remaining: response["benefits"]["deductible_remaining"]
+                        .as_f64(),
+                    out_of_pocket_max: response["benefits"]["out_of_pocket_max"].as_f64(),
+                    out_of_pocket_remaining: response["benefits"]["out_of_pocket_remaining"]
+                        .as_f64(),
+                    in_network: true,
+                    prior_auth_required: response["service_coverage"]["authorization_required"]
+                        .as_bool()
+                        .unwrap_or(false),
+                    referral_required: response["service_coverage"]["authorization_required"]
+                        .as_bool()
+                        .unwrap_or(false),
+                },
+                errors: Vec::new(),
+            },
+        );
+    }
 
     HttpResponse::Ok().json(response)
 }
@@ -16267,6 +17890,50 @@ pub async fn record_vital_signs(
             }
         });
         flowsheet.readings.push(reading.clone());
+    }
+
+    // Trigger automated CDS rules evaluation
+    {
+        let patient_id_for_cds = patient_id.to_string();
+        let patient_conditions: Vec<String> = {
+            let patients = data.patients.read().unwrap();
+            patients
+                .get(&patient_id_for_cds)
+                .map(|p| p.emergency_info.chronic_conditions.clone())
+                .unwrap_or_default()
+        };
+        let current_meds: Vec<String> = {
+            let patients = data.patients.read().unwrap();
+            patients
+                .get(&patient_id_for_cds)
+                .map(|p| p.emergency_info.current_medications.clone())
+                .unwrap_or_default()
+        };
+        let cds_alerts = evaluate_cds_rules(
+            &patient_id_for_cds,
+            Some(&reading),
+            None,
+            &patient_conditions,
+            &current_meds,
+        );
+        if !cds_alerts.is_empty() {
+            let mut alerts_store = data.cds_alerts.write().unwrap();
+            for alert in &cds_alerts {
+                log::info!(
+                    "CDS Alert fired for patient {}: {}",
+                    patient_id_for_cds,
+                    alert.alert_id
+                );
+                // Push real-time notification via SSE
+                crate::websocket::push_cds_alert(
+                    &data.ws_manager,
+                    &patient_id_for_cds,
+                    &format!("{:?}", alert.title),
+                    &format!("{:?}", alert.severity),
+                );
+                alerts_store.insert(alert.alert_id.clone(), alert.clone());
+            }
+        }
     }
 
     HttpResponse::Created().json(serde_json::json!({

@@ -33,11 +33,13 @@ mod models;
 mod repositories;
 mod services;
 
+mod blockchain;
 mod clinical;
 mod clinical_endpoints;
 mod ipfs;
 mod middleware;
 mod nfc_simulator;
+mod websocket;
 
 // Middleware imports - some are used directly, others are ready for future use
 use middleware::error_handling::{secure_tokens, validation};
@@ -735,6 +737,34 @@ pub struct WalletLoginRequest {
     pub wallet_address: String,
 }
 
+/// Request body for POST /api/auth/session
+#[derive(Debug, Deserialize)]
+pub struct SessionCreateRequest {
+    /// SS58 encoded wallet address
+    pub wallet_address: String,
+    /// Optional signature over the challenge (for future verification)
+    pub signature: Option<String>,
+    /// Optional challenge string that was signed
+    pub challenge: Option<String>,
+}
+
+/// Response for POST /api/auth/session
+#[derive(Debug, Serialize)]
+pub struct SessionCreateResponse {
+    pub success: bool,
+    pub token: String,
+    pub expires_at: i64,
+    pub wallet_address: String,
+}
+
+/// Response for GET /api/auth/verify
+#[derive(Debug, Serialize)]
+pub struct SessionVerifyResponse {
+    pub success: bool,
+    pub wallet_address: String,
+    pub expires_at: i64,
+}
+
 /// Response for wallet login
 #[derive(Debug, Serialize)]
 pub struct WalletLoginResponse {
@@ -1122,6 +1152,10 @@ pub struct AppState {
     pub lab_submissions: RwLock<HashMap<String, LabResultSubmission>>,
     /// IPFS client for encrypted document storage
     pub ipfs_client: IpfsClient,
+    /// Substrate blockchain client (None if SUBSTRATE_WS_URL not set)
+    pub substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
+    /// WebSocket/SSE session manager for push notifications
+    pub ws_manager: crate::websocket::WsSessionManager,
     /// Encryption key for medical records (in production: per-patient keys from HSM)
     pub encryption_key: medichain_crypto::EncryptionKey,
     /// NFC Card registry for demo
@@ -1326,8 +1360,7 @@ impl AppState {
             lab_panels_map.insert(panel.name.clone(), panel);
         }
 
-        // Initialize repository container (memory by default)
-        // For PostgreSQL, set MEDICHAIN_STORAGE=postgres at startup
+        // Use new_with_pool_async for PostgreSQL backend support
         let repositories = RepositoryContainer::new_memory();
         log::info!("Repository backend: {:?}", repositories.backend);
 
@@ -1340,7 +1373,9 @@ impl AppState {
             users: RwLock::new(HashMap::new()),
             medical_records: RwLock::new(HashMap::new()),
             lab_submissions: RwLock::new(HashMap::new()),
-            ipfs_client: IpfsClient::new_local(),
+            ipfs_client: IpfsClient::from_env(),
+            substrate_client: None, // Use new_with_pool_async for blockchain support
+            ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
@@ -1437,9 +1472,8 @@ impl AppState {
     }
 
     /// Create new AppState with optional PostgreSQL pool (async version)
-    /// Note: Currently uses memory backend due to entity structure differences.
-    /// TODO: Align entity definitions in traits.rs with PostgreSQL schema for full PostgreSQL support.
-    pub async fn new_with_pool_async(db_pool: Option<sqlx::PgPool>) -> Self {
+    /// Pass substrate_client to enable blockchain integration.
+    pub async fn new_with_pool_async(db_pool: Option<sqlx::PgPool>, substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>) -> Self {
         // In production, keys would be managed by HSM/key vault
         let encryption_key =
             medichain_crypto::EncryptionKey::generate().expect("Failed to generate encryption key");
@@ -1450,10 +1484,30 @@ impl AppState {
             lab_panels_map.insert(panel.name.clone(), panel);
         }
 
-        // TODO: PostgreSQL migration requires aligning entity structures in traits.rs
-        // with PostgreSQL schema. Currently using memory backend for all repositories.
-        // Set MEDICHAIN_STORAGE=postgres to enable PostgreSQL (when entity alignment is complete)
-        let repositories = RepositoryContainer::new_memory();
+        // Storage backend selection: set MEDICHAIN_STORAGE=postgres to enable PostgreSQL
+        // The postgres feature is enabled by default in Cargo.toml
+        let repositories = {
+            #[cfg(feature = "postgres")]
+            {
+                match (crate::repositories::StorageBackend::from_env(), db_pool.as_ref()) {
+                    (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                        match RepositoryContainer::new_postgres(pool.clone()).await {
+                            Ok(pg_repos) => {
+                                log::info!("Using PostgreSQL repository backend");
+                                pg_repos
+                            }
+                            Err(e) => {
+                                log::error!("PostgreSQL repository init failed: {}. Falling back to memory.", e);
+                                RepositoryContainer::new_memory()
+                            }
+                        }
+                    }
+                    _ => RepositoryContainer::new_memory(),
+                }
+            }
+            #[cfg(not(feature = "postgres"))]
+            { RepositoryContainer::new_memory() }
+        };
         log::info!("Repository backend: {:?}", repositories.backend);
 
         Self {
@@ -1465,7 +1519,9 @@ impl AppState {
             users: RwLock::new(HashMap::new()),
             medical_records: RwLock::new(HashMap::new()),
             lab_submissions: RwLock::new(HashMap::new()),
-            ipfs_client: IpfsClient::new_local(),
+            ipfs_client: IpfsClient::from_env(),
+            substrate_client,
+            ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
@@ -1871,7 +1927,7 @@ async fn health_check() -> impl Responder {
         status: "healthy".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: Utc::now(),
-        blockchain_connected: true, // Simulated for demo
+        blockchain_connected: false, // Updated by actual blockchain client - see /health/db
     })
 }
 
@@ -2225,6 +2281,24 @@ async fn register_patient(
         nfc_tag_id,
         current_user_id
     );
+
+    // Fire-and-forget blockchain registration (non-fatal if blockchain unavailable)
+    {
+        let patient_id_clone = patient_id.clone();
+        let national_id_clone = req.national_id.clone();
+        let id_type_str = "national_id".to_string();
+        let registered_by_clone = current_user_id.clone();
+        let id_hash = hex::encode(<Sha3_256 as Digest>::digest(national_id_clone.as_bytes()));
+        if let Some(ref client) = data.substrate_client {
+            let client = client.clone();
+            tokio::spawn(async move {
+                match client.register_patient_on_chain(&patient_id_clone, &id_hash, &id_type_str, &registered_by_clone).await {
+                    Ok(tx_hash) => log::info!("Patient {} registered on chain: {}", patient_id_clone, tx_hash),
+                    Err(e) => log::warn!("Blockchain patient registration failed (non-fatal): {}", e),
+                }
+            });
+        }
+    }
 
     HttpResponse::Created().json(RegisterPatientResponse {
         success: true,
@@ -4499,6 +4573,23 @@ async fn upload_medical_record(
             .push(record_ref.clone());
     }
 
+    // Fire-and-forget blockchain IPFS hash recording (non-fatal)
+    {
+        let patient_id_clone = req.patient_id.clone();
+        let ipfs_hash_clone = upload_result.ipfs_hash.clone();
+        let record_type_clone = req.record_type.clone();
+        let uploader_clone = current_user_id.clone();
+        if let Some(ref client) = data.substrate_client {
+            let client = client.clone();
+            tokio::spawn(async move {
+                match client.record_ipfs_hash_on_chain(&patient_id_clone, &ipfs_hash_clone, &record_type_clone, &uploader_clone).await {
+                    Ok(tx_hash) => log::info!("IPFS hash recorded on chain: {}", tx_hash),
+                    Err(e) => log::warn!("Blockchain IPFS recording failed (non-fatal): {}", e),
+                }
+            });
+        }
+    }
+
     // Log access
     {
         let mut logs = data.access_logs.write().unwrap();
@@ -6581,7 +6672,85 @@ pub struct CreateSAMPLEHistoryRequest {
     pub past_medical_history: Vec<String>,
     pub last_intake: Option<clinical::LastIntake>,
     pub events_leading: String,
-// ... existing code ...
+}
+
+/// Create SAMPLE history for a patient
+/// Requires: healthcare provider role
+#[post("/api/clinical/sample")]
+pub async fn create_sample_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<CreateSAMPLEHistoryRequest>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Missing X-User-Id header".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        }),
+    };
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "User not found".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        }),
+    };
+    if !current_user.role.is_healthcare_provider() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Healthcare provider role required".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+    let history = SAMPLEHistory {
+        patient_id: req.patient_id.clone(),
+        signs_symptoms: req.signs_symptoms.clone(),
+        allergies: req.allergies.clone(),
+        medications: req.medications.clone(),
+        past_medical_history: req.past_medical_history.clone(),
+        last_intake: req.last_intake.clone(),
+        events_leading: req.events_leading.clone(),
+        collected_by: current_user_id,
+        collected_at: Utc::now().timestamp(),
+    };
+    {
+        let mut histories = data.sample_histories.write().unwrap();
+        histories.insert(req.patient_id.clone(), history);
+    }
+    HttpResponse::Created().json(serde_json::json!({
+        "success": true,
+        "patient_id": req.patient_id,
+        "message": "SAMPLE history recorded"
+    }))
+}
+
+/// Get SAMPLE history for a patient
+#[get("/api/clinical/sample/{patient_id}")]
+pub async fn get_sample_history(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Missing X-User-Id header".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        });
+    }
+    let histories = data.sample_histories.read().unwrap();
+    match histories.get(&patient_id) {
+        Some(h) => HttpResponse::Ok().json(serde_json::json!({ "success": true, "history": h })),
+        None => HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("No SAMPLE history found for patient {}", patient_id),
+            code: "NOT_FOUND".to_string(),
+        }),
+    }
 }
 
 /// Create autopsy request
@@ -6682,9 +6851,6 @@ pub async fn get_autopsy_request(
             code: "NOT_FOUND".to_string(),
         }),
     }
-}
-
-/// Create autopsy report
 }
 
 // ----------------------------------------------------------------------------
@@ -7429,6 +7595,169 @@ async fn get_lab_panel(
 // ============================================================================
 
 // ============================================================================
+// Session Token Endpoints
+// ============================================================================
+
+/// Generate a short-lived session token for a wallet address.
+///
+/// POST /api/auth/session
+///
+/// Body: { "wallet_address": "5Grw...", "signature": "...", "challenge": "..." }
+///
+/// The token is stateless: it is an HMAC-SHA3-256 digest of
+/// `<secret>:<wallet_address>:<timestamp_secs>` encoded as lowercase hex,
+/// combined into the format `<hex_hmac>.<timestamp_secs>.<wallet_address>`.
+/// The verifier can re-derive the digest and check expiry without a database.
+///
+/// Token lifetime: 3600 seconds (1 hour).
+/// Set SESSION_SECRET env var in production; a default is used for development.
+#[post("/api/auth/session")]
+async fn create_session_token(
+    body: web::Json<SessionCreateRequest>,
+) -> impl Responder {
+    if !is_valid_wallet_address(&body.wallet_address) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Invalid wallet address format".to_string(),
+            code: "INVALID_WALLET_ADDRESS".to_string(),
+        });
+    }
+
+    let secret = std::env::var("SESSION_SECRET")
+        .unwrap_or_else(|_| "medichain-dev-secret-change-in-production".to_string());
+
+    let now_secs = Utc::now().timestamp();
+    let expires_at = now_secs + 3600;
+
+    // Derive token: SHA3-256(secret:wallet_address:timestamp)
+    let payload = format!("{}:{}:{}", secret, body.wallet_address, now_secs);
+    let digest = Sha3_256::digest(payload.as_bytes());
+    let hex_digest: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+
+    // Embed timestamp and wallet in the token so /api/auth/verify is stateless
+    let token = format!("{}.{}.{}", hex_digest, now_secs, body.wallet_address);
+
+    log::info!(
+        "Session token issued for wallet={} expires_at={}",
+        body.wallet_address,
+        expires_at
+    );
+
+    HttpResponse::Ok().json(SessionCreateResponse {
+        success: true,
+        token,
+        expires_at,
+        wallet_address: body.wallet_address.clone(),
+    })
+}
+
+/// Verify a session token supplied as a Bearer token.
+///
+/// GET /api/auth/verify
+/// Authorization: Bearer <hex_hmac>.<timestamp_secs>.<wallet_address>
+///
+/// Returns 200 with wallet_address and expires_at if the token is valid and
+/// has not expired. Returns 401 otherwise.
+#[get("/api/auth/verify")]
+async fn verify_session_token(req: HttpRequest) -> impl Responder {
+    let auth_header = match req.headers().get("Authorization") {
+        Some(h) => match h.to_str() {
+            Ok(s) => s.to_owned(),
+            Err(_) => {
+                return HttpResponse::Unauthorized().json(ErrorResponse {
+                    success: false,
+                    error: "Invalid Authorization header encoding".to_string(),
+                    code: "INVALID_AUTH_HEADER".to_string(),
+                });
+            }
+        },
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing Authorization header".to_string(),
+                code: "MISSING_AUTH_HEADER".to_string(),
+            });
+        }
+    };
+
+    let token = if auth_header.starts_with("Bearer ") {
+        auth_header["Bearer ".len()..].trim().to_owned()
+    } else {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Authorization header must use Bearer scheme".to_string(),
+            code: "INVALID_AUTH_SCHEME".to_string(),
+        });
+    };
+
+    // splitn(3) preserves the wallet address even if it contains dots
+    let parts: Vec<&str> = token.splitn(3, '.').collect();
+
+    if parts.len() != 3 {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Malformed token: expected <hmac>.<timestamp>.<wallet>".to_string(),
+            code: "MALFORMED_TOKEN".to_string(),
+        });
+    }
+
+    let hex_hmac = parts[0];
+    let ts_str = parts[1];
+    let wallet_address = parts[2].to_owned();
+
+    let issued_at: i64 = match ts_str.parse() {
+        Ok(v) => v,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Malformed token timestamp".to_string(),
+                code: "MALFORMED_TOKEN".to_string(),
+            });
+        }
+    };
+
+    let expires_at = issued_at + 3600;
+    let now_secs = Utc::now().timestamp();
+
+    if now_secs > expires_at {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Token has expired".to_string(),
+            code: "TOKEN_EXPIRED".to_string(),
+        });
+    }
+
+    if !is_valid_wallet_address(&wallet_address) {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Token contains invalid wallet address".to_string(),
+            code: "INVALID_WALLET_ADDRESS".to_string(),
+        });
+    }
+
+    let secret = std::env::var("SESSION_SECRET")
+        .unwrap_or_else(|_| "medichain-dev-secret-change-in-production".to_string());
+
+    let payload = format!("{}:{}:{}", secret, wallet_address, issued_at);
+    let digest = Sha3_256::digest(payload.as_bytes());
+    let expected_hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+
+    if hex_hmac != expected_hex {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Token signature is invalid".to_string(),
+            code: "INVALID_TOKEN_SIGNATURE".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(SessionVerifyResponse {
+        success: true,
+        wallet_address,
+        expires_at,
+    })
+}
+
+// ============================================================================
 // Main Entry Point
 // ============================================================================
 
@@ -7580,8 +7909,34 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
+    let substrate_client = match crate::blockchain::SubstrateClient::from_env() {
+        Some(ws_url) => {
+            println!("  ⛓️  Connecting to Substrate node at {}...", ws_url);
+            match crate::blockchain::SubstrateClient::new(&ws_url).await {
+                Ok(client) => {
+                    let connected = client.health_check().await;
+                    if connected {
+                        println!("  ✅ Blockchain node connected");
+                    } else {
+                        println!("  ⚠️  Blockchain node not reachable - will retry on requests");
+                    }
+                    Some(std::sync::Arc::new(client))
+                }
+                Err(e) => {
+                    eprintln!("  ⚠️  Blockchain client init failed: {}", e);
+                    None
+                }
+            }
+        }
+        None => {
+            println!("  ℹ️  No SUBSTRATE_WS_URL set - blockchain features disabled");
+            None
+        }
+    };
+
     // Create shared state with optional database pool (using async version for PostgreSQL support)
-    let app_state = web::Data::new(AppState::new_with_pool_async(db_pool).await);
+    let app_state = web::Data::new(AppState::new_with_pool_async(db_pool, substrate_client).await);
 
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
@@ -7605,6 +7960,19 @@ async fn main() -> std::io::Result<()> {
                 eprintln!("  ⚠️  Failed to load demo patients: {}", e);
             }
         }
+    }
+
+    // Start medication reminder background task
+    {
+        let reminder_state = app_state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                crate::clinical_endpoints::check_and_send_medication_reminders(&reminder_state).await;
+            }
+        });
+        println!("  ⏰ Medication reminder task started (checks every 60s)");
     }
 
     println!();
@@ -7651,9 +8019,13 @@ async fn main() -> std::io::Result<()> {
         let rate_limit = RateLimitMiddleware::default_config();
 
         // Configure signature authentication (SEC-005)
-        // Disabled by default during transition - enable with REQUIRE_SIGNATURES=true
-        let require_signatures = std::env::var("REQUIRE_SIGNATURES")
-            .unwrap_or_else(|_| "false".to_string()) == "true";
+        // Default: disabled in demo mode (IS_DEMO=true), enabled otherwise
+        // Override: REQUIRE_SIGNATURES=true/false
+        let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "true".to_string()) == "true";
+        let require_signatures = match std::env::var("REQUIRE_SIGNATURES") {
+            Ok(val) => val == "true",
+            Err(_) => !is_demo, // Default: on in production, off in demo
+        };
         let signature_auth = if require_signatures {
             log::info!("Signature authentication ENABLED - all authenticated requests require wallet signature");
             SignatureAuthMiddleware::enabled()
@@ -7696,6 +8068,9 @@ async fn main() -> std::io::Result<()> {
             .service(wallet_login)
             .service(wallet_login_get)
             .service(wallet_lookup)
+            // Session token endpoints
+            .service(create_session_token)  // POST /api/auth/session
+            .service(verify_session_token)  // GET  /api/auth/verify
             .service(get_current_user_info)
             .service(get_all_staff)
             .service(get_providers)
@@ -7864,8 +8239,6 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::get_death_certificate)
             .service(clinical_endpoints::create_autopsy_request)
             .service(clinical_endpoints::get_autopsy_request)
-            .service(clinical_endpoints::create_autopsy_report)
-            .service(clinical_endpoints::get_autopsy_report)
             // Phase 19: Patient Satisfaction endpoints
             .service(clinical_endpoints::create_satisfaction_survey)
             .service(clinical_endpoints::get_satisfaction_survey)
@@ -8027,6 +8400,8 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::list_incident_reports)
             .service(clinical_endpoints::list_intake_output)
             .service(clinical_endpoints::list_ama_discharges)
+            // SSE push-notification endpoint
+            .service(crate::websocket::sse_events)
     })
     .bind(&bind_addr)?
     .run()

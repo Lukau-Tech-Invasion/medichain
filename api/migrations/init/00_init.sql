@@ -5,5 +5,4 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Create the main tables
-\i /docker-entrypoint-initdb.d/schema.sql
+-- Schema is applied by sqlx migrations at API startup
