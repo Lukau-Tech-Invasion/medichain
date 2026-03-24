@@ -127,7 +127,6 @@ pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateE
 }
 
 /// Check if database is empty (no users exist)
-#[allow(dead_code)]
 pub async fn is_database_empty(pool: &PgPool) -> Result<bool, Error> {
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
         .fetch_one(pool)
@@ -136,7 +135,6 @@ pub async fn is_database_empty(pool: &PgPool) -> Result<bool, Error> {
 }
 
 /// Database statistics for monitoring
-#[allow(dead_code)]
 #[derive(Debug, serde::Serialize)]
 pub struct DbStats {
     pub pool_size: u32,
@@ -145,7 +143,6 @@ pub struct DbStats {
 }
 
 /// Get current database pool statistics
-#[allow(dead_code)]
 pub fn get_pool_stats(pool: &PgPool) -> DbStats {
     DbStats {
         pool_size: pool.size(),

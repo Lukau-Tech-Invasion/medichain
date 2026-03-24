@@ -682,6 +682,16 @@ impl DeathRecordRepository for MemoryDeathRecordRepository {
                 ))
             })
     }
+
+    async fn get_medical_examiner_cases(&self) -> RepositoryResult<Vec<DeathRecordEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| r.medical_examiner_case.unwrap_or(false))
+            .cloned()
+            .collect();
+        Ok(items)
+    }
 }
 
 /// In-memory organ donation record repository
@@ -762,6 +772,33 @@ impl OrganDonationRecordRepository for MemoryOrganDonationRecordRepository {
         let items: Vec<_> = records
             .values()
             .filter(|r| r.registered_donor.unwrap_or(false))
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    async fn get_pending_recovery(&self) -> RepositoryResult<Vec<OrganDonationRecordEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| {
+                r.consent_type.is_some()
+                    && r.medical_suitability.unwrap_or(false)
+                    && r.recovery_datetime.is_none()
+            })
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    async fn get_by_opo(
+        &self,
+        opo_name: &str,
+    ) -> RepositoryResult<Vec<OrganDonationRecordEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| r.opo_name.as_deref() == Some(opo_name))
             .cloned()
             .collect();
         Ok(items)
@@ -908,6 +945,26 @@ impl SyncOperationRepository for MemorySyncOperationRepository {
         operation.error_details = Some(error_details);
         Ok(operation.clone())
     }
+
+    async fn get_pending_retries(&self) -> RepositoryResult<Vec<SyncOperationEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| r.status.as_deref() == Some("failed"))
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    async fn get_in_progress(&self) -> RepositoryResult<Vec<SyncOperationEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| r.status.as_deref() == Some("in_progress"))
+            .cloned()
+            .collect();
+        Ok(items)
+    }
 }
 
 /// In-memory sync conflict repository
@@ -994,6 +1051,18 @@ impl SyncConflictRepository for MemorySyncConflictRepository {
         let items: Vec<_> = records
             .values()
             .filter(|r| r.entity_type == entity_type && r.entity_id == entity_id)
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    async fn get_auto_resolvable(&self) -> RepositoryResult<Vec<SyncConflictEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| {
+                r.status.as_deref() == Some("pending") && r.resolution_strategy.is_some()
+            })
             .cloned()
             .collect();
         Ok(items)
@@ -1085,6 +1154,41 @@ impl ExternalIdMappingRepository for MemoryExternalIdMappingRepository {
         let mut records = self.records.write().unwrap();
         records.remove(id);
         Ok(())
+    }
+
+    async fn deactivate(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity> {
+        let mut records = self.records.write().unwrap();
+        let mapping = records
+            .get_mut(id)
+            .ok_or_else(|| RepositoryError::NotFound(format!("ID mapping {} not found", id)))?;
+        mapping.sync_status = Some("inactive".to_string());
+        Ok(mapping.clone())
+    }
+
+    async fn get_by_system(
+        &self,
+        external_system: &str,
+    ) -> RepositoryResult<Vec<ExternalIdMappingEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| r.external_system == external_system)
+            .cloned()
+            .collect();
+        Ok(items)
+    }
+
+    async fn get_unverified(&self) -> RepositoryResult<Vec<ExternalIdMappingEntity>> {
+        let records = self.records.read().unwrap();
+        let items: Vec<_> = records
+            .values()
+            .filter(|r| {
+                r.sync_status.is_none()
+                    || r.sync_status.as_deref() == Some("pending")
+            })
+            .cloned()
+            .collect();
+        Ok(items)
     }
 }
 

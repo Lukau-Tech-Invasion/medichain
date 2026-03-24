@@ -189,7 +189,6 @@ pub struct TriageAssessment {
 }
 
 /// Information when patient is re-triaged
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReTriageInfo {
     /// Previous ESI level
@@ -5417,7 +5416,6 @@ pub enum OrderStatus {
 }
 
 /// Order set (pre-defined collection of orders)
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderSet {
     /// Order set ID
@@ -5437,7 +5435,6 @@ pub struct OrderSet {
 }
 
 /// Order set item
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderSetItem {
     /// Sequence number

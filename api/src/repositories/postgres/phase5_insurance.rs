@@ -214,9 +214,35 @@ impl InsuranceRecordRepository for PgInsuranceRecordRepository {
         Ok(result)
     }
 
-    // TODO: Move these extension methods outside trait impl block
-    // async fn set_primary(...)
-    // async fn terminate(...)
+    async fn deactivate(&self, id: &str) -> RepositoryResult<InsuranceRecordEntity> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "UPDATE insurance_records SET is_active = false, updated_at = NOW() WHERE id = ",
+        );
+        qb.push_bind(id);
+        qb.push(" RETURNING *");
+
+        let result = qb
+            .build_query_as::<InsuranceRecordEntity>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(result)
+    }
+
+    async fn get_expiring(&self, days: i32) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM insurance_records WHERE is_active = true AND termination_date IS NOT NULL AND termination_date <= (CURRENT_DATE + INTERVAL '",
+        );
+        qb.push(days.to_string());
+        qb.push(" days') ORDER BY termination_date ASC");
+
+        let items = qb
+            .build_query_as::<InsuranceRecordEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(items)
+    }
 }
 
 // =============================================================================

@@ -944,6 +944,90 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
             )))
         }
     }
+
+    async fn get_by_encounter(
+        &self,
+        encounter_id: &str,
+    ) -> RepositoryResult<Vec<CdsAlertEntity>> {
+        let alerts = self.alerts.read().unwrap();
+        let result: Vec<_> = alerts
+            .values()
+            .filter(|a| {
+                a.encounter_id
+                    .as_ref()
+                    .map(|e| e == encounter_id)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        Ok(result)
+    }
+
+    async fn get_unacknowledged(
+        &self,
+        patient_id: Option<&str>,
+    ) -> RepositoryResult<Vec<CdsAlertEntity>> {
+        let alerts = self.alerts.read().unwrap();
+        let result: Vec<_> = alerts
+            .values()
+            .filter(|a| a.acknowledged_by.is_none() && a.status == "active")
+            .filter(|a| {
+                patient_id
+                    .map(|pid| a.patient_id == pid)
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+        Ok(result)
+    }
+
+    async fn dismiss(&self, id: &str) -> RepositoryResult<CdsAlertEntity> {
+        let mut alerts = self.alerts.write().unwrap();
+        if let Some(alert) = alerts.get_mut(id) {
+            alert.status = "dismissed".to_string();
+            alert.updated_at = Utc::now();
+            Ok(alert.clone())
+        } else {
+            Err(RepositoryError::NotFound(format!(
+                "CDS alert {} not found",
+                id
+            )))
+        }
+    }
+
+    async fn get_by_rule(
+        &self,
+        rule_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<CdsAlertEntity>> {
+        let alerts = self.alerts.read().unwrap();
+        let filtered: Vec<_> = alerts
+            .values()
+            .filter(|a| a.rule_id.as_deref() == Some(rule_id))
+            .cloned()
+            .collect();
+        let total = filtered.len() as u64;
+        let items: Vec<_> = filtered
+            .into_iter()
+            .skip(pagination.offset() as usize)
+            .take(pagination.limit() as usize)
+            .collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
+    async fn get_high_severity(&self) -> RepositoryResult<Vec<CdsAlertEntity>> {
+        let alerts = self.alerts.read().unwrap();
+        let result: Vec<_> = alerts
+            .values()
+            .filter(|a| {
+                a.status == "active"
+                    && a.acknowledged_by.is_none()
+                    && (a.severity == "critical" || a.severity == "high")
+            })
+            .cloned()
+            .collect();
+        Ok(result)
+    }
 }
 
 // =============================================================================
@@ -1074,6 +1158,59 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
             .collect();
         Ok(result)
     }
+
+    async fn get_primary(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Option<InsuranceRecordEntity>> {
+        let records = self.records.read().unwrap();
+        Ok(records
+            .values()
+            .find(|r| {
+                r.patient_id == patient_id
+                    && r.is_active
+                    && r.insurance_type == "primary"
+            })
+            .cloned())
+    }
+
+    async fn get_active(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
+        let records = self.records.read().unwrap();
+        let today = chrono::Utc::now().date_naive();
+        let result: Vec<_> = records
+            .values()
+            .filter(|r| {
+                r.patient_id == patient_id
+                    && r.is_active
+                    && r.termination_date.is_none_or(|d| d >= today)
+            })
+            .cloned()
+            .collect();
+        Ok(result)
+    }
+
+    async fn verify_eligibility(
+        &self,
+        id: &str,
+        verified_by: &str,
+    ) -> RepositoryResult<InsuranceRecordEntity> {
+        let mut records = self.records.write().unwrap();
+        if let Some(record) = records.get_mut(id) {
+            record.verification_status = Some("verified".to_string());
+            record.last_verified_date = Some(chrono::Utc::now().date_naive());
+            record.last_verified_by = Some(verified_by.to_string());
+            record.updated_at = Utc::now();
+            Ok(record.clone())
+        } else {
+            Err(RepositoryError::NotFound(format!(
+                "Insurance record {} not found",
+                id
+            )))
+        }
+    }
 }
 
 /// In-memory billing code repository
@@ -1173,6 +1310,40 @@ impl BillingCodeRepository for MemoryBillingCodeRepository {
             .cloned()
             .collect();
         Ok(result)
+    }
+
+    async fn deactivate(&self, id: &str) -> RepositoryResult<BillingCodeEntity> {
+        let mut codes = self.codes.write().unwrap();
+        if let Some(code) = codes.get_mut(id) {
+            code.is_active = false;
+            code.updated_at = Utc::now();
+            Ok(code.clone())
+        } else {
+            Err(RepositoryError::NotFound(format!(
+                "Billing code {} not found",
+                id
+            )))
+        }
+    }
+
+    async fn list_by_type(
+        &self,
+        code_type: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<BillingCodeEntity>> {
+        let codes = self.codes.read().unwrap();
+        let filtered: Vec<_> = codes
+            .values()
+            .filter(|c| c.code_type == code_type && c.is_active)
+            .cloned()
+            .collect();
+        let total = filtered.len() as u64;
+        let items: Vec<_> = filtered
+            .into_iter()
+            .skip(pagination.offset() as usize)
+            .take(pagination.limit() as usize)
+            .collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
     }
 }
 

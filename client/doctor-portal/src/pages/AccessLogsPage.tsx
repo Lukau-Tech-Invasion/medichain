@@ -58,14 +58,10 @@ function AccessLogsPage() {
         if (response.ok) {
           const data = await response.json();
           // Handle both direct array and object with access_logs property
-          const logsArray = Array.isArray(data) 
-            ? data 
+          const logsArray = Array.isArray(data)
+            ? data
             : (data.access_logs || data.data || []);
           setLogs(logsArray);
-        } else if (response.status === 404) {
-          // Endpoint not implemented yet - start with empty logs
-          console.log('Access logs endpoint not available, showing empty state');
-          setLogs([]);
         } else {
           console.error('Failed to fetch access logs:', response.status);
           setLogs([]);

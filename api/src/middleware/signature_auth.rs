@@ -39,14 +39,16 @@ const BYPASS_ROUTES: &[&str] = &[
 ];
 
 /// Signature authentication middleware factory
-#[allow(dead_code)]
 pub struct SignatureAuthMiddleware {
     /// Enable or disable signature verification (for gradual rollout)
     enabled: bool,
 }
 
-#[allow(dead_code)]
 impl SignatureAuthMiddleware {
+    /// Create middleware with an explicit enabled flag.
+    ///
+    /// Prefer [`Self::enabled()`] or [`Self::disabled()`] for clarity.
+    #[allow(dead_code)]
     pub fn new(enabled: bool) -> Self {
         Self { enabled }
     }
@@ -227,7 +229,6 @@ where
 /// - X-User-Id: wallet_address
 /// - X-Signature: hex-encoded signature
 /// - X-Timestamp: the timestamp from this challenge
-#[allow(dead_code)]
 pub fn generate_auth_challenge(wallet_address: &str) -> AuthChallenge {
     let timestamp = chrono::Utc::now().timestamp();
     let message = format!("{}:{}", timestamp, wallet_address);
@@ -241,7 +242,6 @@ pub fn generate_auth_challenge(wallet_address: &str) -> AuthChallenge {
 }
 
 /// Authentication challenge response
-#[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AuthChallenge {
     /// Wallet address for the challenge

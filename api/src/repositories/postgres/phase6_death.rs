@@ -194,6 +194,40 @@ impl DeathRecordRepository for PgDeathRecordRepository {
         Ok(record)
     }
 
+    async fn certify(
+        &self,
+        id: &str,
+        certifier_id: &str,
+        certifier_name: &str,
+    ) -> RepositoryResult<DeathRecordEntity> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE death_records SET ");
+        qb.push("certifier_id = ").push_bind(certifier_id);
+        qb.push(", certifier_name = ").push_bind(certifier_name);
+        qb.push(", certification_date = CURRENT_DATE, updated_at = NOW() WHERE id = ")
+            .push_bind(id);
+        qb.push(" RETURNING *");
+
+        let result = qb
+            .build_query_as::<DeathRecordEntity>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(result)
+    }
+
+    async fn get_pending_certification(&self) -> RepositoryResult<Vec<DeathRecordEntity>> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM death_records WHERE certification_date IS NULL ORDER BY date_of_death ASC",
+        );
+
+        let items = qb
+            .build_query_as::<DeathRecordEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(items)
+    }
+
     async fn get_medical_examiner_cases(&self) -> RepositoryResult<Vec<DeathRecordEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "SELECT * FROM death_records WHERE medical_examiner_case = true ORDER BY date_of_death DESC"

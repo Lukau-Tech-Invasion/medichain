@@ -1,6 +1,9 @@
 //! User models for PostgreSQL database
 //!
 //! These models match the database schema and are used for SQLx queries.
+//! Some models (DbSession, UserResponse, UserWithProfile) are prepared for
+//! future endpoints and not yet wired into active code paths.
+#![allow(dead_code)]
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -12,7 +15,6 @@ use uuid::Uuid;
 // =============================================================================
 
 /// User stored in PostgreSQL database
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUser {
     pub id: Uuid,
@@ -36,7 +38,6 @@ pub struct DbUser {
 }
 
 /// User profile with extended information
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUserProfile {
     pub id: Uuid,
@@ -60,7 +61,6 @@ pub struct DbUserProfile {
 }
 
 /// Session for authenticated users
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbSession {
     pub id: Uuid,
@@ -78,7 +78,6 @@ pub struct DbSession {
 // =============================================================================
 
 /// Request to create a new user
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
     pub wallet_address: String,
@@ -90,7 +89,6 @@ pub struct CreateUserRequest {
 }
 
 /// Request to update user information
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct UpdateUserRequest {
     pub name: Option<String>,
@@ -99,7 +97,6 @@ pub struct UpdateUserRequest {
 }
 
 /// API response for user data (hides sensitive fields)
-#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct UserResponse {
     pub id: Uuid,
@@ -134,7 +131,6 @@ impl From<DbUser> for UserResponse {
 }
 
 /// User info combined with profile
-#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct UserWithProfile {
     #[serde(flatten)]
