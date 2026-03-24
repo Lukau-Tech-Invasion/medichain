@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Skull, Pill, Clock, User, Phone, Droplet } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createTox } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type Severity = 'mild' | 'moderate' | 'severe' | 'life-threatening';
@@ -133,7 +133,7 @@ const ToxicologyPage: React.FC = () => {
     setGivenAntidotes([...givenAntidotes, { name, dose, time: new Date().toLocaleTimeString() }]);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient || !substance) {
       showWarning('Please select patient and substance');
       return;
@@ -156,6 +156,11 @@ const ToxicologyPage: React.FC = () => {
       poisonControlCaseNumber: caseNumber,
       notes
     };
+    try {
+      await createTox(newCase);
+    } catch (err) {
+      console.error('Failed to save toxicology case:', err);
+    }
     setCases([newCase, ...cases]);
     showSuccess('Toxicology case saved!');
   };

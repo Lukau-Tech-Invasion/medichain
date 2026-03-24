@@ -204,7 +204,7 @@ const ImmunizationPage: React.FC = () => {
     },
   ];
 
-  const handleAdminister = () => {
+  const handleAdminister = async () => {
     if (!newVaccine.patientId || !newVaccine.vaccineName || !newVaccine.lotNumber) {
       showWarning('Please fill in all required fields');
       return;
@@ -239,28 +239,44 @@ const ImmunizationPage: React.FC = () => {
       insuranceReported: false,
     };
 
-    setAdministrations([newAdmin, ...administrations]);
-    setNewVaccine({
-      patientId: '',
-      vaccineType: 'covid-19',
-      vaccineName: '',
-      manufacturer: '',
-      lotNumber: '',
-      expiryDate: '',
-      dose: '',
-      route: 'intramuscular',
-      site: 'left-deltoid',
-      doseNumber: 1,
-      totalDoses: 1,
-      nextDueDate: '',
-      consentObtained: false,
-      consentBy: '',
-      adverseReactions: '',
-      notes: '',
-      vfcEligible: false,
-    });
-    setActiveTab('records');
-    showSuccess(`Vaccination ${newAdmin.administrationId} administered successfully`);
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await createImmunization(newAdmin);
+      // @ts-ignore
+      if (response.success !== false) {
+        setAdministrations([newAdmin, ...administrations]);
+        setNewVaccine({
+          patientId: '',
+          vaccineType: 'covid-19',
+          vaccineName: '',
+          manufacturer: '',
+          lotNumber: '',
+          expiryDate: '',
+          dose: '',
+          route: 'intramuscular',
+          site: 'left-deltoid',
+          doseNumber: 1,
+          totalDoses: 1,
+          nextDueDate: '',
+          consentObtained: false,
+          consentBy: '',
+          adverseReactions: '',
+          notes: '',
+          vfcEligible: false,
+        });
+        setActiveTab('records');
+        showSuccess(`Vaccination ${newAdmin.administrationId} administered successfully`);
+      } else {
+        // @ts-ignore
+        setError(response.error || 'Failed to record vaccination');
+      }
+    } catch (err) {
+      console.error('Error recording vaccination:', err);
+      setError('An error occurred while recording the vaccination');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const filteredAdministrations = administrations.filter((a) => {

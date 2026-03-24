@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, listBloodBank, createBloodTypeScreen } from '@medichain/shared';
+import { getPatients, listBloodBank, createBloodTypeScreen, createTransfusion } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
@@ -143,7 +143,7 @@ const BloodBankPage: React.FC = () => {
     fetchBloodBankOrders();
   }, [user, fetchBloodBankOrders]);
 
-  const handleSubmitOrder = (e: React.FormEvent) => {
+  const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !indication) {
       showError('Please fill in all required fields');
@@ -157,7 +157,7 @@ const BloodBankPage: React.FC = () => {
       orderId: `BB-${String(orders.length + 1).padStart(3, '0')}`,
       patientId: selectedPatientId,
       patientName: patient.full_name,
-      bloodType: 'Unknown', // Would be from patient record
+      bloodType: 'Unknown',
       orderDate: new Date().toISOString().split('T')[0],
       orderTime: new Date().toTimeString().slice(0, 5),
       orderedBy: user?.userId || 'Unknown',
@@ -168,16 +168,30 @@ const BloodBankPage: React.FC = () => {
       status: 'ordered'
     };
 
-    setOrders([...orders, newOrder]);
-    showSuccess(`Blood bank order ${newOrder.orderId} submitted successfully`);
-
-    // Reset form
-    setSelectedPatientId('');
-    setProduct('RBC');
-    setUnits(1);
-    setIndication('');
-    setPriority('routine');
-    setActiveTab('orders');
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await createBloodTypeScreen(newOrder);
+      // @ts-ignore
+      if (response.success !== false) {
+        setOrders([newOrder, ...orders]);
+        showSuccess(`Blood bank order ${newOrder.orderId} submitted successfully`);
+        setSelectedPatientId('');
+        setProduct('RBC');
+        setUnits(1);
+        setIndication('');
+        setPriority('routine');
+        setActiveTab('orders');
+      } else {
+        // @ts-ignore
+        setError(response.error || 'Failed to submit blood bank order');
+      }
+    } catch (err) {
+      console.error('Error submitting blood bank order:', err);
+      setError('An error occurred while submitting the blood bank order');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleOpenTransfusion = (order: BloodOrder) => {
@@ -199,7 +213,7 @@ const BloodBankPage: React.FC = () => {
     setActiveTab('transfusion');
   };
 
-  const handleSubmitTransfusion = (e: React.FormEvent) => {
+  const handleSubmitTransfusion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrder || !startTime || !administeredBy || !witnessedBy) {
       showError('Please fill in all required fields');
@@ -236,10 +250,26 @@ const BloodBankPage: React.FC = () => {
       }
     };
 
-    setOrders(orders.map(o => o.orderId === selectedOrder.orderId ? updatedOrder : o));
-    showSuccess(`Transfusion record ${endTime ? 'completed' : 'started'} successfully`);
-    setActiveTab('orders');
-    setSelectedOrder(null);
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await createTransfusion(updatedOrder);
+      // @ts-ignore
+      if (response.success !== false) {
+        setOrders(orders.map(o => o.orderId === selectedOrder.orderId ? updatedOrder : o));
+        showSuccess(`Transfusion record ${endTime ? 'completed' : 'started'} successfully`);
+        setActiveTab('orders');
+        setSelectedOrder(null);
+      } else {
+        // @ts-ignore
+        setError(response.error || 'Failed to save transfusion record');
+      }
+    } catch (err) {
+      console.error('Error saving transfusion record:', err);
+      setError('An error occurred while saving the transfusion record');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const toggleReaction = (reaction: string) => {

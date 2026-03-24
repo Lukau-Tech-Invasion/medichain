@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createPostOp } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -106,7 +106,7 @@ const PostOpPage: React.FC = () => {
   const aldreteScore = Object.values(aldrete).reduce((a, b) => a + b, 0);
   const readyForDischarge = aldreteScore >= 9;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient) {
       showWarning('Please select a patient');
       return;
@@ -125,6 +125,11 @@ const PostOpPage: React.FC = () => {
       dischargeCriteria: selectedCriteria, dischargeTime, dischargeDisposition,
       complications, notes: notes2
     };
+    try {
+      await createPostOp(note);
+    } catch (err) {
+      console.error('Failed to save post-op note:', err);
+    }
     setNotes([note, ...notes]);
     showSuccess('Post-Op note saved!');
   };

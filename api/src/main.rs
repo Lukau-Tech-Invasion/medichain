@@ -6581,15 +6581,16 @@ pub struct CreateSAMPLEHistoryRequest {
     pub past_medical_history: Vec<String>,
     pub last_intake: Option<clinical::LastIntake>,
     pub events_leading: String,
+// ... existing code ...
 }
 
-/// Create or update SAMPLE history
+/// Create autopsy request
 /// Requires: Doctor, Nurse, or Admin role
-#[post("/api/clinical/sample")]
-async fn create_sample_history(
+#[post("/api/clinical/autopsy/request")]
+pub async fn create_autopsy_request(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<CreateSAMPLEHistoryRequest>,
+    req: web::Json<AutopsyRequest>,
 ) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
@@ -6616,80 +6617,31 @@ async fn create_sample_history(
     if !current_user.role.can_edit_medical_records() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: format!(
-                "Role '{}' cannot create SAMPLE history. Required: Doctor, Nurse, or Admin",
-                current_user.role
-            ),
+            error: "Access denied".to_string(),
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
 
-    // Verify patient exists
+    let request_id = req.request_id.clone();
     {
-        let patients = data.patients.read().unwrap();
-        if !patients.contains_key(&req.patient_id) {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: format!("Patient '{}' not found", req.patient_id),
-                code: "PATIENT_NOT_FOUND".to_string(),
-            });
-        }
+        let mut records = data.autopsy_requests.write().unwrap();
+        records.insert(request_id.clone(), req.into_inner());
     }
-
-    // Create SAMPLE history
-    let sample = SAMPLEHistory {
-        patient_id: req.patient_id.clone(),
-        signs_symptoms: req.signs_symptoms.clone(),
-        allergies: req.allergies.clone(),
-        medications: req.medications.clone(),
-        past_medical_history: req.past_medical_history.clone(),
-        last_intake: req.last_intake.clone(),
-        events_leading: req.events_leading.clone(),
-        collected_by: current_user_id.clone(),
-        collected_at: Utc::now().timestamp(),
-    };
-
-    // Store (overwrites existing for this patient)
-    {
-        let mut histories = data.sample_histories.write().unwrap();
-        histories.insert(req.patient_id.clone(), sample);
-    }
-
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: req.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "create_sample_history".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: false,
-        });
-    }
-
-    log::info!(
-        "SAMPLE history created/updated for patient {}",
-        req.patient_id
-    );
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
-        "patient_id": req.patient_id,
-        "message": "SAMPLE history saved successfully"
+        "request_id": request_id
     }))
 }
 
-/// Get SAMPLE history for a patient
-#[get("/api/clinical/sample/{patient_id}")]
-async fn get_sample_history(
+/// Get autopsy request
+#[get("/api/clinical/autopsy/request/{request_id}")]
+pub async fn get_autopsy_request(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    let patient_id = path.into_inner();
+    let request_id = path.into_inner();
 
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
@@ -6713,23 +6665,26 @@ async fn get_sample_history(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
-            code: "ACCESS_DENIED".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
 
-    let histories = data.sample_histories.read().unwrap();
-    match histories.get(&patient_id) {
-        Some(history) => HttpResponse::Ok().json(history),
+    let records = data.autopsy_requests.read().unwrap();
+    match records.get(&request_id) {
+        Some(record) => HttpResponse::Ok().json(record),
         None => HttpResponse::NotFound().json(ErrorResponse {
             success: false,
-            error: format!("SAMPLE history not found for patient '{}'", patient_id),
-            code: "HISTORY_NOT_FOUND".to_string(),
+            error: "Autopsy request not found".to_string(),
+            code: "NOT_FOUND".to_string(),
         }),
     }
+}
+
+/// Create autopsy report
 }
 
 // ----------------------------------------------------------------------------
@@ -7909,6 +7864,8 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::get_death_certificate)
             .service(clinical_endpoints::create_autopsy_request)
             .service(clinical_endpoints::get_autopsy_request)
+            .service(clinical_endpoints::create_autopsy_report)
+            .service(clinical_endpoints::get_autopsy_report)
             // Phase 19: Patient Satisfaction endpoints
             .service(clinical_endpoints::create_satisfaction_survey)
             .service(clinical_endpoints::get_satisfaction_survey)

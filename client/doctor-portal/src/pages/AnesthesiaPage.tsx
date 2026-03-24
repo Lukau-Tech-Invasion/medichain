@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createAnesthesia } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -117,7 +117,7 @@ const AnesthesiaPage: React.FC = () => {
     setNewVital({ time: '', bp: '120/80', hr: 70, spo2: 99, etco2: 35, rr: 12, fio2: 100 });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient) {
       showError('Please select a patient');
       return;
@@ -134,6 +134,11 @@ const AnesthesiaPage: React.FC = () => {
       vasoactives, antiemetics, fluidsGiven, bloodProducts, ebl, urineOutput,
       vitals, complications, notes
     };
+    try {
+      await createAnesthesia(record);
+    } catch (err) {
+      console.error('Failed to save anesthesia record:', err);
+    }
     setRecords([record, ...records]);
     showSuccess('Anesthesia record saved!');
   };

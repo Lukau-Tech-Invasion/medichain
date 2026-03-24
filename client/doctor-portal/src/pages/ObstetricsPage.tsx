@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Baby, Heart, AlertTriangle, Clock, User, Activity } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createOb } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -123,7 +123,7 @@ const ObstetricsPage: React.FC = () => {
     setFhr(prev => ({ ...prev, category: cat }));
   }, [fhr.baseline, fhr.variability, fhr.accelerations, fhr.decelerations]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient) {
       showWarning('Please select a patient');
       return;
@@ -140,6 +140,11 @@ const ObstetricsPage: React.FC = () => {
       cervicalExam, laborStage, fetalMonitoring: fhr, presentation,
       complications: selectedComplications, interventions: selectedInterventions, notes
     };
+    try {
+      await createOb(newAssessment);
+    } catch (err) {
+      console.error('Failed to save OB assessment:', err);
+    }
     setAssessments([newAssessment, ...assessments]);
     showSuccess('OB assessment saved!');
   };

@@ -91,26 +91,8 @@ const MedicationAdminPage: React.FC = () => {
 
       // Fetch MAR (Medication Administration Records)
       const marData = await listMar();
-      // Ensure marData is an array
-      const marArray = Array.isArray(marData) ? marData : [];
       // Map API response to ScheduledMedication interface
-      const mappedMeds: ScheduledMedication[] = (marArray as Array<{
-        med_id?: string; medId?: string;
-        patient_id?: string; patientId?: string;
-        patient_name?: string; patientName?: string;
-        medication_name?: string; medicationName?: string;
-        dose?: string;
-        route?: string;
-        frequency?: string;
-        scheduled_times?: string[]; scheduledTimes?: string[];
-        start_date?: string; startDate?: string;
-        end_date?: string; endDate?: string;
-        indication?: string;
-        prescriber?: string;
-        priority?: string;
-        allergies?: string[];
-        interactions?: string[];
-      }>).map(m => ({
+      const mappedMeds: ScheduledMedication[] = (marData as any[]).map((m: any) => ({
         medId: m.med_id || m.medId || '',
         patientId: m.patient_id || m.patientId || '',
         patientName: m.patient_name || m.patientName || '',

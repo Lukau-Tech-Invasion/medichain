@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createIntubation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -146,7 +146,7 @@ const IntubationPage: React.FC = () => {
     setMedications([...medications, { name, dose, time: new Date().toLocaleTimeString() }]);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient || !formData.indication) {
       showWarning('Please select a patient and indication');
       return;
@@ -175,6 +175,11 @@ const IntubationPage: React.FC = () => {
       verification,
       notes: formData.notes
     };
+    try {
+      await createIntubation(newRecord);
+    } catch (err) {
+      console.error('Failed to save intubation record:', err);
+    }
     setRecords([newRecord, ...records]);
     showSuccess('Intubation documented successfully!');
   };

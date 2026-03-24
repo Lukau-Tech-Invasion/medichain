@@ -114,7 +114,7 @@ const PathologyPage: React.FC = () => {
     fetchSpecimens();
   }, [user, fetchSpecimens]);
 
-  const handleSubmitOrder = (e: React.FormEvent) => {
+  const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !collectionDate || !site || !clinician) {
       showWarning('Please fill in all required fields');
@@ -143,6 +143,12 @@ const PathologyPage: React.FC = () => {
       container,
       fixative
     };
+
+    try {
+      await createPathology(newSpecimen);
+    } catch (err) {
+      console.error('Failed to save pathology specimen:', err);
+    }
 
     setSpecimens([...specimens, newSpecimen]);
     showSuccess(`Pathology specimen ${newSpecimen.specimenId} submitted successfully`);

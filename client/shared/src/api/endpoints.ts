@@ -979,6 +979,14 @@ export async function getAutopsyRequest(requestId: string): Promise<unknown> {
   return getApiClient().get(`/api/clinical/autopsy/request/${requestId}`);
 }
 
+export async function createAutopsyReport(data: unknown): Promise<unknown> {
+  return getApiClient().post('/api/clinical/autopsy/report', data);
+}
+
+export async function getAutopsyReport(reportId: string): Promise<unknown> {
+  return getApiClient().get(`/api/clinical/autopsy/report/${reportId}`);
+}
+
 // ============================================================================
 // Patient Satisfaction (Phase 19)
 // ============================================================================

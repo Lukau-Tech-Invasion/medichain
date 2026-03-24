@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listConsults } from '@medichain/shared';
+import { getPatients, listConsults, createConsult } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -139,7 +139,7 @@ const ConsultPage: React.FC = () => {
     fetchConsults();
   }, [fetchConsults]);
 
-  const handleRequestConsult = () => {
+  const handleRequestConsult = async () => {
     if (!newConsult.patientId || !newConsult.reason || !newConsult.clinicalQuestion) {
       showWarning('Please fill in required fields');
       return;
@@ -166,6 +166,12 @@ const ConsultPage: React.FC = () => {
       requestedAt: new Date().toISOString(),
       notes: newConsult.notes || undefined,
     };
+
+    try {
+      await createConsult(consult);
+    } catch (err) {
+      console.error('Failed to save consult:', err);
+    }
 
     setConsults([consult, ...consults]);
     setNewConsult({

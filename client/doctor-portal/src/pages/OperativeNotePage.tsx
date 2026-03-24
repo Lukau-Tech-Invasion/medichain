@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Scissors, User, FileText, Droplet, Package } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createOperativeNote } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -116,7 +116,7 @@ const OperativeNotePage: React.FC = () => {
     setSpecimens(specimens.filter(s => s.id !== id));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient || !procedureName) {
       showWarning('Please select a patient and enter procedure name');
       return;
@@ -132,6 +132,11 @@ const OperativeNotePage: React.FC = () => {
       drains, ebl, urineOutput, fluidIn, specimens, woundClass,
       implants, complications, disposition, createdAt: new Date().toISOString()
     };
+    try {
+      await createOperativeNote(note);
+    } catch (err) {
+      console.error('Failed to save operative note:', err);
+    }
     setNotes([note, ...notes]);
     showSuccess('Operative note saved!');
   };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, getFamilyHistory } from '@medichain/shared';
+import { getPatients, getFamilyHistory, createFamilyHistory } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -169,7 +169,7 @@ const FamilyHistoryPage: React.FC = () => {
     }
   }, [selectedPatient, fetchFamilyHistory]);
 
-  const handleAddMember = () => {
+  const handleAddMember = async () => {
     if (!newMember.patientId || !newMember.relationship) {
       showWarning('Please fill in required fields');
       return;
@@ -195,21 +195,37 @@ const FamilyHistoryPage: React.FC = () => {
       recordedAt: new Date().toISOString(),
     };
 
-    setFamilyMembers([member, ...familyMembers]);
-    setNewMember({
-      patientId: '',
-      relationship: 'mother',
-      name: '',
-      vitalStatus: 'alive',
-      currentAge: undefined,
-      ageAtDeath: undefined,
-      causeOfDeath: '',
-      consanguineous: false,
-      notes: '',
-    });
-    setMemberConditions([]);
-    setActiveTab('overview');
-    showSuccess(`Family member ${member.memberId} added successfully`);
+    try {
+      setIsLoading(true);
+      setError(null);
+      const response = await createFamilyHistory(member);
+      // @ts-ignore
+      if (response.success !== false) {
+        setFamilyMembers([member, ...familyMembers]);
+        setNewMember({
+          patientId: '',
+          relationship: 'mother',
+          name: '',
+          vitalStatus: 'alive',
+          currentAge: undefined,
+          ageAtDeath: undefined,
+          causeOfDeath: '',
+          consanguineous: false,
+          notes: '',
+        });
+        setMemberConditions([]);
+        setActiveTab('overview');
+        showSuccess(`Family member ${member.memberId} added successfully`);
+      } else {
+        // @ts-ignore
+        setError(response.error || 'Failed to save family member');
+      }
+    } catch (err) {
+      console.error('Error saving family member:', err);
+      setError('An error occurred while saving the family member');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAddCondition = () => {

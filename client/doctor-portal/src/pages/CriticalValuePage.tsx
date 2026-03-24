@@ -117,10 +117,10 @@ const CriticalValuePage: React.FC = () => {
         getPatients(),
         listCriticalValues()
       ]);
-      setPatients(patientData);
+      setPatients(Array.isArray(patientData) ? patientData : []);
       
       // Map API response to interface
-      const items = (criticalData.items || []) as Record<string, unknown>[];
+      const items = (Array.isArray(criticalData) ? criticalData : []) as any[];
       const mappedNotifications: CriticalValueNotification[] = items.map((item) => ({
         notificationId: (item.notification_id || item.notificationId || '') as string,
         patientId: (item.patient_id || item.patientId || '') as string,
@@ -182,7 +182,7 @@ const CriticalValuePage: React.FC = () => {
     return null;
   };
 
-  const handleReportCriticalValue = () => {
+  const handleReportCriticalValue = async () => {
     if (!newCritical.patientId || !newCritical.analyte || !newCritical.value || !newCritical.orderingProvider) {
       showWarning('Please fill in all required fields');
       return;
@@ -214,16 +214,31 @@ const CriticalValuePage: React.FC = () => {
       notificationStatus: 'pending',
     };
 
-    setNotifications([newNotification, ...notifications]);
-    setNewCritical({
-      patientId: '',
-      analyte: '',
-      value: '',
-      unit: '',
-      orderingProvider: '',
-    });
-    setActiveTab('pending');
-    showSuccess(`Critical value notification ${newNotification.notificationId} created`);
+    try {
+      setIsLoading(true);
+      const response = await createCriticalValue(newNotification);
+      // @ts-ignore
+      if (response.success !== false) {
+        setNotifications([newNotification, ...notifications]);
+        setNewCritical({
+          patientId: '',
+          analyte: '',
+          value: '',
+          unit: '',
+          orderingProvider: '',
+        });
+        setActiveTab('pending');
+        showSuccess(`Critical value notification ${newNotification.notificationId} created`);
+      } else {
+        // @ts-ignore
+        showError(response.error || 'Failed to create critical value notification');
+      }
+    } catch (err) {
+      console.error('Error creating critical value notification:', err);
+      showError('An error occurred while creating the critical value notification');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleStartNotification = (notification: CriticalValueNotification) => {

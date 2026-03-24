@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createPsych } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type RiskLevel = 'none' | 'low' | 'moderate' | 'high' | 'imminent';
@@ -156,7 +156,7 @@ const PsychPage: React.FC = () => {
     setSubstances([...substances, { substance: '', frequency: '', lastUse: '' }]);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient) {
       showWarning('Please select a patient');
       return;
@@ -182,6 +182,11 @@ const PsychPage: React.FC = () => {
       safetyPlan,
       notes
     };
+    try {
+      await createPsych(newAssessment);
+    } catch (err) {
+      console.error('Failed to save psychiatric assessment:', err);
+    }
     setAssessments([newAssessment, ...assessments]);
     showSuccess('Psychiatric assessment saved!');
   };

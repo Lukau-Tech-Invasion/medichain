@@ -233,6 +233,17 @@ export class ApiClient {
         );
       }
 
+      // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        const wrappedData = data as Record<string, any>;
+        if (Array.isArray(wrappedData.items)) return wrappedData.items as T;
+        if (Array.isArray(wrappedData.records)) return wrappedData.records as T;
+        if (Array.isArray(wrappedData.submissions)) return wrappedData.submissions as T;
+        if (Array.isArray(wrappedData.patients)) return wrappedData.patients as T;
+        if (Array.isArray(wrappedData.results)) return wrappedData.results as T;
+        if (Array.isArray(wrappedData.orders)) return wrappedData.orders as T;
+      }
+
       return data as T;
       
     } catch (error) {

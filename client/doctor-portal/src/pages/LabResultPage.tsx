@@ -66,11 +66,9 @@ const LabResultPage: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await getAllLabSubmissions();
-      // Extract submissions array from response object
-      const submissionsList = response?.submissions ?? [];
+      const submissions = await getAllLabSubmissions();
       // Map API response to LabResult interface
-      const mappedResults: LabResult[] = submissionsList.map((s: { id?: string; submission_id?: string; patient_id?: string; patientId?: string; patient_name?: string; patientName?: string; mrn?: string; order_date?: string; orderDate?: string; collection_date?: string; collectionDate?: string; result_date?: string; resultDate?: string; panel_name?: string; panelName?: string; status?: string; ordered_by?: string; orderedBy?: string; tests?: LabTest[]; specimen?: string; notes?: string }) => ({
+      const mappedResults: LabResult[] = (submissions as any[]).map((s: any) => ({
         id: s.id || s.submission_id || '',
         patientId: s.patient_id || s.patientId || '',
         patientName: s.patient_name || s.patientName || 'Unknown Patient',

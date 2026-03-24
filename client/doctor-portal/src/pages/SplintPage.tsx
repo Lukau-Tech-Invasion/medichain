@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bone, AlertTriangle, User, CheckCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients } from '@medichain/shared';
+import { getPatients, createSplint } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -91,7 +91,7 @@ const SplintPage: React.FC = () => {
   // NV check warning
   const nvWarning = !preNV.intact || !postNV.intact;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient || !bodyPart) {
       showWarning('Please select a patient and body part');
       return;
@@ -109,6 +109,11 @@ const SplintPage: React.FC = () => {
       weightBearing, elevationInstructed, iceInstructed,
       returnPrecautions: selectedPrecautions, followUp, notes
     };
+    try {
+      await createSplint(record);
+    } catch (err) {
+      console.error('Failed to save splint record:', err);
+    }
     setRecords([record, ...records]);
     showSuccess('Splint/Cast record saved!');
   };
