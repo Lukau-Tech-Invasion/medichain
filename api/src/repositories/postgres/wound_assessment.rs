@@ -188,4 +188,31 @@ impl WoundAssessmentRepository for PgWoundAssessmentRepository {
 
         Ok(assessments)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<WoundAssessmentEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM wound_assessments");
+
+        let total = count_qb
+            .build_query_scalar::<i64>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM wound_assessments ORDER BY assessed_at DESC LIMIT ",
+        );
+        qb.push_bind(pagination.limit() as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i64);
+
+        let assessments = qb
+            .build_query_as::<WoundAssessmentEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(assessments, total as u64, &pagination))
+    }
 }

@@ -484,6 +484,12 @@ pub trait NfcTagRepository: Send + Sync + fmt::Debug {
 
     /// Record tag usage
     async fn record_usage(&self, id: &str) -> RepositoryResult<()>;
+
+    /// List all tags
+    async fn list(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<NfcTagEntity>>;
 }
 
 /// Vital signs repository trait
@@ -590,6 +596,12 @@ pub trait AccessLogRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>>;
 
+    /// List all logs
+    async fn list(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AccessLogEntity>>;
+
     /// Search logs
     async fn search(
         &self,
@@ -641,7 +653,7 @@ pub struct GcsAssessmentEntity {
 }
 
 /// Progress note entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct ProgressNoteEntity {
     pub id: String,
     pub patient_id: String,
@@ -661,10 +673,13 @@ pub struct ProgressNoteEntity {
     pub facility_id: Option<String>,
     pub status: String,
     pub is_active: bool,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// History and physical entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct HistoryPhysicalEntity {
     pub id: String,
     pub patient_id: String,
@@ -687,10 +702,13 @@ pub struct HistoryPhysicalEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Consultation note entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct ConsultationNoteEntity {
     pub id: String,
     pub patient_id: String,
@@ -711,10 +729,13 @@ pub struct ConsultationNoteEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Nursing care plan entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct NursingCarePlanEntity {
     pub id: String,
     pub patient_id: String,
@@ -734,10 +755,13 @@ pub struct NursingCarePlanEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Medication administration record entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct MedicationRecordEntity {
     pub id: String,
     pub patient_id: String,
@@ -752,10 +776,13 @@ pub struct MedicationRecordEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Intake/Output record entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct IORecordEntity {
     pub id: String,
     pub patient_id: String,
@@ -781,10 +808,13 @@ pub struct IORecordEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Wound assessment entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct WoundAssessmentEntity {
     pub id: String,
     pub patient_id: String,
@@ -808,10 +838,13 @@ pub struct WoundAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// IV site assessment entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct IVAssessmentEntity {
     pub id: String,
     pub patient_id: String,
@@ -837,10 +870,13 @@ pub struct IVAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Fall risk assessment entity (database model)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct FallRiskAssessmentEntity {
     pub id: String,
     pub patient_id: String,
@@ -862,6 +898,9 @@ pub struct FallRiskAssessmentEntity {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 // =============================================================================
@@ -933,6 +972,10 @@ pub trait ProgressNoteRepository: Send + Sync + fmt::Debug {
     async fn search_by_type(
         &self,
         note_type: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>>;
+    async fn list_all(
+        &self,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>>;
 }
@@ -1012,6 +1055,10 @@ pub trait NursingCarePlanRepository: Send + Sync + fmt::Debug {
         care_level: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>>;
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>>;
 }
 
 /// Medication record repository trait
@@ -1038,6 +1085,10 @@ pub trait MedicationRecordRepository: Send + Sync + fmt::Debug {
         record: MedicationRecordEntity,
     ) -> RepositoryResult<MedicationRecordEntity>;
     async fn get_incomplete_records(&self) -> RepositoryResult<Vec<MedicationRecordEntity>>;
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<MedicationRecordEntity>>;
 }
 
 /// I/O record repository trait
@@ -1059,6 +1110,10 @@ pub trait IORecordRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<PaginatedResult<IORecordEntity>>;
     async fn update(&self, record: IORecordEntity) -> RepositoryResult<IORecordEntity>;
     async fn get_negative_balance_patients(&self) -> RepositoryResult<Vec<IORecordEntity>>;
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<IORecordEntity>>;
 }
 
 /// Wound assessment repository trait
@@ -1084,6 +1139,10 @@ pub trait WoundAssessmentRepository: Send + Sync + fmt::Debug {
         assessment: WoundAssessmentEntity,
     ) -> RepositoryResult<WoundAssessmentEntity>;
     async fn get_critical_wounds(&self) -> RepositoryResult<Vec<WoundAssessmentEntity>>;
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<WoundAssessmentEntity>>;
 }
 
 /// IV assessment repository trait
@@ -1135,6 +1194,211 @@ pub trait FallRiskAssessmentRepository: Send + Sync + fmt::Debug {
 }
 
 // =============================================================================
+// EMERGENCY PROTOCOL ENTITIES & REPOSITORIES
+// =============================================================================
+
+/// Code Blue record entity for repository storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeBlueEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub location: String,
+    pub code_called_at: i64,
+    pub team_arrived_at: Option<i64>,
+    pub initial_rhythm: String,
+    pub witnessed: bool,
+    pub outcome: String,
+    pub code_leader: String,
+    pub documented_by: String,
+    pub documented_at: i64,
+    pub data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Trauma assessment entity for repository storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraumaAssessmentEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub mechanism: String,
+    pub gcs: u8,
+    pub trauma_level: Option<u8>,
+    pub mtp_activated: bool,
+    pub disposition: String,
+    pub assessed_by: String,
+    pub assessed_at: i64,
+    pub data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Stroke assessment entity for repository storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StrokeAssessmentEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub nihss_total: u8,
+    pub stroke_type: String,
+    pub tpa_eligible: bool,
+    pub tpa_given: bool,
+    pub hemorrhage: bool,
+    pub lvo_suspected: bool,
+    pub assessed_by: String,
+    pub assessed_at: i64,
+    pub data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Cardiac event entity for repository storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardiacEventEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub event_type: String,
+    pub cath_lab_activated: bool,
+    pub pci_performed: bool,
+    pub door_to_balloon_minutes: Option<u32>,
+    pub documented_by: String,
+    pub documented_at: i64,
+    pub data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Sepsis assessment entity for repository storage
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SepsisAssessmentEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub severity: String,
+    pub suspected_source: String,
+    pub qsofa_score: u8,
+    pub sofa_score: Option<u8>,
+    pub vasopressors_required: bool,
+    pub icu_admission: bool,
+    pub assessed_by: String,
+    pub assessed_at: i64,
+    pub data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Code Blue repository trait
+#[async_trait]
+pub trait CodeBlueRepository: Send + Sync + fmt::Debug {
+    /// Create a new code blue record
+    async fn create(&self, record: CodeBlueEntity) -> RepositoryResult<CodeBlueEntity>;
+    /// Get a code blue record by ID
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<CodeBlueEntity>;
+    /// Get code blue records by patient
+    async fn get_by_patient(
+        &self,
+        patient_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<CodeBlueEntity>>;
+    /// Update a code blue record
+    async fn update(&self, record: CodeBlueEntity) -> RepositoryResult<CodeBlueEntity>;
+    /// Delete a code blue record
+    async fn delete(&self, id: &str) -> RepositoryResult<()>;
+}
+
+/// Trauma assessment repository trait
+#[async_trait]
+pub trait TraumaAssessmentRepository: Send + Sync + fmt::Debug {
+    /// Create a new trauma assessment
+    async fn create(
+        &self,
+        assessment: TraumaAssessmentEntity,
+    ) -> RepositoryResult<TraumaAssessmentEntity>;
+    /// Get a trauma assessment by ID
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<TraumaAssessmentEntity>;
+    /// Get trauma assessments by patient
+    async fn get_by_patient(
+        &self,
+        patient_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<TraumaAssessmentEntity>>;
+    /// Update a trauma assessment
+    async fn update(
+        &self,
+        assessment: TraumaAssessmentEntity,
+    ) -> RepositoryResult<TraumaAssessmentEntity>;
+    /// Delete a trauma assessment
+    async fn delete(&self, id: &str) -> RepositoryResult<()>;
+}
+
+/// Stroke assessment repository trait
+#[async_trait]
+pub trait StrokeAssessmentRepository: Send + Sync + fmt::Debug {
+    /// Create a new stroke assessment
+    async fn create(
+        &self,
+        assessment: StrokeAssessmentEntity,
+    ) -> RepositoryResult<StrokeAssessmentEntity>;
+    /// Get a stroke assessment by ID
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<StrokeAssessmentEntity>;
+    /// Get stroke assessments by patient
+    async fn get_by_patient(
+        &self,
+        patient_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<StrokeAssessmentEntity>>;
+    /// Update a stroke assessment
+    async fn update(
+        &self,
+        assessment: StrokeAssessmentEntity,
+    ) -> RepositoryResult<StrokeAssessmentEntity>;
+    /// Delete a stroke assessment
+    async fn delete(&self, id: &str) -> RepositoryResult<()>;
+}
+
+/// Cardiac event repository trait
+#[async_trait]
+pub trait CardiacEventRepository: Send + Sync + fmt::Debug {
+    /// Create a new cardiac event
+    async fn create(&self, event: CardiacEventEntity) -> RepositoryResult<CardiacEventEntity>;
+    /// Get a cardiac event by ID
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<CardiacEventEntity>;
+    /// Get cardiac events by patient
+    async fn get_by_patient(
+        &self,
+        patient_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<CardiacEventEntity>>;
+    /// Update a cardiac event
+    async fn update(&self, event: CardiacEventEntity) -> RepositoryResult<CardiacEventEntity>;
+    /// Delete a cardiac event
+    async fn delete(&self, id: &str) -> RepositoryResult<()>;
+}
+
+/// Sepsis assessment repository trait
+#[async_trait]
+pub trait SepsisAssessmentRepository: Send + Sync + fmt::Debug {
+    /// Create a new sepsis assessment
+    async fn create(
+        &self,
+        assessment: SepsisAssessmentEntity,
+    ) -> RepositoryResult<SepsisAssessmentEntity>;
+    /// Get a sepsis assessment by ID
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<SepsisAssessmentEntity>;
+    /// Get sepsis assessments by patient
+    async fn get_by_patient(
+        &self,
+        patient_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<SepsisAssessmentEntity>>;
+    /// Update a sepsis assessment
+    async fn update(
+        &self,
+        assessment: SepsisAssessmentEntity,
+    ) -> RepositoryResult<SepsisAssessmentEntity>;
+    /// Delete a sepsis assessment
+    async fn delete(&self, id: &str) -> RepositoryResult<()>;
+}
+
+// =============================================================================
 // PHASE 3: LAB & DIAGNOSTICS ENTITIES
 // =============================================================================
 
@@ -1180,7 +1444,7 @@ pub struct LabPanelEntity {
 }
 
 /// Lab QC record entity (quality control for laboratory)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct LabQcRecordEntity {
     pub id: String,
     pub instrument_id: String,
@@ -1203,10 +1467,13 @@ pub struct LabQcRecordEntity {
     pub lot_number: Option<String>,
     pub expiration_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Critical value entity (abnormal lab results requiring immediate notification)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct CriticalValueEntity {
     pub id: String,
     pub patient_id: String,
@@ -1228,10 +1495,13 @@ pub struct CriticalValueEntity {
     pub action_taken: Option<String>,
     pub reported_by: String,
     pub created_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Specimen collection entity (physical sample collection tracking)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct SpecimenCollectionEntity {
     pub id: String,
     pub patient_id: String,
@@ -1253,10 +1523,13 @@ pub struct SpecimenCollectionEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Specimen rejection entity (rejected specimens with reasons)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct SpecimenRejectionEntity {
     pub id: String,
     pub specimen_id: String,
@@ -1271,6 +1544,9 @@ pub struct SpecimenRejectionEntity {
     pub notified_ordering_provider: bool,
     pub notification_sent_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Lab trend entity (historical trend data for lab values)
@@ -1298,7 +1574,7 @@ pub struct LabTrendEntity {
 // =============================================================================
 
 /// Pre-op assessment entity (pre-operative evaluations)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct PreOpAssessmentEntity {
     pub id: String,
     pub patient_id: String,
@@ -1330,10 +1606,13 @@ pub struct PreOpAssessmentEntity {
     pub clearance_conditions: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Operative note entity (surgical procedure documentation)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct OperativeNoteEntity {
     pub id: String,
     pub patient_id: String,
@@ -1365,10 +1644,13 @@ pub struct OperativeNoteEntity {
     pub post_op_orders: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Post-op note entity (post-operative follow-up documentation)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct PostOpNoteEntity {
     pub id: String,
     pub patient_id: String,
@@ -1392,10 +1674,13 @@ pub struct PostOpNoteEntity {
     pub estimated_discharge_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Anesthesia record entity (anesthesia administration documentation)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct AnesthesiaRecordEntity {
     pub id: String,
     pub patient_id: String,
@@ -1425,10 +1710,13 @@ pub struct AnesthesiaRecordEntity {
     pub post_anesthesia_orders: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Intubation record entity (airway management documentation)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct IntubationRecordEntity {
     pub id: String,
     pub patient_id: String,
@@ -1457,10 +1745,13 @@ pub struct IntubationRecordEntity {
     pub performed_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Laceration repair entity (wound closure documentation)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct LacerationRepairEntity {
     pub id: String,
     pub patient_id: String,
@@ -1495,10 +1786,13 @@ pub struct LacerationRepairEntity {
     pub performed_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Splint/cast record entity (orthopedic immobilization documentation)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct SplintCastRecordEntity {
     pub id: String,
     pub patient_id: String,
@@ -1528,6 +1822,9 @@ pub struct SplintCastRecordEntity {
     pub applied_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 // =============================================================================
@@ -1535,7 +1832,7 @@ pub struct SplintCastRecordEntity {
 // =============================================================================
 
 /// Radiology order entity (imaging study requests)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct RadiologyOrderEntity {
     pub id: String,
     pub patient_id: String,
@@ -1559,10 +1856,13 @@ pub struct RadiologyOrderEntity {
     pub accession_number: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Radiology report entity (imaging interpretation reports)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct RadiologyReportEntity {
     pub id: String,
     pub order_id: String,
@@ -1588,10 +1888,13 @@ pub struct RadiologyReportEntity {
     pub pacs_study_uid: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Pathology report entity (tissue/cytology analysis reports)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct PathologyReportEntity {
     pub id: String,
     pub patient_id: String,
@@ -1622,6 +1925,9 @@ pub struct PathologyReportEntity {
     pub synoptic_report: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 // =============================================================================
@@ -1629,7 +1935,7 @@ pub struct PathologyReportEntity {
 // =============================================================================
 
 /// Blood type screen entity (ABO/Rh typing and antibody screens)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct BloodTypeScreenEntity {
     pub id: String,
     pub patient_id: String,
@@ -1655,6 +1961,9 @@ pub struct BloodTypeScreenEntity {
     pub expiration_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Crossmatch record entity (blood compatibility testing)
@@ -1690,7 +1999,7 @@ pub struct CrossmatchRecordEntity {
 }
 
 /// Transfusion record entity (blood product administration)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct TransfusionRecordEntity {
     pub id: String,
     pub patient_id: String,
@@ -1725,6 +2034,9 @@ pub struct TransfusionRecordEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 // =============================================================================
@@ -1732,7 +2044,7 @@ pub struct TransfusionRecordEntity {
 // =============================================================================
 
 /// E-prescription entity (electronic prescription records)
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
 pub struct EPrescriptionEntity {
     pub id: String,
     pub patient_id: String,
@@ -1769,6 +2081,9 @@ pub struct EPrescriptionEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Drug interaction entity (drug-drug and drug-allergy interactions)
@@ -2279,6 +2594,11 @@ pub trait EPrescriptionRepository: Send + Sync + fmt::Debug {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Vec<EPrescriptionEntity>>;
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<EPrescriptionEntity>>;
 }
 
 /// Drug interaction repository trait
@@ -2388,6 +2708,9 @@ pub struct BurnAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Psychiatric Assessment entity
@@ -2434,6 +2757,9 @@ pub struct PsychiatricAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Toxicology Assessment entity
@@ -2476,6 +2802,9 @@ pub struct ToxicologyAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Pediatric Assessment entity
@@ -2521,6 +2850,9 @@ pub struct PediatricAssessmentEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Obstetric Emergency entity
@@ -2580,6 +2912,9 @@ pub struct ObstetricEmergencyEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 // =============================================================================
@@ -2619,6 +2954,9 @@ pub struct AppointmentEntity {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[cfg_attr(feature = "postgres", sqlx(skip))]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Physician Order entity
@@ -2654,6 +2992,9 @@ pub struct PhysicianOrderEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Discharge Summary entity
@@ -2700,6 +3041,9 @@ pub struct DischargeSummaryEntity {
     pub addendum_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Discharge Instructions entity
@@ -2740,6 +3084,9 @@ pub struct DischargeInstructionsEntity {
     pub provided_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// AMA Discharge entity
@@ -2779,6 +3126,9 @@ pub struct AmaDischargeEntity {
     pub nurse_notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Shift Handoff entity
@@ -2817,6 +3167,9 @@ pub struct ShiftHandoffEntity {
     pub handoff_tool_used: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Incident Report entity
@@ -2861,6 +3214,9 @@ pub struct IncidentReportEntity {
     pub confidential: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 // =============================================================================
@@ -2921,6 +3277,9 @@ pub struct EmsHandoffEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// MCI Record entity
@@ -2961,6 +3320,9 @@ pub struct MciRecordEntity {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Chain of Custody entity
@@ -3004,6 +3366,9 @@ pub struct ChainOfCustodyEntity {
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 // =============================================================================
@@ -3235,6 +3600,10 @@ pub trait AmaDischargeRepository: Send + Sync + fmt::Debug {
         encounter_id: &str,
     ) -> RepositoryResult<Option<AmaDischargeEntity>>;
     async fn update(&self, discharge: AmaDischargeEntity) -> RepositoryResult<AmaDischargeEntity>;
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AmaDischargeEntity>>;
 }
 
 /// Shift handoff repository trait
@@ -3277,6 +3646,10 @@ pub trait IncidentReportRepository: Send + Sync + fmt::Debug {
         incident_type: &str,
         date_range: Option<DateRange>,
     ) -> RepositoryResult<Vec<IncidentReportEntity>>;
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<IncidentReportEntity>>;
 }
 
 /// EMS handoff repository trait
@@ -4012,6 +4385,26 @@ pub trait InsuranceRecordRepository: Send + Sync + fmt::Debug {
             "verify_eligibility not implemented".into(),
         ))
     }
+
+    /// Designate an insurance record as primary for the patient
+    async fn set_primary(&self, patient_id: &str, record_id: &str) -> RepositoryResult<()> {
+        let _ = (patient_id, record_id);
+        Err(RepositoryError::NotImplemented(
+            "set_primary not implemented".into(),
+        ))
+    }
+
+    /// Terminate an insurance record (mark inactive and set termination date)
+    async fn terminate(
+        &self,
+        id: &str,
+        termination_date: chrono::NaiveDate,
+    ) -> RepositoryResult<InsuranceRecordEntity> {
+        let _ = (id, termination_date);
+        Err(RepositoryError::NotImplemented(
+            "terminate not implemented".into(),
+        ))
+    }
 }
 
 /// Billing code repository trait
@@ -4063,6 +4456,32 @@ pub trait BillingCodeRepository: Send + Sync + fmt::Debug {
 }
 
 // =============================================================================
+// PHASE 5: COMMUNICATION & NOTIFICATIONS
+// =============================================================================
+
+/// Device token entity for push notifications
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct DeviceTokenEntity {
+    pub id: String,
+    pub user_id: String,
+    pub token: String,
+    pub device_type: Option<String>,
+    pub device_name: Option<String>,
+    pub last_seen_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Device token repository trait
+#[async_trait]
+pub trait DeviceTokenRepository: Send + Sync + fmt::Debug {
+    async fn register(&self, entity: DeviceTokenEntity) -> RepositoryResult<DeviceTokenEntity>;
+    async fn get_by_user(&self, user_id: &str) -> RepositoryResult<Vec<DeviceTokenEntity>>;
+    async fn delete(&self, user_id: &str, token: &str) -> RepositoryResult<()>;
+    async fn update_last_seen(&self, id: &str) -> RepositoryResult<()>;
+}
+
+// =============================================================================
 // PHASE 11: FAMILY HISTORY & GENETICS
 // =============================================================================
 
@@ -4096,6 +4515,9 @@ pub struct FamilyMedicalHistoryEntity {
     pub source: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[cfg_attr(feature = "postgres", sqlx(skip))]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Family medical history repository trait
@@ -4227,6 +4649,9 @@ pub struct ImmunizationRecordEntity {
     pub notes: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[cfg_attr(feature = "postgres", sqlx(skip))]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Immunization record repository trait
@@ -4427,6 +4852,9 @@ pub struct DeathRecordEntity {
     pub injury_at_work: Option<bool>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[cfg_attr(feature = "postgres", sqlx(skip))]
+    #[serde(default)]
+    pub data: serde_json::Value,
 }
 
 /// Death record repository trait

@@ -19,6 +19,12 @@ import type {
   ProviderAccount,
   NationalIdType,
 } from './types';
+import {
+  web3Accounts,
+  web3Enable,
+  web3FromSource
+} from '@polkadot/extension-dapp';
+import { stringToHex } from '@polkadot/util';
 
 // ============================================================================
 // CONSTANTS
@@ -303,10 +309,81 @@ export async function createPatientWallet(
 // ============================================================================
 
 /**
- * Connect wallet (simulates wallet extension connection)
+ * Connect wallet using real Polkadot extension
+ */
+export async function connectRealWallet(): Promise<WalletAccount[]> {
+  const extensions = await web3Enable('MediChain');
+  if (extensions.length === 0) {
+    throw new Error('No Polkadot extension found. Please install Polkadot.js or Talisman.');
+  }
+
+  const allAccounts = await web3Accounts();
+  return allAccounts.map(account => ({
+    address: account.address,
+    name: account.meta.name,
+    role: 'Patient', // Default role, should be fetched from chain
+    publicKey: bytesToHex(new Uint8Array(32)), // Placeholder
+    verified: false,
+  }));
+}
+
+/**
+ * Sign a message using the connected wallet
+ */
+export async function signMessage(address: SubstrateAddress, message: string): Promise<string> {
+  const account = (await web3Accounts()).find(a => a.address === address);
+  if (!account) throw new Error('Account not found in extension');
+
+  const injector = await web3FromSource(account.meta.source);
+  const signRaw = injector.signer.signRaw;
+
+  if (!signRaw) throw new Error('Signer does not support raw signing');
+
+  const { signature } = await signRaw({
+    address,
+    data: stringToHex(message),
+    type: 'bytes'
+  });
+
+  return signature;
+}
+
+/**
+ * Connect wallet (simulates wallet extension connection if IS_DEMO=true)
  */
 export async function connectWallet(address?: SubstrateAddress): Promise<WalletAccount | null> {
-  // If address provided, try to find existing account
+  // Check if we are in demo mode
+  const IS_DEMO = true; // Should come from config
+
+  if (!IS_DEMO) {
+    const accounts = await connectRealWallet();
+    if (address) {
+      const found = accounts.find(a => a.address === address);
+      if (found) {
+        storeWallet({
+          address: found.address,
+          publicKey: found.publicKey,
+          role: found.role,
+          name: found.name,
+          createdAt: Date.now(),
+        });
+        return found;
+      }
+    } else if (accounts.length > 0) {
+      const first = accounts[0];
+      storeWallet({
+        address: first.address,
+        publicKey: first.publicKey,
+        role: first.role,
+        name: first.name,
+        createdAt: Date.now(),
+      });
+      return first;
+    }
+    return null;
+  }
+
+  // Demo / Simulator logic
   if (address) {
     const account = getAccount(address);
     if (account) {

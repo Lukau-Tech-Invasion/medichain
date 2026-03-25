@@ -23,8 +23,15 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import {
+  apiUrl,
+  getPatients,
+  createHistoryPhysical,
+  listHistoryPhysicals,
+  type PatientProfile
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 
 /**
  * HistoryAndPhysicalPage
@@ -88,8 +95,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['chief-complaint', 'vitals']));
   const [currentSection, setCurrentSection] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
+  const [availablePatients, setAvailablePatients] = useState<PatientProfile[]>([]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -132,45 +142,90 @@ const HistoryAndPhysicalPage: React.FC = () => {
   ];
 
   useEffect(() => {
-    const fetchHpRecords = async () => {
+    const loadData = async () => {
       if (!user?.walletAddress) {
         setLoading(false);
         return;
       }
       
       try {
-        const response = await fetch(apiUrl('/api/clinical/history-physical'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
+        const [hpData, pts] = await Promise.all([
+          listHistoryPhysicals(),
+          getPatients()
+        ]);
         
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            setHpRecords(data.map((record: HistoryAndPhysical & { dateOfExam: string; signedAt?: string }) => ({
-              ...record,
-              dateOfExam: new Date(record.dateOfExam),
-              signedAt: record.signedAt ? new Date(record.signedAt) : undefined
-            })));
-          }
-        } else if (response.status === 401) {
-          setError('Session expired. Please log in again.');
-        } else {
-          setError('Failed to load H&P records');
+        setAvailablePatients(pts);
+        
+        const records = Array.isArray(hpData) ? hpData : ((hpData as any).records || (hpData as any).hp_records || []);
+        if (Array.isArray(records)) {
+          setHpRecords(records.map((record: any) => ({
+            ...record,
+            dateOfExam: new Date(record.dateOfExam || record.date_of_exam || Date.now()),
+            signedAt: record.signedAt || record.signed_at ? new Date(record.signedAt || record.signed_at) : undefined
+          })));
         }
       } catch (err) {
-        console.error('Failed to fetch H&P records:', err);
-        setError('Unable to connect to server');
+        console.error('Failed to load data:', err);
+        setError('Failed to load H&P records');
       } finally {
         setLoading(false);
       }
     };
     
-    fetchHpRecords();
+    loadData();
   }, [user]);
+
+  const handleSaveHp = async (status: 'in-progress' | 'signed') => {
+    if (!formData.patientId || !formData.chiefComplaint) {
+      showError('Please complete required fields');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        hp_id: `HP-${Date.now()}`,
+        patient_id: formData.patientId,
+        patient_name: formData.patientName,
+        mrn: formData.mrn,
+        dateOfExam: new Date().toISOString(),
+        exam_type: formData.examType,
+        chief_complaint: formData.chiefComplaint,
+        history_of_present_illness: formData.hpi,
+        past_medical_history: formData.pmh,
+        past_surgical_history: formData.psh,
+        medications: formData.medications,
+        allergies: formData.allergies,
+        social_history: formData.socialHistory,
+        family_history: formData.familyHistory,
+        vital_signs: formData.vitalSigns,
+        review_of_systems: formData.reviewOfSystems,
+        physical_exam: formData.physicalExam,
+        assessment: formData.assessment,
+        plan: formData.plan,
+        provider: user?.name || 'Healthcare Provider',
+        status,
+      };
+
+      await createHistoryPhysical(payload);
+      showSuccess(status === 'signed' ? 'H&P Record signed and saved' : 'H&P Record saved as draft');
+      setActiveTab('list');
+      
+      // Refresh list
+      const hpData = await listHistoryPhysicals();
+      const records = Array.isArray(hpData) ? hpData : ((hpData as any).records || (hpData as any).hp_records || []);
+      setHpRecords(records.map((record: any) => ({
+        ...record,
+        dateOfExam: new Date(record.dateOfExam || record.date_of_exam || Date.now()),
+        signedAt: record.signedAt || record.signed_at ? new Date(record.signedAt || record.signed_at) : undefined
+      })));
+    } catch (err) {
+      console.error('Failed to save H&P:', err);
+      showError('Failed to save H&P record');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const toggleSection = (section: string) => {
     const newExpanded = new Set(expandedSections);
@@ -458,44 +513,83 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   )}
                 </button>
                 {expandedSections.has('patient-info') && (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label htmlFor="hp-patient-id" className="block text-sm font-medium text-gray-700 mb-1">Patient ID *</label>
-                      <input
-                        id="hp-patient-id"
-                        type="text"
-                        className="w-full border rounded-lg px-3 py-2"
-                        placeholder="Search or enter ID"
-                      />
+                  <div className="mt-4 space-y-4">
+                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                      <label htmlFor="hp-patient-select" className="block text-sm font-medium text-indigo-900 mb-1">Select Existing Patient</label>
+                      <select
+                        id="hp-patient-select"
+                        onChange={(e) => {
+                          const p = availablePatients.find(p => p.patient_id === e.target.value);
+                          if (p) {
+                            setFormData({
+                              ...formData,
+                              patientId: p.patient_id,
+                              patientName: p.full_name,
+                              mrn: p.national_id || ''
+                            });
+                          }
+                        }}
+                        className="w-full border-indigo-200 rounded-lg px-3 py-2 bg-white"
+                      >
+                        <option value="">-- Select Patient --</option>
+                        {availablePatients.map(p => (
+                          <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
+                        ))}
+                      </select>
                     </div>
-                    <div>
-                      <label htmlFor="hp-patient-name" className="block text-sm font-medium text-gray-700 mb-1">Patient Name</label>
-                      <input id="hp-patient-name" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly />
-                    </div>
-                    <div>
-                      <label htmlFor="hp-mrn" className="block text-sm font-medium text-gray-700 mb-1">MRN</label>
-                      <input id="hp-mrn" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly />
-                    </div>
-                    <div className="md:col-span-3">
-                      <fieldset>
-                        <legend className="block text-sm font-medium text-gray-700 mb-1">Exam Type *</legend>
-                        <div className="flex gap-3 flex-wrap">
-                          {['admission', 'annual', 'pre-operative', 'follow-up', 'consultation'].map(type => (
-                            <label key={type} htmlFor={`hp-exam-type-${type}`} className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                id={`hp-exam-type-${type}`}
-                                type="radio"
-                                name="examType"
-                                value={type}
-                                checked={formData.examType === type}
-                                onChange={() => setFormData({ ...formData, examType: type as any })}
-                                className="text-indigo-600"
-                              />
-                              <span className="text-sm capitalize">{type.replace('-', ' ')}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </fieldset>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label htmlFor="hp-patient-id" className="block text-sm font-medium text-gray-700 mb-1">Patient ID *</label>
+                        <input
+                          id="hp-patient-id"
+                          type="text"
+                          value={formData.patientId}
+                          onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
+                          className="w-full border rounded-lg px-3 py-2"
+                          placeholder="Search or enter ID"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="hp-patient-name" className="block text-sm font-medium text-gray-700 mb-1">Patient Name</label>
+                        <input 
+                          id="hp-patient-name" 
+                          type="text" 
+                          value={formData.patientName}
+                          onChange={(e) => setFormData({ ...formData, patientName: e.target.value })}
+                          className="w-full border rounded-lg px-3 py-2 bg-gray-50" 
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="hp-mrn" className="block text-sm font-medium text-gray-700 mb-1">MRN</label>
+                        <input 
+                          id="hp-mrn" 
+                          type="text" 
+                          value={formData.mrn}
+                          onChange={(e) => setFormData({ ...formData, mrn: e.target.value })}
+                          className="w-full border rounded-lg px-3 py-2 bg-gray-50" 
+                        />
+                      </div>
+                      <div className="md:col-span-3">
+                        <fieldset>
+                          <legend className="block text-sm font-medium text-gray-700 mb-1">Exam Type *</legend>
+                          <div className="flex gap-3 flex-wrap">
+                            {['admission', 'annual', 'pre-operative', 'follow-up', 'consultation'].map(type => (
+                              <label key={type} htmlFor={`hp-exam-type-${type}`} className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  id={`hp-exam-type-${type}`}
+                                  type="radio"
+                                  name="examType"
+                                  value={type}
+                                  checked={formData.examType === type}
+                                  onChange={() => setFormData({ ...formData, examType: type as any })}
+                                  className="text-indigo-600"
+                                />
+                                <span className="text-sm capitalize">{type.replace('-', ' ')}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </fieldset>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -821,10 +915,21 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="flex justify-end gap-3 pt-4">
-                <button className="px-6 py-2 border border-gray-300 rounded-lg font-medium">
+                <button 
+                  type="button" 
+                  disabled={isSubmitting}
+                  onClick={() => handleSaveHp('in-progress')} 
+                  className="px-6 py-2 border border-gray-300 rounded-lg font-medium"
+                >
                   Save as Draft
                 </button>
-                <button className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium">
+                <button 
+                  type="button" 
+                  disabled={isSubmitting}
+                  onClick={() => handleSaveHp('signed')} 
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium flex items-center gap-2"
+                >
+                  {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                   Complete & Sign
                 </button>
               </div>

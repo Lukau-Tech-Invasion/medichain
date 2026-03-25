@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createMar, getPatients, getMar } from '@medichain/shared';
+import { createMar, getPatients, getMar, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Pill,
@@ -317,11 +317,41 @@ export default function MARPage() {
     setShowAdminModal(true);
   };
 
-  const handleAdminister = () => {
+  const handleAdminister = async () => {
     if (!selectedMed) return;
 
-    setScheduledMeds(prev => prev.map(med => 
-      med.id === selectedMed.id 
+    // Call the API to mark medication as administered
+    if (user && selectedPatient) {
+      try {
+        await fetch(apiUrl('/api/nursing/mar/administer'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role,
+          },
+          body: JSON.stringify({
+            patient_id: selectedPatient.patient_id,
+            medication_id: selectedMed.id,
+            medication_name: selectedMed.medicationName,
+            dose: selectedMed.dose,
+            route: selectedMed.route,
+            status: adminForm.status,
+            administered_time: adminForm.administeredTime,
+            administered_by: user.userId,
+            hold_reason: adminForm.holdReason,
+            notes: adminForm.notes,
+            prn_reason: adminForm.prnReason,
+            date: new Date().toISOString().split('T')[0],
+          }),
+        });
+      } catch (e) {
+        console.error('Failed to post MAR administration:', e);
+      }
+    }
+
+    setScheduledMeds(prev => prev.map(med =>
+      med.id === selectedMed.id
         ? {
             ...med,
             status: adminForm.status,

@@ -5,6 +5,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { cacheData, getCachedData } from '../utils/indexedDB';
 
 export interface UseApiState<T> {
   data: T | null;
@@ -23,6 +24,8 @@ export function useApi<T>(
     immediate?: boolean;
     onSuccess?: (data: T) => void;
     onError?: (error: string) => void;
+    cacheKey?: string;
+    cacheTTL?: number;
   }
 ): UseApiReturn<T> {
   const [state, setState] = useState<UseApiState<T>>({
@@ -31,19 +34,49 @@ export function useApi<T>(
     error: null,
   });
 
-  const fetchData = useCallback(async () => {
-    setState(prev => ({ ...prev, isLoading: true, error: null }));
+  const fetchData = useCallback(async (isSilent = false) => {
+    if (!isSilent) {
+      setState(prev => ({ ...prev, isLoading: true, error: null }));
+    }
 
     try {
+      // Try to load from cache first if we don't have data yet
+      if (options?.cacheKey && !state.data) {
+        const cached = await getCachedData<T>(options.cacheKey);
+        if (cached) {
+          setState(prev => ({ ...prev, data: cached, isLoading: !isSilent }));
+        }
+      }
+
       const data = await fetchFn();
       setState({ data, isLoading: false, error: null });
+      
+      // Update cache
+      if (options?.cacheKey) {
+        await cacheData(
+          options.cacheKey, 
+          'api-cache', 
+          options.cacheKey, 
+          data, 
+          options.cacheTTL
+        );
+      }
+
       options?.onSuccess?.(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An error occurred';
-      setState({ data: null, isLoading: false, error: message });
+      
+      // If we have cached data, don't show error as primary state
+      if (state.data) {
+        setState(prev => ({ ...prev, isLoading: false }));
+        console.warn('Network fetch failed, but using cached data:', message);
+      } else {
+        setState({ data: null, isLoading: false, error: message });
+      }
+      
       options?.onError?.(message);
     }
-  }, [fetchFn]);
+  }, [fetchFn, options?.cacheKey, options?.cacheTTL, state.data]);
 
   const reset = useCallback(() => {
     setState({ data: null, isLoading: false, error: null });

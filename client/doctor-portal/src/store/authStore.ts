@@ -9,8 +9,10 @@ import {
   IS_DEVELOPMENT,
   checkApiHealth,
   isValidWalletAddress,
-  syncApiClientUserId
+  syncApiClientUserId,
+  getApiClient
 } from '@medichain/shared';
+import { connectRealWallet, signMessage } from '@medichain/shared/src/wallet/service';
 import type { Role as WalletRole } from '@medichain/shared';
 
 /**
@@ -46,6 +48,7 @@ interface AuthState {
   
   // Actions
   login: (walletAddress: string) => Promise<boolean>;
+  loginWithExtension: () => Promise<boolean>;
   loginWithDemoWallet: (role: Role, name?: string) => Promise<boolean>;
   logout: () => void;
   setUser: (user: User) => void;
@@ -94,9 +97,31 @@ export const useAuthStore = create<AuthState>()(
       },
 
       /**
-       * Login with a wallet address
-       * Validates the wallet against the blockchain/API
+       * Login using Polkadot extension
        */
+      loginWithExtension: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          const accounts = await connectRealWallet();
+          if (accounts.length === 0) {
+            throw new Error('No accounts found in Polkadot extension');
+          }
+
+          const walletAddress = accounts[0].address;
+          
+          // Set signature provider in ApiClient
+          const apiClient = getApiClient();
+          apiClient.setSignatureProvider((message) => signMessage(walletAddress, message));
+          
+          return await get().login(walletAddress);
+        } catch (error) {
+          set({ 
+            isLoading: false, 
+            error: error instanceof Error ? error.message : 'Extension login failed' 
+          });
+          return false;
+        }
+      },
       login: async (walletAddress: string) => {
         // Validate wallet address format
         if (!isValidWalletAddress(walletAddress)) {

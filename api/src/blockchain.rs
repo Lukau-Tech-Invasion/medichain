@@ -30,6 +30,12 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
 
+use subxt::tx::Signer;
+use subxt::{OnlineClient, PolkadotConfig};
+use subxt::dynamic::Value as DynamicValue;
+use sp_core::sr25519::Pair as Sr25519Pair;
+use sp_core::Pair;
+
 // ------------------------------------------------------------------
 // Blockchain feature flag
 // ------------------------------------------------------------------
@@ -147,6 +153,8 @@ pub struct SubstrateClient {
     connected: Arc<AtomicBool>,
     /// Underlying HTTP client (cheaply cloneable – shares a connection pool).
     client: Client,
+    /// subxt OnlineClient for real extrinsic submission.
+    subxt: Option<OnlineClient<PolkadotConfig>>,
 }
 
 impl SubstrateClient {
@@ -168,12 +176,24 @@ impl SubstrateClient {
             .map_err(|e| BlockchainError::Connection(e.to_string()))?;
 
         let connected = Arc::new(AtomicBool::new(false));
+        let subxt = if blockchain_enabled() {
+            match OnlineClient::<PolkadotConfig>::from_url(ws_url).await {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    warn!("[blockchain] Failed to initialize subxt client at {}: {}", ws_url, e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         let instance = Self {
             ws_url: ws_url.to_owned(),
             http_url,
             connected,
             client,
+            subxt,
         };
 
         // Perform an initial health check to populate `connected`.
@@ -271,23 +291,48 @@ impl SubstrateClient {
         patient_id: &str,
         id_hash: &str,
         national_id_type: &str,
-        registered_by: &str,
+        _registered_by: &str,
     ) -> Result<String, BlockchainError> {
-        let args = json!({
-            "call":            "patientRegistry.registerPatient",
-            "patient_id":      patient_id,
-            "id_hash":         id_hash,
-            "national_id_type": national_id_type,
-            "registered_by":   registered_by,
-            "timestamp":       Utc::now().to_rfc3339(),
-        });
-
         info!(
-            "[blockchain] register_patient_on_chain: patient_id={} registered_by={}",
-            patient_id, registered_by
+            "[blockchain] register_patient_on_chain: patient_id={} national_id_type={}",
+            patient_id, national_id_type
         );
 
-        self.pending_extrinsic("registerPatient", &args).await
+        // Convert patient_id to AccountId32 (assuming it's a valid SS58 address or hash)
+        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
+            Ok(acc) => acc,
+            Err(_) => {
+                // If not a valid address, we can't submit to a real chain.
+                // Fall back to placeholder if needed, or error out.
+                return self.pending_extrinsic("PatientIdentity", "register_patient", vec![]).await;
+            }
+        };
+
+        // Parse id_hash from hex
+        let id_hash_bytes = match hex::decode(id_hash.trim_start_matches("0x")) {
+            Ok(bytes) if bytes.len() == 32 => {
+                let mut h = [0u8; 32];
+                h.copy_from_slice(&bytes);
+                h
+            }
+            _ => [0u8; 32],
+        };
+
+        // Map national_id_type string to enum variant
+        let id_type_variant = match national_id_type.to_uppercase().as_str() {
+            "GHANACARD" | "GHANA_CARD" => "GhanaCard",
+            "NIN" => "NIN",
+            "SMARTID" | "SMART_ID" => "SmartID",
+            _ => "FaydaID",
+        };
+
+        let params = vec![
+            DynamicValue::unnamed_variant("AccountId32", vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(&patient_account))]),
+            DynamicValue::unnamed_variant(id_type_variant, vec![]),
+            DynamicValue::from_bytes(&id_hash_bytes),
+        ];
+
+        self.pending_extrinsic("PatientIdentity", "register_patient", params).await
     }
 
     /// Record an IPFS content hash on-chain.
@@ -310,21 +355,28 @@ impl SubstrateClient {
         record_type: &str,
         uploaded_by: &str,
     ) -> Result<String, BlockchainError> {
-        let args = json!({
-            "call":        "medicalRecords.recordIpfsHash",
-            "patient_id":  patient_id,
-            "ipfs_hash":   ipfs_hash,
-            "record_type": record_type,
-            "uploaded_by": uploaded_by,
-            "timestamp":   Utc::now().to_rfc3339(),
-        });
-
         info!(
             "[blockchain] record_ipfs_hash_on_chain: patient_id={} ipfs_hash={} record_type={}",
             patient_id, ipfs_hash, record_type
         );
 
-        self.pending_extrinsic("recordIpfsHash", &args).await
+        // Convert patient_id to AccountId32
+        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
+            Ok(acc) => acc,
+            Err(_) => {
+                return self.pending_extrinsic("MedicalRecords", "update_ipfs_hash", vec![]).await;
+            }
+        };
+
+        // For real on-chain recording, we use the medical records pallet.
+        // If the record doesn't exist, we should technically call create_health_record first,
+        // but for this audit-logging purpose we assume it exists or use update_ipfs_hash.
+        let params = vec![
+            DynamicValue::unnamed_variant("AccountId32", vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(&patient_account))]),
+            DynamicValue::from_bytes(ipfs_hash.as_bytes()), // IPFS hash as Vec<u8>
+        ];
+
+        self.pending_extrinsic("MedicalRecords", "update_ipfs_hash", params).await
     }
 
     /// Log a record-access event on-chain.
@@ -345,20 +397,33 @@ impl SubstrateClient {
         patient_id: &str,
         access_type: &str,
     ) -> Result<String, BlockchainError> {
-        let args = json!({
-            "call":        "auditTrail.logAccess",
-            "accessor_id": accessor_id,
-            "patient_id":  patient_id,
-            "access_type": access_type,
-            "timestamp":   Utc::now().to_rfc3339(),
-        });
-
         info!(
             "[blockchain] log_access_on_chain: accessor_id={} patient_id={} access_type={}",
             accessor_id, patient_id, access_type
         );
 
-        self.pending_extrinsic("logAccess", &args).await
+        // For audit purposes in Phase 1, we map all sensitive access to on-chain
+        // emergency access grants. In a full implementation, we would have
+        // a dedicated audit pallet.
+        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
+            Ok(acc) => acc,
+            Err(_) => {
+                return self.pending_extrinsic("AccessControl", "grant_emergency_access", vec![]).await;
+            }
+        };
+
+        // Reason hash (sha3-256 of access type + timestamp)
+        let mut hasher = Sha3_256::new();
+        hasher.update(access_type.as_bytes());
+        hasher.update(Utc::now().to_rfc3339().as_bytes());
+        let reason_hash: [u8; 32] = hasher.finalize().into();
+
+        let params = vec![
+            DynamicValue::unnamed_variant("AccountId32", vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(&patient_account))]),
+            DynamicValue::from_bytes(&reason_hash),
+        ];
+
+        self.pending_extrinsic("AccessControl", "grant_emergency_access", params).await
     }
 
     // ------------------------------------------------------------------
@@ -392,11 +457,7 @@ impl SubstrateClient {
             params,
         };
 
-        let fut = self
-            .client
-            .post(&self.http_url)
-            .json(&request_body)
-            .send();
+        let fut = self.client.post(&self.http_url).json(&request_body).send();
 
         let response = timeout(RPC_TIMEOUT, fut)
             .await
@@ -411,13 +472,11 @@ impl SubstrateClient {
             )));
         }
 
-        let rpc_response: JsonRpcResponse = timeout(
-            RPC_TIMEOUT,
-            response.json::<JsonRpcResponse>(),
-        )
-        .await
-        .map_err(|_| BlockchainError::Timeout)?
-        .map_err(|e| BlockchainError::Rpc(e.to_string()))?;
+        let rpc_response: JsonRpcResponse =
+            timeout(RPC_TIMEOUT, response.json::<JsonRpcResponse>())
+                .await
+                .map_err(|_| BlockchainError::Timeout)?
+                .map_err(|e| BlockchainError::Rpc(e.to_string()))?;
 
         if let Some(err) = rpc_response.error {
             return Err(BlockchainError::Rpc(format!(
@@ -459,75 +518,82 @@ impl SubstrateClient {
     /// ```
     async fn pending_extrinsic(
         &self,
+        pallet_name: &str,
         call_name: &str,
-        args: &Value,
+        params: Vec<DynamicValue>,
     ) -> Result<String, BlockchainError> {
-        let args_str = args.to_string();
         let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
 
-        if blockchain_enabled() && self.is_connected() {
-            // Encode the call payload as a hex string.
-            // TODO: replace with real SCALE-encoded extrinsic via subxt once
-            //       `subxt` is added to Cargo.toml and node metadata is generated.
-            let payload_hex = format!(
-                "0x{}",
-                hex::encode(format!("{}:{}", call_name, args_str).as_bytes())
-            );
+        if blockchain_enabled() && self.is_connected() && self.subxt.is_some() {
+            let api = self.subxt.as_ref().unwrap();
 
             info!(
-                "[blockchain] Submitting extrinsic '{}' to node at {}",
-                call_name, self.http_url
+                "[blockchain] Submitting real extrinsic '{}.{}' to node at {}",
+                pallet_name, call_name, self.ws_url
             );
 
-            match self
-                .call_rpc("author_submitExtrinsic", json!([payload_hex]))
+            // In a real application, the signer would be derived from the user's
+            // credentials or a system-level key. For Phase 1 demo, we use Alice.
+            let signer = subxt_signer::sr25519::dev::alice();
+
+            let tx = subxt::dynamic::tx(pallet_name, call_name, params);
+
+            match api
+                .tx()
+                .sign_and_submit_then_watch_default(&tx, &signer)
                 .await
             {
-                Ok(result) => {
-                    let tx_hash = result
-                        .as_str()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| result.to_string());
-                    info!(
-                        "[blockchain] Extrinsic '{}' accepted, tx_hash={}",
-                        call_name, tx_hash
-                    );
-                    return Ok(tx_hash);
+                Ok(progress) => {
+                    // Wait for the transaction to be finalized.
+                    match progress.wait_for_finalized_success().await {
+                        Ok(events) => {
+                            let tx_hash = format!("{:?}", events.extrinsic_hash());
+                            info!(
+                                "[blockchain] Extrinsic '{}.{}' included in block, tx_hash={}",
+                                pallet_name, call_name, tx_hash
+                            );
+                            return Ok(tx_hash);
+                        }
+                        Err(e) => {
+                            warn!(
+                                "[blockchain] Failed to wait for block for '{}.{}': {}",
+                                pallet_name, call_name, e
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!(
-                        "[blockchain] Extrinsic submission failed for '{}': {} — \
+                        "[blockchain] Extrinsic submission failed for '{}.{}': {} — \
                          falling back to placeholder hash.",
-                        call_name, e
+                        pallet_name, call_name, e
                     );
-                    // Fall through to placeholder hash below.
                 }
             }
         } else if blockchain_enabled() {
             warn!(
-                "[blockchain] BLOCKCHAIN_ENABLED=true but node is not reachable. \
-                 Call '{}' will use a placeholder hash.",
-                call_name
+                "[blockchain] BLOCKCHAIN_ENABLED=true but node/subxt is not ready. \
+                 Call '{}.{}' will use a placeholder hash.",
+                pallet_name, call_name
             );
         } else {
             info!(
-                "[blockchain] DEMO MODE — call='{}' logged but not submitted. \
-                 Set BLOCKCHAIN_ENABLED=true to enable on-chain submission.",
-                call_name
+                "[blockchain] DEMO MODE — call='{}.{}' logged but not submitted.",
+                pallet_name, call_name
             );
         }
 
         // Derive a deterministic placeholder hash (used in demo/offline mode).
         let mut hasher = Sha3_256::new();
+        hasher.update(pallet_name.as_bytes());
         hasher.update(call_name.as_bytes());
-        hasher.update(args_str.as_bytes());
         hasher.update(timestamp.as_bytes());
         let hash_bytes = hasher.finalize();
         let tx_hash = format!("0x{}", hex::encode(hash_bytes));
 
         info!(
-            "[blockchain] Placeholder tx_hash for '{}': {}",
-            call_name, tx_hash
+            "[blockchain] Placeholder tx_hash for '{}.{}': {}",
+            pallet_name, call_name, tx_hash
         );
 
         Ok(tx_hash)
@@ -569,10 +635,11 @@ mod tests {
             http_url: "http://localhost:9944".into(),
             connected: Arc::new(AtomicBool::new(false)),
             client: Client::new(),
+            subxt: None,
         };
 
         let hash = client
-            .pending_extrinsic("testCall", &json!({"key": "value"}))
+            .pending_extrinsic("medicalRecords", "testCall", vec![])
             .await
             .expect("pending_extrinsic should not fail");
 
@@ -595,18 +662,14 @@ mod tests {
             http_url: "http://localhost:9944".into(),
             connected: Arc::new(AtomicBool::new(false)),
             client: Client::new(),
+            subxt: None,
         };
 
-        let args = json!({"patient_id": "abc-123", "id_hash": "deadbeef"});
-
         let h1 = client
-            .pending_extrinsic("registerPatient", &args)
+            .pending_extrinsic("patientIdentity", "registerPatient", vec![])
             .await
             .unwrap();
-        let h2 = client
-            .pending_extrinsic("logAccess", &args)
-            .await
-            .unwrap();
+        let h2 = client.pending_extrinsic("accessControl", "logAccess", vec![]).await.unwrap();
 
         // Different call names → different hashes.
         assert_ne!(h1, h2, "different call names must yield different hashes");
@@ -619,9 +682,24 @@ mod tests {
     /// `from_env` returns `None` when the variable is absent.
     #[test]
     fn test_from_env_absent() {
-        // Temporarily unset the variable if present.
+        // Use a unique variable name to avoid interference from other tests
+        let var_name = "SUBSTRATE_WS_URL_TEST_ABSENT";
+        let original_val = std::env::var(var_name).ok();
+        std::env::remove_var(var_name);
+        
+        // We need to modify SubstrateClient::from_env to take a var name or test it indirectly
+        // Actually, let's just make sure SUBSTRATE_WS_URL is unset for this test
+        let real_original = std::env::var("SUBSTRATE_WS_URL").ok();
         std::env::remove_var("SUBSTRATE_WS_URL");
-        assert!(SubstrateClient::from_env().is_none());
+        
+        let result = SubstrateClient::from_env();
+        
+        // Restore
+        if let Some(val) = real_original {
+            std::env::set_var("SUBSTRATE_WS_URL", val);
+        }
+        
+        assert!(result.is_none(), "Expected None when SUBSTRATE_WS_URL is unset, got {:?}", result);
     }
 
     /// `from_env` returns the variable value when it is set.

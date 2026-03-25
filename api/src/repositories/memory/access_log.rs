@@ -197,6 +197,28 @@ impl AccessLogRepository for MemoryAccessLogRepository {
         Ok(PaginatedResult::new(items, total, &pagination))
     }
 
+    async fn list(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
+        let storage = self
+            .storage
+            .read()
+            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+
+        let mut logs: Vec<AccessLogEntity> = storage.values().cloned().collect();
+
+        logs.sort_by(|a, b| b.accessed_at.cmp(&a.accessed_at));
+
+        let total = logs.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+
+        let items: Vec<AccessLogEntity> = logs.into_iter().skip(offset).take(limit).collect();
+
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
     async fn search(
         &self,
         query: &str,

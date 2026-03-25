@@ -121,6 +121,10 @@ const CDSAlertsPage = lazy(() => import('./pages/CDSAlertsPage'));
 // Scheduling
 const AppointmentSchedulerPage = lazy(() => import('./pages/AppointmentSchedulerPage'));
 
+// Telehealth & Messaging
+const TelehealthPage = lazy(() => import('./pages/TelehealthPage'));
+const MessagesPage = lazy(() => import('./pages/MessagesPage'));
+
 // Role-Specific Dashboards
 const NurseDashboardPage = lazy(() => import('./pages/NurseDashboardPage'));
 const LabTechDashboardPage = lazy(() => import('./pages/LabTechDashboardPage'));
@@ -315,6 +319,10 @@ function App() {
 
         {/* Scheduling */}
         <Route path="appointments" element={<LazyRoute element={<AppointmentSchedulerPage />} />} />
+
+        {/* Telehealth & Messaging */}
+        <Route path="telehealth" element={<LazyRoute element={<TelehealthPage />} />} />
+        <Route path="messages" element={<LazyRoute element={<MessagesPage />} />} />
       </Route>
 
       {/* Fallback */}

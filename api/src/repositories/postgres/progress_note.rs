@@ -204,4 +204,32 @@ impl ProgressNoteRepository for PgProgressNoteRepository {
 
         Ok(PaginatedResult::new(notes, total as u64, &pagination))
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>> {
+        let offset = pagination.offset() as i64;
+        let limit = pagination.limit() as i64;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM progress_notes WHERE is_active = true ORDER BY created_at DESC LIMIT ",
+        );
+        qb.push_bind(limit);
+        qb.push(" OFFSET ");
+        qb.push_bind(offset);
+
+        let notes = qb
+            .build_query_as::<ProgressNoteEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        let total = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM progress_notes WHERE is_active = true",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(PaginatedResult::new(notes, total as u64, &pagination))
+    }
 }

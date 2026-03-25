@@ -182,4 +182,26 @@ impl IORecordRepository for MemoryIORecordRepository {
 
         Ok(negative_balance)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<IORecordEntity>> {
+        let storage = self.data.read().unwrap();
+
+        let mut records: Vec<IORecordEntity> = storage.values().cloned().collect();
+
+        records.sort_by(|a, b| {
+            b.record_date
+                .cmp(&a.record_date)
+                .then_with(|| a.shift.cmp(&b.shift))
+        });
+
+        let total = records.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+
+        let items = records.into_iter().skip(offset).take(limit).collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }

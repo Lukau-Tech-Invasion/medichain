@@ -161,4 +161,26 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
 
         Ok(incomplete)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<MedicationRecordEntity>> {
+        let storage = self.data.read().unwrap();
+
+        let mut records: Vec<MedicationRecordEntity> = storage
+            .values()
+            .filter(|r| r.is_active)
+            .cloned()
+            .collect();
+
+        records.sort_by(|a, b| b.record_date.cmp(&a.record_date));
+
+        let total = records.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+
+        let items = records.into_iter().skip(offset).take(limit).collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }

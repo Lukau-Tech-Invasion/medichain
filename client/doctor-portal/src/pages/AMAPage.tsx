@@ -16,8 +16,15 @@ import {
   UserCheck,
   Loader2
 } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import {
+  apiUrl,
+  listAMADischarges,
+  createAMADischarge,
+  getPatients,
+  type PatientProfile
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 
 /**
  * AMAPage
@@ -61,8 +68,11 @@ const AMAPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<AMAStatus | 'all'>('all');
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
+  const [availablePatients, setAvailablePatients] = useState<PatientProfile[]>([]);
 
   // Form state
   const [formStep, setFormStep] = useState(1);
@@ -85,23 +95,11 @@ const AMAPage: React.FC = () => {
       }
 
       try {
-        const response = await fetch(apiUrl('/api/clinical/ama-discharges'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor'
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch AMA records: ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await listAMADischarges();
         // Convert date strings to Date objects
-        const amaRecords = data.map((r: AMARecord) => ({
+        const amaRecords = (data as any[]).map((r: any) => ({
           ...r,
-          dateCreated: new Date(r.dateCreated)
+          dateCreated: new Date(r.dateCreated || Date.now())
         }));
         setRecords(amaRecords);
         setError(null);
@@ -110,6 +108,15 @@ const AMAPage: React.FC = () => {
         setError(err instanceof Error ? err.message : 'Failed to load AMA records');
       } finally {
         setLoading(false);
+      }
+    };
+
+    const fetchPatients = async () => {
+      try {
+        const pts = await getPatients();
+        setAvailablePatients(pts);
+      } catch (err) {
+        console.error('Error fetching patients:', err);
       }
     };
 
@@ -124,7 +131,67 @@ const AMAPage: React.FC = () => {
     ]);
 
     fetchAMARecords();
+    fetchPatients();
   }, [user]);
+
+  const handleCreateAMA = async () => {
+    if (!patientId || !patientName || !diagnosis || !recommendedTreatment) {
+      showError('Please complete all required fields');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const newRecord = {
+        ama_id: `AMA-${Date.now()}`,
+        patient_id: patientId,
+        patient_name: patientName,
+        mrn,
+        dateCreated: new Date().toISOString(),
+        status: 'pending-signatures' as AMAStatus,
+        riskLevel: riskLevel,
+        provider: user?.name || 'Healthcare Provider',
+        diagnosis,
+        recommendedTreatment: recommendedTreatment,
+        patientStatement: patientStatement,
+        patientSigned: true, // Mocked as signed in this simple demo flow
+        witnessSigned: !!witnessName,
+        witnessName: witnessName,
+        providerSigned: true,
+      };
+
+      await createAMADischarge(newRecord);
+      showSuccess('AMA Discharge form created successfully');
+      
+      // Refresh list
+      const updatedData = await listAMADischarges();
+      const amaRecords = (updatedData as any[]).map((r: any) => ({
+        ...r,
+        dateCreated: new Date(r.dateCreated || Date.now())
+      }));
+      setRecords(amaRecords);
+      setActiveTab('list');
+      resetForm();
+    } catch (err) {
+      console.error('Error creating AMA record:', err);
+      showError('Failed to create AMA record');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormStep(1);
+    setPatientId('');
+    setPatientName('');
+    setMrn('');
+    setDiagnosis('');
+    setRecommendedTreatment('');
+    setPatientStatement('');
+    setRiskLevel('moderate');
+    setWitnessName('');
+    setRiskDisclosures(prev => prev.map(r => ({ ...r, acknowledged: false })));
+  };
 
   const getStatusBadge = (status: AMAStatus) => {
     const styles = {
@@ -482,6 +549,27 @@ const AMAPage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Patient Information</h3>
                 <div className="space-y-4">
                   <div>
+                    <label htmlFor="ama-patient-select" className="block text-sm font-medium text-gray-700 mb-1">
+                      Select Patient
+                    </label>
+                    <select
+                      id="ama-patient-select"
+                      onChange={(e) => {
+                        const p = availablePatients.find(p => p.id === e.target.value);
+                        if (p) {
+                          setPatientId(p.id);
+                          setPatientName(p.name);
+                        }
+                      }}
+                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                    >
+                      <option value="">-- Select Existing Patient --</option>
+                      {availablePatients.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
                     <label htmlFor="ama-patient-id" className="block text-sm font-medium text-gray-700 mb-1">
                       Patient ID <span className="text-red-500">*</span>
                     </label>
@@ -765,8 +853,11 @@ const AMAPage: React.FC = () => {
                     Back
                   </button>
                   <button
-                    className="flex-1 py-3 bg-red-600 text-white rounded-lg font-semibold"
+                    onClick={handleCreateAMA}
+                    disabled={isSubmitting}
+                    className="flex-1 py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2"
                   >
+                    {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                     Complete AMA Form
                   </button>
                 </div>

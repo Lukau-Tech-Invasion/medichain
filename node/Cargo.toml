@@ -4,7 +4,41 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Add Substrate and node dependencies here
+medichain-runtime = { path = "../runtime" }
+sc-service = { workspace = true }
+sc-cli = { workspace = true }
+sc-executor = { workspace = true }
+sc-client-api = { workspace = true }
+sc-consensus = { workspace = true }
+sc-network = { workspace = true }
+sc-transaction-pool = { workspace = true }
+sc-rpc-api = { workspace = true }
+sc-rpc = { workspace = true }
+sc-basic-authorship = { workspace = true }
+sc-transaction-pool-api = { workspace = true }
+sc-consensus-aura = { workspace = true }
+sc-consensus-grandpa = { workspace = true }
+sc-telemetry = { workspace = true }
+sc-keystore = { workspace = true }
+sc-offchain = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-api = { workspace = true }
+sp-block-builder = { workspace = true }
+sp-blockchain = { workspace = true }
+sp-consensus = { workspace = true }
+sp-consensus-aura = { workspace = true }
+sp-consensus-grandpa = { workspace = true }
+sp-inherents = { workspace = true }
+sp-keystore = { workspace = true }
+sp-session = { workspace = true }
+sp-transaction-pool = { workspace = true }
+futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+substrate-frame-rpc-system = { workspace = true }
+pallet-transaction-payment-rpc = { workspace = true }
+jsonrpsee = { workspace = true }
 
 [[bin]]
 name = "medichain-node"

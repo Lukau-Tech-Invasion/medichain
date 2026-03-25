@@ -17,6 +17,9 @@ mod patient;
 mod triage;
 mod vital_signs;
 
+#[cfg(test)]
+mod tests;
+
 // Phase 2: Clinical Documentation repositories
 mod consultation_note;
 mod fall_risk_assessment;
@@ -42,6 +45,7 @@ mod phase4_specialty;
 
 // Phase 7-10: Wearables & IoT, Telehealth, Clinical Decision Support, Insurance & Billing
 mod phase5_cds;
+mod phase5_communication;
 mod phase5_insurance;
 mod phase5_telehealth;
 mod phase5_wearables;
@@ -135,6 +139,8 @@ pub use phase5_telehealth::{
 
 // Phase 9 exports: Clinical Decision Support
 pub use phase5_cds::PgCdsAlertRepository;
+
+pub use phase5_communication::PgDeviceTokenRepository;
 
 // Phase 10 exports: Insurance & Billing
 pub use phase5_insurance::{PgBillingCodeRepository, PgInsuranceRecordRepository};

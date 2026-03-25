@@ -1,16 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
-    "node",
     "pallets/medical-records",
     "pallets/patient-identity",
     "pallets/access-control",
-    "runtime",
     "crypto",
     "api"
 ]
+# node + runtime excluded: substrate deps (sc-basic-authorship, jsonrpsee,
+# include-wasm-binary-bin-gen) require polkadot-sdk git deps, not crates.io.
+# Restore when wiring up a real Substrate node.
 exclude = [
-    "client/wasm-crypto"
+    "client/wasm-crypto",
+    "node",
+    "runtime"
 ]
 
 [workspace.dependencies]
@@ -27,5 +30,7 @@ sp-api = { version = "34.0.0", default-features = false }
 sp-block-builder = { version = "34.0.0", default-features = false }
 sp-transaction-pool = { version = "34.0.0", default-features = false }
 sp-inherents = { version = "34.0.0", default-features = false }
+sp-blockchain = { version = "37.0.0" }
 parity-scale-codec = { version = "3.6", default-features = false, features = ["derive"] }
 scale-info = { version = "2.11", default-features = false, features = ["derive"] }
+subxt = { version = "0.37.0" }

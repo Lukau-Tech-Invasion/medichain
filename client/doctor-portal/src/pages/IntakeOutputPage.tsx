@@ -14,8 +14,13 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import {
+  apiUrl,
+  listIntakeOutput,
+  createIntakeOutput,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 
 /**
  * IntakeOutputPage
@@ -60,9 +65,11 @@ const IntakeOutputPage: React.FC = () => {
   const [_showEntryModal, setShowEntryModal] = useState(false);
   const [entryType, setEntryType] = useState<'intake' | 'output'>('intake');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
 
   const [newEntry, setNewEntry] = useState({
     type: 'intake' as 'intake' | 'output',
@@ -81,33 +88,19 @@ const IntakeOutputPage: React.FC = () => {
       }
       
       try {
-        const response = await fetch(apiUrl('/api/clinical/intake-output'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) {
-            setPatients(data.map((p: PatientIO & { entries: (IOEntry & { timestamp: string })[] }) => ({
-              ...p,
-              entries: p.entries.map((e: IOEntry & { timestamp: string }) => ({
-                ...e,
-                timestamp: new Date(e.timestamp)
-              }))
-            })));
-          }
-        } else if (response.status === 401) {
-          setError('Session expired. Please log in again.');
-        } else {
-          setError('Failed to load intake/output records');
+        const data = await listIntakeOutput();
+        if (Array.isArray(data)) {
+          setPatients(data.map((p: any) => ({
+            ...p,
+            entries: (p.entries || []).map((e: any) => ({
+              ...e,
+              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
+            }))
+          })));
         }
       } catch (err) {
         console.error('Failed to fetch I/O records:', err);
-        setError('Unable to connect to server');
+        setError('Failed to load intake/output records');
       } finally {
         setLoading(false);
       }
@@ -115,6 +108,36 @@ const IntakeOutputPage: React.FC = () => {
     
     fetchIntakeOutput();
   }, [user]);
+
+  // Fetch detailed I/O for selected patient/date
+  useEffect(() => {
+    if (!selectedPatient || !user?.walletAddress) return;
+    const fetchDetailedIO = async () => {
+      const shift = 'day'; // Default shift
+      try {
+        const response = await fetch(apiUrl(`/api/clinical/io/${selectedPatient.patientId}/${selectedDate}/${shift}`), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data && (data.entries || data.intake || data.output)) {
+            // Update the selected patient's entries with fresh data
+            const entries: IOEntry[] = (data.entries || []).map((e: IOEntry & { timestamp: string }) => ({
+              ...e,
+              timestamp: new Date(e.timestamp)
+            }));
+            setSelectedPatient(prev => prev ? { ...prev, entries } : null);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch I/O detail:', err);
+      }
+    };
+    fetchDetailedIO();
+  }, [selectedPatient?.patientId, selectedDate, user]);
 
   const getIntakeCategories = (): IntakeType[] => ['oral', 'iv', 'tube-feeding', 'blood-products', 'other-intake'];
   const getOutputCategories = (): OutputType[] => ['urine', 'stool', 'emesis', 'drainage', 'blood-loss', 'other-output'];
@@ -164,11 +187,57 @@ const IntakeOutputPage: React.FC = () => {
     p.room.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleAddEntry = () => {
-    if (!selectedPatient || newEntry.amount <= 0) return;
-    // Would save to backend
-    setShowEntryModal(false);
-    setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
+  const handleAddEntry = async () => {
+    if (!selectedPatient || newEntry.amount <= 0) {
+      showWarning('Please enter a valid amount');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        id: `IO-${Date.now()}`,
+        patientId: selectedPatient.patientId,
+        timestamp: new Date().toISOString(),
+        ...newEntry,
+        recordedBy: user?.name || 'Healthcare Provider'
+      };
+
+      await createIntakeOutput(payload);
+      showSuccess(`${newEntry.type.charAt(0).toUpperCase() + newEntry.type.slice(1)} recorded successfully`);
+      
+      // Refresh list
+      const data = await listIntakeOutput();
+      if (Array.isArray(data)) {
+        setPatients(data.map((p: any) => ({
+          ...p,
+          entries: (p.entries || []).map((e: any) => ({
+            ...e,
+            timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
+          }))
+        })));
+        
+        // Update selected patient too
+        const updatedSelected = (data as any[]).find(p => p.patientId === selectedPatient.patientId);
+        if (updatedSelected) {
+          setSelectedPatient({
+            ...updatedSelected,
+            entries: (updatedSelected.entries || []).map((e: any) => ({
+              ...e,
+              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
+            }))
+          });
+        }
+      }
+
+      setShowEntryModal(false);
+      setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
+    } catch (err) {
+      console.error('Error recording I/O:', err);
+      showError('Failed to record I/O entry');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -419,9 +488,12 @@ const IntakeOutputPage: React.FC = () => {
 
               <button
                 onClick={handleAddEntry}
-                className="w-full py-3 bg-cyan-600 text-white rounded-lg font-medium flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className={`w-full py-3 text-white rounded-lg font-medium flex items-center justify-center gap-2 ${
+                  isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'
+                }`}
               >
-                <Plus className="w-5 h-5" />
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
                 Record Entry
               </button>
             </div>

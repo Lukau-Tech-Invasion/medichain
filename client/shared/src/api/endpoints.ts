@@ -816,6 +816,47 @@ export async function getPostOp(noteId: string): Promise<unknown> {
 }
 
 // ============================================================================
+// Clinical Records (Specialty)
+// ============================================================================
+
+export async function createAMADischarge(data: unknown): Promise<unknown> {
+  return getApiClient().post('/api/clinical/ama', data);
+}
+
+export async function listAMADischarges(): Promise<unknown[]> {
+  const response = await getApiClient().get<any>('/api/clinical/ama-discharges');
+  return response || [];
+}
+
+export async function createHistoryPhysical(data: unknown): Promise<unknown> {
+  return getApiClient().post('/api/clinical/hp', data);
+}
+
+export async function getHistoryPhysical(hpId: string): Promise<unknown> {
+  return getApiClient().get(`/api/clinical/hp/${hpId}`);
+}
+
+export async function listHistoryPhysicals(): Promise<unknown[]> {
+  return getApiClient().get('/api/clinical/hp');
+}
+
+export async function createIncidentReport(data: unknown): Promise<unknown> {
+  return getApiClient().post('/api/clinical/incident-reports', data);
+}
+
+export async function listIncidentReports(): Promise<unknown[]> {
+  return getApiClient().get('/api/clinical/incident-reports');
+}
+
+export async function createIntakeOutput(data: unknown): Promise<unknown> {
+  return getApiClient().post('/api/clinical/intake-output', data);
+}
+
+export async function listIntakeOutput(): Promise<unknown[]> {
+  return getApiClient().get('/api/clinical/intake-output');
+}
+
+// ============================================================================
 // Anesthesia (Phase 10)
 // ============================================================================
 
@@ -825,6 +866,10 @@ export async function createAnesthesia(data: unknown): Promise<unknown> {
 
 export async function getAnesthesia(recordId: string): Promise<unknown> {
   return getApiClient().get(`/api/clinical/anesthesia/${recordId}`);
+}
+
+export async function listAnesthesia(): Promise<unknown[]> {
+  return getApiClient().get('/api/clinical/anesthesia');
 }
 
 // ============================================================================

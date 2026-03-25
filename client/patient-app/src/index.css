@@ -148,8 +148,24 @@ body {
   @apply bg-neutral-200 animate-pulse rounded;
 }
 
-.dark .skeleton {
+  .dark .skeleton {
   @apply bg-neutral-700;
+}
+
+/* Toast slide-in animation */
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 /* Focus styles for accessibility */

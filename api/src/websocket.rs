@@ -135,10 +135,7 @@ impl Stream for SseStream {
 /// Streams Server-Sent Events to the caller.  The optional `X-User-Id` request
 /// header is used as the wallet address for subscription accounting.
 #[get("/api/events")]
-pub async fn sse_events(
-    data: web::Data<crate::AppState>,
-    req: HttpRequest,
-) -> HttpResponse {
+pub async fn sse_events(data: web::Data<crate::AppState>, req: HttpRequest) -> HttpResponse {
     let wallet_address = req
         .headers()
         .get("X-User-Id")
@@ -180,11 +177,7 @@ pub fn push_cds_alert(
 }
 
 /// Push a medication reminder to all connected SSE clients.
-pub fn push_reminder(
-    manager: &WsSessionManager,
-    patient_id: &str,
-    medication_name: &str,
-) {
+pub fn push_reminder(manager: &WsSessionManager, patient_id: &str, medication_name: &str) {
     manager.push_event(PushEvent {
         event_type: "reminder_due".to_string(),
         patient_id: Some(patient_id.to_string()),

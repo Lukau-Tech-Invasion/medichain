@@ -54,21 +54,24 @@ const AnalyticsPage: React.FC = () => {
       case 'today':
         startDate = endDate;
         break;
-      case 'week':
+      case 'week': {
         const weekAgo = new Date(now);
         weekAgo.setDate(weekAgo.getDate() - 7);
         startDate = weekAgo.toISOString().split('T')[0];
         break;
-      case 'month':
+      }
+      case 'month': {
         const monthAgo = new Date(now);
         monthAgo.setMonth(monthAgo.getMonth() - 1);
         startDate = monthAgo.toISOString().split('T')[0];
         break;
-      case 'year':
+      }
+      case 'year': {
         const yearAgo = new Date(now);
         yearAgo.setFullYear(yearAgo.getFullYear() - 1);
         startDate = yearAgo.toISOString().split('T')[0];
         break;
+      }
       default:
         startDate = endDate;
     }

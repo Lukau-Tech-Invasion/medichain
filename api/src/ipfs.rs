@@ -148,8 +148,8 @@ impl IpfsClient {
     /// Reads `IPFS_API_URL` and `IPFS_GATEWAY_URL`, falling back to
     /// `http://localhost:5001` and `http://localhost:8080` respectively.
     pub fn from_env() -> Self {
-        let api_url = std::env::var("IPFS_API_URL")
-            .unwrap_or_else(|_| "http://localhost:5001".to_string());
+        let api_url =
+            std::env::var("IPFS_API_URL").unwrap_or_else(|_| "http://localhost:5001".to_string());
         let gateway_url = std::env::var("IPFS_GATEWAY_URL")
             .unwrap_or_else(|_| "http://localhost:8080".to_string());
         Self::new(api_url, gateway_url)

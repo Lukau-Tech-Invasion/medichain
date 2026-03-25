@@ -44,6 +44,9 @@ docs/logs/
 *.runlog.txt
 coverage/
 
+# Claude Code worktrees (local dev tool artifacts)
+.claude/worktrees/
+
 # Temporary documentation (internal planning - remove after project completion)
 # These are development artifacts that should not be in final release:
 # docs/ACTION_PLAN_REPORT.md

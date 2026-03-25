@@ -137,4 +137,22 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
 
         Ok(critical_wounds)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<WoundAssessmentEntity>> {
+        let storage = self.data.read().unwrap();
+
+        let mut assessments: Vec<WoundAssessmentEntity> = storage.values().cloned().collect();
+
+        assessments.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+
+        let total = assessments.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+
+        let items = assessments.into_iter().skip(offset).take(limit).collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }

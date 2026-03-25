@@ -164,4 +164,31 @@ impl IORecordRepository for PgIORecordRepository {
 
         Ok(records)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<IORecordEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM io_records");
+
+        let total = count_qb
+            .build_query_scalar::<i64>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM io_records ORDER BY record_date DESC, shift LIMIT ",
+        );
+        qb.push_bind(pagination.limit() as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i64);
+
+        let records = qb
+            .build_query_as::<IORecordEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(records, total as u64, &pagination))
+    }
 }

@@ -272,9 +272,7 @@ const LabQCPage: React.FC = () => {
 
   const getResultBadge = (result: string) => {
     const styles: Record<string, string> = {
-      /* eslint-disable @typescript-eslint/naming-convention */
-      'pass': 'bg-green-100 text-green-800', // QC result status, not a password
-      /* eslint-enable @typescript-eslint/naming-convention */
+      'pass': 'bg-green-100 text-green-800',
       warning: 'bg-yellow-100 text-yellow-800',
       fail: 'bg-red-100 text-red-800'
     };

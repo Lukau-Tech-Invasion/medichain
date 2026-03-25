@@ -1194,6 +1194,24 @@ impl AmaDischargeRepository for MemoryAmaDischargeRepository {
         data.insert(discharge.id.clone(), discharge.clone());
         Ok(discharge)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AmaDischargeEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<AmaDischargeEntity> = data.values().cloned().collect();
+        items.sort_by(|a, b| b.discharge_datetime.cmp(&a.discharge_datetime));
+        let total = items.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+        let page: Vec<AmaDischargeEntity> =
+            items.into_iter().skip(offset).take(limit).collect();
+        Ok(PaginatedResult::new(page, total, &pagination))
+    }
 }
 
 /// Memory-based shift handoff repository
@@ -1466,6 +1484,24 @@ impl IncidentReportRepository for MemoryIncidentReportRepository {
             .cloned()
             .collect();
         Ok(items)
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<IncidentReportEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<IncidentReportEntity> = data.values().cloned().collect();
+        items.sort_by(|a, b| b.incident_datetime.cmp(&a.incident_datetime));
+        let total = items.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+        let page: Vec<IncidentReportEntity> =
+            items.into_iter().skip(offset).take(limit).collect();
+        Ok(PaginatedResult::new(page, total, &pagination))
     }
 }
 

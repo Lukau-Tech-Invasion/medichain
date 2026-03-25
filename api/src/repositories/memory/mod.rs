@@ -30,6 +30,9 @@ mod progress_note;
 mod sample_history;
 mod wound_assessment;
 
+// Emergency protocol repositories
+mod emergency;
+
 // Phase 3 repositories
 mod phase3;
 
@@ -54,6 +57,13 @@ pub use nursing_care_plan::MemoryNursingCarePlanRepository;
 pub use progress_note::MemoryProgressNoteRepository;
 pub use sample_history::MemorySampleHistoryRepository;
 pub use wound_assessment::MemoryWoundAssessmentRepository;
+
+// Emergency protocol exports
+pub use emergency::MemoryCodeBlueRepository;
+pub use emergency::MemoryTraumaAssessmentRepository;
+pub use emergency::MemoryStrokeAssessmentRepository;
+pub use emergency::MemoryCardiacEventRepository;
+pub use emergency::MemorySepsisAssessmentRepository;
 
 // Phase 3 exports - Lab & Diagnostics
 pub use phase3::MemoryCriticalValueRepository;
@@ -133,6 +143,7 @@ pub use phase5::MemoryCdsAlertRepository;
 
 // Phase 10 exports - Insurance & Billing
 pub use phase5::MemoryBillingCodeRepository;
+pub use phase5::MemoryDeviceTokenRepository;
 pub use phase5::MemoryInsuranceRecordRepository;
 
 // Phase 11-15 repositories

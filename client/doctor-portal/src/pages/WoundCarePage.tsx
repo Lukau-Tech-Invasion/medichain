@@ -116,6 +116,38 @@ const WoundCarePage: React.FC = () => {
     fetchWounds();
   }, [user]);
 
+  // Fetch wound detail when selected
+  useEffect(() => {
+    if (!selectedWound || !user?.walletAddress) return;
+    const fetchWoundDetail = async () => {
+      try {
+        const response = await fetch(apiUrl(`/api/clinical/wound/${selectedWound.id}`), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Nurse',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.id) {
+            setSelectedWound({
+              ...data,
+              discoveredDate: new Date(data.discoveredDate || data.discovered_date || selectedWound.discoveredDate),
+              lastAssessment: new Date(data.lastAssessment || data.last_assessment || selectedWound.lastAssessment),
+              measurements: (data.measurements || []).map((m: WoundMeasurement & { date: string }) => ({
+                ...m,
+                date: new Date(m.date)
+              }))
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch wound detail:', err);
+      }
+    };
+    fetchWoundDetail();
+  }, [selectedWound?.id, user]);
+
   const getStatusBadge = (status: WoundStatus) => {
     const styles: Record<WoundStatus, { bg: string; text: string; icon: React.ReactNode }> = {
       'new': { bg: 'bg-blue-100', text: 'text-blue-700', icon: <Plus className="w-3 h-3" /> },

@@ -23,7 +23,7 @@ import {
   Zap,
   Loader2
 } from 'lucide-react';
-import { getWearableDevices, getWearableReadings } from '@medichain/shared';
+import { getWearableDevices, getWearableReadings, registerWearableDevice } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -86,11 +86,11 @@ const WearablesPage: React.FC = () => {
     setLoading(true);
     
     // Try to load from API first
-    if (patient?.walletAddress) {
+    if (patient?.healthId) {
       try {
         const [apiDevices, apiReadings] = await Promise.all([
           getWearableDevices() as Promise<Device[]>,
-          getWearableReadings(patient.walletAddress) as Promise<HealthMetric[]>
+          getWearableReadings(patient.healthId) as Promise<HealthMetric[]>
         ]);
         
         if (apiDevices && Array.isArray(apiDevices) && apiDevices.length > 0) {
@@ -528,15 +528,27 @@ const WearablesPage: React.FC = () => {
               <h3 className="font-semibold text-gray-900 mb-4">Add Device</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { name: 'Apple Health', icon: <Heart className="w-6 h-6" />, color: 'bg-red-100 text-red-600' },
-                  { name: 'Google Fit', icon: <Activity className="w-6 h-6" />, color: 'bg-blue-100 text-blue-600' },
-                  { name: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-teal-100 text-teal-600' },
-                  { name: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-purple-100 text-purple-600' },
-                  { name: 'Samsung Health', icon: <Heart className="w-6 h-6" />, color: 'bg-indigo-100 text-indigo-600' },
-                  { name: 'Oura Ring', icon: <Moon className="w-6 h-6" />, color: 'bg-gray-100 text-gray-600' }
+                  { name: 'Apple Health', icon: <Heart className="w-6 h-6" />, color: 'bg-red-100 text-red-600', type: 'apple-watch' },
+                  { name: 'Google Fit', icon: <Activity className="w-6 h-6" />, color: 'bg-blue-100 text-blue-600', type: 'google-fit' },
+                  { name: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-teal-100 text-teal-600', type: 'fitbit' },
+                  { name: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-purple-100 text-purple-600', type: 'garmin' },
+                  { name: 'Samsung Health', icon: <Heart className="w-6 h-6" />, color: 'bg-indigo-100 text-indigo-600', type: 'samsung' },
+                  { name: 'Oura Ring', icon: <Moon className="w-6 h-6" />, color: 'bg-gray-100 text-gray-600', type: 'oura' }
                 ].map(platform => (
                   <button
                     key={platform.name}
+                    onClick={async () => {
+                      try {
+                        await registerWearableDevice({
+                          device_type: platform.type,
+                          device_name: platform.name,
+                          patient_id: patient?.healthId,
+                        });
+                        loadWearableData();
+                      } catch (err) {
+                        console.warn('Failed to register device:', err);
+                      }
+                    }}
                     className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-all"
                   >
                     <div className={`p-2 rounded-full ${platform.color}`}>

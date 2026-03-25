@@ -243,6 +243,51 @@ impl InsuranceRecordRepository for PgInsuranceRecordRepository {
 
         Ok(items)
     }
+
+    async fn set_primary(&self, patient_id: &str, record_id: &str) -> RepositoryResult<()> {
+        let mut tx = self.pool.begin().await?;
+
+        // 1. Mark all other records for this patient as not primary
+        sqlx::query(
+            "UPDATE insurance_records SET insurance_type = 'secondary' 
+             WHERE patient_id = $1 AND insurance_type = 'primary'",
+        )
+        .bind(patient_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // 2. Set the specified record as primary
+        sqlx::query(
+            "UPDATE insurance_records SET insurance_type = 'primary', is_active = true 
+             WHERE id = $1 AND patient_id = $2",
+        )
+        .bind(record_id)
+        .bind(patient_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn terminate(
+        &self,
+        id: &str,
+        termination_date: chrono::NaiveDate,
+    ) -> RepositoryResult<InsuranceRecordEntity> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE insurance_records SET ");
+        qb.push("is_active = false, termination_date = ")
+            .push_bind(termination_date);
+        qb.push(", updated_at = NOW() WHERE id = ").push_bind(id);
+        qb.push(" RETURNING *");
+
+        let result = qb
+            .build_query_as::<InsuranceRecordEntity>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(result)
+    }
 }
 
 // =============================================================================
@@ -487,5 +532,20 @@ impl BillingCodeRepository for PgBillingCodeRepository {
             .await?;
 
         Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
+    async fn get_active(&self, code_type: &str) -> RepositoryResult<Vec<BillingCodeEntity>> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM billing_codes WHERE is_active = true AND code_type = ",
+        );
+        qb.push_bind(code_type);
+        qb.push(" ORDER BY code");
+
+        let items = qb
+            .build_query_as::<BillingCodeEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(items)
     }
 }

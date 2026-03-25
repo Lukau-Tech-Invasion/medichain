@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createPostOp } from '@medichain/shared';
+import { getPatients, createPostOp, apiUrl } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -101,6 +101,29 @@ const PostOpPage: React.FC = () => {
     };
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history' && selectedPatient && user) {
+      const fetchHistory = async () => {
+        try {
+          const res = await fetch(apiUrl(`/api/clinical/post-op/${selectedPatient}`), {
+            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const records = Array.isArray(data) ? data : (data.records || data.notes || []);
+            setNotes(prev => {
+              const existingIds = new Set(prev.map((n: PostOpNote) => n.id));
+              return [...prev, ...records.filter((r: PostOpNote) => !existingIds.has(r.id))];
+            });
+          }
+        } catch (e) {
+          console.error('Failed to fetch post-op history:', e);
+        }
+      };
+      fetchHistory();
+    }
+  }, [activeTab, selectedPatient, user]);
 
   // Calculate Aldrete score
   const aldreteScore = Object.values(aldrete).reduce((a, b) => a + b, 0);

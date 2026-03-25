@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { listCdsAlerts } from '@medichain/shared';
+import { listCdsAlerts, apiUrl } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   Bell,
@@ -283,12 +283,33 @@ const CDSAlertsPage: React.FC = () => {
     });
   };
 
-  const handleToggleRule = (ruleId: string) => {
+  const handleToggleRule = async (ruleId: string) => {
     setRules(rules.map(r =>
       r.ruleId === ruleId
         ? { ...r, isEnabled: !r.isEnabled, lastModified: new Date().toISOString() }
         : r
     ));
+    // Also call the API to respond/update the alert status
+    if (user) {
+      try {
+        const rule = rules.find(r => r.ruleId === ruleId);
+        await fetch(apiUrl(`/api/cds/alerts/${ruleId}/respond`), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role,
+          },
+          body: JSON.stringify({
+            action: rule?.isEnabled ? 'deactivate' : 'activate',
+            responded_by: user.userId,
+            responded_at: new Date().toISOString(),
+          }),
+        });
+      } catch (e) {
+        console.error('Failed to respond to CDS alert:', e);
+      }
+    }
   };
 
   const handleDuplicateRule = (rule: CDSRule) => {

@@ -165,4 +165,23 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
         let items = notes.into_iter().skip(offset).take(limit).collect();
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<ProgressNoteEntity>> {
+        let storage = self.data.read().unwrap();
+
+        let mut notes: Vec<ProgressNoteEntity> =
+            storage.values().filter(|n| n.is_active).cloned().collect();
+
+        notes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        let total = notes.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+
+        let items = notes.into_iter().skip(offset).take(limit).collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }

@@ -150,8 +150,8 @@ impl MedicationRecordRepository for PgMedicationRecordRepository {
 
     async fn get_incomplete_records(&self) -> RepositoryResult<Vec<MedicationRecordEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM medication_records 
-            WHERE is_active = true 
+            "SELECT * FROM medication_records
+            WHERE is_active = true
             AND (completion_percentage IS NULL OR completion_percentage < 100)
             ORDER BY record_date DESC",
         );
@@ -162,5 +162,32 @@ impl MedicationRecordRepository for PgMedicationRecordRepository {
             .await?;
 
         Ok(records)
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<MedicationRecordEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM medication_records WHERE is_active = true");
+
+        let total = count_qb
+            .build_query_scalar::<i64>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM medication_records WHERE is_active = true ORDER BY record_date DESC LIMIT ",
+        );
+        qb.push_bind(pagination.limit() as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i64);
+
+        let records = qb
+            .build_query_as::<MedicationRecordEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(records, total as u64, &pagination))
     }
 }

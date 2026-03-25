@@ -27,8 +27,13 @@ import {
   Star,
   HelpCircle,
   Video,
+  FlaskConical,
+  BookOpen,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSSE } from '../hooks/useSSE';
+import { useApiStatus } from '../hooks/useApiStatus';
+import { useToastActions } from './Toast';
 
 interface LayoutProps {
   variant?: 'doctor' | 'patient';
@@ -57,6 +62,76 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Connection status
+  const { isOnline, queueSize, checkConnection } = useApiStatus();
+
+  // Real-time events
+  const { events, isConnected: isSSEConnected } = useSSE();
+  const { showInfo, showWarning, showError, showSuccess } = useToastActions();
+  const lastProcessedEventRef = useRef<number>(0);
+
+  // Handle incoming real-time events
+  useEffect(() => {
+    if (events.length > 0) {
+      const latestEvent = events[0];
+      if (latestEvent.timestamp > lastProcessedEventRef.current) {
+        lastProcessedEventRef.current = latestEvent.timestamp;
+        
+        // Customize notifications based on portal variant
+        if (variant === 'patient') {
+          switch (latestEvent.event_type) {
+            case 'reminder_due':
+              showInfo(
+                latestEvent.payload.message || 'Time to take your medication',
+                'Medication Reminder'
+              );
+              break;
+            case 'lab_result':
+              showSuccess(
+                'New lab results have been uploaded to your records.',
+                'New Lab Result'
+              );
+              break;
+            case 'notification':
+              showInfo(latestEvent.payload.message, 'New Notification');
+              break;
+            default:
+              // For patients, maybe show less technical info
+              if (latestEvent.payload.message) {
+                showInfo(latestEvent.payload.message);
+              }
+          }
+        } else {
+          // Doctor portal variant notifications
+          switch (latestEvent.event_type) {
+            case 'cds_alert':
+              showWarning(
+                latestEvent.payload.title || 'Clinical Alert',
+                `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+              );
+              break;
+            case 'lab_result':
+              showSuccess(
+                `New lab results available for patient ${latestEvent.patient_id}`,
+                'Lab Result Ready'
+              );
+              break;
+            case 'reminder_due':
+              showInfo(
+                latestEvent.payload.message || 'Task reminder due',
+                'Task Reminder'
+              );
+              break;
+            default:
+              if (latestEvent.payload.message) {
+                showInfo(latestEvent.payload.message, 'System Notification');
+              }
+          }
+        }
+      }
+    }
+  }, [events, variant, showInfo, showWarning, showSuccess]);
+
   const doctorNavItems: NavItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/emergency', label: 'Emergency', icon: AlertCircle },
@@ -82,10 +157,13 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       items: [
         { path: '/medications', label: 'Medications', icon: Pill },
         { path: '/reminders', label: 'Med Reminders', icon: Bell },
+        { path: '/vitals', label: 'Vital Signs', icon: Activity },
+        { path: '/lab-results', label: 'Lab Results', icon: FlaskConical },
         { path: '/symptoms', label: 'Symptom Tracker', icon: Activity },
         { path: '/symptom-checker', label: 'Symptom Checker', icon: HelpCircle },
         { path: '/lab-trends', label: 'Lab Trends', icon: TrendingUp },
         { path: '/wearables', label: 'Wearables', icon: Watch },
+        { path: '/medical-history', label: 'Medical History', icon: BookOpen },
       ],
     },
     {
@@ -103,6 +181,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
         { path: '/consent', label: 'Access Control', icon: Shield },
         { path: '/emergency-card', label: 'Emergency Card', icon: AlertCircle },
         { path: '/insurance', label: 'Insurance', icon: ClipboardList },
+        { path: '/notifications', label: 'Notifications', icon: Bell },
         { path: '/survey', label: 'Satisfaction Survey', icon: Star },
       ],
     },
@@ -139,6 +218,25 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-neutral-50">
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="bg-amber-600 text-white px-4 py-2 text-center text-sm font-medium animate-pulse flex items-center justify-center gap-2 sticky top-0 z-50">
+          <WifiOff className="w-4 h-4" />
+          <span>You are currently offline. Changes will be synced when connection is restored.</span>
+          {queueSize > 0 && (
+            <span className="bg-white/20 px-2 py-0.5 rounded-lg ml-2 border border-white/30 text-xs">
+              {queueSize} pending
+            </span>
+          )}
+          <button 
+            onClick={() => checkConnection()} 
+            className="ml-4 px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg transition-colors border border-white/30 text-xs"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Top Navigation */}
       <nav className="bg-white border-b border-neutral-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -180,9 +278,14 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
             {/* Right Actions */}
             <div className="flex items-center gap-3">
-              <button className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors">
-                <Bell className="w-6 h-6" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+              <button 
+                onClick={() => navigate('/notifications')}
+                className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors"
+                title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
+              >
+                <Bell className={`w-6 h-6 ${isSSEConnected ? 'text-blue-600' : 'text-neutral-600'}`} />
+                {isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
+                {!isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-red-400 rounded-full" />}
               </button>
 
               <button

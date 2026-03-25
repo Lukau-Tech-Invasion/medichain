@@ -185,4 +185,31 @@ impl NursingCarePlanRepository for PgNursingCarePlanRepository {
 
         Ok(PaginatedResult::new(plans, total as u64, &pagination))
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM nursing_care_plans WHERE is_active = true");
+
+        let total = count_qb
+            .build_query_scalar::<i64>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM nursing_care_plans WHERE is_active = true ORDER BY start_date DESC LIMIT ",
+        );
+        qb.push_bind(pagination.limit() as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i64);
+
+        let plans = qb
+            .build_query_as::<NursingCarePlanEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(plans, total as u64, &pagination))
+    }
 }

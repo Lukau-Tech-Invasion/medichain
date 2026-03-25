@@ -4,7 +4,9 @@
 use async_trait::async_trait;
 use sqlx::{PgPool, Postgres, QueryBuilder};
 
-use crate::repositories::{NfcTagEntity, NfcTagRepository, RepositoryError, RepositoryResult};
+use crate::repositories::{
+    NfcTagEntity, NfcTagRepository, PaginatedResult, Pagination, RepositoryError, RepositoryResult,
+};
 
 /// PostgreSQL-backed NFC tag repository
 #[derive(Debug, Clone)]
@@ -159,5 +161,28 @@ impl NfcTagRepository for PgNfcTagRepository {
         }
 
         Ok(())
+    }
+
+    async fn list(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<NfcTagEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM nfc_tags");
+        let count: (i64,) = count_qb.build_query_as().fetch_one(&self.pool).await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM nfc_tags ORDER BY issued_at DESC LIMIT "
+        );
+        qb.push_bind(pagination.limit() as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i64);
+
+        let tags = qb
+            .build_query_as::<NfcTagEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(tags, count.0 as u64, &pagination))
     }
 }

@@ -1,21 +1,32 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCodeBlue, getPatients } from '@medichain/shared';
+import { createCodeBlue, getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import { 
-  Activity, 
-  AlertTriangle, 
-  Clock, 
-  Heart, 
-  Save, 
-  Search, 
+import {
+  Activity,
+  AlertTriangle,
+  Clock,
+  Heart,
+  Save,
+  Search,
   Zap,
   Syringe,
   Play,
-  Square
+  Square,
+  History
 } from 'lucide-react';
+
+interface EmergencyRecord {
+  event_id: string;
+  patient_id: string;
+  event_type?: string;
+  event_time?: number;
+  code_called_at?: number;
+  outcome?: string;
+  narrative?: string;
+}
 
 export default function CodeBluePage() {
   const navigate = useNavigate();
@@ -23,6 +34,8 @@ export default function CodeBluePage() {
   const { showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
+  const [emergencyHistory, setEmergencyHistory] = useState<EmergencyRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -51,6 +64,24 @@ export default function CodeBluePage() {
       setPatients(data);
     } catch (error) {
       console.error('Failed to load patients', error);
+    }
+  };
+
+  const fetchEmergencyHistory = async (patientId: string) => {
+    if (!user || !patientId) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(apiUrl(`/api/clinical/patient/${patientId}/emergency`), {
+        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEmergencyHistory(data.events || data || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch emergency history', e);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -116,6 +147,55 @@ export default function CodeBluePage() {
         </p>
       </div>
 
+      {/* Emergency History */}
+      {selectedPatient && (
+        <div className="bg-white shadow rounded-lg p-6 mb-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <History className="h-5 w-5 text-red-500" />
+            Past Emergency Events
+          </h2>
+          {historyLoading ? (
+            <p className="text-gray-500 text-sm">Loading history...</p>
+          ) : emergencyHistory.length === 0 ? (
+            <p className="text-gray-400 text-sm italic">No prior emergency events recorded for this patient.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Event ID</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Outcome</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {emergencyHistory.map((ev) => (
+                    <tr key={ev.event_id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
+                      <td className="px-4 py-2">{ev.event_type || 'Code Blue'}</td>
+                      <td className="px-4 py-2">
+                        {ev.code_called_at ? new Date(ev.code_called_at * 1000).toLocaleString() :
+                         ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          ev.outcome === 'rosc' ? 'bg-green-100 text-green-700' :
+                          ev.outcome === 'expired' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {ev.outcome || 'Unknown'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Left Column: Controls & Patient */}
         <div className="lg:col-span-2 space-y-6">
@@ -132,7 +212,7 @@ export default function CodeBluePage() {
                 id="code-blue-patient"
                 className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={selectedPatient}
-                onChange={(e) => setSelectedPatient(e.target.value)}
+                onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
                 disabled={isActive}
               >
                 <option value="">Select a patient...</option>

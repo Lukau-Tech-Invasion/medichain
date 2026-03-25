@@ -24,6 +24,10 @@ import {
   SymptomCheckerPage,
   LanguageSettingsPage,
   OfflineSyncPage,
+  VitalsPage,
+  LabResultsPage,
+  NotificationsPage,
+  MedicalHistoryPage,
 } from './pages';
 
 /**
@@ -75,6 +79,12 @@ function App() {
         <Route path="symptom-checker" element={<SymptomCheckerPage />} />
         <Route path="language" element={<LanguageSettingsPage />} />
         <Route path="offline-sync" element={<OfflineSyncPage />} />
+
+        {/* New Pages */}
+        <Route path="vitals" element={<VitalsPage />} />
+        <Route path="lab-results" element={<LabResultsPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="medical-history" element={<MedicalHistoryPage />} />
       </Route>
 
       {/* Catch all - redirect to dashboard */}

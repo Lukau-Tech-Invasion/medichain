@@ -1227,6 +1227,29 @@ impl EPrescriptionRepository for PgEPrescriptionRepository {
 
         Ok(items)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<EPrescriptionEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM e_prescriptions");
+        let count: (i64,) = count_qb.build_query_as().fetch_one(&self.pool).await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM e_prescriptions ORDER BY created_at DESC LIMIT "
+        );
+        qb.push_bind(pagination.limit() as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i64);
+
+        let items = qb
+            .build_query_as::<EPrescriptionEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, count.0 as u64, &pagination))
+    }
 }
 
 // =============================================================================

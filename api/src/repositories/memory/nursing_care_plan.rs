@@ -167,4 +167,26 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         let items = plans.into_iter().skip(offset).take(limit).collect();
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>> {
+        let storage = self.data.read().unwrap();
+
+        let mut plans: Vec<NursingCarePlanEntity> = storage
+            .values()
+            .filter(|p| p.is_active)
+            .cloned()
+            .collect();
+
+        plans.sort_by(|a, b| b.start_date.cmp(&a.start_date));
+
+        let total = plans.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+
+        let items = plans.into_iter().skip(offset).take(limit).collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }

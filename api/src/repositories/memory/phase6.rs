@@ -791,10 +791,7 @@ impl OrganDonationRecordRepository for MemoryOrganDonationRecordRepository {
         Ok(items)
     }
 
-    async fn get_by_opo(
-        &self,
-        opo_name: &str,
-    ) -> RepositoryResult<Vec<OrganDonationRecordEntity>> {
+    async fn get_by_opo(&self, opo_name: &str) -> RepositoryResult<Vec<OrganDonationRecordEntity>> {
         let records = self.records.read().unwrap();
         let items: Vec<_> = records
             .values()
@@ -1060,9 +1057,7 @@ impl SyncConflictRepository for MemorySyncConflictRepository {
         let records = self.records.read().unwrap();
         let items: Vec<_> = records
             .values()
-            .filter(|r| {
-                r.status.as_deref() == Some("pending") && r.resolution_strategy.is_some()
-            })
+            .filter(|r| r.status.as_deref() == Some("pending") && r.resolution_strategy.is_some())
             .cloned()
             .collect();
         Ok(items)
@@ -1182,10 +1177,7 @@ impl ExternalIdMappingRepository for MemoryExternalIdMappingRepository {
         let records = self.records.read().unwrap();
         let items: Vec<_> = records
             .values()
-            .filter(|r| {
-                r.sync_status.is_none()
-                    || r.sync_status.as_deref() == Some("pending")
-            })
+            .filter(|r| r.sync_status.is_none() || r.sync_status.as_deref() == Some("pending"))
             .cloned()
             .collect();
         Ok(items)

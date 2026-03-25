@@ -151,8 +151,8 @@ impl TelehealthProvider for InternalProvider {
     ) -> Result<SessionInfo, TelehealthError> {
         let provider_url = self.build_url(&params.session_id, "provider");
         let patient_url = self.build_url(&params.session_id, "patient");
-        let expires_at = params.scheduled_at
-            + chrono::Duration::minutes(params.duration_minutes as i64 + 30);
+        let expires_at =
+            params.scheduled_at + chrono::Duration::minutes(params.duration_minutes as i64 + 30);
 
         Ok(SessionInfo {
             session_id: params.session_id,
@@ -211,14 +211,10 @@ impl TelehealthProvider for DailyProvider {
             .map_err(TelehealthError::HttpError)?;
 
         // Daily.co requires a room name: use the session_id (lowercased, truncated)
-        let room_name = format!(
-            "mc-{}",
-            params.session_id.to_lowercase().replace('_', "-")
-        );
+        let room_name = format!("mc-{}", params.session_id.to_lowercase().replace('_', "-"));
 
         // exp: scheduled_at + duration + 30 min buffer
-        let exp = params.scheduled_at.timestamp()
-            + (params.duration_minutes as i64 + 30) * 60;
+        let exp = params.scheduled_at.timestamp() + (params.duration_minutes as i64 + 30) * 60;
 
         let body = serde_json::json!({
             "name": room_name,
@@ -253,10 +249,9 @@ impl TelehealthProvider for DailyProvider {
             .await
             .map_err(|e| TelehealthError::ProviderError(e.to_string()))?;
 
-        let base_url = json
-            .get("url")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| TelehealthError::ProviderError("No URL in Daily.co response".to_string()))?;
+        let base_url = json.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
+            TelehealthError::ProviderError("No URL in Daily.co response".to_string())
+        })?;
 
         let provider_url = format!("{}?t=provider", base_url);
         let patient_url = format!("{}?t=patient", base_url);
@@ -332,13 +327,14 @@ impl TwilioProvider {
     pub fn from_env() -> Option<Self> {
         let account_sid = std::env::var("TWILIO_ACCOUNT_SID").ok()?;
         let auth_token = std::env::var("TWILIO_AUTH_TOKEN").ok()?;
-        Some(TwilioProvider { account_sid, auth_token })
+        Some(TwilioProvider {
+            account_sid,
+            auth_token,
+        })
     }
 
     fn api_url(&self) -> String {
-        format!(
-            "https://video.twilio.com/v1/Rooms"
-        )
+        format!("https://video.twilio.com/v1/Rooms")
     }
 }
 
@@ -354,10 +350,7 @@ impl TelehealthProvider for TwilioProvider {
             .map_err(TelehealthError::HttpError)?;
 
         // Twilio room name must be ≤ 128 chars, alphanumeric + underscores
-        let room_name = format!(
-            "mc_{}",
-            params.session_id.replace('-', "_")
-        );
+        let room_name = format!("mc_{}", params.session_id.replace('-', "_"));
 
         let resp = client
             .post(&self.api_url())
@@ -400,8 +393,8 @@ impl TelehealthProvider for TwilioProvider {
             "https://video.twilio.com/v1/Rooms/{}/join?identity=patient&account={}",
             room_sid, self.account_sid
         );
-        let expires_at = params.scheduled_at
-            + chrono::Duration::minutes(params.duration_minutes as i64 + 30);
+        let expires_at =
+            params.scheduled_at + chrono::Duration::minutes(params.duration_minutes as i64 + 30);
 
         Ok(SessionInfo {
             session_id: params.session_id,
@@ -477,40 +470,36 @@ impl TelehealthService {
     /// env var.  Falls back to `InternalProvider` if the var is absent or the
     /// configured provider cannot be initialised (e.g. missing API key).
     pub fn new() -> Self {
-        let provider_name = std::env::var("TELEHEALTH_PROVIDER")
-            .unwrap_or_else(|_| "internal".to_string());
+        let provider_name =
+            std::env::var("TELEHEALTH_PROVIDER").unwrap_or_else(|_| "internal".to_string());
 
         let provider: Box<dyn TelehealthProvider> = match provider_name.to_lowercase().as_str() {
-            "daily" => {
-                match DailyProvider::from_env() {
-                    Some(p) => {
-                        log::info!("TelehealthService: using Daily.co provider");
-                        Box::new(p)
-                    }
-                    None => {
-                        log::warn!(
-                            "TELEHEALTH_PROVIDER=daily but DAILY_API_KEY not set; \
+            "daily" => match DailyProvider::from_env() {
+                Some(p) => {
+                    log::info!("TelehealthService: using Daily.co provider");
+                    Box::new(p)
+                }
+                None => {
+                    log::warn!(
+                        "TELEHEALTH_PROVIDER=daily but DAILY_API_KEY not set; \
                              falling back to internal provider"
-                        );
-                        Box::new(InternalProvider::new())
-                    }
+                    );
+                    Box::new(InternalProvider::new())
                 }
-            }
-            "twilio" => {
-                match TwilioProvider::from_env() {
-                    Some(p) => {
-                        log::info!("TelehealthService: using Twilio Video provider");
-                        Box::new(p)
-                    }
-                    None => {
-                        log::warn!(
-                            "TELEHEALTH_PROVIDER=twilio but TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN \
+            },
+            "twilio" => match TwilioProvider::from_env() {
+                Some(p) => {
+                    log::info!("TelehealthService: using Twilio Video provider");
+                    Box::new(p)
+                }
+                None => {
+                    log::warn!(
+                        "TELEHEALTH_PROVIDER=twilio but TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN \
                              not set; falling back to internal provider"
-                        );
-                        Box::new(InternalProvider::new())
-                    }
+                    );
+                    Box::new(InternalProvider::new())
                 }
-            }
+            },
             _ => {
                 log::info!("TelehealthService: using internal provider");
                 Box::new(InternalProvider::new())
@@ -552,7 +541,9 @@ impl TelehealthService {
         participant: &str,
         role: ParticipantRole,
     ) -> Result<String, TelehealthError> {
-        self.provider.get_join_url(session_id, participant, role).await
+        self.provider
+            .get_join_url(session_id, participant, role)
+            .await
     }
 
     /// End (tear down) the session on the provider side and mark it locally.
@@ -598,7 +589,10 @@ mod tests {
     #[tokio::test]
     async fn test_internal_provider_create_session() {
         let provider = InternalProvider::new();
-        let info = provider.create_session(make_params("TH-test-001")).await.unwrap();
+        let info = provider
+            .create_session(make_params("TH-test-001"))
+            .await
+            .unwrap();
         assert_eq!(info.session_id, "TH-test-001");
         assert!(info.provider_join_url.contains("TH-test-001"));
         assert!(info.patient_join_url.contains("TH-test-001"));
@@ -642,7 +636,10 @@ mod tests {
     async fn test_telehealth_service_end_session_removes_it() {
         std::env::set_var("TELEHEALTH_PROVIDER", "internal");
         let service = TelehealthService::new();
-        service.create_session(make_params("TH-svc-002")).await.unwrap();
+        service
+            .create_session(make_params("TH-svc-002"))
+            .await
+            .unwrap();
         service.end_session("TH-svc-002").await.unwrap();
 
         let retrieved = service.get_session("TH-svc-002");

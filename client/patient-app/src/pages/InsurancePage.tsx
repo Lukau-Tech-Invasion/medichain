@@ -120,9 +120,9 @@ const InsurancePage: React.FC = () => {
     setLoading(true);
     
     // Try to load from API first
-    if (patient?.walletAddress) {
+    if (patient?.healthId) {
       try {
-        const apiClaims = await getPatientInsuranceClaims(patient.walletAddress) as InsuranceClaim[];
+        const apiClaims = await getPatientInsuranceClaims(patient.healthId) as InsuranceClaim[];
         
         if (apiClaims && Array.isArray(apiClaims) && apiClaims.length > 0) {
           setClaims(apiClaims);
@@ -383,14 +383,24 @@ const InsurancePage: React.FC = () => {
     );
   };
 
-  const handleVerifyCoverage = (cardId: string) => {
+  const handleVerifyCoverage = async (cardId: string) => {
+    if (!patient?.healthId) return;
     setVerifying(cardId);
-    setTimeout(() => {
+    try {
+      // Call POST /api/insurance/verify
+      const { verifyInsurance } = await import('@medichain/shared');
+      await verifyInsurance(patient.healthId);
       setInsuranceCards(prev => prev.map(card =>
         card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
       ));
+    } catch (err) {
+      console.warn('Verification API failed, updating locally:', err);
+      setInsuranceCards(prev => prev.map(card =>
+        card.id === cardId ? { ...card, lastVerified: new Date().toISOString().split('T')[0] } : card
+      ));
+    } finally {
       setVerifying(null);
-    }, 2000);
+    }
   };
 
   const handleAddInsurance = () => {

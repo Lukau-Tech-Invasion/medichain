@@ -480,6 +480,21 @@ export interface AccessLogsResponse {
 }
 
 // ============================================================================
+// Real-Time Event Types
+// ============================================================================
+
+export interface PushEvent {
+  /** One of: "cds_alert", "reminder_due", "lab_result", "notification" */
+  event_type: string;
+  /** Optional patient identifier the event relates to */
+  patient_id?: string;
+  /** Arbitrary JSON payload */
+  payload: any;
+  /** Unix timestamp (seconds since epoch) */
+  timestamp: number;
+}
+
+// ============================================================================
 // API Response Types
 // ============================================================================
 

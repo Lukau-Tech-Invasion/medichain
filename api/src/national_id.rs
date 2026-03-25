@@ -118,7 +118,11 @@ pub enum NationalIdError {
 #[async_trait]
 pub trait NationalIdVerifier: Send + Sync {
     /// Attempt to verify the supplied ID number.
-    async fn verify(&self, id: &str, country: &Country) -> Result<VerificationResult, NationalIdError>;
+    async fn verify(
+        &self,
+        id: &str,
+        country: &Country,
+    ) -> Result<VerificationResult, NationalIdError>;
 
     /// The country this verifier handles.
     fn supported_country(&self) -> Country;
@@ -165,7 +169,11 @@ impl StubVerifier {
 
 #[async_trait]
 impl NationalIdVerifier for StubVerifier {
-    async fn verify(&self, id: &str, country: &Country) -> Result<VerificationResult, NationalIdError> {
+    async fn verify(
+        &self,
+        id: &str,
+        country: &Country,
+    ) -> Result<VerificationResult, NationalIdError> {
         if id.trim().is_empty() {
             return Ok(VerificationResult {
                 verified: false,
@@ -218,7 +226,12 @@ impl HttpVerifier {
         api_url_env: &'static str,
         default_api_url: &'static str,
     ) -> Self {
-        HttpVerifier { country, api_key_env, api_url_env, default_api_url }
+        HttpVerifier {
+            country,
+            api_key_env,
+            api_url_env,
+            default_api_url,
+        }
     }
 
     fn api_key(&self) -> Option<String> {
@@ -226,14 +239,17 @@ impl HttpVerifier {
     }
 
     fn api_url(&self) -> String {
-        std::env::var(self.api_url_env)
-            .unwrap_or_else(|_| self.default_api_url.to_string())
+        std::env::var(self.api_url_env).unwrap_or_else(|_| self.default_api_url.to_string())
     }
 }
 
 #[async_trait]
 impl NationalIdVerifier for HttpVerifier {
-    async fn verify(&self, id: &str, country: &Country) -> Result<VerificationResult, NationalIdError> {
+    async fn verify(
+        &self,
+        id: &str,
+        country: &Country,
+    ) -> Result<VerificationResult, NationalIdError> {
         let api_key = match self.api_key() {
             Some(k) => k,
             None => {
@@ -430,7 +446,10 @@ mod tests {
     #[tokio::test]
     async fn test_stub_verifier_returns_verified() {
         let verifier = StubVerifier::new(Country::Ethiopia);
-        let result = verifier.verify("FAN123456", &Country::Ethiopia).await.unwrap();
+        let result = verifier
+            .verify("FAN123456", &Country::Ethiopia)
+            .await
+            .unwrap();
         assert!(result.verified);
         assert!(result.full_name.is_some());
         assert!(result.date_of_birth.is_some());
@@ -448,8 +467,14 @@ mod tests {
     #[tokio::test]
     async fn test_stub_verifier_deterministic() {
         let verifier = StubVerifier::new(Country::Nigeria);
-        let r1 = verifier.verify("NIN9876543210", &Country::Nigeria).await.unwrap();
-        let r2 = verifier.verify("NIN9876543210", &Country::Nigeria).await.unwrap();
+        let r1 = verifier
+            .verify("NIN9876543210", &Country::Nigeria)
+            .await
+            .unwrap();
+        let r2 = verifier
+            .verify("NIN9876543210", &Country::Nigeria)
+            .await
+            .unwrap();
         assert_eq!(r1.full_name, r2.full_name);
         assert_eq!(r1.date_of_birth, r2.date_of_birth);
     }
@@ -476,7 +501,10 @@ mod tests {
         // Ensure the env var is absent
         std::env::remove_var("FAYDA_API_KEY");
         let service = NationalIdService::new();
-        let result = service.verify("FAN-TEST-001", &Country::Ethiopia).await.unwrap();
+        let result = service
+            .verify("FAN-TEST-001", &Country::Ethiopia)
+            .await
+            .unwrap();
         // Stub always verifies non-empty IDs
         assert!(result.verified);
     }

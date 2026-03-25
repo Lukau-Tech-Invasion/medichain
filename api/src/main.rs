@@ -44,12 +44,21 @@ mod notifications;
 mod telehealth;
 mod websocket;
 
+#[cfg(test)]
+mod api_tests;
+
 // Middleware imports - some are used directly, others are ready for future use
 use middleware::error_handling::{secure_tokens, validation};
 use middleware::rate_limit::RateLimitMiddleware;
 use middleware::signature_auth::{generate_auth_challenge, SignatureAuthMiddleware};
 
-use repositories::RepositoryContainer;
+use repositories::{
+    AccessLogEntity, CardiacEventEntity, RepositoryContainer, SampleHistoryEntity,
+    SepsisAssessmentEntity, StrokeAssessmentEntity, TriageAssessmentEntity,
+    TraumaAssessmentEntity, GcsAssessmentEntity, Pagination, PatientEntity,
+    AllergyEntity, MedicalRecordEntity, NfcTagEntity, VitalSignsEntity,
+    PaginatedResult,
+};
 
 use clinical::{
     AMADischarge,
@@ -517,6 +526,7 @@ pub struct PatientProfile {
     pub full_name: String,
     pub date_of_birth: String,
     pub national_id: String,
+    pub phone: String,
     pub emergency_info: EmergencyInfo,
     /// Patient's address (optional, FHIR compatible)
     pub address: Option<Address>,
@@ -639,6 +649,7 @@ pub struct RegisterPatientRequest {
     pub full_name: String,
     pub date_of_birth: String,
     pub national_id: String,
+    pub phone: String,
     pub blood_type: String,
     /// Allergies - can be simple strings (converted to Mild severity) for backward compatibility
     pub allergies: Vec<String>,
@@ -1170,8 +1181,6 @@ pub struct AppState {
     pub substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
     /// WebSocket/SSE session manager for push notifications
     pub ws_manager: crate::websocket::WsSessionManager,
-    /// FCM push notification device token registry (user_id → tokens)
-    pub device_token_registry: std::sync::Arc<crate::notifications::DeviceTokenRegistry>,
     /// Encryption key for medical records (in production: per-patient keys from HSM)
     pub encryption_key: medichain_crypto::EncryptionKey,
     /// NFC Card registry for demo
@@ -1404,7 +1413,6 @@ impl AppState {
             ipfs_client: IpfsClient::from_env(),
             substrate_client: None, // Use new_with_pool_async for blockchain support
             ws_manager: crate::websocket::WsSessionManager::new(),
-            device_token_registry: std::sync::Arc::new(crate::notifications::DeviceTokenRegistry::new()),
             encryption_key,
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
@@ -1504,7 +1512,10 @@ impl AppState {
 
     /// Create new AppState with optional PostgreSQL pool (async version)
     /// Pass substrate_client to enable blockchain integration.
-    pub async fn new_with_pool_async(db_pool: Option<sqlx::PgPool>, substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>) -> Self {
+    pub async fn new_with_pool_async(
+        db_pool: Option<sqlx::PgPool>,
+        substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
+    ) -> Self {
         // In production, keys would be managed by HSM/key vault
         let encryption_key =
             medichain_crypto::EncryptionKey::generate().expect("Failed to generate encryption key");
@@ -1520,7 +1531,10 @@ impl AppState {
         let repositories = {
             #[cfg(feature = "postgres")]
             {
-                match (crate::repositories::StorageBackend::from_env(), db_pool.as_ref()) {
+                match (
+                    crate::repositories::StorageBackend::from_env(),
+                    db_pool.as_ref(),
+                ) {
                     (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
                         match RepositoryContainer::new_postgres(pool.clone()).await {
                             Ok(pg_repos) => {
@@ -1537,7 +1551,9 @@ impl AppState {
                 }
             }
             #[cfg(not(feature = "postgres"))]
-            { RepositoryContainer::new_memory() }
+            {
+                RepositoryContainer::new_memory()
+            }
         };
         log::info!("Repository backend: {:?}", repositories.backend);
 
@@ -1553,7 +1569,6 @@ impl AppState {
             ipfs_client: IpfsClient::from_env(),
             substrate_client,
             ws_manager: crate::websocket::WsSessionManager::new(),
-            device_token_registry: std::sync::Arc::new(crate::notifications::DeviceTokenRegistry::new()),
             encryption_key,
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
@@ -1834,6 +1849,7 @@ impl AppState {
                 full_name: full_name.unwrap_or_else(|| "Unknown".to_string()),
                 date_of_birth: date_of_birth.map(|d| d.to_string()).unwrap_or_default(),
                 national_id: national_id.unwrap_or_default(),
+                phone: String::new(),
                 emergency_info,
                 address: None,
                 insurance: None,
@@ -2254,6 +2270,7 @@ async fn register_patient(
         full_name: req.full_name.clone(),
         date_of_birth: req.date_of_birth.clone(),
         national_id: req.national_id.clone(),
+        phone: req.phone.clone(),
         emergency_info,
         address: None,
         insurance: None,
@@ -2326,9 +2343,23 @@ async fn register_patient(
         if let Some(ref client) = data.substrate_client {
             let client = client.clone();
             tokio::spawn(async move {
-                match client.register_patient_on_chain(&patient_id_clone, &id_hash, &id_type_str, &registered_by_clone).await {
-                    Ok(tx_hash) => log::info!("Patient {} registered on chain: {}", patient_id_clone, tx_hash),
-                    Err(e) => log::warn!("Blockchain patient registration failed (non-fatal): {}", e),
+                match client
+                    .register_patient_on_chain(
+                        &patient_id_clone,
+                        &id_hash,
+                        &id_type_str,
+                        &registered_by_clone,
+                    )
+                    .await
+                {
+                    Ok(tx_hash) => log::info!(
+                        "Patient {} registered on chain: {}",
+                        patient_id_clone,
+                        tx_hash
+                    ),
+                    Err(e) => {
+                        log::warn!("Blockchain patient registration failed (non-fatal): {}", e)
+                    }
                 }
             });
         }
@@ -2510,7 +2541,11 @@ async fn verify_national_id(
         }));
     }
 
-    match data.national_id_service.verify(&req.id_number, &country).await {
+    match data
+        .national_id_service
+        .verify(&req.id_number, &country)
+        .await
+    {
         Ok(result) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "result": result
@@ -4667,7 +4702,15 @@ async fn upload_medical_record(
         if let Some(ref client) = data.substrate_client {
             let client = client.clone();
             tokio::spawn(async move {
-                match client.record_ipfs_hash_on_chain(&patient_id_clone, &ipfs_hash_clone, &record_type_clone, &uploader_clone).await {
+                match client
+                    .record_ipfs_hash_on_chain(
+                        &patient_id_clone,
+                        &ipfs_hash_clone,
+                        &record_type_clone,
+                        &uploader_clone,
+                    )
+                    .await
+                {
                     Ok(tx_hash) => log::info!("IPFS hash recorded on chain: {}", tx_hash),
                     Err(e) => log::warn!("Blockchain IPFS recording failed (non-fatal): {}", e),
                 }
@@ -6198,24 +6241,49 @@ async fn create_triage_assessment(
     };
 
     // Store assessment
-    {
-        let mut assessments = data.triage_assessments.write().unwrap();
-        assessments.insert(assessment_id.clone(), assessment);
+    let entity = TriageAssessmentEntity {
+        id: assessment_id.clone(),
+        patient_id: req.patient_id.clone(),
+        esi_level: esi_level.level() as i32,
+        chief_complaint: req.chief_complaint.clone(),
+        heart_rate: req.vital_signs.heart_rate.map(|v| v as i32),
+        respiratory_rate: req.vital_signs.respiratory_rate.map(|v| v as i32),
+        blood_pressure_systolic: req.vital_signs.bp_systolic.map(|v| v as i32),
+        blood_pressure_diastolic: req.vital_signs.bp_diastolic.map(|v| v as i32),
+        temperature: req.vital_signs.temperature_celsius.map(|v| v as f64),
+        oxygen_saturation: req.vital_signs.oxygen_saturation.map(|v| v as i32),
+        is_critical: has_critical_vitals,
+        triage_time: Utc::now(),
+        performed_by: current_user_id.clone(),
+        facility_id: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    if let Err(e) = data.repositories.triage_assessments.create(entity).await {
+        log::error!("Failed to store triage assessment in repository: {}", e);
     }
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: req.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "create_triage".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: esi_level.level() <= 2,
-        });
+    // Log access in repository
+    let log_entity = AccessLogEntity {
+        id: secure_tokens::generate_access_id(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        patient_id: Some(req.patient_id.clone()),
+        resource_type: "triage".to_string(),
+        resource_id: Some(assessment_id.clone()),
+        action: "create".to_string(),
+        access_reason: Some("triage assessment".to_string()),
+        is_emergency_access: esi_level.level() <= 2,
+        ip_address: None,
+        user_agent: None,
+        blockchain_tx_hash: None,
+        accessed_at: Utc::now(),
+        facility_id: None,
+    };
+
+    if let Err(e) = data.repositories.access_logs.create(log_entity).await {
+        log::error!("Failed to store access log in repository: {}", e);
     }
 
     log::info!(
@@ -6280,10 +6348,34 @@ async fn get_triage_assessment(
         });
     }
 
-    let assessments = data.triage_assessments.read().unwrap();
-    match assessments.get(&assessment_id) {
-        Some(assessment) => HttpResponse::Ok().json(assessment),
-        None => HttpResponse::NotFound().json(ErrorResponse {
+    match data.repositories.triage_assessments.get_by_id(&assessment_id).await {
+        Ok(entity) => {
+            // Convert Entity to TriageAssessment struct
+            let assessment = TriageAssessment {
+                assessment_id: entity.id,
+                patient_id: entity.patient_id,
+                esi_level: ESILevel::from_level(entity.esi_level as u8).unwrap_or(ESILevel::Level3Urgent),
+                chief_complaint: entity.chief_complaint,
+                vital_signs: clinical::TriageVitalSigns {
+                    heart_rate: entity.heart_rate.map(|v| v as u16),
+                    respiratory_rate: entity.respiratory_rate.map(|v| v as u16),
+                    bp_systolic: entity.blood_pressure_systolic.map(|v| v as u16),
+                    bp_diastolic: entity.blood_pressure_diastolic.map(|v| v as u16),
+                    temperature_celsius: entity.temperature.map(|v| v as f32),
+                    oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
+                    pain_scale: None,
+                    gcs_score: None,
+                    blood_glucose: None,
+                    weight_kg: None,
+                },
+                pain_scale: None,
+                notes: entity.disposition.clone(), // Map disposition to notes for now
+                performed_by: entity.performed_by,
+                performed_at: entity.triage_time.timestamp(),
+            };
+            HttpResponse::Ok().json(assessment)
+        }
+        Err(_) => HttpResponse::NotFound().json(ErrorResponse {
             success: false,
             error: format!("Triage assessment '{}' not found", assessment_id),
             code: "ASSESSMENT_NOT_FOUND".to_string(),
@@ -6331,17 +6423,53 @@ async fn get_patient_triage_assessments(
         });
     }
 
-    let assessments = data.triage_assessments.read().unwrap();
-    let patient_assessments: Vec<&TriageAssessment> = assessments
-        .values()
-        .filter(|a| a.patient_id == patient_id)
-        .collect();
+    match data
+        .repositories
+        .triage_assessments
+        .get_by_patient(&patient_id, Pagination::new(0, 50))
+        .await
+    {
+        Ok(result) => {
+            let assessments: Vec<TriageAssessment> = result
+                .items
+                .into_iter()
+                .map(|entity| TriageAssessment {
+                    assessment_id: entity.id,
+                    patient_id: entity.patient_id,
+                    esi_level: ESILevel::from_level(entity.esi_level as u8)
+                        .unwrap_or(ESILevel::Level3Urgent),
+                    chief_complaint: entity.chief_complaint,
+                    vital_signs: clinical::TriageVitalSigns {
+                        heart_rate: entity.heart_rate.map(|v| v as u16),
+                        respiratory_rate: entity.respiratory_rate.map(|v| v as u16),
+                        bp_systolic: entity.blood_pressure_systolic.map(|v| v as u16),
+                        bp_diastolic: entity.blood_pressure_diastolic.map(|v| v as u16),
+                        temperature_celsius: entity.temperature.map(|v| v as f32),
+                        oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
+                        pain_scale: None,
+                        gcs_score: None,
+                        blood_glucose: None,
+                        weight_kg: None,
+                    },
+                    pain_scale: None,
+                    notes: entity.disposition.clone(),
+                    performed_by: entity.performed_by,
+                    performed_at: entity.triage_time.timestamp(),
+                })
+                .collect();
 
-    HttpResponse::Ok().json(serde_json::json!({
-        "patient_id": patient_id,
-        "assessments": patient_assessments,
-        "total": patient_assessments.len()
-    }))
+            HttpResponse::Ok().json(serde_json::json!({
+                "patient_id": patient_id,
+                "assessments": assessments,
+                "total": result.total
+            }))
+        }
+        Err(_) => HttpResponse::Ok().json(serde_json::json!({
+            "patient_id": patient_id,
+            "assessments": [],
+            "total": 0
+        })),
+    }
 }
 
 /// Get triage queue - all pending triage assessments sorted by ESI level
@@ -6379,21 +6507,47 @@ async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) -> i
         });
     }
 
-    let assessments = data.triage_assessments.read().unwrap();
-    let mut queue: Vec<_> = assessments.values().cloned().collect();
+    match data.repositories.triage_assessments.get_ed_dashboard().await {
+        Ok(items) => {
+            let assessments: Vec<TriageAssessment> = items
+                .into_iter()
+                .map(|entity| TriageAssessment {
+                    assessment_id: entity.id,
+                    patient_id: entity.patient_id,
+                    esi_level: ESILevel::from_level(entity.esi_level as u8)
+                        .unwrap_or(ESILevel::Level3Urgent),
+                    chief_complaint: entity.chief_complaint,
+                    vital_signs: clinical::TriageVitalSigns {
+                        heart_rate: entity.heart_rate.map(|v| v as u16),
+                        respiratory_rate: entity.respiratory_rate.map(|v| v as u16),
+                        bp_systolic: entity.blood_pressure_systolic.map(|v| v as u16),
+                        bp_diastolic: entity.blood_pressure_diastolic.map(|v| v as u16),
+                        temperature_celsius: entity.temperature.map(|v| v as f32),
+                        oxygen_saturation: entity.oxygen_saturation.map(|v| v as u8),
+                        pain_scale: None,
+                        gcs_score: None,
+                        blood_glucose: None,
+                        weight_kg: None,
+                    },
+                    pain_scale: None,
+                    notes: entity.disposition.clone(),
+                    performed_by: entity.performed_by,
+                    performed_at: entity.triage_time.timestamp(),
+                })
+                .collect();
 
-    // Sort by ESI level (1 = most critical, 5 = least critical)
-    queue.sort_by(|a, b| {
-        let a_level = a.esi_level.level();
-        let b_level = b.esi_level.level();
-        a_level.cmp(&b_level)
-    });
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "success": true,
-        "queue": queue,
-        "total": queue.len()
-    }))
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "queue": assessments,
+                "total": assessments.len()
+            }))
+        }
+        Err(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "queue": [],
+            "total": 0
+        })),
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -6769,19 +6923,23 @@ pub async fn create_sample_history(
 ) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
-        None => return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Missing X-User-Id header".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        }),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
     };
     let current_user = match get_user(&data, &current_user_id) {
         Some(u) => u,
-        None => return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "User not found".to_string(),
-            code: "USER_NOT_FOUND".to_string(),
-        }),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
     };
     if !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -6790,20 +6948,48 @@ pub async fn create_sample_history(
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
-    let history = SAMPLEHistory {
+    // Store in repository
+    let entity = SampleHistoryEntity {
+        id: Uuid::new_v4().to_string(),
         patient_id: req.patient_id.clone(),
-        signs_symptoms: req.signs_symptoms.clone(),
-        allergies: req.allergies.clone(),
-        medications: req.medications.clone(),
-        past_medical_history: req.past_medical_history.clone(),
-        last_intake: req.last_intake.clone(),
+        signs_symptoms: serde_json::to_value(&req.signs_symptoms).unwrap_or(serde_json::Value::Array(vec![])),
+        allergies_snapshot: serde_json::to_value(&req.allergies).unwrap_or(serde_json::Value::Array(vec![])),
+        medications: serde_json::to_value(&req.medications).unwrap_or(serde_json::Value::Array(vec![])),
+        past_medical_history: serde_json::to_value(&req.past_medical_history).unwrap_or(serde_json::Value::Array(vec![])),
+        last_intake: req.last_intake.as_ref().map(|li| serde_json::to_value(li).unwrap_or(serde_json::Value::Null)),
         events_leading: req.events_leading.clone(),
-        collected_by: current_user_id,
-        collected_at: Utc::now().timestamp(),
+        collected_by: current_user_id.clone(),
+        collected_at: Utc::now(),
+        facility_id: None,
+        is_active: true,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
     };
-    {
-        let mut histories = data.sample_histories.write().unwrap();
-        histories.insert(req.patient_id.clone(), history);
+
+    if let Err(e) = data.repositories.sample_history.create(entity).await {
+        log::error!("Failed to store SAMPLE history in repository: {}", e);
+    }
+
+    // Log access in repository
+    let log_entity = AccessLogEntity {
+        id: secure_tokens::generate_access_id(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        patient_id: Some(req.patient_id.clone()),
+        resource_type: "sample_history".to_string(),
+        resource_id: None,
+        action: "create".to_string(),
+        access_reason: Some("SAMPLE history collection".to_string()),
+        is_emergency_access: false,
+        ip_address: None,
+        user_agent: None,
+        blockchain_tx_hash: None,
+        accessed_at: Utc::now(),
+        facility_id: None,
+    };
+
+    if let Err(e) = data.repositories.access_logs.create(log_entity).await {
+        log::error!("Failed to store access log in repository: {}", e);
     }
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -6827,13 +7013,33 @@ pub async fn get_sample_history(
             code: "UNAUTHORIZED".to_string(),
         });
     }
-    let histories = data.sample_histories.read().unwrap();
-    match histories.get(&patient_id) {
-        Some(h) => HttpResponse::Ok().json(serde_json::json!({ "success": true, "history": h })),
-        None => HttpResponse::NotFound().json(ErrorResponse {
+    match data.repositories.sample_history.get_by_patient(&patient_id, Pagination::new(0, 1)).await {
+        Ok(result) => {
+            if let Some(entity) = result.items.first() {
+                let history = clinical::SAMPLEHistory {
+                    patient_id: entity.patient_id.clone(),
+                    signs_symptoms: serde_json::from_value(entity.signs_symptoms.clone()).unwrap_or_default(),
+                    allergies: serde_json::from_value(entity.allergies_snapshot.clone()).unwrap_or_default(),
+                    medications: serde_json::from_value(entity.medications.clone()).unwrap_or_default(),
+                    past_medical_history: serde_json::from_value(entity.past_medical_history.clone()).unwrap_or_default(),
+                    last_intake: entity.last_intake.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok()),
+                    events_leading: entity.events_leading.clone(),
+                    collected_by: entity.collected_by.clone(),
+                    collected_at: entity.collected_at.timestamp(),
+                };
+                HttpResponse::Ok().json(serde_json::json!({ "success": true, "history": history }))
+            } else {
+                HttpResponse::NotFound().json(ErrorResponse {
+                    success: false,
+                    error: format!("No SAMPLE history found for patient {}", patient_id),
+                    code: "NOT_FOUND".to_string(),
+                })
+            }
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,
-            error: format!("No SAMPLE history found for patient {}", patient_id),
-            code: "NOT_FOUND".to_string(),
+            error: e.to_string(),
+            code: "INTERNAL_ERROR".to_string(),
         }),
     }
 }
@@ -7091,24 +7297,47 @@ async fn create_gcs_assessment(
     let needs_airway = gcs.needs_airway_protection();
 
     // Store assessment
-    {
-        let mut assessments = data.gcs_assessments.write().unwrap();
-        assessments.insert(assessment_id.clone(), gcs);
+    let entity = GcsAssessmentEntity {
+        id: assessment_id.clone(),
+        patient_id: req.patient_id.clone(),
+        eye_response: req.eye_response as i32,
+        verbal_response: req.verbal_response as i32,
+        motor_response: req.motor_response as i32,
+        total_score: total_score as i32,
+        interpretation: interpretation.clone(),
+        notes: None,
+        pupil_assessment: req.pupil_assessment.as_ref().map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
+        assessed_by: current_user_id.clone(),
+        assessed_at: Utc::now(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        facility_id: None,
+    };
+
+    if let Err(e) = data.repositories.gcs_assessments.create(entity).await {
+        log::error!("Failed to store GCS assessment in repository: {}", e);
     }
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: req.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "create_gcs".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: is_comatose,
-        });
+    // Log access in repository
+    let log_entity = AccessLogEntity {
+        id: secure_tokens::generate_access_id(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        patient_id: Some(req.patient_id.clone()),
+        resource_type: "gcs".to_string(),
+        resource_id: Some(assessment_id.clone()),
+        action: "create".to_string(),
+        access_reason: Some("GCS assessment".to_string()),
+        is_emergency_access: is_comatose,
+        ip_address: None,
+        user_agent: None,
+        blockchain_tx_hash: None,
+        accessed_at: Utc::now(),
+        facility_id: None,
+    };
+
+    if let Err(e) = data.repositories.access_logs.create(log_entity).await {
+        log::error!("Failed to store access log in repository: {}", e);
     }
 
     log::info!(
@@ -7168,10 +7397,27 @@ async fn get_gcs_assessment(
         });
     }
 
-    let assessments = data.gcs_assessments.read().unwrap();
-    match assessments.get(&assessment_id) {
-        Some(assessment) => HttpResponse::Ok().json(assessment),
-        None => HttpResponse::NotFound().json(ErrorResponse {
+    match data.repositories.gcs_assessments.get_by_id(&assessment_id).await {
+        Ok(entity) => {
+            let assessment = GlasgowComaScale {
+                assessment_id: entity.id,
+                patient_id: entity.patient_id,
+                eye_response: clinical::EyeResponse::from_score(entity.eye_response as u8)
+                    .unwrap_or(clinical::EyeResponse::None),
+                verbal_response: clinical::VerbalResponse::from_score(entity.verbal_response as u8)
+                    .unwrap_or(clinical::VerbalResponse::None),
+                motor_response: clinical::MotorResponse::from_score(entity.motor_response as u8)
+                    .unwrap_or(clinical::MotorResponse::None),
+                total_score: entity.total_score as u8,
+                interpretation: entity.interpretation,
+                pupil_assessment: None,
+                notes: entity.notes.clone(),
+                assessed_by: entity.assessed_by,
+                assessed_at: entity.assessed_at.timestamp(),
+            };
+            HttpResponse::Ok().json(assessment)
+        }
+        Err(_) => HttpResponse::NotFound().json(ErrorResponse {
             success: false,
             error: format!("GCS assessment '{}' not found", assessment_id),
             code: "ASSESSMENT_NOT_FOUND".to_string(),
@@ -7218,17 +7464,48 @@ async fn get_patient_gcs_assessments(
         });
     }
 
-    let assessments = data.gcs_assessments.read().unwrap();
-    let patient_assessments: Vec<&GlasgowComaScale> = assessments
-        .values()
-        .filter(|a| a.patient_id == patient_id)
-        .collect();
+    match data
+        .repositories
+        .gcs_assessments
+        .get_by_patient(&patient_id, Pagination::new(0, 50))
+        .await
+    {
+        Ok(result) => {
+            let assessments: Vec<GlasgowComaScale> = result
+                .items
+                .into_iter()
+                .map(|entity| GlasgowComaScale {
+                    assessment_id: entity.id,
+                    patient_id: entity.patient_id,
+                    eye_response: clinical::EyeResponse::from_score(entity.eye_response as u8)
+                        .unwrap_or(clinical::EyeResponse::None),
+                    verbal_response: clinical::VerbalResponse::from_score(
+                        entity.verbal_response as u8,
+                    )
+                    .unwrap_or(clinical::VerbalResponse::None),
+                    motor_response: clinical::MotorResponse::from_score(entity.motor_response as u8)
+                        .unwrap_or(clinical::MotorResponse::None),
+                    total_score: entity.total_score as u8,
+                    interpretation: entity.interpretation,
+                    pupil_assessment: None,
+                    notes: entity.notes.clone(),
+                    assessed_by: entity.assessed_by,
+                    assessed_at: entity.assessed_at.timestamp(),
+                })
+                .collect();
 
-    HttpResponse::Ok().json(serde_json::json!({
-        "patient_id": patient_id,
-        "assessments": patient_assessments,
-        "total": patient_assessments.len()
-    }))
+            HttpResponse::Ok().json(serde_json::json!({
+                "patient_id": patient_id,
+                "assessments": assessments,
+                "total": result.total
+            }))
+        }
+        Err(_) => HttpResponse::Ok().json(serde_json::json!({
+            "patient_id": patient_id,
+            "assessments": [],
+            "total": 0
+        })),
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -7435,18 +7712,39 @@ async fn get_patient_vitals(
         });
     }
 
-    let flowsheets = data.vital_signs.read().unwrap();
-    match flowsheets.get(&patient_id) {
-        Some(flowsheet) => {
-            let all_alerts = flowsheet.all_critical_alerts();
+    match data
+        .repositories
+        .vital_signs
+        .get_by_patient(&patient_id, Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => {
+            let readings: Vec<clinical::VitalSignsReading> = result
+                .items
+                .into_iter()
+                .map(|v| clinical::VitalSignsReading {
+                    reading_id: v.id,
+                    timestamp: v.recorded_at.timestamp(),
+                    recorded_by: v.recorded_by,
+                    heart_rate: v.heart_rate.map(|val| val as u16),
+                    respiratory_rate: v.respiratory_rate.map(|val| val as u16),
+                    systolic_bp: v.blood_pressure_systolic.map(|val| val as u16),
+                    diastolic_bp: v.blood_pressure_diastolic.map(|val| val as u16),
+                    temperature_celsius: v.temperature.map(|val| val as f32),
+                    oxygen_saturation: v.oxygen_saturation.map(|val| val as u16),
+                    pain_scale: v.pain_scale.map(|val| val as u8),
+                    notes: None,
+                })
+                .collect();
+
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
-                "readings": flowsheet.readings,
-                "total": flowsheet.readings.len(),
-                "critical_alerts": all_alerts
+                "readings": readings,
+                "total": result.total_items,
+                "critical_alerts": []
             }))
         }
-        None => HttpResponse::Ok().json(serde_json::json!({
+        Err(_) => HttpResponse::Ok().json(serde_json::json!({
             "patient_id": patient_id,
             "readings": [],
             "total": 0,
@@ -7494,18 +7792,39 @@ async fn get_vitals_flowsheet(
         });
     }
 
-    let flowsheets = data.vital_signs.read().unwrap();
-    match flowsheets.get(&patient_id) {
-        Some(flowsheet) => {
-            let all_alerts = flowsheet.all_critical_alerts();
+    match data
+        .repositories
+        .vital_signs
+        .get_by_patient(&patient_id, Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => {
+            let readings: Vec<clinical::VitalSignsReading> = result
+                .items
+                .into_iter()
+                .map(|v| clinical::VitalSignsReading {
+                    reading_id: v.id,
+                    timestamp: v.recorded_at.timestamp(),
+                    recorded_by: v.recorded_by,
+                    heart_rate: v.heart_rate.map(|val| val as u16),
+                    respiratory_rate: v.respiratory_rate.map(|val| val as u16),
+                    systolic_bp: v.blood_pressure_systolic.map(|val| val as u16),
+                    diastolic_bp: v.blood_pressure_diastolic.map(|val| val as u16),
+                    temperature_celsius: v.temperature.map(|val| val as f32),
+                    oxygen_saturation: v.oxygen_saturation.map(|val| val as u16),
+                    pain_scale: v.pain_scale.map(|val| val as u8),
+                    notes: None,
+                })
+                .collect();
+
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
-                "readings": flowsheet.readings,
-                "total": flowsheet.readings.len(),
-                "critical_alerts": all_alerts
+                "readings": readings,
+                "total": result.total_items,
+                "critical_alerts": []
             }))
         }
-        None => HttpResponse::Ok().json(serde_json::json!({
+        Err(_) => HttpResponse::Ok().json(serde_json::json!({
             "patient_id": patient_id,
             "readings": [],
             "total": 0,
@@ -7553,27 +7872,37 @@ async fn get_patient_latest_vitals(
         });
     }
 
-    let flowsheets = data.vital_signs.read().unwrap();
-    match flowsheets.get(&patient_id) {
-        Some(flowsheet) => match flowsheet.latest_reading() {
-            Some(reading) => {
-                let alerts = reading.has_critical_values();
-                HttpResponse::Ok().json(serde_json::json!({
-                    "patient_id": patient_id,
-                    "reading": reading,
-                    "critical_alerts": alerts
-                }))
-            }
-            None => HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "No vital signs recorded".to_string(),
-                code: "NO_READINGS".to_string(),
-            }),
-        },
-        None => HttpResponse::NotFound().json(ErrorResponse {
+    match data.repositories.vital_signs.get_latest_by_patient(&patient_id).await {
+        Ok(Some(vitals)) => {
+            let reading = clinical::VitalSignsReading {
+                reading_id: vitals.id,
+                timestamp: vitals.recorded_at.timestamp(),
+                recorded_by: vitals.recorded_by,
+                heart_rate: vitals.heart_rate.map(|val| val as u16),
+                respiratory_rate: vitals.respiratory_rate.map(|val| val as u16),
+                systolic_bp: vitals.blood_pressure_systolic.map(|val| val as u16),
+                diastolic_bp: vitals.blood_pressure_diastolic.map(|val| val as u16),
+                temperature_celsius: vitals.temperature.map(|val| val as f32),
+                oxygen_saturation: vitals.oxygen_saturation.map(|val| val as u16),
+                pain_scale: vitals.pain_scale.map(|val| val as u8),
+                notes: None,
+            };
+            let alerts = reading.has_critical_values();
+            HttpResponse::Ok().json(serde_json::json!({
+                "patient_id": patient_id,
+                "reading": reading,
+                "critical_alerts": alerts
+            }))
+        }
+        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             success: false,
             error: "No vital signs recorded".to_string(),
             code: "NO_READINGS".to_string(),
+        }),
+        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: e.to_string(),
+            code: "INTERNAL_ERROR".to_string(),
         }),
     }
 }
@@ -7675,6 +8004,13 @@ async fn get_lab_panel(
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeviceRegistrationRequest {
+    pub token: String,
+    pub device_type: Option<String>,
+    pub device_name: Option<String>,
+}
+
 // ============================================================================
 // Phase 2-8: Emergency Protocol Endpoints (see clinical_endpoints.rs)
 // ============================================================================
@@ -7697,9 +8033,7 @@ async fn get_lab_panel(
 /// Token lifetime: 3600 seconds (1 hour).
 /// Set SESSION_SECRET env var in production; a default is used for development.
 #[post("/api/auth/session")]
-async fn create_session_token(
-    body: web::Json<SessionCreateRequest>,
-) -> impl Responder {
+async fn create_session_token(body: web::Json<SessionCreateRequest>) -> impl Responder {
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
@@ -7734,6 +8068,46 @@ async fn create_session_token(
         expires_at,
         wallet_address: body.wallet_address.clone(),
     })
+}
+
+#[post("/api/notifications/register-device")]
+async fn register_device(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<DeviceRegistrationRequest>,
+) -> impl Responder {
+    let user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let entity = repositories::traits::DeviceTokenEntity {
+        id: Uuid::new_v4().to_string(),
+        user_id: user_id.to_string(),
+        token: req.token.clone(),
+        device_type: req.device_type.clone(),
+        device_name: req.device_name.clone(),
+        last_seen_at: Utc::now(),
+        created_at: Utc::now(),
+    };
+
+    match data.repositories.device_tokens.register(entity).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "status": "registered"
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: e.to_string(),
+            code: "REPOSITORY_ERROR".to_string(),
+        }),
+    }
 }
 
 /// Verify a session token supplied as a Bearer token.
@@ -8054,7 +8428,8 @@ async fn main() -> std::io::Result<()> {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
             loop {
                 interval.tick().await;
-                crate::clinical_endpoints::check_and_send_medication_reminders(&reminder_state).await;
+                crate::clinical_endpoints::check_and_send_medication_reminders(&reminder_state)
+                    .await;
             }
         });
         println!("  ⏰ Medication reminder task started (checks every 60s)");
@@ -8156,6 +8531,7 @@ async fn main() -> std::io::Result<()> {
             // Session token endpoints
             .service(create_session_token)  // POST /api/auth/session
             .service(verify_session_token)  // GET  /api/auth/verify
+            .service(register_device)
             .service(get_current_user_info)
             .service(get_all_staff)
             .service(get_providers)
@@ -8280,6 +8656,7 @@ async fn main() -> std::io::Result<()> {
             .service(clinical_endpoints::get_ama)
             .service(clinical_endpoints::create_hp)
             .service(clinical_endpoints::get_hp)
+            .service(clinical_endpoints::list_hps)
             .service(clinical_endpoints::create_consult)
             .service(clinical_endpoints::get_consult)
             .service(clinical_endpoints::create_progress_note)
@@ -8294,6 +8671,7 @@ async fn main() -> std::io::Result<()> {
             // Phase 10: Anesthesia endpoints
             .service(clinical_endpoints::create_anesthesia)
             .service(clinical_endpoints::get_anesthesia)
+            .service(clinical_endpoints::list_anesthesia)
             // Phase 11: Radiology endpoints
             .service(clinical_endpoints::create_radiology_order)
             .service(clinical_endpoints::get_radiology_order)

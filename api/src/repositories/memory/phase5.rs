@@ -945,10 +945,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         }
     }
 
-    async fn get_by_encounter(
-        &self,
-        encounter_id: &str,
-    ) -> RepositoryResult<Vec<CdsAlertEntity>> {
+    async fn get_by_encounter(&self, encounter_id: &str) -> RepositoryResult<Vec<CdsAlertEntity>> {
         let alerts = self.alerts.read().unwrap();
         let result: Vec<_> = alerts
             .values()
@@ -971,11 +968,7 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
         let result: Vec<_> = alerts
             .values()
             .filter(|a| a.acknowledged_by.is_none() && a.status == "active")
-            .filter(|a| {
-                patient_id
-                    .map(|pid| a.patient_id == pid)
-                    .unwrap_or(true)
-            })
+            .filter(|a| patient_id.map(|pid| a.patient_id == pid).unwrap_or(true))
             .cloned()
             .collect();
         Ok(result)
@@ -1166,18 +1159,11 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         let records = self.records.read().unwrap();
         Ok(records
             .values()
-            .find(|r| {
-                r.patient_id == patient_id
-                    && r.is_active
-                    && r.insurance_type == "primary"
-            })
+            .find(|r| r.patient_id == patient_id && r.is_active && r.insurance_type == "primary")
             .cloned())
     }
 
-    async fn get_active(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
+    async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
         let records = self.records.read().unwrap();
         let today = chrono::Utc::now().date_naive();
         let result: Vec<_> = records
@@ -1207,6 +1193,133 @@ impl InsuranceRecordRepository for MemoryInsuranceRecordRepository {
         } else {
             Err(RepositoryError::NotFound(format!(
                 "Insurance record {} not found",
+                id
+            )))
+        }
+    }
+
+    async fn set_primary(&self, patient_id: &str, record_id: &str) -> RepositoryResult<()> {
+        let mut records = self.records.write().unwrap();
+
+        // 1. Mark all other records for this patient as not primary
+        for record in records.values_mut() {
+            if record.patient_id == patient_id && record.insurance_type == "primary" {
+                record.insurance_type = "secondary".to_string();
+                record.updated_at = Utc::now();
+            }
+        }
+
+        // 2. Set the specified record as primary
+        if let Some(record) = records.get_mut(record_id) {
+            if record.patient_id == patient_id {
+                record.insurance_type = "primary".to_string();
+                record.is_active = true;
+                record.updated_at = Utc::now();
+                Ok(())
+            } else {
+                Err(RepositoryError::Validation(format!(
+                    "Record {} does not belong to patient {}",
+                    record_id, patient_id
+                )))
+            }
+        } else {
+            Err(RepositoryError::NotFound(format!(
+                "Insurance record {} not found",
+                record_id
+            )))
+        }
+    }
+
+    async fn terminate(
+        &self,
+        id: &str,
+        termination_date: chrono::NaiveDate,
+    ) -> RepositoryResult<InsuranceRecordEntity> {
+        let mut records = self.records.write().unwrap();
+
+        if let Some(record) = records.get_mut(id) {
+            record.is_active = false;
+            record.termination_date = Some(termination_date);
+            record.updated_at = Utc::now();
+            Ok(record.clone())
+        } else {
+            Err(RepositoryError::NotFound(format!(
+                "Insurance record {} not found",
+                id
+            )))
+        }
+    }
+}
+
+/// In-memory device token repository
+#[derive(Debug, Default)]
+pub struct MemoryDeviceTokenRepository {
+    tokens: RwLock<HashMap<String, DeviceTokenEntity>>,
+}
+
+impl MemoryDeviceTokenRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl DeviceTokenRepository for MemoryDeviceTokenRepository {
+    async fn register(&self, mut entity: DeviceTokenEntity) -> RepositoryResult<DeviceTokenEntity> {
+        let mut tokens = self.tokens.write().unwrap();
+
+        // Check for existing token for this user to simulate ON CONFLICT
+        let existing_id = tokens
+            .values()
+            .find(|t| t.user_id == entity.user_id && t.token == entity.token)
+            .map(|t| t.id.clone());
+
+        if let Some(id) = existing_id {
+            if let Some(existing) = tokens.get_mut(&id) {
+                existing.device_type = entity.device_type.clone();
+                existing.device_name = entity.device_name.clone();
+                existing.last_seen_at = Utc::now();
+                return Ok(existing.clone());
+            }
+        }
+
+        entity.last_seen_at = Utc::now();
+        entity.created_at = Utc::now();
+        tokens.insert(entity.id.clone(), entity.clone());
+        Ok(entity)
+    }
+
+    async fn get_by_user(&self, user_id: &str) -> RepositoryResult<Vec<DeviceTokenEntity>> {
+        let tokens = self.tokens.read().unwrap();
+        let result = tokens
+            .values()
+            .filter(|t| t.user_id == user_id)
+            .cloned()
+            .collect();
+        Ok(result)
+    }
+
+    async fn delete(&self, user_id: &str, token: &str) -> RepositoryResult<()> {
+        let mut tokens = self.tokens.write().unwrap();
+        let id_to_remove = tokens
+            .values()
+            .find(|t| t.user_id == user_id && t.token == token)
+            .map(|t| t.id.clone());
+
+        if let Some(id) = id_to_remove {
+            tokens.remove(&id);
+        }
+        Ok(())
+    }
+
+    async fn update_last_seen(&self, id: &str) -> RepositoryResult<()> {
+        let mut tokens = self.tokens.write().unwrap();
+        if let Some(token) = tokens.get_mut(id) {
+            token.last_seen_at = Utc::now();
+            Ok(())
+        } else {
+            Err(RepositoryError::NotFound(format!(
+                "Device token {} not found",
                 id
             )))
         }

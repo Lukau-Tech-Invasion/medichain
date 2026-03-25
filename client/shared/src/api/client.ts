@@ -21,6 +21,7 @@ import {
   isValidWalletAddress,
   getConnectedWalletAddress 
 } from '../config';
+import { OfflineQueue } from '../utils/offlineQueue';
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -47,8 +48,11 @@ export class ApiClient {
   private maxRetries: number;
   private onError?: (error: ApiError) => void;
   private onConnectionChange?: (connected: boolean) => void;
+  private connectionListeners: ((connected: boolean) => void)[] = [];
   private isConnected: boolean = true;
   private lastHealthCheck: number = 0;
+  private signatureProvider: ((message: string) => Promise<string>) | null = null;
+  private offlineQueue: OfflineQueue;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -57,6 +61,7 @@ export class ApiClient {
     this.maxRetries = config.maxRetries ?? API_CONFIG.MAX_RETRIES;
     this.onError = config.onError;
     this.onConnectionChange = config.onConnectionChange;
+    this.offlineQueue = new OfflineQueue();
   }
 
   /**
@@ -68,6 +73,13 @@ export class ApiClient {
     }
     this.userId = userId;
     debugLog('ApiClient', `User ID ${userId ? 'set' : 'cleared'}`);
+  }
+
+  /**
+   * Set a provider function that can sign messages
+   */
+  setSignatureProvider(provider: ((message: string) => Promise<string>) | null): void {
+    this.signatureProvider = provider;
   }
 
   /**
@@ -91,8 +103,26 @@ export class ApiClient {
     if (this.isConnected !== connected) {
       this.isConnected = connected;
       this.onConnectionChange?.(connected);
+      this.connectionListeners.forEach(listener => listener(connected));
       debugLog('ApiClient', `Connection status: ${connected ? 'connected' : 'disconnected'}`);
+      
+      // If we just reconnected, process the offline queue
+      if (connected) {
+        this.offlineQueue.processQueue(this as any).catch(err => {
+          debugLog('ApiClient', 'Error processing offline queue after reconnection:', err);
+        });
+      }
     }
+  }
+
+  /**
+   * Add a connection status listener
+   */
+  addConnectionListener(listener: (connected: boolean) => void): () => void {
+    this.connectionListeners.push(listener);
+    return () => {
+      this.connectionListeners = this.connectionListeners.filter(l => l !== listener);
+    };
   }
 
   /**
@@ -123,6 +153,13 @@ export class ApiClient {
       this.setConnectionStatus(false);
       return false;
     }
+  }
+
+  /**
+   * Get the base URL
+   */
+  getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   /**
@@ -160,6 +197,19 @@ export class ApiClient {
           // Not retrying - update connection status if network error
           if (this.isNetworkError(error)) {
             this.setConnectionStatus(false);
+            
+            // Queue for offline processing if it's a mutation and not already a retry from the queue
+            if ((method === 'POST' || method === 'PUT' || method === 'DELETE') && !options?.headers?.['X-Offline-Retry']) {
+              debugLog('ApiClient', `Network error, enqueuing ${method} ${path} for offline sync`);
+              this.offlineQueue.enqueue({
+                method: method as any,
+                path,
+                body
+              }).catch(err => debugLog('ApiClient', 'Failed to enqueue offline operation:', err));
+              
+              // Return a placeholder or throw specific error?
+              // For now, let's throw so the UI knows it's pending/failed
+            }
           }
           break;
         }
@@ -193,6 +243,19 @@ export class ApiClient {
       // Add authentication header if user ID is set
       if (this.userId) {
         headers['X-User-Id'] = this.userId;
+
+        // If a signature provider is available, sign a challenge
+        if (this.signatureProvider) {
+          const timestamp = Math.floor(Date.now() / 1000).toString();
+          const message = `${timestamp}:${this.userId}`;
+          try {
+            const signature = await this.signatureProvider(message);
+            headers['X-Signature'] = signature;
+            headers['X-Timestamp'] = timestamp;
+          } catch (e) {
+            debugLog('ApiClient', 'Failed to sign request:', e);
+          }
+        }
       }
 
       const url = `${this.baseUrl}${path}`;
@@ -314,6 +377,13 @@ export class ApiClient {
 
   async delete<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
     return this.request<T>('DELETE', path, body, options);
+  }
+
+  /**
+   * Get the current offline queue
+   */
+  getOfflineQueue(): OfflineQueue {
+    return this.offlineQueue;
   }
 }
 

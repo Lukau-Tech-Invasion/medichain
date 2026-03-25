@@ -1,30 +1,11 @@
-//! Firebase Cloud Messaging (FCM) push notification integration.
+//! Notification service for Push (FCM) and SMS (Africa's Talking).
 #![allow(dead_code)]
-//!
-//! Implements the FCM HTTP v1 API for sending push notifications to mobile
-//! devices. Uses `reqwest` (already in Cargo.toml) for HTTP calls.
-//!
-//! # Configuration
-//!
-//! Set `FCM_SERVER_KEY` to your Firebase server key (legacy HTTP API) or
-//! configure `FCM_PROJECT_ID` + a service-account access token for the v1 API.
-//!
-//! # Device Token Storage
-//!
-//! Device tokens are currently held in-memory (HashMap). In production,
-//! persist them to a `device_tokens` table keyed by user_id.
-//!
-//! # Enabling FCM
-//!
-//! Set `FCM_ENABLED=true` in the environment to send real push notifications.
-//! When disabled (default), notifications are logged but not sent.
 
+use crate::repositories::RepositoryContainer;
 use log::{info, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -32,68 +13,70 @@ use thiserror::Error;
 // Errors
 // ---------------------------------------------------------------------------
 
-/// Errors that can occur during FCM dispatch.
 #[derive(Debug, Error)]
-pub enum FcmError {
-    #[error("FCM HTTP error: {0}")]
+pub enum NotificationError {
+    #[error("HTTP error: {0}")]
     Http(String),
 
-    #[error("FCM API error: {0}")]
+    #[error("API error: {0}")]
     Api(String),
 
-    #[error("FCM disabled (set FCM_ENABLED=true to activate)")]
+    #[error("Service disabled")]
     Disabled,
+
+    #[error("Repository error: {0}")]
+    Repository(String),
 }
 
 // ---------------------------------------------------------------------------
-// Response shapes
+// Payload structures
 // ---------------------------------------------------------------------------
 
-/// FCM legacy HTTP API response.
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct FcmResponse {
-    multicast_id: Option<i64>,
-    success: Option<i32>,
-    failure: Option<i32>,
-    results: Option<Vec<FcmResult>>,
-    // v1 API uses a single `name` field on success
-    name: Option<String>,
-    error: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct FcmResult {
-    message_id: Option<String>,
-    error: Option<String>,
-}
-
-// ---------------------------------------------------------------------------
-// Notification payload
-// ---------------------------------------------------------------------------
-
-/// A push notification to be sent to one or more device tokens.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PushNotification {
-    /// The user this notification belongs to (for routing / logging).
     pub user_id: String,
-    /// Short title displayed in the notification tray.
     pub title: String,
-    /// Body text of the notification.
     pub body: String,
-    /// Optional key-value data payload delivered to the app.
     pub data: Option<HashMap<String, String>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmsMessage {
+    pub to: String,
+    pub body: String,
+}
+
 // ---------------------------------------------------------------------------
-// FCM client
+// FCM v1 Structures
 // ---------------------------------------------------------------------------
 
-const FCM_LEGACY_URL: &str = "https://fcm.googleapis.com/fcm/send";
-const FCM_TIMEOUT: Duration = Duration::from_secs(10);
+#[derive(Debug, Serialize)]
+struct FcmV1Message {
+    message: FcmMessagePayload,
+}
 
-/// Returns `true` when `FCM_ENABLED=true` is set in the environment.
+#[derive(Debug, Serialize)]
+struct FcmMessagePayload {
+    token: String,
+    notification: FcmNotificationPayload,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Serialize)]
+struct FcmNotificationPayload {
+    title: String,
+    body: String,
+}
+
+// ---------------------------------------------------------------------------
+// Notification Service
+// ---------------------------------------------------------------------------
+
+const FCM_V1_URL_PREFIX: &str = "https://fcm.googleapis.com/v1/projects/";
+const AT_SMS_URL: &str = "https://api.africastalking.com/version1/messaging";
+const TIMEOUT: Duration = Duration::from_secs(10);
+
 pub fn fcm_enabled() -> bool {
     std::env::var("FCM_ENABLED")
         .ok()
@@ -101,183 +84,130 @@ pub fn fcm_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Returns the FCM server key from `FCM_SERVER_KEY`, or `None` if not set.
-fn fcm_server_key() -> Option<String> {
-    std::env::var("FCM_SERVER_KEY")
+pub fn sms_enabled() -> bool {
+    std::env::var("SMS_ENABLED")
         .ok()
-        .filter(|v| !v.trim().is_empty())
+        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .unwrap_or(false)
 }
 
-/// Send an FCM push notification to a single device token.
-///
-/// Uses the FCM legacy HTTP API (v1 migration can be done by swapping the URL
-/// and adding OAuth2 bearer auth when `FCM_PROJECT_ID` is set).
-///
-/// # Arguments
-/// * `token` – FCM registration token for the target device.
-/// * `title` – Notification title.
-/// * `body`  – Notification body text.
-/// * `data`  – Optional key-value data payload.
-pub async fn send_fcm_notification(
-    token: &str,
-    title: &str,
-    body: &str,
-    data: Option<&HashMap<String, String>>,
-) -> Result<(), FcmError> {
+/// Send a push notification to all registered devices of a user
+pub async fn send_push_to_user(
+    repos: &RepositoryContainer,
+    notification: PushNotification,
+) -> Result<(), NotificationError> {
     if !fcm_enabled() {
         info!(
-            "[fcm] DEMO MODE — push notification logged but not sent. \
-             token={} title='{}' body='{}'",
-            &token[..token.len().min(20)],
-            title,
-            body
+            "[fcm] Notification logged for {}: {}",
+            notification.user_id, notification.title
         );
-        return Err(FcmError::Disabled);
+        return Ok(());
     }
 
-    let server_key = fcm_server_key().ok_or_else(|| {
-        warn!("[fcm] FCM_SERVER_KEY not set — cannot send push notification");
-        FcmError::Api("FCM_SERVER_KEY not configured".into())
-    })?;
+    let tokens = repos
+        .device_tokens
+        .get_by_user(&notification.user_id)
+        .await
+        .map_err(|e| NotificationError::Repository(e.to_string()))?;
 
-    let mut payload = json!({
-        "to": token,
-        "notification": {
-            "title": title,
-            "body": body,
-        },
-        "priority": "high",
-    });
-
-    if let Some(d) = data {
-        payload["data"] = json!(d);
+    if tokens.is_empty() {
+        info!(
+            "[fcm] No device tokens for user {}, skipping push",
+            notification.user_id
+        );
+        return Ok(());
     }
+
+    let project_id = std::env::var("FCM_PROJECT_ID")
+        .map_err(|_| NotificationError::Api("FCM_PROJECT_ID not set".into()))?;
+
+    let access_token = std::env::var("FCM_ACCESS_TOKEN")
+        .map_err(|_| NotificationError::Api("FCM_ACCESS_TOKEN not set".into()))?;
 
     let client = Client::builder()
-        .timeout(FCM_TIMEOUT)
+        .timeout(TIMEOUT)
         .build()
-        .map_err(|e| FcmError::Http(e.to_string()))?;
+        .map_err(|e| NotificationError::Http(e.to_string()))?;
+    let url = format!("{}{}/messages:send", FCM_V1_URL_PREFIX, project_id);
 
-    let response = client
-        .post(FCM_LEGACY_URL)
-        .header("Authorization", format!("key={}", server_key))
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| FcmError::Http(e.to_string()))?;
+    for token_entity in tokens {
+        let payload = FcmV1Message {
+            message: FcmMessagePayload {
+                token: token_entity.token.clone(),
+                notification: FcmNotificationPayload {
+                    title: notification.title.clone(),
+                    body: notification.body.clone(),
+                },
+                data: notification.data.clone(),
+            },
+        };
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body_text = response.text().await.unwrap_or_default();
-        warn!("[fcm] FCM returned HTTP {}: {}", status, body_text);
-        return Err(FcmError::Api(format!("HTTP {}: {}", status, body_text)));
-    }
+        let resp = client
+            .post(&url)
+            .bearer_auth(&access_token)
+            .json(&payload)
+            .send()
+            .await;
 
-    let fcm_resp: FcmResponse = response
-        .json()
-        .await
-        .map_err(|e| FcmError::Api(format!("Failed to parse FCM response: {}", e)))?;
-
-    if let Some(results) = &fcm_resp.results {
-        for result in results {
-            if let Some(err) = &result.error {
-                warn!("[fcm] FCM delivery error for token {}: {}", token, err);
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                info!("[fcm] Push sent successfully to device {}", token_entity.id);
             }
+            Ok(r) => {
+                let err_text = r.text().await.unwrap_or_default();
+                warn!("[fcm] Error for device {}: {}", token_entity.id, err_text);
+            }
+            Err(e) => warn!("[fcm] Network error sending push: {}", e),
         }
-    }
-
-    if fcm_resp.success.unwrap_or(0) > 0 || fcm_resp.name.is_some() {
-        info!("[fcm] Notification sent successfully to token ...{}", &token[token.len().saturating_sub(8)..]);
     }
 
     Ok(())
 }
 
-/// Send a push notification to all registered device tokens for a user.
-///
-/// `device_tokens` is a slice of FCM registration tokens associated with
-/// the user. In production these come from the `device_tokens` database table.
-pub async fn send_notification_to_user(
-    user_id: &str,
-    device_tokens: &[String],
-    title: &str,
-    body: &str,
-    data: Option<&HashMap<String, String>>,
-) {
-    if device_tokens.is_empty() {
-        info!("[fcm] No device tokens registered for user {}", user_id);
-        return;
+/// Send an SMS via Africa's Talking
+pub async fn send_sms(msg: SmsMessage) -> Result<(), NotificationError> {
+    if !sms_enabled() {
+        info!("[sms] Logging message to {}: {}", msg.to, msg.body);
+        return Ok(());
     }
 
-    for token in device_tokens {
-        match send_fcm_notification(token, title, body, data).await {
-            Ok(()) => {}
-            Err(FcmError::Disabled) => {
-                // Already logged inside send_fcm_notification; no need to repeat.
-                break;
-            }
-            Err(e) => {
-                warn!(
-                    "[fcm] Failed to send notification to user {}: {}",
-                    user_id, e
-                );
-            }
+    let username = std::env::var("AT_USERNAME")
+        .map_err(|_| NotificationError::Api("AT_USERNAME not set".into()))?;
+    let api_key = std::env::var("AT_API_KEY")
+        .map_err(|_| NotificationError::Api("AT_API_KEY not set".into()))?;
+
+    let client = Client::builder()
+        .timeout(TIMEOUT)
+        .build()
+        .map_err(|e| NotificationError::Http(e.to_string()))?;
+
+    let mut params = HashMap::new();
+    params.insert("username", username);
+    params.insert("to", msg.to.clone());
+    params.insert("message", msg.body.clone());
+
+    let resp = client
+        .post(AT_SMS_URL)
+        .header("apikey", api_key)
+        .header("Accept", "application/json")
+        .form(&params)
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            info!("[sms] Sent successfully to {}", msg.to);
+            Ok(())
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// In-memory device token registry (replace with DB table in production)
-// ---------------------------------------------------------------------------
-
-/// In-memory store mapping user_id → list of FCM device tokens.
-///
-/// In production, replace with a database-backed implementation.
-#[derive(Debug, Default)]
-pub struct DeviceTokenRegistry {
-    /// user_id → Vec<fcm_token>
-    tokens: RwLock<HashMap<String, Vec<String>>>,
-}
-
-impl DeviceTokenRegistry {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Register a device token for a user.
-    pub fn register(&self, user_id: &str, token: String) {
-        let mut map = self.tokens.write().unwrap();
-        let entry = map.entry(user_id.to_string()).or_default();
-        if !entry.contains(&token) {
-            entry.push(token);
+        Ok(r) => {
+            let err_text = r.text().await.unwrap_or_default();
+            warn!("[sms] Africa's Talking error: {}", err_text);
+            Err(NotificationError::Api(err_text))
         }
-    }
-
-    /// Remove a device token (on user logout / token refresh).
-    pub fn unregister(&self, user_id: &str, token: &str) {
-        let mut map = self.tokens.write().unwrap();
-        if let Some(tokens) = map.get_mut(user_id) {
-            tokens.retain(|t| t != token);
+        Err(e) => {
+            warn!("[sms] Network error: {}", e);
+            Err(NotificationError::Http(e.to_string()))
         }
-    }
-
-    /// Get all device tokens for a user.
-    pub fn get_tokens(&self, user_id: &str) -> Vec<String> {
-        let map = self.tokens.read().unwrap();
-        map.get(user_id).cloned().unwrap_or_default()
-    }
-
-    /// Send a push notification to all devices registered for `user_id`.
-    pub async fn notify_user(
-        &self,
-        user_id: &str,
-        title: &str,
-        body: &str,
-        data: Option<&HashMap<String, String>>,
-    ) {
-        let tokens = self.get_tokens(user_id);
-        send_notification_to_user(user_id, &tokens, title, body, data).await;
     }
 }
 
@@ -285,9 +215,8 @@ impl DeviceTokenRegistry {
 // Convenience helpers for clinical event types
 // ---------------------------------------------------------------------------
 
-/// Send a push notification for a new appointment.
 pub async fn notify_appointment(
-    registry: &DeviceTokenRegistry,
+    repos: &RepositoryContainer,
     patient_user_id: &str,
     appointment_date: &str,
     provider_name: &str,
@@ -302,14 +231,20 @@ pub async fn notify_appointment(
     data.insert("type".to_string(), "appointment".to_string());
     data.insert("appointment_date".to_string(), appointment_date.to_string());
 
-    registry
-        .notify_user(patient_user_id, title, &body, Some(&data))
-        .await;
+    let _ = send_push_to_user(
+        repos,
+        PushNotification {
+            user_id: patient_user_id.to_string(),
+            title: title.to_string(),
+            body: body.to_string(),
+            data: Some(data),
+        },
+    )
+    .await;
 }
 
-/// Send a push notification for a new prescription.
 pub async fn notify_prescription(
-    registry: &DeviceTokenRegistry,
+    repos: &RepositoryContainer,
     patient_user_id: &str,
     medication_name: &str,
 ) {
@@ -323,14 +258,20 @@ pub async fn notify_prescription(
     data.insert("type".to_string(), "prescription".to_string());
     data.insert("medication".to_string(), medication_name.to_string());
 
-    registry
-        .notify_user(patient_user_id, title, &body, Some(&data))
-        .await;
+    let _ = send_push_to_user(
+        repos,
+        PushNotification {
+            user_id: patient_user_id.to_string(),
+            title: title.to_string(),
+            body: body.to_string(),
+            data: Some(data),
+        },
+    )
+    .await;
 }
 
-/// Send a push notification for a new lab result.
 pub async fn notify_lab_result(
-    registry: &DeviceTokenRegistry,
+    repos: &RepositoryContainer,
     patient_user_id: &str,
     test_name: &str,
 ) {
@@ -341,14 +282,20 @@ pub async fn notify_lab_result(
     data.insert("type".to_string(), "lab_result".to_string());
     data.insert("test_name".to_string(), test_name.to_string());
 
-    registry
-        .notify_user(patient_user_id, title, &body, Some(&data))
-        .await;
+    let _ = send_push_to_user(
+        repos,
+        PushNotification {
+            user_id: patient_user_id.to_string(),
+            title: title.to_string(),
+            body: body.to_string(),
+            data: Some(data),
+        },
+    )
+    .await;
 }
 
-/// Send a push notification for a critical alert (high-severity CDS or lab).
 pub async fn notify_critical_alert(
-    registry: &DeviceTokenRegistry,
+    repos: &RepositoryContainer,
     provider_user_id: &str,
     patient_name: &str,
     alert_message: &str,
@@ -360,7 +307,14 @@ pub async fn notify_critical_alert(
     data.insert("type".to_string(), "critical_alert".to_string());
     data.insert("priority".to_string(), "high".to_string());
 
-    registry
-        .notify_user(provider_user_id, title, &body, Some(&data))
-        .await;
+    let _ = send_push_to_user(
+        repos,
+        PushNotification {
+            user_id: provider_user_id.to_string(),
+            title: title.to_string(),
+            body: body.to_string(),
+            data: Some(data),
+        },
+    )
+    .await;
 }

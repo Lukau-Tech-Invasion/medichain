@@ -169,6 +169,29 @@ impl AccessLogRepository for PgAccessLogRepository {
         Ok(PaginatedResult::new(logs, count.0 as u64, &pagination))
     }
 
+    async fn list(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AccessLogEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM access_logs");
+        let count: (i64,) = count_qb.build_query_as().fetch_one(&self.pool).await?;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM access_logs ORDER BY accessed_at DESC LIMIT "
+        );
+        qb.push_bind(pagination.limit() as i64);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i64);
+
+        let logs = qb
+            .build_query_as::<AccessLogEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(logs, count.0 as u64, &pagination))
+    }
+
     async fn search(
         &self,
         query: &str,

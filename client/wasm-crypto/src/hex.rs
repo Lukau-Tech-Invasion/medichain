@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn test_decode() {
         assert_eq!(decode("00ff0a").unwrap(), vec![0x00, 0xff, 0x0a]);
-        assert_eq!(decode("").unwrap(), vec![]);
+        assert_eq!(decode("").unwrap(), Vec::<u8>::new());
     }
 
     #[test]

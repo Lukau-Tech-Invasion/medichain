@@ -939,6 +939,29 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
 
         Ok(result)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AmaDischargeEntity>> {
+        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ama_discharges")
+            .fetch_one(&self.pool)
+            .await? as u64;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM ama_discharges ORDER BY discharge_datetime DESC LIMIT ",
+        );
+        qb.push_bind(pagination.limit() as i32);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i32);
+
+        let items = qb
+            .build_query_as::<AmaDischargeEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }
 
 // =============================================================================
@@ -1329,5 +1352,28 @@ impl IncidentReportRepository for PgIncidentReportRepository {
             .await?;
 
         Ok(items)
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<IncidentReportEntity>> {
+        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM incident_reports")
+            .fetch_one(&self.pool)
+            .await? as u64;
+
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM incident_reports ORDER BY incident_datetime DESC LIMIT ",
+        );
+        qb.push_bind(pagination.limit() as i32);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i32);
+
+        let items = qb
+            .build_query_as::<IncidentReportEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, total, &pagination))
     }
 }

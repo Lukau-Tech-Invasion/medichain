@@ -122,7 +122,7 @@ export function SymptomTrackerPage() {
     try {
       const patientId = patient.healthId;
       
-      const response = await fetch(apiUrl(`/api/symptoms/${patientId}`), {
+      const response = await fetch(apiUrl(`/api/symptoms/history/${patientId}`), {
         headers: { 
           'X-User-Id': patient.walletAddress,
           'X-Health-Id': patient.healthId,
@@ -143,7 +143,7 @@ export function SymptomTrackerPage() {
     }
   };
 
-  const addEntry = () => {
+  const addEntry = async () => {
     if (!newEntry.symptom || !newEntry.category) return;
 
     const entry: SymptomEntry = {
@@ -162,6 +162,28 @@ export function SymptomTrackerPage() {
     setShowAddModal(false);
     setSelectedCategory(null);
     setNewEntry({ severity: 3, timestamp: new Date().toISOString() });
+
+    // Log symptom to API
+    if (patient) {
+      try {
+        await fetch(apiUrl('/api/symptoms/log'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': patient.walletAddress,
+            'X-Health-Id': patient.healthId,
+          },
+          body: JSON.stringify({
+            patient_id: patient.healthId,
+            symptom: entry.symptom,
+            severity: entry.severity,
+            notes: entry.notes,
+          }),
+        });
+      } catch (err) {
+        console.warn('Failed to log symptom to API:', err);
+      }
+    }
   };
 
   const deleteEntry = (id: string) => {

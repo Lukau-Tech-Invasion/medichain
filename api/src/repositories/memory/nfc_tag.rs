@@ -156,6 +156,22 @@ impl NfcTagRepository for MemoryNfcTagRepository {
             Err(RepositoryError::NotFound(format!("Tag {} not found", id)))
         }
     }
+
+    async fn list(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<NfcTagEntity>> {
+        let storage = self.storage.read().map_err(Self::lock_error)?;
+
+        let tags: Vec<NfcTagEntity> = storage.values().cloned().collect();
+        let total = tags.len() as u64;
+        let offset = pagination.offset() as usize;
+        let limit = pagination.limit() as usize;
+
+        let items: Vec<NfcTagEntity> = tags.into_iter().skip(offset).take(limit).collect();
+
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }
 
 #[cfg(test)]

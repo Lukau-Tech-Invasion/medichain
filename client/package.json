@@ -16,7 +16,11 @@
     "build:doctor": "npm run build --workspace=doctor-portal",
     "build:patient": "npm run build --workspace=patient-app",
     "build:all": "npm run build:shared && npm run build:doctor && npm run build:patient",
-    "install:all": "npm install"
+    "install:all": "npm install",
+    "test:e2e": "playwright test --config=playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
   },
   "engines": {
     "node": ">=18.0.0",

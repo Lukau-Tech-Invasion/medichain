@@ -14,7 +14,11 @@ import {
   Stethoscope,
   X,
   History,
+  FileText,
+  PenLine,
 } from 'lucide-react';
+import { getPatientConsents, getConsentTypes, signConsent } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 
 interface AccessGrant {
   id: string;
@@ -49,8 +53,22 @@ interface AccessRequest {
  * 
  * © 2025 Trustware. All rights reserved.
  */
+interface SignedConsent {
+  consent_id: string;
+  consent_type: string;
+  signed_at: string;
+  status?: string;
+}
+
+interface ConsentType {
+  consent_type: string;
+  display_name: string;
+  description?: string;
+}
+
 export function ConsentManagementPage() {
-  const [activeTab, setActiveTab] = useState<'grants' | 'requests' | 'history'>('grants');
+  const { patient } = usePatientAuthStore();
+  const [activeTab, setActiveTab] = useState<'grants' | 'requests' | 'history' | 'consents'>('grants');
   const [grants, setGrants] = useState<AccessGrant[]>([]);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,18 +77,25 @@ export function ConsentManagementPage() {
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
 
+  // Consent forms state
+  const [signedConsents, setSignedConsents] = useState<SignedConsent[]>([]);
+  const [consentTypes, setConsentTypes] = useState<ConsentType[]>([]);
+  const [isSigning, setIsSigning] = useState<string | null>(null);
+
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
     setIsLoading(true);
-    
+
     try {
-      // Get patient ID from stored auth
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : null;
-      
+      // Prefer patient from auth store; fall back to localStorage
+      const patientId = patient?.healthId || (() => {
+        const authData = localStorage.getItem('patient-auth');
+        return authData ? JSON.parse(authData).patientId : null;
+      })();
+
       if (!patientId) {
         setGrants([]);
         setRequests([]);
@@ -78,11 +103,12 @@ export function ConsentManagementPage() {
         return;
       }
 
+      const userId = patient?.walletAddress || patientId;
+
       // Fetch access grants from API
       const grantsResponse = await fetch(`/api/access/patient/${patientId}/grants`, {
-        headers: { 'X-User-Id': patientId },
+        headers: { 'X-User-Id': userId },
       });
-      
       if (grantsResponse.ok) {
         const data = await grantsResponse.json();
         setGrants(data.grants || []);
@@ -92,22 +118,48 @@ export function ConsentManagementPage() {
 
       // Fetch pending access requests from API
       const requestsResponse = await fetch(`/api/access/patient/${patientId}/requests`, {
-        headers: { 'X-User-Id': patientId },
+        headers: { 'X-User-Id': userId },
       });
-      
       if (requestsResponse.ok) {
         const data = await requestsResponse.json();
         setRequests(data.requests || []);
       } else {
         setRequests([]);
       }
+
+      // Fetch signed consents and consent types
+      try {
+        const [consentsResult, typesResult] = await Promise.all([
+          getPatientConsents(patientId) as Promise<{ consents: SignedConsent[] }>,
+          getConsentTypes() as Promise<{ consent_types: ConsentType[] }>,
+        ]);
+        setSignedConsents(consentsResult.consents || []);
+        setConsentTypes(typesResult.consent_types || []);
+      } catch (err) {
+        console.warn('Could not load consent forms:', err);
+      }
     } catch (error) {
       console.error('Failed to load consent data:', error);
       setGrants([]);
       setRequests([]);
     }
-    
+
     setIsLoading(false);
+  };
+
+  const handleSignConsent = async (consentType: string) => {
+    if (!patient?.healthId) return;
+    setIsSigning(consentType);
+    try {
+      await signConsent({ patient_id: patient.healthId, consent_type: consentType });
+      // Reload consents
+      const result = await getPatientConsents(patient.healthId) as { consents: SignedConsent[] };
+      setSignedConsents(result.consents || []);
+    } catch (err) {
+      console.error('Failed to sign consent:', err);
+    } finally {
+      setIsSigning(null);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -350,10 +402,21 @@ export function ConsentManagementPage() {
           <History className="w-4 h-4 inline mr-1" />
           History
         </button>
+        <button
+          onClick={() => setActiveTab('consents')}
+          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
+            activeTab === 'consents'
+              ? 'bg-white text-neutral-900 shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-900'
+          }`}
+        >
+          <FileText className="w-4 h-4 inline mr-1" />
+          Forms
+        </button>
       </div>
 
       {/* Search */}
-      {activeTab !== 'requests' && (
+      {activeTab !== 'requests' && activeTab !== 'consents' && (
         <div className="relative">
           <label htmlFor="consent-search" className="sr-only">Search providers</label>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
@@ -368,8 +431,78 @@ export function ConsentManagementPage() {
         </div>
       )}
 
-      {/* Content */}
-      {activeTab === 'requests' ? (
+      {/* Consent Forms Tab */}
+      {activeTab === 'consents' && (
+        <div className="space-y-6">
+          {/* Signed Consents */}
+          <div>
+            <h3 className="font-semibold text-neutral-800 mb-3 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-green-500" /> Signed Consent Forms
+            </h3>
+            {signedConsents.length === 0 ? (
+              <p className="text-sm text-neutral-500">No signed consents on file.</p>
+            ) : (
+              <div className="space-y-2">
+                {signedConsents.map(c => (
+                  <div key={c.consent_id} className="patient-card flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-primary-500" />
+                      <div>
+                        <p className="font-medium text-neutral-900">{c.consent_type}</p>
+                        {c.signed_at && (
+                          <p className="text-xs text-neutral-500">Signed {formatDate(c.signed_at)}</p>
+                        )}
+                      </div>
+                    </div>
+                    <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">Signed</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Available Consent Types */}
+          {consentTypes.length > 0 && (
+            <div>
+              <h3 className="font-semibold text-neutral-800 mb-3 flex items-center gap-2">
+                <PenLine className="w-4 h-4 text-primary-500" /> Available Consent Forms
+              </h3>
+              <div className="space-y-2">
+                {consentTypes.map(ct => {
+                  const alreadySigned = signedConsents.some(sc => sc.consent_type === ct.consent_type);
+                  return (
+                    <div key={ct.consent_type} className="patient-card flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <FileText className="w-5 h-5 text-neutral-400" />
+                        <div>
+                          <p className="font-medium text-neutral-900">{ct.display_name || ct.consent_type}</p>
+                          {ct.description && (
+                            <p className="text-xs text-neutral-500">{ct.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      {alreadySigned ? (
+                        <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">Signed</span>
+                      ) : (
+                        <button
+                          onClick={() => handleSignConsent(ct.consent_type)}
+                          disabled={isSigning === ct.consent_type}
+                          className="px-3 py-1.5 bg-primary-500 text-white text-xs rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50"
+                        >
+                          {isSigning === ct.consent_type ? 'Signing...' : 'Sign'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Access Grants/Requests/History Content */}
+      {activeTab !== 'consents' && (activeTab === 'requests' ? (
         <div className="space-y-3">
           {pendingRequests.length === 0 ? (
             <div className="text-center py-12">
@@ -470,7 +603,7 @@ export function ConsentManagementPage() {
             ))
           )}
         </div>
-      )}
+      ))}
 
       {/* Grant Detail Modal */}
       {selectedGrant && !showRevokeConfirm && (

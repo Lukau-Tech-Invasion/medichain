@@ -16,8 +16,13 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import {
+  apiUrl,
+  listIncidentReports,
+  createIncidentReport,
+} from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
+import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 
 /**
@@ -62,9 +67,11 @@ const IncidentReportPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | 'all'>('all');
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [formStep, setFormStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user } = useAuthStore();
+  const { showSuccess, showError, showWarning } = useToastActions();
 
   const [formData, setFormData] = useState({
     type: 'fall' as IncidentType,
@@ -91,27 +98,15 @@ const IncidentReportPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/clinical/incident-reports'), {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': user.walletAddress,
-            'X-Provider-Role': user.role || 'Doctor'
-          }
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch incidents: ${response.status}`);
-        }
-        
-        const data = await response.json();
+        const data = await listIncidentReports();
         // Convert date strings to Date objects
-        const incidentsWithDates = (data || []).map((incident: Incident) => ({
+        const incidentsWithDates = (data || []).map((incident: any) => ({
           ...incident,
-          dateTime: new Date(incident.dateTime),
-          reportedAt: new Date(incident.reportedAt),
-          followUpActions: (incident.followUpActions || []).map((action: { action: string; dueDate: string | Date; completed: boolean }) => ({
+          dateTime: new Date(incident.dateTime || incident.date_time || Date.now()),
+          reportedAt: new Date(incident.reportedAt || incident.reported_at || Date.now()),
+          followUpActions: (incident.followUpActions || incident.follow_up_actions || []).map((action: any) => ({
             ...action,
-            dueDate: new Date(action.dueDate)
+            dueDate: new Date(action.dueDate || action.due_date || Date.now())
           }))
         }));
         setIncidents(incidentsWithDates);
@@ -126,6 +121,65 @@ const IncidentReportPage: React.FC = () => {
     
     fetchIncidents();
   }, [user]);
+
+  const handleSubmitReport = async () => {
+    if (!formData.description || !formData.location || !formData.dateTime) {
+      showError('Please complete all required fields');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        id: `INC-${Date.now()}`,
+        ...formData,
+        dateTime: new Date(formData.dateTime).toISOString(),
+        reportedBy: user?.name || 'Healthcare Provider',
+        reportedAt: new Date().toISOString(),
+        status: 'open' as IncidentStatus,
+        staffInvolved: formData.staffInvolved.split(',').map(s => s.trim()).filter(Boolean),
+        witnesses: formData.witnesses.split(',').map(s => s.trim()).filter(Boolean),
+        followUpActions: [],
+      };
+
+      await createIncidentReport(payload);
+      showSuccess('Incident report submitted successfully');
+      
+      // Refresh list
+      const updatedData = await listIncidentReports();
+      const incidentsWithDates = (updatedData || []).map((incident: any) => ({
+        ...incident,
+        dateTime: new Date(incident.dateTime || incident.date_time || Date.now()),
+        reportedAt: new Date(incident.reportedAt || incident.reported_at || Date.now()),
+      }));
+      setIncidents(incidentsWithDates);
+      
+      setActiveTab('list');
+      resetForm();
+    } catch (err) {
+      console.error('Error submitting report:', err);
+      showError('Failed to submit incident report');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormStep(1);
+    setFormData({
+      type: 'fall',
+      severity: 'minor',
+      dateTime: '',
+      location: '',
+      department: '',
+      description: '',
+      patientInvolved: false,
+      patientId: '',
+      staffInvolved: '',
+      witnesses: '',
+      immediateActions: ''
+    });
+  };
 
   const getTypeBadge = (type: IncidentType) => {
     const config: Record<IncidentType, { bg: string; icon: React.ReactNode }> = {
@@ -515,7 +569,12 @@ const IncidentReportPage: React.FC = () => {
                   Continue
                 </button>
               ) : (
-                <button className="px-6 py-2 bg-rose-600 text-white rounded-lg font-medium">
+                <button 
+                  onClick={handleSubmitReport}
+                  disabled={isSubmitting}
+                  className="px-6 py-2 bg-rose-600 text-white rounded-lg font-medium flex items-center gap-2"
+                >
+                  {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                   Submit Report
                 </button>
               )}

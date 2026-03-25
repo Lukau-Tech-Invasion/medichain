@@ -193,7 +193,7 @@ export function useSidebarData(
     }
 
     try {
-      let updatedBadges: Partial<SidebarBadges> = {};
+      const updatedBadges: Partial<SidebarBadges> = {};
       let recentPatients: RecentPatient[] = [];
 
       // Fetch messages and notifications for all roles

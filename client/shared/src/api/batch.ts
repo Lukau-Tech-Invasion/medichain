@@ -177,7 +177,7 @@ export function createRequestBatcher<T>(
 ): { get: (id: string) => Promise<T> } {
   const { maxBatchSize = 100, windowMs = 50 } = options;
 
-  let pendingRequests: PendingRequest<T>[] = [];
+  const pendingRequests: PendingRequest<T>[] = [];
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   const executeBatch = async () => {

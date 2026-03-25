@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { useSidebarData } from '@medichain/shared';
+import { useSidebarData, useSSE } from '@medichain/shared';
 import {
   LogOut,
   Shield,
@@ -15,6 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import CommandPalette from './CommandPalette';
+import { useToastActions } from './Toast';
 import {
   getNavForRole,
   getThemeForRole,
@@ -277,6 +278,50 @@ function Layout() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   
+  // Real-time events
+  const { events, isConnected: isSSEConnected } = useSSE();
+  const { showInfo, showWarning, showError, showSuccess } = useToastActions();
+  const lastProcessedEventRef = useRef<number>(0);
+
+  // Handle incoming real-time events
+  useEffect(() => {
+    if (events.length > 0) {
+      const latestEvent = events[0];
+      if (latestEvent.timestamp > lastProcessedEventRef.current) {
+        lastProcessedEventRef.current = latestEvent.timestamp;
+        
+        switch (latestEvent.event_type) {
+          case 'cds_alert':
+            showWarning(
+              latestEvent.payload.title || 'Clinical Alert',
+              `Patient ${latestEvent.patient_id}: ${latestEvent.payload.severity} severity`
+            );
+            break;
+          case 'lab_result':
+            showSuccess(
+              `New lab results available for patient ${latestEvent.patient_id}`,
+              'Lab Result Ready'
+            );
+            break;
+          case 'reminder_due':
+            showInfo(
+              latestEvent.payload.message || 'Medication reminder due',
+              'Medication Reminder'
+            );
+            break;
+          default:
+            showInfo(
+              latestEvent.payload.message || 'New system update',
+              'Notification'
+            );
+        }
+        
+        // Refresh sidebar badges when events arrive as they might affect counts
+        refetchBadges();
+      }
+    }
+  }, [events, showInfo, showWarning, showSuccess, showInfo, refetchBadges]);
+
   // Get role-specific configuration
   const userRole = (user?.role as Role) || 'Doctor';
   const theme = useMemo(() => getThemeForRole(userRole), [userRole]);
@@ -522,7 +567,7 @@ function Layout() {
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative"
           aria-label="Notifications"
         >
-          <Bell size={24} className="text-gray-700" />
+          <Bell size={24} className={isSSEConnected ? 'text-blue-600' : 'text-gray-700'} title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'} />
           {totalUnread > 0 && (
             <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
               {totalUnread > 9 ? '9+' : totalUnread}

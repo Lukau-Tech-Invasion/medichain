@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { getPatientAppointments, cancelAppointment as cancelAppointmentAPI } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Calendar,
@@ -16,6 +16,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 interface Appointment {
@@ -52,6 +53,7 @@ export function AppointmentsPage() {
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -71,50 +73,26 @@ export function AppointmentsPage() {
     
     setLoading(true);
     try {
-      const patientId = patient.healthId;
+      const data = await getPatientAppointments(patient.healthId);
+      setApiConnected(true);
       
-      const response = await fetch(apiUrl(`/api/appointments/patient/${patientId}`), {
-        headers: { 
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setApiConnected(true);
-        
-        const appts: Appointment[] = (data.appointments || []).map((a: {
-          appointment_id: string;
-          type: string;
-          status: string;
-          provider_name: string;
-          specialty: string;
-          scheduled_date: string;
-          scheduled_time: string;
-          duration_minutes: number;
-          location?: string;
-          reason: string;
-          notes?: string;
-        }) => ({
-          id: a.appointment_id,
-          type: a.type || 'in-person',
-          status: a.status || 'scheduled',
-          provider: a.provider_name,
-          specialty: a.specialty,
-          date: a.scheduled_date,
-          time: a.scheduled_time,
-          duration: a.duration_minutes || 30,
-          location: a.location,
-          reason: a.reason,
-          notes: a.notes,
-        }));
-        
-        setAppointments(appts);
-      } else {
-        setApiConnected(false);
-      }
-    } catch {
+      const appts: Appointment[] = ((data as any).appointments || []).map((a: any) => ({
+        id: a.appointment_id,
+        type: a.type || 'in-person',
+        status: a.status || 'scheduled',
+        provider: a.provider_name,
+        specialty: a.specialty,
+        date: a.scheduled_date,
+        time: a.scheduled_time,
+        duration: a.duration_minutes || 30,
+        location: a.location,
+        reason: a.reason,
+        notes: a.notes,
+      }));
+      
+      setAppointments(appts);
+    } catch (err) {
+      console.error('Failed to load appointments:', err);
       setApiConnected(false);
     } finally {
       setLoading(false);
@@ -146,6 +124,21 @@ export function AppointmentsPage() {
       case 'completed': return <CheckCircle className="w-4 h-4" />;
       case 'cancelled': return <XCircle className="w-4 h-4" />;
       default: return <AlertCircle className="w-4 h-4" />;
+    }
+  };
+
+  const cancelAppointment = async (appointmentId: string) => {
+    if (!patient) return;
+    setCancellingId(appointmentId);
+    try {
+      await cancelAppointmentAPI(appointmentId, { reason: 'Cancelled by patient' });
+      setAppointments(prev => prev.map(a =>
+        a.id === appointmentId ? { ...a, status: 'cancelled' as const } : a
+      ));
+    } catch (err) {
+      console.error('Error cancelling appointment:', err);
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -181,6 +174,12 @@ export function AppointmentsPage() {
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? 'Live' : 'Demo'}
           </span>
+          <button
+            onClick={loadAppointments}
+            className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg"
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -307,13 +306,25 @@ export function AppointmentsPage() {
               <p className="text-sm text-neutral-500 italic">📝 {appointment.notes}</p>
             )}
 
-            {appointment.status === 'scheduled' && (
+            {(appointment.status === 'scheduled' || appointment.status === 'confirmed') && (
               <div className="flex gap-2 mt-4">
                 <button className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors text-sm">
                   Confirm
                 </button>
                 <button className="flex-1 py-2 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm">
                   Reschedule
+                </button>
+                <button
+                  onClick={() => cancelAppointment(appointment.id)}
+                  disabled={cancellingId === appointment.id}
+                  className="flex-1 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  {cancellingId === appointment.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  Cancel
                 </button>
               </div>
             )}

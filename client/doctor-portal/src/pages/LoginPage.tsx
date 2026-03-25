@@ -40,8 +40,19 @@ const DEMO_USERS: DemoUser[] = [
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading, error, clearError } = useAuthStore();
+  const { login, loginWithExtension, isLoading, error, clearError } = useAuthStore();
   const [walletAddress, setWalletAddress] = useState('');
+
+  /**
+   * Login using Polkadot extension
+   */
+  const handleExtensionLogin = async () => {
+    clearError();
+    const success = await loginWithExtension();
+    if (success) {
+      navigate('/dashboard');
+    }
+  };
 
   /**
    * Login with an existing wallet address
@@ -112,7 +123,7 @@ function LoginPage() {
           <button
             type="submit"
             disabled={isLoading || !walletAddress.trim()}
-            className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
           >
             {isLoading ? (
               <>
@@ -125,6 +136,16 @@ function LoginPage() {
                 Connect Wallet
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExtensionLogin}
+            disabled={isLoading}
+            className="w-full py-3 bg-white border-2 border-primary-600 text-primary-600 font-semibold rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            <Shield size={18} />
+            Login with Polkadot Extension
           </button>
         </form>
 

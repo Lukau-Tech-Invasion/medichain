@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCardiac, getPatients } from '@medichain/shared';
+import { createCardiac, getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Heart,
@@ -12,7 +12,8 @@ import {
   Search,
   AlertTriangle,
   Zap,
-  Plus
+  Plus,
+  History
 } from 'lucide-react';
 
 interface CardiacEvent {
@@ -40,6 +41,8 @@ export default function CardiacPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [emergencyHistory, setEmergencyHistory] = useState<Array<{event_id: string; event_type?: string; event_time?: number; assessed_at?: number; outcome?: string}>>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Cardiac Event Form State
   const [eventType, setEventType] = useState<string>('stemi');
@@ -82,6 +85,24 @@ export default function CardiacPage() {
       setPatients(data);
     } catch (err) {
       console.error('Failed to load patients', err);
+    }
+  };
+
+  const fetchEmergencyHistory = async (patientId: string) => {
+    if (!user || !patientId) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(apiUrl(`/api/clinical/patient/${patientId}/emergency`), {
+        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEmergencyHistory(data.events || data || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -267,7 +288,7 @@ export default function CardiacPage() {
                 </div>
                 <select
                   value={selectedPatient}
-                  onChange={(e) => setSelectedPatient(e.target.value)}
+                  onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                   required
                 >
@@ -283,6 +304,27 @@ export default function CardiacPage() {
                     <p className="font-medium">{selectedPatientData.full_name}</p>
                     <p className="text-sm text-gray-600">DOB: {selectedPatientData.date_of_birth}</p>
                     <p className="text-sm text-gray-600">Blood Type: {selectedPatientData.emergency_info?.blood_type || 'Unknown'}</p>
+                  </div>
+                )}
+                {selectedPatient && (
+                  <div className="mt-4">
+                    <h4 className="font-medium text-sm text-gray-700 mb-2 flex items-center gap-1">
+                      <History className="h-4 w-4 text-red-500" /> Past Emergency Events
+                    </h4>
+                    {historyLoading ? (
+                      <p className="text-gray-500 text-xs">Loading...</p>
+                    ) : emergencyHistory.length === 0 ? (
+                      <p className="text-gray-400 text-xs italic">No prior events.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {emergencyHistory.slice(0, 5).map((ev) => (
+                          <div key={ev.event_id} className="text-xs bg-red-50 rounded p-2 flex justify-between">
+                            <span>{ev.event_type || 'Cardiac'}</span>
+                            <span className="text-gray-500">{ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleDateString() : ev.event_time ? new Date(ev.event_time * 1000).toLocaleDateString() : '-'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
