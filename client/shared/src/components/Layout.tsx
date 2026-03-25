@@ -27,6 +27,8 @@ import {
   Star,
   HelpCircle,
   Video,
+  FlaskConical,
+  BookOpen,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -82,10 +84,13 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       items: [
         { path: '/medications', label: 'Medications', icon: Pill },
         { path: '/reminders', label: 'Med Reminders', icon: Bell },
+        { path: '/vitals', label: 'Vital Signs', icon: Activity },
+        { path: '/lab-results', label: 'Lab Results', icon: FlaskConical },
         { path: '/symptoms', label: 'Symptom Tracker', icon: Activity },
         { path: '/symptom-checker', label: 'Symptom Checker', icon: HelpCircle },
         { path: '/lab-trends', label: 'Lab Trends', icon: TrendingUp },
         { path: '/wearables', label: 'Wearables', icon: Watch },
+        { path: '/medical-history', label: 'Medical History', icon: BookOpen },
       ],
     },
     {
@@ -103,6 +108,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
         { path: '/consent', label: 'Access Control', icon: Shield },
         { path: '/emergency-card', label: 'Emergency Card', icon: AlertCircle },
         { path: '/insurance', label: 'Insurance', icon: ClipboardList },
+        { path: '/notifications', label: 'Notifications', icon: Bell },
         { path: '/survey', label: 'Satisfaction Survey', icon: Star },
       ],
     },

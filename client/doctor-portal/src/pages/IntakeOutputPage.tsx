@@ -116,6 +116,36 @@ const IntakeOutputPage: React.FC = () => {
     fetchIntakeOutput();
   }, [user]);
 
+  // Fetch detailed I/O for selected patient/date
+  useEffect(() => {
+    if (!selectedPatient || !user?.walletAddress) return;
+    const fetchDetailedIO = async () => {
+      const shift = 'day'; // Default shift
+      try {
+        const response = await fetch(apiUrl(`/api/clinical/io/${selectedPatient.patientId}/${selectedDate}/${shift}`), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data && (data.entries || data.intake || data.output)) {
+            // Update the selected patient's entries with fresh data
+            const entries: IOEntry[] = (data.entries || []).map((e: IOEntry & { timestamp: string }) => ({
+              ...e,
+              timestamp: new Date(e.timestamp)
+            }));
+            setSelectedPatient(prev => prev ? { ...prev, entries } : null);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch I/O detail:', err);
+      }
+    };
+    fetchDetailedIO();
+  }, [selectedPatient?.patientId, selectedDate, user]);
+
   const getIntakeCategories = (): IntakeType[] => ['oral', 'iv', 'tube-feeding', 'blood-products', 'other-intake'];
   const getOutputCategories = (): OutputType[] => ['urine', 'stool', 'emesis', 'drainage', 'blood-loss', 'other-output'];
 

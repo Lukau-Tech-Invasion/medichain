@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCarePlan, getPatients } from '@medichain/shared';
+import { createCarePlan, getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ClipboardList,
@@ -80,6 +80,10 @@ export default function CarePlanPage() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'diagnoses' | 'goals' | 'interventions' | 'summary'>('diagnoses');
 
+  // Care plan list
+  const [carePlans, setCarePlans] = useState<Array<{id: string; patient_id?: string; status?: string; created_at?: number; diagnoses_count?: number}>>([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+
   // Care plan data
   const [diagnoses, setDiagnoses] = useState<NursingDiagnosis[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -134,7 +138,7 @@ export default function CarePlanPage() {
       try {
         const patientData = await getPatients();
         setPatients(patientData || []);
-        
+
         const patientId = searchParams.get('patientId');
         if (patientId) {
           const patient = patientData?.find((p: PatientProfile) => p.patient_id === patientId);
@@ -148,6 +152,31 @@ export default function CarePlanPage() {
     };
     fetchData();
   }, [searchParams]);
+
+  // Fetch care plans list
+  useEffect(() => {
+    if (!user) return;
+    const fetchCarePlans = async () => {
+      setPlansLoading(true);
+      try {
+        const res = await fetch(apiUrl('/api/nursing/care-plans'), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Nurse',
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCarePlans(Array.isArray(data) ? data : (data.care_plans || data.plans || []));
+        }
+      } catch (err) {
+        console.error('Failed to fetch care plans:', err);
+      } finally {
+        setPlansLoading(false);
+      }
+    };
+    fetchCarePlans();
+  }, [user]);
 
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
@@ -325,6 +354,47 @@ export default function CarePlanPage() {
           <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
+          </div>
+        )}
+
+        {/* Care Plans List */}
+        {carePlans.length > 0 && (
+          <div className="bg-white rounded-lg shadow mb-6 p-4">
+            <h2 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+              <ClipboardList className="h-5 w-5 text-teal-500" />
+              Recent Care Plans
+              {plansLoading && <span className="text-sm text-gray-400 ml-2">Loading...</span>}
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">ID</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Patient ID</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {carePlans.map((plan) => (
+                    <tr key={plan.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2 font-mono text-xs">{plan.id}</td>
+                      <td className="px-4 py-2">{plan.patient_id || '-'}</td>
+                      <td className="px-4 py-2">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          plan.status === 'active' ? 'bg-green-100 text-green-700' :
+                          plan.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {plan.status || 'active'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">{plan.created_at ? new Date(plan.created_at * 1000).toLocaleDateString() : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

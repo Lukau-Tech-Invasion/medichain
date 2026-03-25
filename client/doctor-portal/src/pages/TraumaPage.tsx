@@ -1,16 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createTrauma, getPatients } from '@medichain/shared';
+import { createTrauma, getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
-import { 
-  AlertCircle, 
-  Save, 
+import {
+  AlertCircle,
+  Save,
   Search,
   Activity,
-  Shield
+  Shield,
+  History
 } from 'lucide-react';
+
+interface EmergencyRecord {
+  event_id: string;
+  event_type?: string;
+  event_time?: number;
+  assessed_at?: number;
+  outcome?: string;
+}
 
 export default function TraumaPage() {
   const navigate = useNavigate();
@@ -18,6 +27,8 @@ export default function TraumaPage() {
   const { showError } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
+  const [emergencyHistory, setEmergencyHistory] = useState<EmergencyRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   
   // Trauma Form State
   const [traumaType, setTraumaType] = useState('blunt');
@@ -44,6 +55,24 @@ export default function TraumaPage() {
       setPatients(data);
     } catch (error) {
       console.error('Failed to load patients', error);
+    }
+  };
+
+  const fetchEmergencyHistory = async (patientId: string) => {
+    if (!user || !patientId) return;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(apiUrl(`/api/clinical/patient/${patientId}/emergency`), {
+        headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEmergencyHistory(data.events || data || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch emergency history', e);
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -107,7 +136,7 @@ export default function TraumaPage() {
               id="trauma-patient"
               className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               value={selectedPatient}
-              onChange={(e) => setSelectedPatient(e.target.value)}
+              onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
               required
             >
               <option value="">Select a patient...</option>
@@ -119,6 +148,51 @@ export default function TraumaPage() {
             </select>
           </div>
         </div>
+
+        {/* Emergency History */}
+        {selectedPatient && (
+          <div className="bg-white shadow rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <History className="h-5 w-5 text-red-500" />
+              Past Emergency Events
+            </h3>
+            {historyLoading ? (
+              <p className="text-gray-500 text-sm">Loading history...</p>
+            ) : emergencyHistory.length === 0 ? (
+              <p className="text-gray-400 text-sm italic">No prior emergency events for this patient.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Event ID</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Outcome</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {emergencyHistory.map((ev) => (
+                      <tr key={ev.event_id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
+                        <td className="px-4 py-2">{ev.event_type || 'Trauma'}</td>
+                        <td className="px-4 py-2">
+                          {ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleString() :
+                           ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                            {ev.outcome || 'N/A'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Mechanism & Overview */}
         <div className="bg-white shadow rounded-lg p-6">

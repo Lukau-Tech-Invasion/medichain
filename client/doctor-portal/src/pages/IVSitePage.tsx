@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createIvSite, getPatients } from '@medichain/shared';
+import { createIvSite, getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Syringe,
@@ -150,7 +150,7 @@ export default function IVSitePage() {
       try {
         const patientData = await getPatients();
         setPatients(patientData || []);
-        
+
         const patientId = searchParams.get('patientId');
         if (patientId) {
           const patient = patientData?.find((p: PatientProfile) => p.patient_id === patientId);
@@ -164,6 +164,31 @@ export default function IVSitePage() {
     };
     fetchData();
   }, [searchParams]);
+
+  // Fetch IV site history when patient is selected
+  useEffect(() => {
+    if (!selectedPatient || !user) return;
+    const fetchIVSites = async () => {
+      try {
+        const response = await fetch(apiUrl(`/api/clinical/iv-sites/${selectedPatient.patient_id}`), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Nurse',
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const sites = Array.isArray(data) ? data : (data.sites || data.iv_sites || []);
+          if (sites.length > 0) {
+            setIvSites(sites);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch IV site history:', err);
+      }
+    };
+    fetchIVSites();
+  }, [selectedPatient, user]);
 
   const filteredPatients = patients.filter(p => 
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||

@@ -139,18 +139,19 @@ const HistoryAndPhysicalPage: React.FC = () => {
       }
       
       try {
-        const response = await fetch(apiUrl('/api/clinical/history-physical'), {
+        const response = await fetch(apiUrl('/api/clinical/hp'), {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role || 'Doctor',
           },
         });
-        
+
         if (response.ok) {
           const data = await response.json();
-          if (Array.isArray(data)) {
-            setHpRecords(data.map((record: HistoryAndPhysical & { dateOfExam: string; signedAt?: string }) => ({
+          const records = Array.isArray(data) ? data : (data.records || data.hp_records || []);
+          if (Array.isArray(records)) {
+            setHpRecords(records.map((record: HistoryAndPhysical & { dateOfExam: string; signedAt?: string }) => ({
               ...record,
               dateOfExam: new Date(record.dateOfExam),
               signedAt: record.signedAt ? new Date(record.signedAt) : undefined
@@ -171,6 +172,62 @@ const HistoryAndPhysicalPage: React.FC = () => {
     
     fetchHpRecords();
   }, [user]);
+
+  const handleSaveHp = async (status: 'in-progress' | 'signed') => {
+    if (!user?.walletAddress) return;
+    try {
+      const response = await fetch(apiUrl('/api/clinical/hp'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role || 'Doctor',
+        },
+        body: JSON.stringify({
+          patient_id: formData.patientId,
+          patient_name: formData.patientName,
+          mrn: formData.mrn,
+          exam_type: formData.examType,
+          chief_complaint: formData.chiefComplaint,
+          history_of_present_illness: formData.hpi,
+          past_medical_history: formData.pmh,
+          past_surgical_history: formData.psh,
+          medications: formData.medications,
+          allergies: formData.allergies,
+          social_history: formData.socialHistory,
+          family_history: formData.familyHistory,
+          vital_signs: formData.vitalSigns,
+          assessment: formData.assessment,
+          plan: formData.plan,
+          status,
+        }),
+      });
+      if (response.ok) {
+        setError(null);
+        setActiveTab('list');
+        const fetchHpRecords = async () => {
+          const r = await fetch(apiUrl('/api/clinical/hp'), {
+            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role || 'Doctor' },
+          });
+          if (r.ok) {
+            const data = await r.json();
+            const records = Array.isArray(data) ? data : (data.records || data.hp_records || []);
+            setHpRecords(records.map((record: HistoryAndPhysical & { dateOfExam: string; signedAt?: string }) => ({
+              ...record,
+              dateOfExam: new Date(record.dateOfExam),
+              signedAt: record.signedAt ? new Date(record.signedAt) : undefined
+            })));
+          }
+        };
+        fetchHpRecords();
+      } else {
+        setError('Failed to save H&P record');
+      }
+    } catch (err) {
+      console.error('Failed to save H&P:', err);
+      setError('Unable to connect to server');
+    }
+  };
 
   const toggleSection = (section: string) => {
     const newExpanded = new Set(expandedSections);
@@ -821,10 +878,10 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="flex justify-end gap-3 pt-4">
-                <button className="px-6 py-2 border border-gray-300 rounded-lg font-medium">
+                <button type="button" onClick={() => handleSaveHp('in-progress')} className="px-6 py-2 border border-gray-300 rounded-lg font-medium">
                   Save as Draft
                 </button>
-                <button className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium">
+                <button type="button" onClick={() => handleSaveHp('signed')} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium">
                   Complete & Sign
                 </button>
               </div>

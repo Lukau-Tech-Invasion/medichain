@@ -28,7 +28,7 @@ export { default as SatisfactionSurveyPage } from './SatisfactionSurveyPage';
 export { default as SymptomCheckerPage } from './SymptomCheckerPage';
 export { default as LanguageSettingsPage } from './LanguageSettingsPage';
 export { default as OfflineSyncPage } from './OfflineSyncPage';
-
-
-
-
+export { VitalsPage } from './VitalsPage';
+export { LabResultsPage } from './LabResultsPage';
+export { NotificationsPage } from './NotificationsPage';
+export { MedicalHistoryPage } from './MedicalHistoryPage';

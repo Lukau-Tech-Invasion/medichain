@@ -31,6 +31,7 @@ interface Medication {
   instructions: string;
   sideEffects: string[];
   interactions: string[];
+  status?: string;
 }
 
 interface MedicationReminder {
@@ -82,50 +83,91 @@ export function MedicationsPage() {
     setLoading(true);
     try {
       const patientId = patient.healthId;
-      
-      const response = await fetch(apiUrl(`/api/patients/${patientId}/medications`), {
-        headers: { 
-          'X-User-Id': patient.walletAddress,
-          'X-Health-Id': patient.healthId,
-        },
-      });
 
-      if (response.ok) {
-        const data = await response.json();
+      // Fetch prescriptions from correct endpoint
+      const [prescResponse, remindersResponse] = await Promise.all([
+        fetch(apiUrl(`/api/e-prescriptions/patient/${patientId}`), {
+          headers: {
+            'X-User-Id': patient.walletAddress,
+            'X-Health-Id': patient.healthId,
+          },
+        }),
+        fetch(apiUrl(`/api/medication-reminders/${patientId}`), {
+          headers: {
+            'X-User-Id': patient.walletAddress,
+            'X-Health-Id': patient.healthId,
+          },
+        }),
+      ]);
+
+      if (prescResponse.ok) {
+        const data = await prescResponse.json();
         setApiConnected(true);
-        
-        const meds: Medication[] = (data.medications || []).map((m: {
-          medication_id: string;
-          name: string;
+
+        const meds: Medication[] = (data.prescriptions || data.medications || []).map((m: {
+          prescription_id?: string;
+          medication_id?: string;
+          medication_name?: string;
+          name?: string;
           dosage: string;
-          frequency: string;
-          prescribed_by: string;
-          start_date: string;
+          frequency?: string;
+          prescriber_name?: string;
+          prescribed_by?: string;
+          prescribed_date?: string;
+          start_date?: string;
           end_date?: string;
-          refills_remaining: number;
-          instructions: string;
+          refills_remaining?: number;
+          instructions?: string;
           side_effects?: string[];
           interactions?: string[];
+          status?: string;
         }) => ({
-          id: m.medication_id,
-          name: m.name,
+          id: m.prescription_id || m.medication_id || '',
+          name: m.medication_name || m.name || '',
           dosage: m.dosage,
-          frequency: m.frequency,
-          prescribedBy: m.prescribed_by,
-          startDate: m.start_date,
+          frequency: m.frequency || 'As directed',
+          prescribedBy: m.prescriber_name || m.prescribed_by || '',
+          startDate: m.prescribed_date || m.start_date || '',
           endDate: m.end_date,
           refillsRemaining: m.refills_remaining || 0,
           instructions: m.instructions || 'Take as directed',
           sideEffects: m.side_effects || [],
           interactions: m.interactions || [],
+          status: m.status || 'active',
         }));
-        
+
         setMedications(meds);
         generateReminders(meds);
       } else {
         console.error('Failed to load medications');
         setApiConnected(false);
         setMedications([]);
+      }
+
+      // Load medication reminders from API if available
+      if (remindersResponse.ok) {
+        const remindersData = await remindersResponse.json();
+        const apiReminders: MedicationReminder[] = (remindersData.reminders || []).map((r: {
+          reminder_id?: string;
+          id?: string;
+          medication_id: string;
+          medication_name: string;
+          dosage: string;
+          scheduled_time: string;
+          taken?: boolean;
+          taken_at?: string;
+        }) => ({
+          id: r.reminder_id || r.id || `reminder-${Date.now()}`,
+          medicationId: r.medication_id,
+          medicationName: r.medication_name,
+          dosage: r.dosage,
+          scheduledTime: r.scheduled_time,
+          taken: r.taken || false,
+          takenAt: r.taken_at,
+        }));
+        if (apiReminders.length > 0) {
+          setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
+        }
       }
     } catch (error) {
       console.error('Error loading medications:', error);
@@ -177,12 +219,34 @@ export function MedicationsPage() {
     setReminders(todayReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
   };
 
-  const markAsTaken = (reminderId: string) => {
-    setReminders(prev => prev.map(r => 
-      r.id === reminderId 
-        ? { ...r, taken: true, takenAt: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }
+  const markAsTaken = async (reminderId: string) => {
+    const takenAt = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    setReminders(prev => prev.map(r =>
+      r.id === reminderId
+        ? { ...r, taken: true, takenAt }
         : r
     ));
+    // Log adherence to API
+    try {
+      if (patient) {
+        await fetch(apiUrl('/api/reminders/adherence'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-Id': patient.walletAddress,
+            'X-Health-Id': patient.healthId,
+          },
+          body: JSON.stringify({
+            reminder_id: reminderId,
+            patient_id: patient.healthId,
+            taken: true,
+            taken_at: new Date().toISOString(),
+          }),
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to log adherence:', err);
+    }
   };
 
   const pendingReminders = reminders.filter(r => !r.taken);
@@ -339,6 +403,13 @@ export function MedicationsPage() {
                   <div>
                     <h3 className="font-semibold text-neutral-900">{med.name}</h3>
                     <p className="text-sm text-neutral-500">{med.dosage} • {med.frequency}</p>
+                    {med.status && (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                        med.status === 'active' ? 'bg-green-100 text-green-700' :
+                        med.status === 'completed' ? 'bg-neutral-100 text-neutral-600' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>{med.status.charAt(0).toUpperCase() + med.status.slice(1)}</span>
+                    )}
                   </div>
                 </div>
                 <ChevronRight className="w-5 h-5 text-neutral-400" />

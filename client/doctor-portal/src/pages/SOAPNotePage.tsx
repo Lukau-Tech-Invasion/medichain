@@ -103,7 +103,11 @@ function SOAPNotePage() {
   // Patients fetched from API
   const [patients, setPatients] = useState<PatientOption[]>([]);
   const [loadingPatients, setLoadingPatients] = useState(false);
-  
+
+  // Existing SOAP notes
+  const [existingNotes, setExistingNotes] = useState<Array<{note_id: string; encounter_type: string; created_at?: number; subjective?: {chief_complaint?: string}}>>([]);
+  const [showNotesList, setShowNotesList] = useState(true);
+
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdFromUrl || '');
   const [encounterType, setEncounterType] = useState('initial');
   
@@ -117,7 +121,7 @@ function SOAPNotePage() {
   // Fetch patients from API
   useEffect(() => {
     if (!user) return;
-    
+
     const fetchPatients = async () => {
       setLoadingPatients(true);
       try {
@@ -138,9 +142,31 @@ function SOAPNotePage() {
         setLoadingPatients(false);
       }
     };
-    
+
     fetchPatients();
   }, [user]);
+
+  // Fetch existing SOAP notes when patient is selected
+  useEffect(() => {
+    if (!user || !selectedPatientId) return;
+    const fetchNotes = async () => {
+      try {
+        const response = await fetch(apiUrl(`/api/clinical/patient/${selectedPatientId}/soap`), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role,
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setExistingNotes(Array.isArray(data) ? data : (data.notes || data.soap_notes || []));
+        }
+      } catch (err) {
+        console.error('Failed to fetch SOAP notes:', err);
+      }
+    };
+    fetchNotes();
+  }, [selectedPatientId, user]);
   
   // SUBJECTIVE
   const [chiefComplaint, setChiefComplaint] = useState('');
@@ -371,6 +397,42 @@ function SOAPNotePage() {
             <p className="font-medium text-red-900">Error</p>
             <p className="text-sm text-red-700">{error}</p>
           </div>
+        </div>
+      )}
+
+      {/* Existing SOAP Notes */}
+      {existingNotes.length > 0 && (
+        <div className="bg-white rounded-xl shadow mb-6">
+          <div className="p-4 border-b flex items-center justify-between">
+            <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+              <FileText size={18} className="text-primary-600" />
+              Existing SOAP Notes ({existingNotes.length})
+            </h2>
+            <button
+              type="button"
+              onClick={() => setShowNotesList(!showNotesList)}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              {showNotesList ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showNotesList && (
+            <div className="divide-y">
+              {existingNotes.map((note) => (
+                <div key={note.note_id} className="p-4 hover:bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-gray-900 text-sm">{note.subjective?.chief_complaint || 'No chief complaint'}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {note.encounter_type} &bull; {note.created_at ? new Date(note.created_at * 1000).toLocaleDateString() : 'N/A'}
+                      </p>
+                    </div>
+                    <span className="text-xs font-mono text-gray-400">{note.note_id}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Camera, User, AlertCircle, Search, Plus } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 import { useAuthStore } from '../store/authStore';
-import { getPatients } from '@medichain/shared';
+import { getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type ImagingModality = 'xray' | 'ct' | 'mri' | 'ultrasound' | 'fluoro' | 'mammo' | 'dexa' | 'pet' | 'nuclear';
@@ -79,6 +79,33 @@ const ImagingPage: React.FC = () => {
     };
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchOrders = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/clinical/radiology/orders'), {
+          headers: {
+            'X-User-Id': user.walletAddress,
+            'X-Provider-Role': user.role || 'Doctor',
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const fetchedOrders = Array.isArray(data) ? data : (data.orders || []);
+          if (fetchedOrders.length > 0) {
+            setOrders(prev => {
+              const existingIds = new Set(prev.map(o => o.id));
+              return [...prev, ...fetchedOrders.filter((o: ImagingOrder) => !existingIds.has(o.id))];
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch imaging orders:', err);
+      }
+    };
+    fetchOrders();
+  }, [user]);
 
   const handleSubmit = () => {
     if (!selectedPatient || !indication) {

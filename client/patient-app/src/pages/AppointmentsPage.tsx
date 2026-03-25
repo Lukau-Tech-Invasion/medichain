@@ -16,6 +16,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 interface Appointment {
@@ -52,6 +53,7 @@ export function AppointmentsPage() {
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -149,6 +151,32 @@ export function AppointmentsPage() {
     }
   };
 
+  const cancelAppointment = async (appointmentId: string) => {
+    if (!patient) return;
+    setCancellingId(appointmentId);
+    try {
+      const response = await fetch(apiUrl(`/api/appointments/${appointmentId}/cancel`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
+        },
+      });
+      if (response.ok) {
+        setAppointments(prev => prev.map(a =>
+          a.id === appointmentId ? { ...a, status: 'cancelled' as const } : a
+        ));
+      } else {
+        console.error('Failed to cancel appointment');
+      }
+    } catch (err) {
+      console.error('Error cancelling appointment:', err);
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       weekday: 'long',
@@ -181,6 +209,12 @@ export function AppointmentsPage() {
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? 'Live' : 'Demo'}
           </span>
+          <button
+            onClick={loadAppointments}
+            className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg"
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -307,13 +341,25 @@ export function AppointmentsPage() {
               <p className="text-sm text-neutral-500 italic">📝 {appointment.notes}</p>
             )}
 
-            {appointment.status === 'scheduled' && (
+            {(appointment.status === 'scheduled' || appointment.status === 'confirmed') && (
               <div className="flex gap-2 mt-4">
                 <button className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors text-sm">
                   Confirm
                 </button>
                 <button className="flex-1 py-2 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm">
                   Reschedule
+                </button>
+                <button
+                  onClick={() => cancelAppointment(appointment.id)}
+                  disabled={cancellingId === appointment.id}
+                  className="flex-1 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  {cancellingId === appointment.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  Cancel
                 </button>
               </div>
             )}

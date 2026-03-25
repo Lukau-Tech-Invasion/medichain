@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getPatients } from '@medichain/shared';
+import { createPreOp, getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Stethoscope,
@@ -109,6 +109,8 @@ export default function PreOpPage() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'assessment' | 'checklist' | 'history'>('assessment');
+  const [recentRecords, setRecentRecords] = useState<Array<{id: string; patient_id?: string; scheduled_surgery?: string; surgery?: string; asa_class?: string; assessment_date?: string; created_at?: number}>>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
 
   // Form state
   const [scheduledSurgery, setScheduledSurgery] = useState('');
@@ -215,6 +217,28 @@ export default function PreOpPage() {
     'Xarelto (Rivaroxaban)', 'Metformin', 'SGLT2 Inhibitors', 'ACE Inhibitors',
     'ARBs', 'Diuretics', 'NSAIDs', 'Herbal Supplements'
   ];
+
+  useEffect(() => {
+    if (activeTab === 'history' && selectedPatient && user) {
+      const fetchRecentRecords = async () => {
+        setRecordsLoading(true);
+        try {
+          const res = await fetch(apiUrl(`/api/clinical/pre-op/${selectedPatient.patient_id}`), {
+            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setRecentRecords(Array.isArray(data) ? data : (data.records || data.assessments || []));
+          }
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setRecordsLoading(false);
+        }
+      };
+      fetchRecentRecords();
+    }
+  }, [activeTab, selectedPatient, user]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1046,11 +1070,42 @@ export default function PreOpPage() {
               <History className="h-6 w-6 mr-2 text-indigo-500" />
               Assessment History
             </h2>
-            <div className="text-center py-12 text-gray-500">
-              <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>No assessment history available.</p>
-              <p className="text-sm mt-1">Previous pre-operative assessments will appear here.</p>
-            </div>
+            {!selectedPatient ? (
+              <div className="text-center py-12 text-gray-500">
+                <p className="text-sm">Select a patient to view their pre-op history.</p>
+              </div>
+            ) : recordsLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading records...</div>
+            ) : recentRecords.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No assessment history available.</p>
+                <p className="text-sm mt-1">Previous pre-operative assessments will appear here.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">ID</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Surgery</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">ASA Class</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {recentRecords.map((rec) => (
+                      <tr key={rec.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 font-mono text-xs">{rec.id}</td>
+                        <td className="px-4 py-2">{rec.scheduled_surgery || rec.surgery || 'N/A'}</td>
+                        <td className="px-4 py-2">{rec.asa_class || 'N/A'}</td>
+                        <td className="px-4 py-2">{rec.assessment_date || (rec.created_at ? new Date(rec.created_at * 1000).toLocaleDateString() : '-')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

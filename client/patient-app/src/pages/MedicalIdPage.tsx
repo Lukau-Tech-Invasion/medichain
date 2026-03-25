@@ -72,6 +72,7 @@ export function MedicalIdPage() {
   const [data, setData] = useState<MedicalIdData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showLockScreenPreview, setShowLockScreenPreview] = useState(false);
+  const [activeView, setActiveView] = useState<'full' | 'emergency' | 'lockscreen'>('full');
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -84,7 +85,7 @@ export function MedicalIdPage() {
     if (patient) {
       loadMedicalId();
     }
-  }, [patient]);
+  }, [patient, activeView]);
 
   const loadMedicalId = async () => {
     if (!patient) return;
@@ -93,19 +94,41 @@ export function MedicalIdPage() {
     
     try {
       const userId = patient.healthId;
-      const response = await fetch(apiUrl(`/api/medical-id/${userId}`), {
+      // Pick endpoint based on active view
+      const endpoint = activeView === 'emergency'
+        ? `/api/medical-id/${userId}/emergency`
+        : activeView === 'lockscreen'
+        ? `/api/medical-id/${userId}/lockscreen`
+        : `/api/medical-id/${userId}`;
+
+      const response = await fetch(apiUrl(endpoint), {
         headers: {
           'X-User-Id': patient.walletAddress,
           'X-Health-Id': patient.healthId,
         },
       });
-      
+
       if (response.ok) {
         const result = await response.json();
         setData(result);
       } else {
-        console.error('Failed to load Medical ID');
-        setData(null);
+        // Fallback to full medical ID if emergency/lockscreen endpoints fail
+        if (activeView !== 'full') {
+          const fallback = await fetch(apiUrl(`/api/medical-id/${userId}`), {
+            headers: {
+              'X-User-Id': patient.walletAddress,
+              'X-Health-Id': patient.healthId,
+            },
+          });
+          if (fallback.ok) {
+            setData(await fallback.json());
+          } else {
+            setData(null);
+          }
+        } else {
+          console.error('Failed to load Medical ID');
+          setData(null);
+        }
       }
     } catch (error) {
       console.error('Error loading Medical ID:', error);
@@ -185,6 +208,23 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
             <Share2 className="w-5 h-5" />
           </button>
         </div>
+      </div>
+
+      {/* View Selector */}
+      <div className="flex gap-1 bg-neutral-100 p-1 rounded-xl">
+        {(['full', 'emergency', 'lockscreen'] as const).map(view => (
+          <button
+            key={view}
+            onClick={() => setActiveView(view)}
+            className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-colors ${
+              activeView === view
+                ? 'bg-white text-neutral-900 shadow-sm'
+                : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            {view === 'full' ? 'Full ID' : view === 'emergency' ? 'Emergency' : 'Lock Screen'}
+          </button>
+        ))}
       </div>
 
       {/* Lock Screen Setting */}
@@ -403,6 +443,26 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
             ))}
           </div>
         </div>
+      </div>
+
+      {/* QR Code Section */}
+      <div className="patient-card text-center">
+        <div className="flex items-center justify-center gap-2 mb-3">
+          <Download className="w-5 h-5 text-neutral-500" />
+          <h3 className="font-bold text-neutral-900">Medical ID QR Code</h3>
+        </div>
+        <p className="text-sm text-neutral-500 mb-3">
+          First responders can scan this QR code for emergency access to your medical information.
+        </p>
+        <a
+          href={`/api/medical-id/${data.patient_id}/qr`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
+        >
+          <Download className="w-4 h-4" />
+          Download QR Code
+        </a>
       </div>
 
       {/* Emergency Numbers */}

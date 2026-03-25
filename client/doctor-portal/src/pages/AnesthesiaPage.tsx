@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createAnesthesia } from '@medichain/shared';
+import { getPatients, createAnesthesia, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -107,6 +107,29 @@ const AnesthesiaPage: React.FC = () => {
     };
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history' && selectedPatient && user) {
+      const fetchHistory = async () => {
+        try {
+          const res = await fetch(apiUrl(`/api/clinical/anesthesia/${selectedPatient}`), {
+            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const fetched = Array.isArray(data) ? data : (data.records || []);
+            setRecords(prev => {
+              const existingIds = new Set(prev.map((r: AnesthesiaRecord) => r.id));
+              return [...prev, ...fetched.filter((r: AnesthesiaRecord) => !existingIds.has(r.id))];
+            });
+          }
+        } catch (e) {
+          console.error('Failed to fetch anesthesia history:', e);
+        }
+      };
+      fetchHistory();
+    }
+  }, [activeTab, selectedPatient, user]);
 
   const addVital = () => {
     if (!newVital.time) {

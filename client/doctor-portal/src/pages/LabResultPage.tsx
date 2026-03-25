@@ -68,7 +68,7 @@ const LabResultPage: React.FC = () => {
     try {
       const submissions = await getAllLabSubmissions();
       // Map API response to LabResult interface
-      const mappedResults: LabResult[] = (submissions as any[]).map((s: any) => ({
+      const mappedResults: LabResult[] = ((submissions as unknown) as any[]).map((s: any) => ({
         id: s.id || s.submission_id || '',
         patientId: s.patient_id || s.patientId || '',
         patientName: s.patient_name || s.patientName || 'Unknown Patient',

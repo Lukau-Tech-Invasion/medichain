@@ -28,8 +28,11 @@ import {
   clearExpiredCache,
   STORES,
   type SyncQueueItem as IndexedDBSyncItem,
-  type CachedDataItem
+  type CachedDataItem,
+  performSync,
+  downloadOfflineData,
 } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 
 /**
  * OfflineSyncPage
@@ -67,6 +70,7 @@ interface StorageInfo {
 }
 
 const OfflineSyncPage: React.FC = () => {
+  const { patient } = usePatientAuthStore();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -195,22 +199,45 @@ const OfflineSyncPage: React.FC = () => {
     if (!isOnline) return;
     setIsSyncing(true);
     setSyncStatus('syncing');
-    
+
     try {
+      // Call backend sync API if patient is authenticated
+      if (patient?.healthId) {
+        try {
+          await performSync({ patient_id: patient.healthId });
+        } catch (apiErr) {
+          console.warn('Backend sync API failed, continuing with local sync:', apiErr);
+        }
+      }
+
       // Clear completed sync items from IndexedDB
       await clearCompletedSyncItems();
-      
+
       // Clear expired cache entries
       await clearExpiredCache();
-      
+
       // Reload data
       await loadOfflineData();
-      
+
       setLastFullSync(new Date().toISOString());
       setSyncStatus('synced');
     } catch (error) {
       console.error('Sync failed:', error);
       setSyncStatus('error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDownloadOffline = async () => {
+    if (!isOnline || !patient?.healthId) return;
+    setIsSyncing(true);
+    try {
+      await downloadOfflineData(patient.healthId);
+      await loadOfflineData();
+      setLastFullSync(new Date().toISOString());
+    } catch (err) {
+      console.error('Download for offline failed:', err);
     } finally {
       setIsSyncing(false);
     }
@@ -282,8 +309,8 @@ const OfflineSyncPage: React.FC = () => {
         <p className="text-sky-100">Manage your offline data and synchronization</p>
       </div>
 
-      {/* Sync Button */}
-      <div className="p-4 -mt-4">
+      {/* Sync Buttons */}
+      <div className="p-4 -mt-4 space-y-2">
         <button
           onClick={handleSync}
           disabled={!isOnline || isSyncing}
@@ -300,6 +327,18 @@ const OfflineSyncPage: React.FC = () => {
               {pendingCount} pending
             </span>
           )}
+        </button>
+        <button
+          onClick={handleDownloadOffline}
+          disabled={!isOnline || isSyncing || !patient?.healthId}
+          className={`w-full py-3 rounded-lg shadow flex items-center justify-center gap-3 font-semibold transition-all text-sm ${
+            isOnline && !isSyncing && patient?.healthId
+              ? 'bg-white text-green-600 hover:bg-green-50'
+              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          <Download className="w-4 h-4" />
+          Download for Offline
         </button>
       </div>
 

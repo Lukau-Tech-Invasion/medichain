@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createShiftHandoff, getPatients } from '@medichain/shared';
+import { createShiftHandoff, getPatients, apiUrl } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   ArrowRightLeft,
@@ -93,7 +93,8 @@ export default function ShiftHandoffPage() {
   const [patientHandoffs, setPatientHandoffs] = useState<PatientHandoff[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [showAddPatient, setShowAddPatient] = useState(false);
-  const [handoffHistory, _setHandoffHistory] = useState<ShiftHandoff[]>([]);
+  const [handoffHistory, setHandoffHistory] = useState<ShiftHandoff[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // New patient form
   const [newPatientHandoff, setNewPatientHandoff] = useState<Partial<PatientHandoff>>({
@@ -153,6 +154,32 @@ export default function ShiftHandoffPage() {
     };
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'history' && user) {
+      const fetchHistory = async () => {
+        setHistoryLoading(true);
+        try {
+          // Fetch recent handoffs (use user ID as the handoff ID reference)
+          const res = await fetch(apiUrl(`/api/clinical/shift-handoff/${user.walletAddress}`), {
+            headers: {
+              'X-User-Id': user.walletAddress,
+              'X-Provider-Role': user.role || 'Nurse',
+            },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setHandoffHistory(Array.isArray(data) ? data : (data.handoffs || []));
+          }
+        } catch (err) {
+          console.error('Failed to fetch handoff history:', err);
+        } finally {
+          setHistoryLoading(false);
+        }
+      };
+      fetchHistory();
+    }
+  }, [activeTab, user]);
 
   const filteredPatients = patients.filter(p => 
     p.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -926,7 +953,9 @@ export default function ShiftHandoffPage() {
               <History className="h-6 w-6 mr-2 text-purple-500" />
               Handoff History
             </h2>
-            {handoffHistory.length === 0 ? (
+            {historyLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading handoff history...</div>
+            ) : handoffHistory.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>No handoff history available.</p>
