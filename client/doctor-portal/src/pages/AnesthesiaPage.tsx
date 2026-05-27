@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createAnesthesia, listAnesthesia, apiUrl } from '@medichain/shared';
+import { getPatients, createAnesthesia } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -69,7 +69,6 @@ const AnesthesiaPage: React.FC = () => {
   const [records, setRecords] = useState<AnesthesiaRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'record' | 'history'>('record');
   const [selectedPatient, setSelectedPatient] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [procedure, setProcedure] = useState('');
   const [asaClass, setAsaClass] = useState<ASAClass>('1');
@@ -100,41 +99,14 @@ const AnesthesiaPage: React.FC = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [pts, existingRecords] = await Promise.all([
-          getPatients(),
-          listAnesthesia()
-        ]);
+        const pts = await getPatients();
         setPatients(pts);
-        setRecords(existingRecords as AnesthesiaRecord[]);
       } catch (err) {
-        console.error('Failed to load data:', err);
+        console.error('Failed to load patients:', err);
       }
     };
     loadData();
   }, []);
-
-  useEffect(() => {
-    if (activeTab === 'history' && selectedPatient && user) {
-      const fetchHistory = async () => {
-        try {
-          const res = await fetch(apiUrl(`/api/clinical/anesthesia/${selectedPatient}`), {
-            headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const fetched = Array.isArray(data) ? data : (data.records || []);
-            setRecords(prev => {
-              const existingIds = new Set(prev.map((r: AnesthesiaRecord) => r.id));
-              return [...prev, ...fetched.filter((r: AnesthesiaRecord) => !existingIds.has(r.id))];
-            });
-          }
-        } catch (e) {
-          console.error('Failed to fetch anesthesia history:', e);
-        }
-      };
-      fetchHistory();
-    }
-  }, [activeTab, selectedPatient, user]);
 
   const addVital = () => {
     if (!newVital.time) {
@@ -150,13 +122,11 @@ const AnesthesiaPage: React.FC = () => {
       showError('Please select a patient');
       return;
     }
-    
-    setIsSubmitting(true);
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const record: AnesthesiaRecord = {
       id: `ANES-${Date.now()}`,
       patientId: selectedPatient,
-      patientName: patient ? patient.full_name : 'Unknown Patient',
+      patientName: patient ? patient.full_name : '',
       documentedBy: user?.userId || 'Unknown',
       documentedAt: new Date().toISOString(),
       procedure, asaClass, anesthesiaType, airwayType, intubationTime, extubationTime,
@@ -164,23 +134,13 @@ const AnesthesiaPage: React.FC = () => {
       vasoactives, antiemetics, fluidsGiven, bloodProducts, ebl, urineOutput,
       vitals, complications, notes
     };
-    
     try {
       await createAnesthesia(record);
-      setRecords([record, ...records]);
-      showSuccess('Anesthesia record saved successfully');
-      setActiveTab('history');
-      // Reset form
-      setProcedure('');
-      setAsaClass('1');
-      setVitals([]);
-      setComplications([]);
     } catch (err) {
       console.error('Failed to save anesthesia record:', err);
-      showError('Failed to save anesthesia record');
-    } finally {
-      setIsSubmitting(false);
     }
+    setRecords([record, ...records]);
+    showSuccess('Anesthesia record saved!');
   };
 
   return (
@@ -601,12 +561,8 @@ const AnesthesiaPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              disabled={isSubmitting}
-              className={`w-full py-3 text-white rounded-lg font-semibold flex items-center justify-center gap-2 ${
-                isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-700'
-              }`}
+              className="w-full py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700"
             >
-              {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
               Save Anesthesia Record
             </button>
           </div>
