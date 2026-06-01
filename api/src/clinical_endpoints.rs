@@ -4257,8 +4257,12 @@ pub async fn list_hps(
         });
     }
 
-    let hps = data.history_physicals.read().unwrap();
-    let hp_list: Vec<_> = hps.values().cloned().collect();
+    let hp_list = data
+        .repositories
+        .history_physicals
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(hp_list)
 }
@@ -5425,11 +5429,16 @@ pub async fn get_notifications(data: web::Data<AppState>, http_req: HttpRequest)
             }
         }
 
-        // Check for recent code blues
-        let code_blues = data.code_blue_records.read().unwrap();
-        for cb in code_blues.values().take(3) {
+        // Check for recent code blues - Use repository
+        let code_blues = data
+            .repositories
+            .code_blue
+            .list_all()
+            .await
+            .unwrap_or_default();
+        for cb in code_blues.iter().take(3) {
             notifications.push(serde_json::json!({
-                "id": cb.event_id,
+                "id": cb.id,
                 "type": "code_blue",
                 "priority": "critical",
                 "title": "Code Blue Event",
@@ -5641,12 +5650,20 @@ pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -
         }
     }
 
-    // Wound care tasks
+    // Wound care tasks - Use repository
     {
-        let wounds = data.wound_assessments.read().unwrap();
-        for wound in wounds.values().take(5) {
+        let wounds = match data
+            .repositories
+            .wound_assessments
+            .list_all(Pagination::new(0, 5))
+            .await
+        {
+            Ok(res) => res.items,
+            Err(_) => Vec::new(),
+        };
+        for wound in wounds.iter().take(5) {
             tasks.push(serde_json::json!({
-                "id": format!("wound-{}", wound.assessment_id),
+                "id": format!("wound-{}", wound.id),
                 "type": "wound_care",
                 "patient_id": wound.patient_id,
                 "description": format!("Wound assessment - {}", wound.wound_id),
@@ -5657,15 +5674,20 @@ pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -
         }
     }
 
-    // IV checks
+    // IV checks - Use repository (sites needing attention)
     {
-        let ivs = data.iv_assessments.read().unwrap();
-        for iv in ivs.values().take(5) {
+        let ivs = data
+            .repositories
+            .iv_assessments
+            .get_sites_needing_attention()
+            .await
+            .unwrap_or_default();
+        for iv in ivs.iter().take(5) {
             tasks.push(serde_json::json!({
-                "id": format!("iv-{}", iv.assessment_id),
+                "id": format!("iv-{}", iv.id),
                 "type": "iv_check",
                 "patient_id": iv.patient_id,
-                "description": format!("IV site check - {}", iv.line_id),
+                "description": format!("IV site check - {}", iv.site_id),
                 "due_time": now.timestamp() + 14400, // 4 hours
                 "priority": "routine",
                 "completed": false
@@ -5772,20 +5794,17 @@ pub async fn log_symptom(
         "date": chrono::Utc::now().format("%Y-%m-%d").to_string()
     });
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(crate::AccessLogEntry {
-            access_id: uuid::Uuid::new_v4().to_string(),
-            patient_id: patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "log_symptom".to_string(),
-            location: None,
-            timestamp: chrono::Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository (persists to memory or postgres backend)
+    let _ = data.repositories.access_logs.create(crate::AccessLogEntry {
+        access_id: uuid::Uuid::new_v4().to_string(),
+        patient_id: patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "log_symptom".to_string(),
+        location: None,
+        timestamp: chrono::Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -6234,20 +6253,17 @@ pub async fn sign_consent(
         "device_info": "MediChain API"
     });
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(crate::AccessLogEntry {
-            access_id: uuid::Uuid::new_v4().to_string(),
-            patient_id: patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "sign_consent".to_string(),
-            location: None,
-            timestamp: chrono::Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(crate::AccessLogEntry {
+        access_id: uuid::Uuid::new_v4().to_string(),
+        patient_id: patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "sign_consent".to_string(),
+        location: None,
+        timestamp: chrono::Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -6876,20 +6892,17 @@ pub async fn use_note_template(
         "message": "Note created from template. Fill in placeholders and save."
     });
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(crate::AccessLogEntry {
-            access_id: uuid::Uuid::new_v4().to_string(),
-            patient_id: patient_id.to_string(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "create_note_from_template".to_string(),
-            location: None,
-            timestamp: chrono::Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(crate::AccessLogEntry {
+        access_id: uuid::Uuid::new_v4().to_string(),
+        patient_id: patient_id.to_string(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "create_note_from_template".to_string(),
+        location: None,
+        timestamp: chrono::Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -7060,20 +7073,17 @@ pub async fn get_medical_id(
         "last_updated": chrono::Utc::now().to_rfc3339(),
     });
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(crate::AccessLogEntry {
-            access_id: uuid::Uuid::new_v4().to_string(),
-            patient_id: patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "view_medical_id".to_string(),
-            location: None,
-            timestamp: chrono::Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(crate::AccessLogEntry {
+        access_id: uuid::Uuid::new_v4().to_string(),
+        patient_id: patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "view_medical_id".to_string(),
+        location: None,
+        timestamp: chrono::Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     HttpResponse::Ok().json(medical_id)
 }
@@ -8584,15 +8594,7 @@ pub async fn create_immunization(
 
     let record = req.into_inner();
     let record_id = record.record_id.clone();
-    let now = chrono::Utc::now();
-    let entity = ImmunizationRecordEntity {
-        id: record_id.clone(),
-        patient_id: record.patient_id.clone(),
-        data: serde_json::to_value(&record).unwrap_or_default(),
-        created_at: Some(now),
-        updated_at: Some(now),
-        ..Default::default()
-    };
+    let entity: ImmunizationRecordEntity = record.into();
 
     match data.repositories.immunization_records.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({
@@ -10069,12 +10071,28 @@ pub async fn fhir_get_observations(
         }));
     }
 
-    let flowsheets = data.vital_signs.read().unwrap();
-    match flowsheets.get(&patient_id) {
-        Some(flowsheet) => {
+    let pg = crate::repositories::traits::Pagination::new(500, 0);
+    let readings: Vec<crate::clinical::VitalSignsReading> = match data
+        .repositories
+        .vital_signs
+        .get_by_patient(&patient_id, pg)
+        .await
+    {
+        Ok(result) => result.items.into_iter().map(Into::into).collect(),
+        Err(e) => {
+            log::error!("FHIR vital signs lookup failed: {}", e);
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "exception"}]
+            }));
+        }
+    };
+
+    if !readings.is_empty() {
+        {
             let mut entries: Vec<serde_json::Value> = Vec::new();
 
-            for reading in &flowsheet.readings {
+            for reading in &readings {
                 // Heart Rate
                 if let Some(hr) = reading.heart_rate {
                     entries.push(serde_json::json!({
@@ -10210,14 +10228,15 @@ pub async fn fhir_get_observations(
                     "entry": entries
                 }))
         }
-        None => HttpResponse::Ok()
+    } else {
+        HttpResponse::Ok()
             .content_type("application/fhir+json")
             .json(serde_json::json!({
                 "resourceType": "Bundle",
                 "type": "searchset",
                 "total": 0,
                 "entry": []
-            })),
+            }))
     }
 }
 
@@ -10280,23 +10299,36 @@ pub async fn fhir_get_encounters(
         }));
     }
 
-    // Get triage assessments as encounters (represents ED visits)
-    let triages = data.triage_assessments.read().unwrap();
-    let patient_triages: Vec<_> = triages
-        .iter()
-        .filter(|(_, t)| t.patient_id == patient_id)
-        .collect();
+    // Get triage assessments as encounters via repository
+    let pg = crate::repositories::traits::Pagination::new(500, 0);
+    let patient_triages = match data
+        .repositories
+        .triage_assessments
+        .get_by_patient(&patient_id, pg)
+        .await
+    {
+        Ok(r) => r.items,
+        Err(e) => {
+            log::error!("FHIR triage lookup failed: {}", e);
+            return HttpResponse::InternalServerError().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{"severity": "error", "code": "exception"}]
+            }));
+        }
+    };
 
     let entries: Vec<serde_json::Value> = patient_triages
         .iter()
-        .map(|(id, triage)| {
-            let priority_code = match triage.esi_level {
+        .map(|triage| {
+            let esi = crate::clinical::ESILevel::from_level(triage.esi_level as u8)
+                .unwrap_or(crate::clinical::ESILevel::Level3Urgent);
+            let priority_code = match esi {
                 crate::clinical::ESILevel::Level1Resuscitation
                 | crate::clinical::ESILevel::Level2Emergent => "EM",
                 crate::clinical::ESILevel::Level3Urgent => "UR",
                 _ => "R",
             };
-            let priority_display = match triage.esi_level {
+            let priority_display = match esi {
                 crate::clinical::ESILevel::Level1Resuscitation => "ESI Level 1 - Resuscitation",
                 crate::clinical::ESILevel::Level2Emergent => "ESI Level 2 - Emergent",
                 crate::clinical::ESILevel::Level3Urgent => "ESI Level 3 - Urgent",
@@ -10305,10 +10337,10 @@ pub async fn fhir_get_encounters(
             };
 
             serde_json::json!({
-                "fullUrl": format!("urn:uuid:{}", id),
+                "fullUrl": format!("urn:uuid:{}", triage.id),
                 "resource": {
                     "resourceType": "Encounter",
-                    "id": id,
+                    "id": triage.id,
                     "status": "finished",
                     "class": {
                         "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
@@ -10324,8 +10356,7 @@ pub async fn fhir_get_encounters(
                     }],
                     "subject": {"reference": format!("Patient/{}", patient_id)},
                     "period": {
-                        "start": chrono::DateTime::from_timestamp(triage.performed_at, 0)
-                            .map(|dt| dt.to_rfc3339())
+                        "start": triage.triage_time.to_rfc3339()
                     },
                     "priority": {
                         "coding": [{
@@ -10759,16 +10790,24 @@ pub async fn fhir_get_immunizations(
         }));
     }
 
-    // Get immunization records
-    let immunizations = data.immunization_records.read().unwrap();
-    let patient_immunizations: Vec<_> = immunizations
-        .iter()
-        .filter(|(_, i)| i.patient_id == patient_id)
-        .collect();
+    // Get immunization records via repository
+    let patient_immunizations: Vec<crate::clinical::ImmunizationRecord> = match data
+        .repositories
+        .immunization_records
+        .get_by_patient(&patient_id)
+        .await
+    {
+        Ok(items) => items
+            .into_iter()
+            .map(crate::clinical::ImmunizationRecord::from)
+            .collect(),
+        Err(_) => Vec::new(),
+    };
 
     let entries: Vec<serde_json::Value> = patient_immunizations
         .iter()
-        .map(|(id, imm)| {
+        .map(|imm| {
+            let id = &imm.record_id;
             // Get route as string
             let route_str = format!("{:?}", imm.route);
 
@@ -10995,12 +11034,12 @@ pub async fn verify_insurance(
                             "verified": true,
                             "verified_at": chrono::Utc::now().to_rfc3339(),
                             "coverage_active": coverage_active,
-                            "provider": insurance.provider_name.clone(),
+                            "provider": insurance.payer_name.clone(),
                             "policy_number": insurance.policy_number.clone(),
                             "group_number": insurance.group_number.clone(),
                             "coverage_type": insurance.plan_type.clone(),
-                            "valid_from": insurance.start_date.to_rfc3339(),
-                            "valid_to": insurance.end_date.map(|d| d.to_rfc3339()),
+                            "valid_from": insurance.effective_date.to_string(),
+                            "valid_to": insurance.termination_date.map(|d| d.to_string()),
                             "benefits": {
                                 "emergency_services": true,
                                 "inpatient": true,
@@ -11233,8 +11272,14 @@ pub async fn create_medication_reminder(
     };
 
     let reminder_id = reminder.reminder_id.clone();
-    let mut reminders = data.medication_reminders.write().unwrap();
-    reminders.insert(reminder_id.clone(), reminder);
+    let entity: crate::repositories::traits::MedicationReminderEntity = reminder.into();
+    if let Err(e) = data.repositories.medication_reminders.create(entity).await {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: format!("Failed to create reminder: {}", e),
+            code: "DB_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -11286,12 +11331,24 @@ pub async fn get_patient_reminders(
         });
     }
 
-    let reminders = data.medication_reminders.read().unwrap();
-    let patient_reminders: Vec<_> = reminders
-        .values()
-        .filter(|r| r.patient_id == patient_id && r.active)
-        .cloned()
-        .collect();
+    let patient_reminders: Vec<crate::clinical::MedicationReminder> = match data
+        .repositories
+        .medication_reminders
+        .get_active_by_patient(&patient_id)
+        .await
+    {
+        Ok(items) => items
+            .into_iter()
+            .map(crate::clinical::MedicationReminder::from)
+            .collect(),
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: format!("Failed to fetch reminders: {}", e),
+                code: "DB_ERROR".to_string(),
+            })
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -11326,10 +11383,14 @@ pub async fn log_medication_adherence(
         }
     };
 
-    let reminders = data.medication_reminders.read().unwrap();
-    let reminder = match reminders.get(&req.reminder_id) {
-        Some(r) => r.clone(),
-        None => {
+    let reminder: crate::clinical::MedicationReminder = match data
+        .repositories
+        .medication_reminders
+        .get_by_id(&req.reminder_id)
+        .await
+    {
+        Ok(e) => e.into(),
+        Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Reminder not found".to_string(),
@@ -11337,7 +11398,6 @@ pub async fn log_medication_adherence(
             })
         }
     };
-    drop(reminders);
 
     // Only the patient can log their own adherence
     if current_user_id != reminder.patient_id {
@@ -11402,30 +11462,42 @@ pub async fn delete_medication_reminder(
         }
     };
 
-    let mut reminders = data.medication_reminders.write().unwrap();
-
-    if let Some(reminder) = reminders.get_mut(&reminder_id) {
-        // Only creator or patient can delete
-        if reminder.patient_id != current_user_id && reminder.created_by != current_user_id {
-            return HttpResponse::Forbidden().json(ErrorResponse {
+    let reminder: crate::clinical::MedicationReminder = match data
+        .repositories
+        .medication_reminders
+        .get_by_id(&reminder_id)
+        .await
+    {
+        Ok(e) => e.into(),
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
-                error: "Access denied".to_string(),
-                code: "FORBIDDEN".to_string(),
+                error: "Reminder not found".to_string(),
+                code: "NOT_FOUND".to_string(),
             });
         }
-        reminder.active = false;
+    };
 
-        HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "message": "Reminder deactivated"
-        }))
-    } else {
-        HttpResponse::NotFound().json(ErrorResponse {
+    if reminder.patient_id != current_user_id && reminder.created_by != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Reminder not found".to_string(),
-            code: "NOT_FOUND".to_string(),
-        })
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
     }
+
+    if let Err(e) = data.repositories.medication_reminders.deactivate(&reminder_id).await {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: format!("Failed to deactivate: {}", e),
+            code: "DB_ERROR".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Reminder deactivated"
+    }))
 }
 
 /// Check and deliver due medication reminders.
@@ -11435,21 +11507,23 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
     let now_utc = chrono::Utc::now();
     let current_hhmm = now_utc.format("%H:%M").to_string();
 
-    let due_reminders: Vec<crate::clinical::MedicationReminder> = {
-        let reminders = match data.medication_reminders.read() {
-            Ok(r) => r,
-            Err(_) => return,
-        };
-        reminders
-            .values()
+    let due_reminders: Vec<crate::clinical::MedicationReminder> = match data
+        .repositories
+        .medication_reminders
+        .list_all_active()
+        .await
+    {
+        Ok(items) => items
+            .into_iter()
+            .map(crate::clinical::MedicationReminder::from)
             .filter(|r| {
                 r.active
                     && r.reminder_times
                         .iter()
                         .any(|t| t.as_str() == current_hhmm.as_str())
             })
-            .cloned()
-            .collect()
+            .collect(),
+        Err(_) => return,
     };
 
     for reminder in &due_reminders {
@@ -12155,22 +12229,26 @@ pub async fn check_drug_interactions(
         }
     }
 
-    // Check allergies if requested
+    // Check allergies if requested (via repository)
     let mut allergy_alerts: Vec<serde_json::Value> = Vec::new();
     if req.include_allergies.unwrap_or(true) {
-        let allergies = data.allergies.read().unwrap();
-        if let Some(patient_allergies) = allergies.get(&req.patient_id) {
-            for allergy in patient_allergies {
-                for med in &medications_lower {
-                    if med.contains(&allergy.allergen.to_lowercase()) {
-                        allergy_alerts.push(serde_json::json!({
-                            "type": "allergy",
-                            "medication": med,
-                            "allergen": allergy.allergen,
-                            "severity": allergy.severity,
-                            "reaction": allergy.reaction
-                        }));
-                    }
+        let patient_allergies = data
+            .repositories
+            .allergies
+            .get_active_by_patient(&req.patient_id)
+            .await
+            .unwrap_or_default();
+        for allergy in &patient_allergies {
+            let allergen_lower = allergy.allergen.to_lowercase();
+            for med in &medications_lower {
+                if med.contains(&allergen_lower) {
+                    allergy_alerts.push(serde_json::json!({
+                        "type": "allergy",
+                        "medication": med,
+                        "allergen": allergy.allergen,
+                        "severity": allergy.severity,
+                        "reaction": allergy.reaction
+                    }));
                 }
             }
         }
@@ -12749,8 +12827,15 @@ pub async fn book_appointment(
     };
 
     let appointment_id = appointment.appointment_id.clone();
-    let mut appointments = data.appointments.write().unwrap();
-    appointments.insert(appointment_id.clone(), appointment);
+    let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
+    if let Err(e) = data.repositories.appointments.create(entity).await {
+        log::error!("Appointment persistence failed: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to persist appointment".to_string(),
+            code: "PERSISTENCE_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -12801,12 +12886,26 @@ pub async fn get_patient_appointments(
         });
     }
 
-    let appointments = data.appointments.read().unwrap();
-    let patient_appointments: Vec<_> = appointments
-        .values()
-        .filter(|a| a.patient_id == patient_id)
-        .cloned()
-        .collect();
+    let patient_appointments: Vec<crate::clinical::Appointment> = match data
+        .repositories
+        .appointments
+        .get_by_patient(&patient_id, crate::repositories::traits::Pagination::new(1000, 0))
+        .await
+    {
+        Ok(page) => page
+            .items
+            .into_iter()
+            .map(crate::clinical::Appointment::from)
+            .collect(),
+        Err(e) => {
+            log::error!("Failed to fetch patient appointments: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to fetch appointments".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -12858,12 +12957,26 @@ pub async fn get_provider_appointments(
         });
     }
 
-    let appointments = data.appointments.read().unwrap();
-    let provider_appointments: Vec<_> = appointments
-        .values()
-        .filter(|a| a.provider_id == provider_id)
-        .cloned()
-        .collect();
+    let provider_appointments: Vec<crate::clinical::Appointment> = match data
+        .repositories
+        .appointments
+        .get_by_provider_all(&provider_id, crate::repositories::traits::Pagination::new(1000, 0))
+        .await
+    {
+        Ok(page) => page
+            .items
+            .into_iter()
+            .map(crate::clinical::Appointment::from)
+            .collect(),
+        Err(e) => {
+            log::error!("Failed to fetch provider appointments: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to fetch appointments".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -12900,16 +13013,27 @@ pub async fn cancel_appointment(
         }
     };
 
-    let mut appointments = data.appointments.write().unwrap();
-
-    let appointment = match appointments.get_mut(&appointment_id) {
-        Some(a) => a,
-        None => {
+    let mut appointment: crate::clinical::Appointment = match data
+        .repositories
+        .appointments
+        .get_by_id(&appointment_id)
+        .await
+    {
+        Ok(e) => e.into(),
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
+        }
+        Err(e) => {
+            log::error!("Failed to fetch appointment: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to fetch appointment".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            });
         }
     };
 
@@ -12930,6 +13054,16 @@ pub async fn cancel_appointment(
         appointment.notes = Some(format!("Cancelled: {}", reason));
     }
     appointment.updated_at = chrono::Utc::now().timestamp();
+
+    let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
+    if let Err(e) = data.repositories.appointments.update(entity).await {
+        log::error!("Failed to persist cancellation: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to cancel appointment".to_string(),
+            code: "PERSISTENCE_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -12970,16 +13104,27 @@ pub async fn check_in_appointment(
     };
     drop(users);
 
-    let mut appointments = data.appointments.write().unwrap();
-
-    let appointment = match appointments.get_mut(&appointment_id) {
-        Some(a) => a,
-        None => {
+    let mut appointment: crate::clinical::Appointment = match data
+        .repositories
+        .appointments
+        .get_by_id(&appointment_id)
+        .await
+    {
+        Ok(e) => e.into(),
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Appointment not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
+        }
+        Err(e) => {
+            log::error!("Failed to fetch appointment: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to fetch appointment".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            });
         }
     };
 
@@ -12995,11 +13140,22 @@ pub async fn check_in_appointment(
     appointment.status = crate::clinical::AppointmentStatus::CheckedIn;
     appointment.check_in_time = Some(chrono::Utc::now().timestamp());
     appointment.updated_at = chrono::Utc::now().timestamp();
+    let check_in_time = appointment.check_in_time;
+
+    let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
+    if let Err(e) = data.repositories.appointments.update(entity).await {
+        log::error!("Failed to persist check-in: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to check in".to_string(),
+            code: "PERSISTENCE_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "message": "Checked in successfully",
-        "check_in_time": appointment.check_in_time
+        "check_in_time": check_in_time
     }))
 }
 
@@ -13024,15 +13180,27 @@ pub async fn get_available_slots(
     };
 
     // Get booked appointments for this provider on this date
-    let appointments = data.appointments.read().unwrap();
-    let booked_times: Vec<String> = appointments
-        .values()
-        .filter(|a| {
-            a.provider_id == provider_id
-                && a.scheduled_date == date
-                && !matches!(a.status, crate::clinical::AppointmentStatus::Cancelled)
-        })
-        .map(|a| a.start_time.clone())
+    let naive_date = match chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d") {
+        Ok(d) => d,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "date must be YYYY-MM-DD".to_string(),
+                code: "BAD_DATE".to_string(),
+            });
+        }
+    };
+    let booked_entities = data
+        .repositories
+        .appointments
+        .get_by_provider(&provider_id, naive_date)
+        .await
+        .unwrap_or_default();
+    let booked_times: Vec<String> = booked_entities
+        .into_iter()
+        .map(crate::clinical::Appointment::from)
+        .filter(|a| !matches!(a.status, crate::clinical::AppointmentStatus::Cancelled))
+        .map(|a| a.start_time)
         .collect();
 
     // Generate available slots (9 AM to 5 PM, 30 min intervals)
@@ -16579,8 +16747,15 @@ pub async fn create_cds_alert(
         response: None,
     };
 
-    let mut alerts = data.cds_alerts.write().unwrap();
-    alerts.insert(alert_id.clone(), alert);
+    let entity: crate::repositories::traits::CdsAlertEntity = alert.into();
+    if let Err(e) = data.repositories.cds_alerts.create(entity).await {
+        log::error!("CDS alert persistence failed: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to persist CDS alert".to_string(),
+            code: "PERSISTENCE_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -16631,17 +16806,33 @@ pub async fn get_cds_alerts(
     let patient_id = query.get("patient_id").cloned();
     let status_filter = query.get("status").cloned();
 
-    let alerts = data.cds_alerts.read().unwrap();
-    let filtered_alerts: Vec<_> = alerts
-        .values()
+    // Repository can filter by patient; provider + status filtered in-memory.
+    let entities = match patient_id.as_deref() {
+        Some(pid) => match data.repositories.cds_alerts.get_by_patient(pid, false).await {
+            Ok(v) => v,
+            Err(e) => {
+                log::error!("Failed to fetch CDS alerts by patient: {}", e);
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Failed to fetch alerts".to_string(),
+                    code: "REPOSITORY_ERROR".to_string(),
+                });
+            }
+        },
+        None => match data.repositories.cds_alerts.get_unacknowledged(None).await {
+            Ok(v) => v,
+            Err(_) => Vec::new(),
+        },
+    };
+    let filtered_alerts: Vec<crate::clinical::CDSAlert> = entities
+        .into_iter()
+        .map(crate::clinical::CDSAlert::from)
         .filter(|a| a.provider_id == current_user_id)
-        .filter(|a| patient_id.as_ref().is_none_or(|pid| &a.patient_id == pid))
         .filter(|a| {
             status_filter
                 .as_ref()
                 .is_none_or(|s| format!("{:?}", a.status).to_lowercase() == s.to_lowercase())
         })
-        .cloned()
         .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -16671,15 +16862,22 @@ pub async fn get_cds_alert(
         }
     };
 
-    let alerts = data.cds_alerts.read().unwrap();
-    let alert = match alerts.get(&alert_id) {
-        Some(a) => a.clone(),
-        None => {
+    let alert = match data.repositories.cds_alerts.get_by_id(&alert_id).await {
+        Ok(e) => crate::clinical::CDSAlert::from(e),
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Alert not found".to_string(),
                 code: "NOT_FOUND".to_string(),
             })
+        }
+        Err(e) => {
+            log::error!("Failed to fetch CDS alert: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to fetch alert".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            });
         }
     };
 
@@ -16726,17 +16924,25 @@ pub async fn respond_to_cds_alert(
         }
     };
 
-    let mut alerts = data.cds_alerts.write().unwrap();
-    let alert = match alerts.get_mut(&alert_id) {
-        Some(a) => a,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Alert not found".to_string(),
-                code: "NOT_FOUND".to_string(),
-            })
-        }
-    };
+    let mut alert: crate::clinical::CDSAlert =
+        match data.repositories.cds_alerts.get_by_id(&alert_id).await {
+            Ok(e) => e.into(),
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+                return HttpResponse::NotFound().json(ErrorResponse {
+                    success: false,
+                    error: "Alert not found".to_string(),
+                    code: "NOT_FOUND".to_string(),
+                })
+            }
+            Err(e) => {
+                log::error!("Failed to fetch CDS alert: {}", e);
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Failed to fetch alert".to_string(),
+                    code: "REPOSITORY_ERROR".to_string(),
+                });
+            }
+        };
 
     if alert.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -16779,6 +16985,16 @@ pub async fn respond_to_cds_alert(
         crate::clinical::CDSActionTaken::Deferred => crate::clinical::CDSAlertStatus::Deferred,
         _ => crate::clinical::CDSAlertStatus::Acknowledged,
     };
+
+    let entity: crate::repositories::traits::CdsAlertEntity = alert.clone().into();
+    if let Err(e) = data.repositories.cds_alerts.update(entity).await {
+        log::error!("Failed to persist CDS alert response: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to record response".to_string(),
+            code: "PERSISTENCE_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -16829,12 +17045,25 @@ pub async fn get_patient_cds_alerts(
         });
     }
 
-    let alerts = data.cds_alerts.read().unwrap();
-    let patient_alerts: Vec<_> = alerts
-        .values()
-        .filter(|a| a.patient_id == patient_id)
-        .cloned()
-        .collect();
+    let patient_alerts: Vec<crate::clinical::CDSAlert> = match data
+        .repositories
+        .cds_alerts
+        .get_by_patient(&patient_id, false)
+        .await
+    {
+        Ok(entities) => entities
+            .into_iter()
+            .map(crate::clinical::CDSAlert::from)
+            .collect(),
+        Err(e) => {
+            log::error!("Failed to fetch patient CDS alerts: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to fetch alerts".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -18304,21 +18533,45 @@ pub async fn get_dashboard_metrics(
 
     // Calculate metrics from stored data
     let patients = data.patients.read().unwrap();
-    let appointments = data.appointments.read().unwrap();
+    let appointments_page = data
+        .repositories
+        .appointments
+        .list_all(crate::repositories::traits::Pagination::new(10_000, 0))
+        .await
+        .unwrap_or_else(|_| crate::repositories::traits::PaginatedResult::new(
+            Vec::new(),
+            0,
+            &crate::repositories::traits::Pagination::new(10_000, 0),
+        ));
     let claims = data.insurance_claims.read().unwrap();
-    let cds_alerts = data.cds_alerts.read().unwrap();
+    let cds_alerts_page = data
+        .repositories
+        .cds_alerts
+        .list_all(crate::repositories::traits::Pagination::new(10_000, 0))
+        .await
+        .unwrap_or_else(|_| crate::repositories::traits::PaginatedResult::new(
+            Vec::new(),
+            0,
+            &crate::repositories::traits::Pagination::new(10_000, 0),
+        ));
 
     let total_patients = patients.len() as u64;
-    let total_appointments = appointments.len() as u64;
-    let completed_appointments = appointments
-        .values()
-        .filter(|a| a.status == crate::clinical::AppointmentStatus::Completed)
+    let total_appointments = appointments_page.total;
+    let completed_appointments = appointments_page
+        .items
+        .iter()
+        .filter(|a| a.status.eq_ignore_ascii_case("completed"))
         .count() as u64;
-    let cancelled_appointments = appointments
-        .values()
-        .filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled)
+    let cancelled_appointments = appointments_page
+        .items
+        .iter()
+        .filter(|a| a.status.eq_ignore_ascii_case("cancelled"))
         .count() as u64;
-    let telehealth_count = appointments.values().filter(|a| a.is_telehealth).count() as u64;
+    let telehealth_count = appointments_page
+        .items
+        .iter()
+        .filter(|a| a.visit_type.as_deref() == Some("telehealth"))
+        .count() as u64;
 
     let total_claims = claims.len() as u64;
     let paid_claims = claims
@@ -18330,15 +18583,11 @@ pub async fn get_dashboard_metrics(
         .filter(|c| c.status == crate::clinical::ClaimStatus::Denied)
         .count() as u64;
 
-    let cds_alert_count = cds_alerts.len() as u64;
-    let cds_accepted = cds_alerts
-        .values()
-        .filter(|a| {
-            a.response
-                .as_ref()
-                .map(|r| r.action_taken == crate::clinical::CDSActionTaken::Accepted)
-                .unwrap_or(false)
-        })
+    let cds_alert_count = cds_alerts_page.total;
+    let cds_accepted = cds_alerts_page
+        .items
+        .iter()
+        .filter(|a| a.action_taken.as_deref() == Some("Accepted"))
         .count() as u64;
 
     let telehealth_pct = if total_appointments > 0 {
@@ -18585,17 +18834,32 @@ pub async fn get_appointment_analytics(
         });
     }
 
-    let appointments = data.appointments.read().unwrap();
-    let total = appointments.len();
-    let completed = appointments
-        .values()
-        .filter(|a| a.status == crate::clinical::AppointmentStatus::Completed)
+    let appointments_page = data
+        .repositories
+        .appointments
+        .list_all(crate::repositories::traits::Pagination::new(10_000, 0))
+        .await
+        .unwrap_or_else(|_| crate::repositories::traits::PaginatedResult::new(
+            Vec::new(),
+            0,
+            &crate::repositories::traits::Pagination::new(10_000, 0),
+        ));
+    let total = appointments_page.total as usize;
+    let completed = appointments_page
+        .items
+        .iter()
+        .filter(|a| a.status.eq_ignore_ascii_case("completed"))
         .count();
-    let cancelled = appointments
-        .values()
-        .filter(|a| a.status == crate::clinical::AppointmentStatus::Cancelled)
+    let cancelled = appointments_page
+        .items
+        .iter()
+        .filter(|a| a.status.eq_ignore_ascii_case("cancelled"))
         .count();
-    let telehealth = appointments.values().filter(|a| a.is_telehealth).count();
+    let telehealth = appointments_page
+        .items
+        .iter()
+        .filter(|a| a.visit_type.as_deref() == Some("telehealth"))
+        .count();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19236,19 +19500,31 @@ pub async fn download_offline_data(
     let patients = data.patients.read().unwrap();
     let patient = patients.get(&patient_id).cloned();
 
-    let medications = data.medication_reminders.read().unwrap();
-    let patient_meds: Vec<_> = medications
-        .values()
-        .filter(|m| m.patient_id == patient_id)
-        .cloned()
-        .collect();
+    let patient_meds: Vec<crate::clinical::MedicationReminder> = data
+        .repositories
+        .medication_reminders
+        .get_by_patient(&patient_id)
+        .await
+        .map(|items| {
+            items
+                .into_iter()
+                .map(crate::clinical::MedicationReminder::from)
+                .collect()
+        })
+        .unwrap_or_default();
 
-    let appointments = data.appointments.read().unwrap();
-    let patient_appts: Vec<_> = appointments
-        .values()
-        .filter(|a| a.patient_id == patient_id)
-        .cloned()
-        .collect();
+    let patient_appts: Vec<crate::clinical::Appointment> = data
+        .repositories
+        .appointments
+        .get_by_patient(&patient_id, crate::repositories::traits::Pagination::new(1000, 0))
+        .await
+        .map(|page| {
+            page.items
+                .into_iter()
+                .map(crate::clinical::Appointment::from)
+                .collect()
+        })
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19308,8 +19584,12 @@ pub async fn list_chain_of_custody(
         });
     }
 
-    let records = data.chain_of_custody.read().unwrap();
-    let items: Vec<_> = records.values().cloned().collect();
+    let items = data
+        .repositories
+        .chain_of_custody
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19351,8 +19631,12 @@ pub async fn list_lab_qc(data: web::Data<AppState>, http_req: HttpRequest) -> im
         });
     }
 
-    let records = data.lab_qc_records.read().unwrap();
-    let items: Vec<_> = records.values().cloned().collect();
+    let items = data
+        .repositories
+        .lab_qc_records
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19397,8 +19681,12 @@ pub async fn list_critical_values(
         });
     }
 
-    let records = data.critical_values.read().unwrap();
-    let items: Vec<_> = records.values().cloned().collect();
+    let items = data
+        .repositories
+        .critical_values
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19443,10 +19731,18 @@ pub async fn list_radiology_orders(
         });
     }
 
-    let orders = data.radiology_orders.read().unwrap();
-    let reports = data.radiology_reports.read().unwrap();
-    let order_items: Vec<_> = orders.values().cloned().collect();
-    let report_items: Vec<_> = reports.values().cloned().collect();
+    let order_items = data
+        .repositories
+        .radiology_orders
+        .list_all()
+        .await
+        .unwrap_or_default();
+    let report_items = data
+        .repositories
+        .radiology_reports
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19494,8 +19790,12 @@ pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) ->
         });
     }
 
-    let records = data.pathology_reports.read().unwrap();
-    let items: Vec<_> = records.values().cloned().collect();
+    let items = data
+        .repositories
+        .pathology_reports
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19540,10 +19840,24 @@ pub async fn list_immunizations(
         });
     }
 
-    let records = data.immunization_records.read().unwrap();
-    let schedules = data.immunization_schedules.read().unwrap();
-    let record_items: Vec<_> = records.values().cloned().collect();
-    let schedule_items: Vec<_> = schedules.values().cloned().collect();
+    let record_items: Vec<crate::clinical::ImmunizationRecord> = data
+        .repositories
+        .immunization_records
+        .list_all()
+        .await
+        .map(|items| {
+            items
+                .into_iter()
+                .map(crate::clinical::ImmunizationRecord::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    let schedule_items = data
+        .repositories
+        .immunization_schedules
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19591,13 +19905,24 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
         });
     }
 
-    let type_screens = data.blood_type_screens.read().unwrap();
-    let crossmatches = data.crossmatch_records.read().unwrap();
-    let transfusions = data.transfusion_records.read().unwrap();
-
-    let type_screen_items: Vec<_> = type_screens.values().cloned().collect();
-    let crossmatch_items: Vec<_> = crossmatches.values().cloned().collect();
-    let transfusion_items: Vec<_> = transfusions.values().cloned().collect();
+    let type_screen_items = data
+        .repositories
+        .blood_type_screens
+        .list_all()
+        .await
+        .unwrap_or_default();
+    let crossmatch_items = data
+        .repositories
+        .crossmatch_records
+        .list_all()
+        .await
+        .unwrap_or_default();
+    let transfusion_items = data
+        .repositories
+        .transfusion_records
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19744,8 +20069,26 @@ pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -
         });
     }
 
-    let records = data.cds_alerts.read().unwrap();
-    let items: Vec<_> = records.values().cloned().collect();
+    let items: Vec<crate::clinical::CDSAlert> = match data
+        .repositories
+        .cds_alerts
+        .list_all(crate::repositories::traits::Pagination::new(10_000, 0))
+        .await
+    {
+        Ok(p) => p
+            .items
+            .into_iter()
+            .map(crate::clinical::CDSAlert::from)
+            .collect(),
+        Err(e) => {
+            log::error!("Failed to list CDS alerts: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to list alerts".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -19889,7 +20232,6 @@ pub async fn record_vital_signs(
             &current_meds,
         );
         if !cds_alerts.is_empty() {
-            let mut alerts_store = data.cds_alerts.write().unwrap();
             for alert in &cds_alerts {
                 log::info!(
                     "CDS Alert fired for patient {}: {}",
@@ -19903,7 +20245,10 @@ pub async fn record_vital_signs(
                     &format!("{:?}", alert.title),
                     &format!("{:?}", alert.severity),
                 );
-                alerts_store.insert(alert.alert_id.clone(), alert.clone());
+                let entity: crate::repositories::traits::CdsAlertEntity = alert.clone().into();
+                if let Err(e) = data.repositories.cds_alerts.create(entity).await {
+                    log::error!("Failed to persist CDS alert {}: {}", alert.alert_id, e);
+                }
             }
         }
     }
@@ -20028,8 +20373,15 @@ pub async fn list_intake_output(
         });
     }
 
-    let records = data.io_records.read().unwrap();
-    let record_list: Vec<_> = records.values().cloned().collect();
+    let record_list = match data
+        .repositories
+        .io_records
+        .list_all(Pagination::new(0, 1000))
+        .await
+    {
+        Ok(res) => res.items,
+        Err(_) => Vec::new(),
+    };
 
     HttpResponse::Ok().json(record_list)
 }

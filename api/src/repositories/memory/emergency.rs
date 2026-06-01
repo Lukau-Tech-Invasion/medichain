@@ -110,6 +110,16 @@ impl CodeBlueRepository for MemoryCodeBlueRepository {
             .ok_or_else(|| RepositoryError::NotFound(format!("Code Blue record {} not found", id)))
             .map(|_| ())
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<CodeBlueEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<_> = data.values().cloned().collect();
+        items.sort_by(|a, b| b.code_called_at.cmp(&a.code_called_at));
+        Ok(items)
+    }
 }
 
 // =============================================================================

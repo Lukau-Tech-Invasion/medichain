@@ -137,4 +137,12 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         let items = histories.into_iter().skip(offset).take(limit).collect();
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<HistoryPhysicalEntity>> {
+        let storage = self.data.read().unwrap();
+        let mut histories: Vec<HistoryPhysicalEntity> =
+            storage.values().filter(|h| h.is_active).cloned().collect();
+        histories.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        Ok(histories)
+    }
 }

@@ -1517,6 +1517,17 @@ impl MedicationReminderRepository for PgMedicationReminderRepository {
         Ok(result)
     }
 
+    async fn list_all_active(&self) -> RepositoryResult<Vec<MedicationReminderEntity>> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM medication_reminders WHERE is_active = true ORDER BY scheduled_time",
+        );
+        let reminders = qb
+            .build_query_as::<MedicationReminderEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(reminders)
+    }
+
     async fn deactivate(&self, id: &str) -> RepositoryResult<()> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "UPDATE medication_reminders SET is_active = false, updated_at = NOW() WHERE id = ",

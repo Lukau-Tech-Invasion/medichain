@@ -727,6 +727,53 @@ impl AppointmentRepository for MemoryAppointmentRepository {
             .collect();
         Ok(items)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AppointmentEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<_> = data.values().cloned().collect();
+        items.sort_by(|a, b| b.scheduled_datetime.cmp(&a.scheduled_datetime));
+        let total = items.len() as u64;
+        let start = pagination.offset() as usize;
+        let end = (start + pagination.limit() as usize).min(items.len());
+        let items = if start < items.len() {
+            items[start..end].to_vec()
+        } else {
+            vec![]
+        };
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
+    async fn get_by_provider_all(
+        &self,
+        provider_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AppointmentEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<_> = data
+            .values()
+            .filter(|a| a.provider_id == provider_id)
+            .cloned()
+            .collect();
+        items.sort_by(|a, b| b.scheduled_datetime.cmp(&a.scheduled_datetime));
+        let total = items.len() as u64;
+        let start = pagination.offset() as usize;
+        let end = (start + pagination.limit() as usize).min(items.len());
+        let items = if start < items.len() {
+            items[start..end].to_vec()
+        } else {
+            vec![]
+        };
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }
 
 /// Memory-based physician order repository
@@ -1878,6 +1925,14 @@ impl ChainOfCustodyRepository for MemoryChainOfCustodyRepository {
             .filter(|r| r.current_custodian_id == custodian_id)
             .cloned()
             .collect())
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<ChainOfCustodyEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 

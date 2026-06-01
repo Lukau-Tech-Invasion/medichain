@@ -400,6 +400,14 @@ impl LabQcRecordRepository for MemoryLabQcRecordRepository {
         data.insert(record.id.clone(), record.clone());
         Ok(record)
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<LabQcRecordEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
+    }
 }
 
 /// Memory-based critical value repository
@@ -515,6 +523,14 @@ impl CriticalValueRepository for MemoryCriticalValueRepository {
         value.acknowledged_by = Some(acknowledged_by.to_string());
         value.action_taken = Some(action_taken.to_string());
         Ok(value.clone())
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 
@@ -1741,6 +1757,14 @@ impl RadiologyOrderRepository for MemoryRadiologyOrderRepository {
         });
         Ok(items)
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyOrderEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
+    }
 }
 
 /// Memory-based radiology report repository
@@ -1859,6 +1883,14 @@ impl RadiologyReportRepository for MemoryRadiologyReportRepository {
             .cloned()
             .collect())
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyReportEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
+    }
 }
 
 /// Memory-based pathology report repository
@@ -1967,6 +1999,14 @@ impl PathologyReportRepository for MemoryPathologyReportRepository {
         }
         data.insert(report.id.clone(), report.clone());
         Ok(report)
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<PathologyReportEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 
@@ -2081,6 +2121,14 @@ impl BloodTypeScreenRepository for MemoryBloodTypeScreenRepository {
         }
         data.insert(screen.id.clone(), screen.clone());
         Ok(screen)
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 
@@ -2203,6 +2251,14 @@ impl CrossmatchRecordRepository for MemoryCrossmatchRecordRepository {
             .filter(|r| r.reserved_until.map(|t| t > now).unwrap_or(false) && r.issued_at.is_none())
             .cloned()
             .collect())
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 
@@ -2332,6 +2388,14 @@ impl TransfusionRecordRepository for MemoryTransfusionRecordRepository {
             .collect();
         items.sort_by(|a, b| b.start_time.cmp(&a.start_time));
         Ok(items)
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<TransfusionRecordEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 
@@ -2476,6 +2540,25 @@ impl EPrescriptionRepository for MemoryEPrescriptionRepository {
             })
             .cloned()
             .collect())
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<EPrescriptionEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<EPrescriptionEntity> = data.values().cloned().collect();
+        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        let total = items.len() as u64;
+        let paged: Vec<_> = items
+            .into_iter()
+            .skip(pagination.offset() as usize)
+            .take(pagination.limit() as usize)
+            .collect();
+        Ok(PaginatedResult::new(paged, total, &pagination))
     }
 }
 
@@ -2686,6 +2769,14 @@ impl MedicationReminderRepository for MemoryMedicationReminderRepository {
         }
         data.insert(reminder.id.clone(), reminder.clone());
         Ok(reminder)
+    }
+
+    async fn list_all_active(&self) -> RepositoryResult<Vec<MedicationReminderEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().filter(|r| r.is_active).cloned().collect())
     }
 
     async fn deactivate(&self, id: &str) -> RepositoryResult<()> {

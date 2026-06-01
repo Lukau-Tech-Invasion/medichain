@@ -317,6 +317,11 @@ impl ImmunizationRecordRepository for MemoryImmunizationRecordRepository {
             .collect();
         Ok(items)
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
+        let records = self.records.read().unwrap();
+        Ok(records.values().cloned().collect())
+    }
 }
 
 /// In-memory immunization schedule repository
@@ -430,6 +435,11 @@ impl ImmunizationScheduleRepository for MemoryImmunizationScheduleRepository {
         schedule.status = Some("skipped".to_string());
         schedule.skip_reason = Some(reason.to_string());
         Ok(schedule.clone())
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationScheduleEntity>> {
+        let records = self.records.read().unwrap();
+        Ok(records.values().cloned().collect())
     }
 }
 
@@ -690,6 +700,20 @@ impl DeathRecordRepository for MemoryDeathRecordRepository {
             .filter(|r| r.medical_examiner_case.unwrap_or(false))
             .cloned()
             .collect();
+        Ok(items)
+    }
+
+    async fn get_pending_autopsies(&self) -> RepositoryResult<Vec<DeathRecordEntity>> {
+        let records = self.records.read().unwrap();
+        let mut items: Vec<_> = records
+            .values()
+            .filter(|r| {
+                r.autopsy_performed.unwrap_or(false)
+                    && !r.autopsy_findings_available.unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        items.sort_by(|a, b| a.date_of_death.cmp(&b.date_of_death));
         Ok(items)
     }
 }
@@ -1702,5 +1726,221 @@ mod tests {
             .await
             .unwrap();
         assert!(active.is_some());
+    }
+
+    // -------- Phase 2.2 coverage: Death/Organ/Sync/External methods --------
+
+    #[tokio::test]
+    async fn test_death_record_certify_and_queues() {
+        let repo = MemoryDeathRecordRepository::new();
+
+        let pending = DeathRecordEntity {
+            id: "DR-1".to_string(),
+            patient_id: "P-1".to_string(),
+            date_of_death: chrono::Utc::now().date_naive(),
+            certifier_id: None,
+            certification_date: None,
+            medical_examiner_case: Some(false),
+            autopsy_performed: Some(false),
+            ..Default::default()
+        };
+        let me_case = DeathRecordEntity {
+            id: "DR-2".to_string(),
+            patient_id: "P-2".to_string(),
+            date_of_death: chrono::Utc::now().date_naive(),
+            certifier_id: None,
+            certification_date: None,
+            medical_examiner_case: Some(true),
+            autopsy_performed: Some(true),
+            autopsy_findings_available: Some(false),
+            ..Default::default()
+        };
+        repo.create(pending).await.unwrap();
+        repo.create(me_case).await.unwrap();
+
+        let pending_list = repo.get_pending_certification().await.unwrap();
+        assert!(pending_list.iter().any(|r| r.id == "DR-1"));
+
+        let me_list = repo.get_medical_examiner_cases().await.unwrap();
+        assert!(me_list.iter().any(|r| r.id == "DR-2"));
+
+        let pending_autopsies = repo.get_pending_autopsies().await.unwrap();
+        assert!(pending_autopsies.iter().any(|r| r.id == "DR-2"));
+
+        let certified = repo
+            .certify("DR-1", "doc-9", "Dr. Smith")
+            .await
+            .unwrap();
+        assert_eq!(certified.certifier_id.as_deref(), Some("doc-9"));
+        assert!(certified.certification_date.is_some());
+
+        let pending_after = repo.get_pending_certification().await.unwrap();
+        assert!(!pending_after.iter().any(|r| r.id == "DR-1"));
+    }
+
+    #[tokio::test]
+    async fn test_organ_donation_pending_recovery_and_by_opo() {
+        let repo = MemoryOrganDonationRecordRepository::new();
+
+        let pending = OrganDonationRecordEntity {
+            id: "OD-1".to_string(),
+            patient_id: "P-1".to_string(),
+            consent_type: Some("registry".to_string()),
+            medical_suitability: Some(true),
+            opo_name: Some("Gift of Life".to_string()),
+            recovery_datetime: None,
+            ..Default::default()
+        };
+        let recovered = OrganDonationRecordEntity {
+            id: "OD-2".to_string(),
+            patient_id: "P-2".to_string(),
+            consent_type: Some("registry".to_string()),
+            medical_suitability: Some(true),
+            opo_name: Some("Gift of Life".to_string()),
+            recovery_datetime: Some(chrono::Utc::now()),
+            ..Default::default()
+        };
+        repo.create(pending).await.unwrap();
+        repo.create(recovered).await.unwrap();
+
+        let pending_list = repo.get_pending_recovery().await.unwrap();
+        assert_eq!(pending_list.len(), 1);
+        assert_eq!(pending_list[0].id, "OD-1");
+
+        let by_opo = repo.get_by_opo("Gift of Life").await.unwrap();
+        assert_eq!(by_opo.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_sync_operation_lifecycle() {
+        let repo = MemorySyncOperationRepository::new();
+
+        let op = SyncOperationEntity {
+            id: "SYNC-1".to_string(),
+            operation_type: "import".to_string(),
+            source_system: "ext".to_string(),
+            target_system: "medichain".to_string(),
+            status: Some("in_progress".to_string()),
+            total_records: Some(100),
+            ..Default::default()
+        };
+        repo.create(op).await.unwrap();
+
+        let progressed = repo.update_progress("SYNC-1", 50, 48, 2).await.unwrap();
+        assert_eq!(progressed.processed_records, Some(50));
+        assert_eq!(progressed.success_count, Some(48));
+        assert_eq!(progressed.error_count, Some(2));
+
+        let in_prog = repo.get_in_progress().await.unwrap();
+        assert!(in_prog.iter().any(|o| o.id == "SYNC-1"));
+
+        let completed = repo
+            .complete("SYNC-1", serde_json::json!({"summary": "ok"}))
+            .await
+            .unwrap();
+        assert_eq!(completed.status.as_deref(), Some("completed"));
+        assert!(completed.completed_at.is_some());
+
+        // Add a failing operation and verify pending retries excludes completed
+        let failing = SyncOperationEntity {
+            id: "SYNC-2".to_string(),
+            operation_type: "import".to_string(),
+            source_system: "ext".to_string(),
+            target_system: "medichain".to_string(),
+            status: Some("in_progress".to_string()),
+            ..Default::default()
+        };
+        repo.create(failing).await.unwrap();
+        let failed = repo
+            .fail("SYNC-2", serde_json::json!({"reason": "boom"}))
+            .await
+            .unwrap();
+        assert_eq!(failed.status.as_deref(), Some("failed"));
+
+        let retries = repo.get_pending_retries().await.unwrap();
+        assert!(retries.iter().any(|o| o.id == "SYNC-2"));
+        assert!(!retries.iter().any(|o| o.id == "SYNC-1"));
+    }
+
+    #[tokio::test]
+    async fn test_sync_conflict_auto_resolvable() {
+        let repo = MemorySyncConflictRepository::new();
+
+        let with_strategy = SyncConflictEntity {
+            id: "CF-1".to_string(),
+            entity_type: "patient".to_string(),
+            entity_id: "p-1".to_string(),
+            conflict_type: "field_mismatch".to_string(),
+            status: Some("pending".to_string()),
+            resolution_strategy: Some("latest_wins".to_string()),
+            ..Default::default()
+        };
+        let no_strategy = SyncConflictEntity {
+            id: "CF-2".to_string(),
+            entity_type: "patient".to_string(),
+            entity_id: "p-2".to_string(),
+            conflict_type: "field_mismatch".to_string(),
+            status: Some("pending".to_string()),
+            resolution_strategy: None,
+            ..Default::default()
+        };
+        let already_resolved = SyncConflictEntity {
+            id: "CF-3".to_string(),
+            entity_type: "patient".to_string(),
+            entity_id: "p-3".to_string(),
+            conflict_type: "field_mismatch".to_string(),
+            status: Some("manually_resolved".to_string()),
+            resolution_strategy: Some("latest_wins".to_string()),
+            ..Default::default()
+        };
+        repo.create(with_strategy).await.unwrap();
+        repo.create(no_strategy).await.unwrap();
+        repo.create(already_resolved).await.unwrap();
+
+        let resolvable = repo.get_auto_resolvable().await.unwrap();
+        assert_eq!(resolvable.len(), 1);
+        assert_eq!(resolvable[0].id, "CF-1");
+    }
+
+    #[tokio::test]
+    async fn test_external_id_mapping_lifecycle() {
+        let repo = MemoryExternalIdMappingRepository::new();
+
+        let m1 = ExternalIdMappingEntity {
+            id: "EM-1".to_string(),
+            entity_type: "patient".to_string(),
+            internal_id: "p-1".to_string(),
+            external_system: "epic".to_string(),
+            external_id: "EPIC-A".to_string(),
+            sync_status: Some("pending".to_string()),
+            ..Default::default()
+        };
+        let m2 = ExternalIdMappingEntity {
+            id: "EM-2".to_string(),
+            entity_type: "patient".to_string(),
+            internal_id: "p-2".to_string(),
+            external_system: "cerner".to_string(),
+            external_id: "CER-B".to_string(),
+            sync_status: Some("verified".to_string()),
+            ..Default::default()
+        };
+        repo.create(m1).await.unwrap();
+        repo.create(m2).await.unwrap();
+
+        let by_sys = repo.get_by_system("epic").await.unwrap();
+        assert_eq!(by_sys.len(), 1);
+
+        let unverified = repo.get_unverified().await.unwrap();
+        assert!(unverified.iter().any(|m| m.id == "EM-1"));
+        assert!(!unverified.iter().any(|m| m.id == "EM-2"));
+
+        let touched = repo.update_sync_time("EM-1").await.unwrap();
+        assert!(touched.last_synced_at.is_some());
+
+        let deact = repo.deactivate("EM-1").await.unwrap();
+        assert_eq!(deact.sync_status.as_deref(), Some("inactive"));
+
+        repo.delete("EM-2").await.unwrap();
+        assert!(repo.get_by_id("EM-2").await.is_err());
     }
 }

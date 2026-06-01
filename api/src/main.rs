@@ -570,6 +570,810 @@ pub struct AccessLogEntry {
     pub emergency: bool,
 }
 
+impl From<AccessLogEntry> for crate::repositories::traits::AccessLogEntity {
+    fn from(entry: AccessLogEntry) -> Self {
+        Self {
+            id: entry.access_id,
+            accessor_id: entry.accessor_id,
+            accessor_role: entry.accessor_role,
+            patient_id: Some(entry.patient_id),
+            resource_type: "patient_record".to_string(),
+            resource_id: None,
+            action: entry.access_type,
+            access_reason: None,
+            is_emergency_access: entry.emergency,
+            ip_address: None,
+            user_agent: None,
+            blockchain_tx_hash: None,
+            accessed_at: entry.timestamp,
+            facility_id: entry.location,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::AccessLogEntity> for AccessLogEntry {
+    fn from(entity: crate::repositories::traits::AccessLogEntity) -> Self {
+        Self {
+            access_id: entity.id,
+            patient_id: entity.patient_id.unwrap_or_default(),
+            accessor_id: entity.accessor_id,
+            accessor_role: entity.accessor_role,
+            access_type: entity.action,
+            location: entity.facility_id,
+            timestamp: entity.accessed_at,
+            emergency: entity.is_emergency_access,
+        }
+    }
+}
+
+impl From<NfcTagData> for crate::repositories::traits::NfcTagEntity {
+    fn from(tag: NfcTagData) -> Self {
+        Self {
+            id: tag.tag_id,
+            tag_uid: tag.hash,
+            patient_id: tag.patient_id,
+            tag_type: "emergency".to_string(),
+            is_active: true,
+            pin_hash: None,
+            issued_at: tag.created_at,
+            expires_at: None,
+            last_used_at: None,
+            use_count: 0,
+            issued_by: None,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::NfcTagEntity> for NfcTagData {
+    fn from(entity: crate::repositories::traits::NfcTagEntity) -> Self {
+        Self {
+            tag_id: entity.id,
+            patient_id: entity.patient_id,
+            hash: entity.tag_uid,
+            created_at: entity.issued_at,
+        }
+    }
+}
+
+impl From<(String, ipfs::MedicalRecordReference)>
+    for crate::repositories::traits::MedicalRecordEntity
+{
+    fn from((patient_id, r): (String, ipfs::MedicalRecordReference)) -> Self {
+        let record_date = DateTime::<Utc>::from_timestamp(r.uploaded_at, 0).unwrap_or_else(Utc::now);
+        Self {
+            id: format!("REC-{}", Uuid::new_v4()),
+            patient_id,
+            record_type: r.record_type,
+            category: None,
+            ipfs_content_hash: Some(r.content_hash),
+            ipfs_metadata_hash: Some(r.metadata_hash),
+            content_checksum: Some(r.content_checksum),
+            on_chain_hash: None,
+            blockchain_tx_hash: None,
+            summary_encrypted: None,
+            record_date,
+            created_at: record_date,
+            updated_at: record_date,
+            created_by: String::new(),
+            last_modified_by: String::new(),
+            facility_id: None,
+            is_active: true,
+            is_locked: false,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::MedicalRecordEntity> for ipfs::MedicalRecordReference {
+    fn from(entity: crate::repositories::traits::MedicalRecordEntity) -> Self {
+        Self {
+            content_hash: entity.ipfs_content_hash.unwrap_or_default(),
+            metadata_hash: entity.ipfs_metadata_hash.unwrap_or_default(),
+            record_type: entity.record_type,
+            uploaded_at: entity.record_date.timestamp(),
+            content_checksum: entity.content_checksum.unwrap_or_default(),
+        }
+    }
+}
+
+impl From<(String, clinical::VitalSignsReading)>
+    for crate::repositories::traits::VitalSignsEntity
+{
+    fn from((patient_id, r): (String, clinical::VitalSignsReading)) -> Self {
+        let recorded_at = DateTime::<Utc>::from_timestamp(r.timestamp, 0).unwrap_or_else(Utc::now);
+        let is_critical = !r.has_critical_values().is_empty();
+        Self {
+            id: r.reading_id,
+            patient_id,
+            heart_rate: r.heart_rate.map(|v| v as i32),
+            respiratory_rate: r.respiratory_rate.map(|v| v as i32),
+            blood_pressure_systolic: r.systolic_bp.map(|v| v as i32),
+            blood_pressure_diastolic: r.diastolic_bp.map(|v| v as i32),
+            mean_arterial_pressure: None,
+            temperature: r.temperature_celsius.map(|v| v as f64),
+            temperature_site: None,
+            oxygen_saturation: r.oxygen_saturation.map(|v| v as i32),
+            oxygen_delivery: None,
+            fio2: None,
+            pain_scale: r.pain_scale.map(|v| v as i32),
+            gcs_score: None,
+            gcs_eye: None,
+            gcs_verbal: None,
+            gcs_motor: None,
+            blood_glucose: None,
+            weight_kg: None,
+            height_cm: None,
+            bmi: None,
+            position: None,
+            activity_level: None,
+            is_critical,
+            critical_values: None,
+            recorded_at,
+            recorded_by: r.recorded_by,
+            facility_id: None,
+            created_at: recorded_at,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::VitalSignsEntity> for clinical::VitalSignsReading {
+    fn from(e: crate::repositories::traits::VitalSignsEntity) -> Self {
+        Self {
+            reading_id: e.id,
+            timestamp: e.recorded_at.timestamp(),
+            heart_rate: e.heart_rate.map(|v| v as u16),
+            systolic_bp: e.blood_pressure_systolic.map(|v| v as u16),
+            diastolic_bp: e.blood_pressure_diastolic.map(|v| v as u16),
+            respiratory_rate: e.respiratory_rate.map(|v| v as u16),
+            oxygen_saturation: e.oxygen_saturation.map(|v| v as u16),
+            temperature_celsius: e.temperature.map(|v| v as f32),
+            pain_scale: e.pain_scale.map(|v| v as u8),
+            recorded_by: e.recorded_by,
+            notes: None,
+        }
+    }
+}
+
+// CDS Alert <-> CdsAlertEntity conversions
+// Schema mismatch: legacy CDSAlert has structured fields (recommended_actions, evidence,
+// clinical_context, expires_at, guideline_reference) the entity doesn't model directly.
+// Strategy: pack extras into entity.trigger_data as a JSON object; serialize collections
+// into entity.recommendation / entity.clinical_evidence as JSON strings. Round-trip safe.
+
+fn cds_pack_extras(a: &clinical::CDSAlert) -> serde_json::Value {
+    serde_json::json!({
+        "triggering_data": a.triggering_data,
+        "clinical_context": a.clinical_context,
+        "expires_at": a.expires_at,
+        "guideline_reference": a.guideline_reference,
+    })
+}
+
+fn cds_parse_action_taken(s: &str) -> clinical::CDSActionTaken {
+    match s {
+        "Accepted" => clinical::CDSActionTaken::Accepted,
+        "AcceptedWithModification" => clinical::CDSActionTaken::AcceptedWithModification,
+        "Overridden" => clinical::CDSActionTaken::Overridden,
+        "Deferred" => clinical::CDSActionTaken::Deferred,
+        "EscalatedToPharmacy" => clinical::CDSActionTaken::EscalatedToPharmacy,
+        "PatientRefused" => clinical::CDSActionTaken::PatientRefused,
+        _ => clinical::CDSActionTaken::NotApplicable,
+    }
+}
+
+fn cds_parse_severity(s: &str) -> clinical::CDSSeverity {
+    match s.to_lowercase().as_str() {
+        "informational" => clinical::CDSSeverity::Informational,
+        "low" => clinical::CDSSeverity::Low,
+        "medium" => clinical::CDSSeverity::Medium,
+        "high" => clinical::CDSSeverity::High,
+        "critical" => clinical::CDSSeverity::Critical,
+        _ => clinical::CDSSeverity::Informational,
+    }
+}
+
+fn cds_parse_status(s: &str) -> clinical::CDSAlertStatus {
+    match s.to_lowercase().as_str() {
+        "active" => clinical::CDSAlertStatus::Active,
+        "acknowledged" => clinical::CDSAlertStatus::Acknowledged,
+        "accepted" => clinical::CDSAlertStatus::Accepted,
+        "overridden" => clinical::CDSAlertStatus::Overridden,
+        "deferred" => clinical::CDSAlertStatus::Deferred,
+        "resolved" => clinical::CDSAlertStatus::Resolved,
+        "expired" => clinical::CDSAlertStatus::Expired,
+        _ => clinical::CDSAlertStatus::Active,
+    }
+}
+
+fn cds_parse_alert_type(s: &str) -> clinical::CDSAlertType {
+    match s {
+        "DrugInteraction" => clinical::CDSAlertType::DrugInteraction,
+        "DrugAllergy" => clinical::CDSAlertType::DrugAllergy,
+        "DuplicateTherapy" => clinical::CDSAlertType::DuplicateTherapy,
+        "DoseRangeCheck" => clinical::CDSAlertType::DoseRangeCheck,
+        "PreventiveCare" => clinical::CDSAlertType::PreventiveCare,
+        "DiagnosticGap" => clinical::CDSAlertType::DiagnosticGap,
+        "LaboratoryAbnormal" => clinical::CDSAlertType::LaboratoryAbnormal,
+        "VitalSignAbnormal" => clinical::CDSAlertType::VitalSignAbnormal,
+        "CarePlanDeviation" => clinical::CDSAlertType::CarePlanDeviation,
+        "QualityMeasure" => clinical::CDSAlertType::QualityMeasure,
+        "CostSavingOpportunity" => clinical::CDSAlertType::CostSavingOpportunity,
+        "OrderSet" => clinical::CDSAlertType::OrderSet,
+        _ => clinical::CDSAlertType::BestPracticeAdvisory,
+    }
+}
+
+impl From<clinical::CDSAlert> for crate::repositories::traits::CdsAlertEntity {
+    fn from(a: clinical::CDSAlert) -> Self {
+        let created_at =
+            DateTime::<Utc>::from_timestamp(a.created_at, 0).unwrap_or_else(Utc::now);
+        let extras = cds_pack_extras(&a);
+        let recommendation = (!a.recommended_actions.is_empty())
+            .then(|| serde_json::to_string(&a.recommended_actions).unwrap_or_default());
+        let clinical_evidence = (!a.evidence.is_empty())
+            .then(|| serde_json::to_string(&a.evidence).unwrap_or_default());
+        let resp = a.response.clone();
+        Self {
+            id: a.alert_id,
+            patient_id: a.patient_id,
+            encounter_id: None,
+            provider_id: a.provider_id,
+            alert_datetime: created_at,
+            alert_type: format!("{:?}", a.alert_type),
+            alert_category: "clinical".to_string(),
+            severity: format!("{:?}", a.severity).to_lowercase(),
+            alert_title: a.title,
+            alert_message: a.description,
+            clinical_evidence,
+            recommendation,
+            source_system: None,
+            rule_id: None,
+            rule_version: None,
+            trigger_data: Some(extras),
+            related_order_id: None,
+            related_medication_id: None,
+            related_lab_id: None,
+            status: format!("{:?}", a.status).to_lowercase(),
+            acknowledged_by: resp.as_ref().map(|r| r.responded_by.clone()),
+            acknowledged_datetime: resp
+                .as_ref()
+                .map(|r| DateTime::<Utc>::from_timestamp(r.responded_at, 0).unwrap_or_else(Utc::now)),
+            override_reason: resp.as_ref().and_then(|r| r.override_reason.clone()),
+            override_justification: None,
+            action_taken: resp.as_ref().map(|r| format!("{:?}", r.action_taken)),
+            action_datetime: resp
+                .as_ref()
+                .map(|r| DateTime::<Utc>::from_timestamp(r.responded_at, 0).unwrap_or_else(Utc::now)),
+            auto_resolved: None,
+            resolution_reason: None,
+            was_helpful: None,
+            feedback_notes: resp.as_ref().and_then(|r| r.notes.clone()),
+            displayed_duration_seconds: resp.as_ref().map(|r| r.time_to_response_seconds as i32),
+            created_at,
+            updated_at: created_at,
+        }
+    }
+}
+
+// Appointment <-> AppointmentEntity conversions
+// Legacy `Appointment` carries: provider_name, scheduled_date (string), start_time (string),
+// scheduled_time (i64), is_telehealth, AppointmentLocation struct (5 fields),
+// reminders_sent (Vec), instructions, booked_by. The entity flattens these to
+// (scheduled_datetime, location: Option<String>, room: Option<String>), so we pack the
+// extras into entity.data (a serde_json::Value). Note: entity.data is `#[sqlx(skip)]`,
+// so on the postgres backend the extras don't survive a round-trip and the reverse
+// conversion reconstructs sensible defaults from the persisted primary columns.
+
+fn appt_pack_extras(a: &clinical::Appointment) -> serde_json::Value {
+    serde_json::json!({
+        "provider_name": a.provider_name,
+        "scheduled_date": a.scheduled_date,
+        "start_time": a.start_time,
+        "scheduled_time": a.scheduled_time,
+        "is_telehealth": a.is_telehealth,
+        "location": a.location,
+        "reminders_sent": a.reminders_sent,
+        "instructions": a.instructions,
+        "booked_by": a.booked_by,
+        "visit_reason": a.visit_reason,
+    })
+}
+
+fn appt_parse_type(s: &str) -> clinical::AppointmentType {
+    match s {
+        "NewPatient" => clinical::AppointmentType::NewPatient,
+        "FollowUp" => clinical::AppointmentType::FollowUp,
+        "Urgent" => clinical::AppointmentType::Urgent,
+        "Telehealth" => clinical::AppointmentType::Telehealth,
+        "Procedure" => clinical::AppointmentType::Procedure,
+        "PreOp" => clinical::AppointmentType::PreOp,
+        "PostOp" => clinical::AppointmentType::PostOp,
+        "AnnualExam" => clinical::AppointmentType::AnnualExam,
+        "Consultation" => clinical::AppointmentType::Consultation,
+        "LabWork" => clinical::AppointmentType::LabWork,
+        "Imaging" => clinical::AppointmentType::Imaging,
+        _ => clinical::AppointmentType::Other,
+    }
+}
+
+fn appt_parse_status(s: &str) -> clinical::AppointmentStatus {
+    match s.to_lowercase().as_str() {
+        "scheduled" => clinical::AppointmentStatus::Scheduled,
+        "confirmed" => clinical::AppointmentStatus::Confirmed,
+        "checkedin" | "checked_in" => clinical::AppointmentStatus::CheckedIn,
+        "inprogress" | "in_progress" => clinical::AppointmentStatus::InProgress,
+        "completed" => clinical::AppointmentStatus::Completed,
+        "noshow" | "no_show" => clinical::AppointmentStatus::NoShow,
+        "cancelled" => clinical::AppointmentStatus::Cancelled,
+        "rescheduled" => clinical::AppointmentStatus::Rescheduled,
+        "waitlisted" => clinical::AppointmentStatus::Waitlisted,
+        _ => clinical::AppointmentStatus::Scheduled,
+    }
+}
+
+/// Parse "YYYY-MM-DD" + "HH:MM" into a UTC DateTime; falls back to `now` on error.
+fn appt_to_datetime(date: &str, time: &str) -> DateTime<Utc> {
+    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok().and_then(|d| {
+        let t = chrono::NaiveTime::parse_from_str(time, "%H:%M").ok()
+            .or_else(|| chrono::NaiveTime::parse_from_str(time, "%H:%M:%S").ok())
+            .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        Some(DateTime::<Utc>::from_naive_utc_and_offset(d.and_time(t), Utc))
+    });
+    parsed.unwrap_or_else(Utc::now)
+}
+
+impl From<clinical::Appointment> for crate::repositories::traits::AppointmentEntity {
+    fn from(a: clinical::Appointment) -> Self {
+        let scheduled_datetime = a
+            .scheduled_time
+            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
+            .unwrap_or_else(|| appt_to_datetime(&a.scheduled_date, &a.start_time));
+        let created_at =
+            DateTime::<Utc>::from_timestamp(a.created_at, 0).unwrap_or_else(Utc::now);
+        let updated_at =
+            DateTime::<Utc>::from_timestamp(a.updated_at, 0).unwrap_or_else(Utc::now);
+        let check_in_time = a.check_in_time.and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
+        let location_str = Some(format!("{} / {}", a.location.facility_name, a.location.department));
+        let room = a.location.room.clone();
+        let visit_type = if a.is_telehealth { Some("telehealth".to_string()) } else { None };
+        let extras = appt_pack_extras(&a);
+        Self {
+            id: a.appointment_id,
+            patient_id: a.patient_id,
+            provider_id: a.provider_id,
+            appointment_type: format!("{:?}", a.appointment_type),
+            scheduled_datetime,
+            duration_minutes: a.duration_minutes as i32,
+            status: format!("{:?}", a.status),
+            location: location_str,
+            room,
+            reason_for_visit: Some(a.visit_reason),
+            visit_type,
+            priority: None,
+            recurring: false,
+            recurrence_pattern: None,
+            parent_appointment_id: None,
+            insurance_verified: a.insurance_verified,
+            copay_amount: None,
+            copay_collected: false,
+            reminder_sent: !a.reminders_sent.is_empty(),
+            reminder_sent_at: a
+                .reminders_sent
+                .last()
+                .and_then(|r| DateTime::<Utc>::from_timestamp(r.sent_at, 0)),
+            check_in_time,
+            check_out_time: None,
+            cancelled_at: None,
+            cancellation_reason: None,
+            cancelled_by: None,
+            notes: a.notes,
+            created_by: a.created_by,
+            created_at,
+            updated_at,
+            data: extras,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::AppointmentEntity> for clinical::Appointment {
+    fn from(e: crate::repositories::traits::AppointmentEntity) -> Self {
+        // Extras packed into `data`; fall back to reconstruction when missing (postgres path).
+        let extras = if e.data.is_object() { e.data.clone() } else { serde_json::json!({}) };
+        let scheduled_date = extras
+            .get("scheduled_date")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| e.scheduled_datetime.format("%Y-%m-%d").to_string());
+        let start_time = extras
+            .get("start_time")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| e.scheduled_datetime.format("%H:%M").to_string());
+        let scheduled_time = extras
+            .get("scheduled_time")
+            .and_then(|v| v.as_i64())
+            .or(Some(e.scheduled_datetime.timestamp()));
+        let provider_name = extras
+            .get("provider_name")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| "Dr. Provider".to_string());
+        let is_telehealth = extras
+            .get("is_telehealth")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(e.visit_type.as_deref() == Some("telehealth"));
+        let location: clinical::AppointmentLocation = extras
+            .get("location")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| clinical::AppointmentLocation {
+                facility_name: e.location.clone().unwrap_or_default(),
+                department: String::new(),
+                room: e.room.clone(),
+                address: None,
+                telehealth_link: None,
+            });
+        let reminders_sent: Vec<clinical::AppointmentReminder> = extras
+            .get("reminders_sent")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+        let instructions = extras
+            .get("instructions")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let booked_by = extras
+            .get("booked_by")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let visit_reason = extras
+            .get("visit_reason")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .or(e.reason_for_visit.clone())
+            .unwrap_or_default();
+        Self {
+            appointment_id: e.id,
+            patient_id: e.patient_id,
+            provider_id: e.provider_id,
+            provider_name,
+            appointment_type: appt_parse_type(&e.appointment_type),
+            visit_reason,
+            scheduled_date,
+            start_time,
+            scheduled_time,
+            duration_minutes: e.duration_minutes as u16,
+            location,
+            status: appt_parse_status(&e.status),
+            created_at: e.created_at.timestamp(),
+            updated_at: e.updated_at.timestamp(),
+            created_by: e.created_by,
+            booked_by,
+            check_in_time: e.check_in_time.map(|d| d.timestamp()),
+            is_telehealth,
+            reminders_sent,
+            instructions,
+            insurance_verified: e.insurance_verified,
+            notes: e.notes,
+        }
+    }
+}
+
+// ---- MedicationReminder <-> MedicationReminderEntity conversion ----
+// Legacy `MedicationReminder` carries `reminder_times: Vec<String>` (multiple HH:MM
+// strings per day), `frequency` enum, `created_by`, and `notification_prefs`. The
+// entity has only a single `scheduled_time: NaiveTime`, so we pack the extras into
+// `entity.data` (a `#[sqlx(skip)]` JSON bucket). Memory backend round-trips fully;
+// Postgres backend loses extras and the background due-time matcher will only fire
+// on the single `scheduled_time` after a postgres round-trip.
+
+fn med_rem_pack_extras(r: &clinical::MedicationReminder) -> serde_json::Value {
+    serde_json::json!({
+        "reminder_times": r.reminder_times,
+        "frequency": format!("{:?}", r.frequency),
+        "created_by": r.created_by,
+        "notification_prefs": r.notification_prefs,
+    })
+}
+
+fn med_rem_parse_frequency(s: &str) -> clinical::ReminderFrequency {
+    match s {
+        "Once" => clinical::ReminderFrequency::Once,
+        "Daily" => clinical::ReminderFrequency::Daily,
+        "TwiceDaily" => clinical::ReminderFrequency::TwiceDaily,
+        "ThreeTimesDaily" => clinical::ReminderFrequency::ThreeTimesDaily,
+        "FourTimesDaily" => clinical::ReminderFrequency::FourTimesDaily,
+        "EveryOtherDay" => clinical::ReminderFrequency::EveryOtherDay,
+        "Weekly" => clinical::ReminderFrequency::Weekly,
+        "Biweekly" => clinical::ReminderFrequency::Biweekly,
+        "Monthly" => clinical::ReminderFrequency::Monthly,
+        "AsNeeded" => clinical::ReminderFrequency::AsNeeded,
+        "Custom" => clinical::ReminderFrequency::Custom,
+        _ => clinical::ReminderFrequency::Daily,
+    }
+}
+
+impl From<clinical::MedicationReminder> for crate::repositories::traits::MedicationReminderEntity {
+    fn from(r: clinical::MedicationReminder) -> Self {
+        let scheduled_time = r
+            .reminder_times
+            .first()
+            .and_then(|t| {
+                chrono::NaiveTime::parse_from_str(t, "%H:%M")
+                    .or_else(|_| chrono::NaiveTime::parse_from_str(t, "%H:%M:%S"))
+                    .ok()
+            })
+            .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap());
+        let start_date = chrono::NaiveDate::parse_from_str(&r.start_date, "%Y-%m-%d")
+            .unwrap_or_else(|_| chrono::Utc::now().date_naive());
+        let end_date = r
+            .end_date
+            .as_deref()
+            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let created_at =
+            DateTime::<Utc>::from_timestamp(r.created_at, 0).unwrap_or_else(Utc::now);
+        let extras = med_rem_pack_extras(&r);
+        Self {
+            id: r.reminder_id,
+            patient_id: r.patient_id,
+            prescription_id: None,
+            medication_name: r.medication_name,
+            dosage: Some(r.dosage),
+            scheduled_time,
+            days_of_week: serde_json::json!([]),
+            reminder_type: format!("{:?}", r.frequency),
+            is_active: r.active,
+            snooze_minutes: None,
+            max_snoozes: None,
+            escalation_contact: None,
+            start_date,
+            end_date,
+            notes: r.instructions,
+            created_at,
+            updated_at: created_at,
+            data: extras,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::MedicationReminderEntity> for clinical::MedicationReminder {
+    fn from(e: crate::repositories::traits::MedicationReminderEntity) -> Self {
+        let extras = if e.data.is_object() { e.data.clone() } else { serde_json::json!({}) };
+        let reminder_times: Vec<String> = extras
+            .get("reminder_times")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| vec![e.scheduled_time.format("%H:%M").to_string()]);
+        let frequency = extras
+            .get("frequency")
+            .and_then(|v| v.as_str())
+            .map(med_rem_parse_frequency)
+            .unwrap_or_else(|| med_rem_parse_frequency(&e.reminder_type));
+        let created_by = extras
+            .get("created_by")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_default();
+        let notification_prefs: clinical::NotificationPreferences = extras
+            .get("notification_prefs")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or(clinical::NotificationPreferences {
+                push_notification: true,
+                sms: false,
+                email: false,
+                in_app: true,
+                reminder_before_minutes: 15,
+            });
+        Self {
+            reminder_id: e.id,
+            patient_id: e.patient_id,
+            medication_name: e.medication_name,
+            dosage: e.dosage.unwrap_or_default(),
+            frequency,
+            reminder_times,
+            start_date: e.start_date.format("%Y-%m-%d").to_string(),
+            end_date: e.end_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            instructions: e.notes,
+            active: e.is_active,
+            created_by,
+            created_at: e.created_at.timestamp(),
+            notification_prefs,
+        }
+    }
+}
+
+// ---- ImmunizationRecord <-> ImmunizationRecordEntity conversion ----
+// Most fields map directly. `expiration_date` and `registry_reported` have no
+// columns in the entity, so they are packed into `entity.data` alongside a
+// snapshot of the full record (used as a fast restore path on memory backend
+// where `entity.data` round-trips). Postgres backend persists primary columns
+// only; the reverse conversion reconstructs sensible defaults from those.
+
+fn imm_pack_extras(r: &clinical::ImmunizationRecord) -> serde_json::Value {
+    serde_json::json!({
+        "expiration_date": r.expiration_date,
+        "registry_reported": r.registry_reported,
+        "funding_source": r.funding_source,
+        "route": r.route,
+    })
+}
+
+fn imm_parse_route(s: &str) -> clinical::ImmunizationRoute {
+    match s {
+        "Intramuscular" => clinical::ImmunizationRoute::Intramuscular,
+        "Subcutaneous" => clinical::ImmunizationRoute::Subcutaneous,
+        "Intradermal" => clinical::ImmunizationRoute::Intradermal,
+        "Oral" => clinical::ImmunizationRoute::Oral,
+        "Intranasal" => clinical::ImmunizationRoute::Intranasal,
+        _ => clinical::ImmunizationRoute::Intramuscular,
+    }
+}
+
+fn imm_parse_funding(s: &str) -> clinical::FundingSource {
+    match s {
+        "Private" => clinical::FundingSource::Private,
+        "PublicVFC" => clinical::FundingSource::PublicVFC,
+        "PublicState" => clinical::FundingSource::PublicState,
+        "Military" => clinical::FundingSource::Military,
+        _ => clinical::FundingSource::Other,
+    }
+}
+
+impl From<clinical::ImmunizationRecord> for crate::repositories::traits::ImmunizationRecordEntity {
+    fn from(r: clinical::ImmunizationRecord) -> Self {
+        let administration_date = chrono::NaiveDate::parse_from_str(&r.administration_date, "%Y-%m-%d")
+            .unwrap_or_else(|_| chrono::Utc::now().date_naive());
+        let vis_date = chrono::NaiveDate::parse_from_str(&r.vis_date, "%Y-%m-%d").ok();
+        let now = chrono::Utc::now();
+        let extras = imm_pack_extras(&r);
+        Self {
+            id: r.record_id,
+            patient_id: r.patient_id,
+            vaccine_type: String::new(),
+            vaccine_name: r.vaccine_name,
+            manufacturer: Some(r.manufacturer),
+            lot_number: Some(r.lot_number),
+            ndc_code: None,
+            cvx_code: Some(r.cvx_code),
+            mvx_code: None,
+            administration_date,
+            administration_time: None,
+            administered_by: Some(r.administered_by),
+            administered_by_name: None,
+            administration_site: Some(r.site),
+            route: Some(format!("{:?}", r.route)),
+            dose_amount: None,
+            dose_unit: None,
+            dose_number: Some(r.dose_number as i32),
+            series_complete: None,
+            facility_id: None,
+            facility_name: None,
+            facility_address: None,
+            vfc_eligibility: None,
+            funding_source: Some(format!("{:?}", r.funding_source)),
+            information_source: None,
+            documentation_type: None,
+            reaction_observed: Some(r.adverse_reaction.is_some()),
+            reaction_details: r.adverse_reaction,
+            contraindications_reviewed: None,
+            patient_consent: None,
+            vis_given: Some(!r.vis_date.is_empty()),
+            vis_date,
+            notes: r.notes,
+            created_at: Some(now),
+            updated_at: Some(now),
+            data: extras,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::ImmunizationRecordEntity> for clinical::ImmunizationRecord {
+    fn from(e: crate::repositories::traits::ImmunizationRecordEntity) -> Self {
+        let extras = if e.data.is_object() { e.data.clone() } else { serde_json::json!({}) };
+        let expiration_date = extras
+            .get("expiration_date")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_default();
+        let registry_reported = extras
+            .get("registry_reported")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let funding_source = extras
+            .get("funding_source")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| {
+                e.funding_source
+                    .as_deref()
+                    .map(imm_parse_funding)
+                    .unwrap_or(clinical::FundingSource::Other)
+            });
+        let route = extras
+            .get("route")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_else(|| {
+                e.route
+                    .as_deref()
+                    .map(imm_parse_route)
+                    .unwrap_or(clinical::ImmunizationRoute::Intramuscular)
+            });
+        Self {
+            record_id: e.id,
+            patient_id: e.patient_id,
+            vaccine_name: e.vaccine_name,
+            cvx_code: e.cvx_code.unwrap_or_default(),
+            manufacturer: e.manufacturer.unwrap_or_default(),
+            lot_number: e.lot_number.unwrap_or_default(),
+            expiration_date,
+            administration_date: e.administration_date.format("%Y-%m-%d").to_string(),
+            dose_number: e.dose_number.unwrap_or(1) as u8,
+            route,
+            site: e.administration_site.unwrap_or_default(),
+            administered_by: e.administered_by.unwrap_or_default(),
+            vis_date: e
+                .vis_date
+                .map(|d| d.format("%Y-%m-%d").to_string())
+                .unwrap_or_default(),
+            funding_source,
+            registry_reported,
+            adverse_reaction: e.reaction_details,
+            notes: e.notes,
+        }
+    }
+}
+
+impl From<crate::repositories::traits::CdsAlertEntity> for clinical::CDSAlert {
+    fn from(e: crate::repositories::traits::CdsAlertEntity) -> Self {
+        let extras = e.trigger_data.unwrap_or_else(|| serde_json::json!({}));
+        let triggering_data = extras
+            .get("triggering_data")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let clinical_context = extras
+            .get("clinical_context")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let expires_at = extras.get("expires_at").and_then(|v| v.as_i64());
+        let guideline_reference = extras
+            .get("guideline_reference")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let recommended_actions = e
+            .recommendation
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+        let evidence = e
+            .clinical_evidence
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+        let response = e.action_taken.as_deref().map(|action| clinical::CDSResponse {
+            responded_at: e.action_datetime.unwrap_or(e.created_at).timestamp(),
+            responded_by: e.acknowledged_by.clone().unwrap_or_default(),
+            action_taken: cds_parse_action_taken(action),
+            override_reason: e.override_reason.clone(),
+            notes: e.feedback_notes.clone(),
+            time_to_response_seconds: e.displayed_duration_seconds.unwrap_or(0) as u32,
+        });
+        Self {
+            alert_id: e.id,
+            patient_id: e.patient_id,
+            provider_id: e.provider_id,
+            alert_type: cds_parse_alert_type(&e.alert_type),
+            severity: cds_parse_severity(&e.severity),
+            title: e.alert_title,
+            description: e.alert_message,
+            clinical_context,
+            triggering_data,
+            recommended_actions,
+            evidence,
+            guideline_reference,
+            created_at: e.created_at.timestamp(),
+            expires_at,
+            status: cds_parse_status(&e.status),
+            response,
+        }
+    }
+}
+
 // ============================================================================
 // API Request/Response Types
 // ============================================================================
@@ -2297,10 +3101,9 @@ async fn register_patient(
         .write()
         .unwrap()
         .insert(patient_id.clone(), patient);
-    data.nfc_tags
-        .write()
-        .unwrap()
-        .insert(nfc_tag_id.clone(), nfc_tag);
+    if let Err(e) = data.repositories.nfc_tags.create(nfc_tag.into()).await {
+        log::error!("NFC tag persistence failed: {}", e);
+    }
 
     // Also create a Patient user account for the new patient
     // Note: In wallet-based auth, the patient will link their wallet later
@@ -2413,29 +3216,24 @@ async fn emergency_access(
         });
     }
 
-    // Find NFC tag and get patient_id - use safe read
-    let patient_id = {
-        let nfc_tags = match data.nfc_tags.read() {
-            Ok(tags) => tags,
-            Err(e) => {
-                log::error!("Lock poisoned: {}", e);
-                return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    error: "Internal server error".to_string(),
-                    code: "LOCK_ERROR".to_string(),
-                });
-            }
-        };
-        match nfc_tags.get(&req.nfc_tag_id) {
-            Some(tag) => tag.patient_id.clone(),
-            None => {
-                return HttpResponse::NotFound().json(EmergencyAccessResponse {
-                    success: false,
-                    access_id: String::new(),
-                    emergency_info: None,
-                    message: "NFC tag not found. Invalid or unregistered tag.".to_string(),
-                });
-            }
+    // Find NFC tag and get patient_id via repository
+    let patient_id = match data.repositories.nfc_tags.get_by_id(&req.nfc_tag_id).await {
+        Ok(tag) => tag.patient_id,
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(EmergencyAccessResponse {
+                success: false,
+                access_id: String::new(),
+                emergency_info: None,
+                message: "NFC tag not found. Invalid or unregistered tag.".to_string(),
+            });
+        }
+        Err(e) => {
+            log::error!("NFC tag lookup failed: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Internal server error".to_string(),
+                code: "REPO_ERROR".to_string(),
+            });
         }
     };
 
@@ -2486,18 +3284,15 @@ async fn emergency_access(
         emergency: true,
     };
 
-    // Log access - use safe write
-    match data.access_logs.write() {
-        Ok(mut logs) => logs.push(access_log),
-        Err(e) => {
-            log::error!("Failed to write access log: {}", e);
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
-                error: "Failed to log access".to_string(),
-                code: "LOCK_ERROR".to_string(),
-            });
-        }
-    };
+    // Log access via repository (memory or postgres backend)
+    if let Err(e) = data.repositories.access_logs.create(access_log.into()).await {
+        log::error!("Failed to write access log: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to log access".to_string(),
+            code: "REPO_ERROR".to_string(),
+        });
+    }
 
     log::info!(
         "Emergency access granted: {} ({}) accessed patient {} at {:?}",
@@ -2584,13 +3379,23 @@ async fn simulate_nfc_tap(
 
     drop(patients);
 
-    // Find existing NFC tag for patient
-    let nfc_tags = data.nfc_tags.read().unwrap();
-    let existing_tag = nfc_tags
-        .values()
-        .find(|t| t.patient_id == req.patient_id)
-        .cloned();
-    drop(nfc_tags);
+    // Find existing NFC tag for patient via repository
+    let existing_tag = match data
+        .repositories
+        .nfc_tags
+        .get_active_by_patient(&req.patient_id)
+        .await
+    {
+        Ok(opt) => opt.map(NfcTagData::from),
+        Err(e) => {
+            log::error!("NFC lookup failed: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "NFC lookup failed".to_string(),
+                code: "REPO_ERROR".to_string(),
+            });
+        }
+    };
 
     let tag_data = match existing_tag {
         Some(tag) => tag,
@@ -2606,15 +3411,19 @@ async fn simulate_nfc_tap(
             );
             let hash = generate_nfc_hash(&req.patient_id, &nfc_tag_id);
             let tag = NfcTagData {
-                tag_id: nfc_tag_id.clone(),
+                tag_id: nfc_tag_id,
                 patient_id: req.patient_id.clone(),
                 hash,
                 created_at: Utc::now(),
             };
-            data.nfc_tags
-                .write()
-                .unwrap()
-                .insert(nfc_tag_id, tag.clone());
+            if let Err(e) = data.repositories.nfc_tags.create(tag.clone().into()).await {
+                log::error!("NFC tag create failed: {}", e);
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Failed to register NFC tag".to_string(),
+                    code: "REPO_ERROR".to_string(),
+                });
+            }
             tag
         }
     };
@@ -2679,26 +3488,35 @@ async fn get_all_access_logs(
         });
     }
 
-    // Use safe read
-    let access_logs = match data.access_logs.read() {
-        Ok(logs) => logs,
+    // Fetch via repository (backend-agnostic)
+    let pagination_req = crate::repositories::traits::Pagination::new(
+        query.limit as u32,
+        ((query.page.saturating_sub(1)) * query.limit) as u32,
+    );
+    let result = match data.repositories.access_logs.list(pagination_req).await {
+        Ok(r) => r,
         Err(e) => {
-            log::error!("Lock poisoned: {}", e);
+            log::error!("Failed to read access logs: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Internal server error".to_string(),
-                code: "LOCK_ERROR".to_string(),
+                code: "REPO_ERROR".to_string(),
             });
         }
     };
 
-    let all_logs: Vec<AccessLogEntry> = access_logs.iter().cloned().collect();
-    let (paginated_logs, pagination) = paginate(&all_logs, query.page, query.limit);
+    let paginated_logs: Vec<AccessLogEntry> =
+        result.items.into_iter().map(Into::into).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "access_logs": paginated_logs,
-        "total_accesses": pagination.total_items,
-        "pagination": pagination,
+        "total_accesses": result.total,
+        "pagination": {
+            "page": result.page,
+            "per_page": result.per_page,
+            "total_pages": result.total_pages,
+            "total_items": result.total,
+        },
     }))
 }
 
@@ -2750,32 +3568,41 @@ async fn get_access_logs(
         });
     }
 
-    // Use safe read
-    let access_logs = match data.access_logs.read() {
-        Ok(logs) => logs,
+    // Fetch via repository scoped to this patient
+    let pagination_req = crate::repositories::traits::Pagination::new(
+        query.limit as u32,
+        ((query.page.saturating_sub(1)) * query.limit) as u32,
+    );
+    let result = match data
+        .repositories
+        .access_logs
+        .get_by_patient(&patient_id, pagination_req)
+        .await
+    {
+        Ok(r) => r,
         Err(e) => {
-            log::error!("Lock poisoned: {}", e);
+            log::error!("Failed to read patient access logs: {}", e);
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
                 error: "Internal server error".to_string(),
-                code: "LOCK_ERROR".to_string(),
+                code: "REPO_ERROR".to_string(),
             });
         }
     };
 
-    let patient_logs: Vec<AccessLogEntry> = access_logs
-        .iter()
-        .filter(|log| log.patient_id == patient_id)
-        .cloned()
-        .collect();
-
-    let (paginated_logs, pagination) = paginate(&patient_logs, query.page, query.limit);
+    let paginated_logs: Vec<AccessLogEntry> =
+        result.items.into_iter().map(Into::into).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,
         "access_logs": paginated_logs,
-        "total_accesses": pagination.total_items,
-        "pagination": pagination,
+        "total_accesses": result.total,
+        "pagination": {
+            "page": result.page,
+            "per_page": result.per_page,
+            "total_pages": result.total_pages,
+            "total_items": result.total,
+        },
     }))
 }
 
@@ -4684,13 +5511,16 @@ async fn upload_medical_record(
         content_checksum,
     };
 
-    // Store reference locally (in production: on blockchain)
+    // Store reference via repository (in production: also on blockchain)
     {
-        let mut records = data.medical_records.write().unwrap();
-        records
-            .entry(req.patient_id.clone())
-            .or_default()
-            .push(record_ref.clone());
+        let entity: crate::repositories::traits::MedicalRecordEntity =
+            (req.patient_id.clone(), record_ref.clone()).into();
+        let mut entity = entity;
+        entity.created_by = current_user_id.clone();
+        entity.last_modified_by = current_user_id.clone();
+        if let Err(e) = data.repositories.medical_records.create(entity).await {
+            log::error!("Medical record persistence failed: {}", e);
+        }
     }
 
     // Fire-and-forget blockchain IPFS hash recording (non-fatal)
@@ -4718,20 +5548,17 @@ async fn upload_medical_record(
         }
     }
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: req.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "upload_record".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: req.patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "upload_record".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     HttpResponse::Created().json(UploadMedicalRecordResponse {
         success: true,
@@ -4776,12 +5603,24 @@ async fn download_medical_record(
     // Patients can only download their own records
     // Healthcare providers can download any records
     if !current_user.role.is_healthcare_provider() {
-        // Check if this record belongs to the patient
-        let records = data.medical_records.read().unwrap();
-        let patient_records = records.get(&current_user_id);
-
-        let owns_record = patient_records
-            .is_some_and(|recs| recs.iter().any(|r| r.content_hash == req.content_hash));
+        // Check via repository that this record belongs to the patient
+        let owns_record = match data
+            .repositories
+            .medical_records
+            .get_by_ipfs_hash(&req.content_hash)
+            .await
+        {
+            Ok(entity) => entity.patient_id == current_user_id,
+            Err(crate::repositories::traits::RepositoryError::NotFound(_)) => false,
+            Err(e) => {
+                log::error!("Medical record lookup failed: {}", e);
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Ownership check failed".to_string(),
+                    code: "REPO_ERROR".to_string(),
+                });
+            }
+        };
 
         if !owns_record {
             return HttpResponse::Forbidden().json(ErrorResponse {
@@ -4815,20 +5654,17 @@ async fn download_medical_record(
         }
     };
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: download_result.metadata.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "download_record".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: download_result.metadata.patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "download_record".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     // Encode content as base64 for JSON response
     let content_base64 = base64::Engine::encode(
@@ -4891,32 +5727,56 @@ async fn list_patient_records(
         });
     }
 
-    // Get patient records
-    let records = data.medical_records.read().unwrap();
-    let patient_records = records.get(&patient_id).cloned().unwrap_or_default();
-
-    // Log access
+    // Get patient records via repository (paginated)
+    let pg = crate::repositories::traits::Pagination::new(
+        query.limit as u32,
+        ((query.page.saturating_sub(1)) * query.limit) as u32,
+    );
+    let result = match data
+        .repositories
+        .medical_records
+        .get_by_patient(&patient_id, pg)
+        .await
     {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "list_records".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: false,
-        });
-    }
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("List medical records failed: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to list records".to_string(),
+                code: "REPO_ERROR".to_string(),
+            });
+        }
+    };
+    let total_items = result.total as usize;
+    let total_pages = result.total_pages as usize;
+    let paginated_records: Vec<ipfs::MedicalRecordReference> =
+        result.items.into_iter().map(Into::into).collect();
 
-    let (paginated_records, pagination) = paginate(&patient_records, query.page, query.limit);
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "list_records".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,
         "records": paginated_records,
-        "total": pagination.total_items,
-        "pagination": pagination
+        "total": total_items,
+        "pagination": {
+            "page": query.page,
+            "limit": query.limit,
+            "total_items": total_items,
+            "total_pages": total_pages,
+            "has_next": query.page < total_pages,
+            "has_prev": query.page > 1,
+        }
     }))
 }
 
@@ -5031,20 +5891,17 @@ async fn submit_lab_results(
         submissions.insert(submission_id.clone(), submission);
     }
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: req.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "lab_submission".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: req.patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "lab_submission".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     log::info!(
         "Lab results submitted: {} for patient {}",
@@ -5356,14 +6213,17 @@ async fn review_lab_results_impl(
             content_checksum,
         };
 
-        // Store in patient's medical records (now visible to patient)
-        drop(submissions); // Release write lock before acquiring another
+        // Store in patient's medical records via repository
+        drop(submissions); // Release write lock before async repo call
         {
-            let mut records = data.medical_records.write().unwrap();
-            records
-                .entry(patient_id.clone())
-                .or_default()
-                .push(record_ref);
+            let entity: crate::repositories::traits::MedicalRecordEntity =
+                (patient_id.clone(), record_ref).into();
+            let mut entity = entity;
+            entity.created_by = current_user_id.clone();
+            entity.last_modified_by = current_user_id.clone();
+            if let Err(e) = data.repositories.medical_records.create(entity).await {
+                log::error!("Lab record persistence failed: {}", e);
+            }
         }
 
         log::info!(
@@ -5386,20 +6246,17 @@ async fn review_lab_results_impl(
         );
     }
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id,
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: format!("lab_review_{}", action),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id,
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: format!("lab_review_{}", action),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     HttpResponse::Ok().json(ReviewLabResultResponse {
         success: true,
@@ -5715,20 +6572,17 @@ async fn nfc_tap(
     };
 
     if tap_result.success {
-        // Log the access
-        {
-            let mut logs = data.access_logs.write().unwrap();
-            logs.push(AccessLogEntry {
-                access_id: secure_tokens::generate_access_id(),
-                patient_id: tap_result.patient_id.clone(),
-                accessor_id: current_user_id.clone(),
-                accessor_role: current_user.role.to_string(),
-                access_type: "nfc_tap".to_string(),
-                location: None,
-                timestamp: Utc::now(),
-                emergency: true,
-            });
-        }
+        // Log the access via repository
+        let _ = data.repositories.access_logs.create(AccessLogEntry {
+            access_id: secure_tokens::generate_access_id(),
+            patient_id: tap_result.patient_id.clone(),
+            accessor_id: current_user_id.clone(),
+            accessor_role: current_user.role.to_string(),
+            access_type: "nfc_tap".to_string(),
+            location: None,
+            timestamp: Utc::now(),
+            emergency: true,
+        }.into()).await;
 
         log::info!(
             "NFC tap successful for patient {} by {}",
@@ -5842,20 +6696,17 @@ async fn verify_qr_code(
         });
     }
 
-    // Log the access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: qr_data.patient_id.clone(),
-            accessor_id: current_user_id.clone(),
-            accessor_role: current_user.role.to_string(),
-            access_type: "qr_verification".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: true,
-        });
-    }
+    // Log the access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: qr_data.patient_id.clone(),
+        accessor_id: current_user_id.clone(),
+        accessor_role: current_user.role.to_string(),
+        access_type: "qr_verification".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: true,
+    }.into()).await;
 
     log::info!(
         "QR code verified for patient {} by {}",
@@ -6252,8 +7103,16 @@ async fn create_triage_assessment(
         blood_pressure_diastolic: req.vital_signs.bp_diastolic.map(|v| v as i32),
         temperature: req.vital_signs.temperature_celsius.map(|v| v as f64),
         oxygen_saturation: req.vital_signs.oxygen_saturation.map(|v| v as i32),
+        pain_scale: req.pain_scale.map(|v| v as i32),
+        gcs_score: None,
+        blood_glucose: None,
+        weight: None,
         is_critical: has_critical_vitals,
+        requires_isolation: false,
+        disposition: None,
+        assigned_bed: None,
         triage_time: Utc::now(),
+        seen_by_provider_at: None,
         performed_by: current_user_id.clone(),
         facility_id: None,
         created_at: Utc::now(),
@@ -6672,20 +7531,17 @@ async fn create_soap_note(
         notes.insert(note_id.clone(), soap_note);
     }
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: req.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "create_soap_note".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: false,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: req.patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "create_soap_note".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }.into()).await;
 
     log::info!(
         "SOAP note {} created for patient {}",
@@ -7618,33 +8474,26 @@ async fn add_vital_signs(
     let critical_alerts = reading.has_critical_values();
     let has_critical = !critical_alerts.is_empty();
 
-    // Add to patient's flowsheet
+    // Persist vital signs via repository
     {
-        let mut flowsheets = data.vital_signs.write().unwrap();
-        let flowsheet =
-            flowsheets
-                .entry(req.patient_id.clone())
-                .or_insert_with(|| VitalSignsFlowsheet {
-                    patient_id: req.patient_id.clone(),
-                    readings: vec![],
-                });
-        flowsheet.add_reading(reading);
+        let entity: crate::repositories::traits::VitalSignsEntity =
+            (req.patient_id.clone(), reading).into();
+        if let Err(e) = data.repositories.vital_signs.create(entity).await {
+            log::error!("Vital signs persistence failed: {}", e);
+        }
     }
 
-    // Log access
-    {
-        let mut logs = data.access_logs.write().unwrap();
-        logs.push(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: req.patient_id.clone(),
-            accessor_id: current_user_id,
-            accessor_role: current_user.role.to_string(),
-            access_type: "add_vital_signs".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: has_critical,
-        });
-    }
+    // Log access via repository
+    let _ = data.repositories.access_logs.create(AccessLogEntry {
+        access_id: secure_tokens::generate_access_id(),
+        patient_id: req.patient_id.clone(),
+        accessor_id: current_user_id,
+        accessor_role: current_user.role.to_string(),
+        access_type: "add_vital_signs".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: has_critical,
+    }.into()).await;
 
     log::info!(
         "Vital signs {} added for patient {}{}",
@@ -7740,7 +8589,7 @@ async fn get_patient_vitals(
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
                 "readings": readings,
-                "total": result.total_items,
+                "total": result.total,
                 "critical_alerts": []
             }))
         }
@@ -7820,7 +8669,7 @@ async fn get_vitals_flowsheet(
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
                 "readings": readings,
-                "total": result.total_items,
+                "total": result.total,
                 "critical_alerts": []
             }))
         }

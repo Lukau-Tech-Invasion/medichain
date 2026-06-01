@@ -885,6 +885,18 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
             .ok_or_else(|| RepositoryError::NotFound(format!("CDS alert {} not found", id)))
     }
 
+    async fn update(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity> {
+        let mut alerts = self.alerts.write().unwrap();
+        if !alerts.contains_key(&alert.id) {
+            return Err(RepositoryError::NotFound(format!(
+                "CDS alert {} not found",
+                alert.id
+            )));
+        }
+        alerts.insert(alert.id.clone(), alert.clone());
+        Ok(alert)
+    }
+
     async fn get_by_patient(
         &self,
         patient_id: &str,
@@ -1020,6 +1032,21 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
             .cloned()
             .collect();
         Ok(result)
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<CdsAlertEntity>> {
+        let alerts = self.alerts.read().unwrap();
+        let all: Vec<_> = alerts.values().cloned().collect();
+        let total = all.len() as u64;
+        let items: Vec<_> = all
+            .into_iter()
+            .skip(pagination.offset() as usize)
+            .take(pagination.limit() as usize)
+            .collect();
+        Ok(PaginatedResult::new(items, total, &pagination))
     }
 }
 
@@ -1674,5 +1701,270 @@ mod tests {
 
         let active = repo.get_active_by_patient("patient-001").await.unwrap();
         assert_eq!(active.len(), 1);
+    }
+
+    // -------- Phase 2.2 coverage: insurance lifecycle methods --------
+
+    fn make_insurance(id: &str, patient: &str, kind: &str, term_days: i64) -> InsuranceRecordEntity {
+        let today = chrono::Utc::now().date_naive();
+        let now = Utc::now();
+        InsuranceRecordEntity {
+            id: id.to_string(),
+            patient_id: patient.to_string(),
+            insurance_type: kind.to_string(),
+            payer_name: "Acme".to_string(),
+            payer_id: None,
+            plan_name: None,
+            plan_type: None,
+            policy_number: format!("POL-{id}"),
+            group_number: None,
+            subscriber_id: "SUB".to_string(),
+            subscriber_name: None,
+            subscriber_relationship: None,
+            subscriber_dob: None,
+            effective_date: today - chrono::Duration::days(30),
+            termination_date: Some(today + chrono::Duration::days(term_days)),
+            is_active: true,
+            copay_amount: None,
+            deductible_amount: None,
+            deductible_met: None,
+            out_of_pocket_max: None,
+            out_of_pocket_met: None,
+            coinsurance_percent: None,
+            coverage_details: None,
+            prior_auth_required: None,
+            prior_auth_phone: None,
+            claims_address: None,
+            claims_phone: None,
+            claims_fax: None,
+            electronic_claims_eligible: None,
+            verification_status: None,
+            last_verified_date: None,
+            last_verified_by: None,
+            verification_notes: None,
+            card_front_image_url: None,
+            card_back_image_url: None,
+            notes: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_insurance_deactivate_and_terminate() {
+        let repo = MemoryInsuranceRecordRepository::new();
+        repo.create(make_insurance("ins-A", "pat-X", "primary", 60))
+            .await
+            .unwrap();
+
+        let deactivated = repo.deactivate("ins-A").await.unwrap();
+        assert!(!deactivated.is_active);
+
+        let term_date = chrono::Utc::now().date_naive() + chrono::Duration::days(5);
+        let terminated = repo.terminate("ins-A", term_date).await.unwrap();
+        assert_eq!(terminated.termination_date, Some(term_date));
+        assert!(!terminated.is_active);
+    }
+
+    #[tokio::test]
+    async fn test_insurance_get_primary_and_set_primary() {
+        let repo = MemoryInsuranceRecordRepository::new();
+        repo.create(make_insurance("ins-1", "pat-Y", "primary", 100))
+            .await
+            .unwrap();
+        repo.create(make_insurance("ins-2", "pat-Y", "secondary", 100))
+            .await
+            .unwrap();
+
+        let primary = repo.get_primary("pat-Y").await.unwrap().unwrap();
+        assert_eq!(primary.id, "ins-1");
+
+        repo.set_primary("pat-Y", "ins-2").await.unwrap();
+
+        let new_primary = repo.get_primary("pat-Y").await.unwrap().unwrap();
+        assert_eq!(new_primary.id, "ins-2");
+        assert_eq!(
+            repo.get_by_id("ins-1").await.unwrap().insurance_type,
+            "secondary"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_insurance_get_expiring_and_active() {
+        let repo = MemoryInsuranceRecordRepository::new();
+        repo.create(make_insurance("ins-soon", "pat-Z", "primary", 10))
+            .await
+            .unwrap();
+        repo.create(make_insurance("ins-far", "pat-Z", "secondary", 400))
+            .await
+            .unwrap();
+
+        let expiring = repo.get_expiring(30).await.unwrap();
+        assert!(expiring.iter().any(|r| r.id == "ins-soon"));
+        assert!(!expiring.iter().any(|r| r.id == "ins-far"));
+
+        let active = repo.get_active("pat-Z").await.unwrap();
+        assert_eq!(active.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_insurance_verify_eligibility() {
+        let repo = MemoryInsuranceRecordRepository::new();
+        repo.create(make_insurance("ins-V", "pat-V", "primary", 60))
+            .await
+            .unwrap();
+
+        let verified = repo
+            .verify_eligibility("ins-V", "staff-007")
+            .await
+            .unwrap();
+        assert_eq!(verified.verification_status.as_deref(), Some("verified"));
+        assert_eq!(verified.last_verified_by.as_deref(), Some("staff-007"));
+    }
+
+    // -------- Phase 2.2 coverage: billing code methods --------
+
+    fn make_billing(id: &str, code: &str, kind: &str, active: bool) -> BillingCodeEntity {
+        BillingCodeEntity {
+            id: id.to_string(),
+            code_type: kind.to_string(),
+            code: code.to_string(),
+            description: "Sample".to_string(),
+            short_description: None,
+            category: Some("test-cat".to_string()),
+            subcategory: None,
+            effective_date: None,
+            termination_date: None,
+            is_active: active,
+            billable: None,
+            requires_modifier: None,
+            common_modifiers: None,
+            relative_value_units: None,
+            global_period_days: None,
+            age_restrictions: None,
+            gender_restrictions: None,
+            place_of_service_restrictions: None,
+            requires_prior_auth: None,
+            typical_duration_minutes: None,
+            add_on_code: None,
+            parent_code: None,
+            laterality_applicable: None,
+            notes: None,
+            last_updated_by: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_billing_code_active_dispatch_and_deactivate() {
+        let repo = MemoryBillingCodeRepository::new();
+        repo.create(make_billing("bc-1", "99213", "CPT", true))
+            .await
+            .unwrap();
+        repo.create(make_billing("bc-2", "99214", "CPT", true))
+            .await
+            .unwrap();
+        repo.create(make_billing("bc-3", "11000", "ICD10", true))
+            .await
+            .unwrap();
+        repo.create(make_billing("bc-4", "99215", "CPT", false))
+            .await
+            .unwrap();
+
+        let active_cpt = repo.get_active("CPT").await.unwrap();
+        assert_eq!(active_cpt.len(), 2);
+
+        let deactivated = repo.deactivate("bc-1").await.unwrap();
+        assert!(!deactivated.is_active);
+
+        let active_cpt_after = repo.get_active("CPT").await.unwrap();
+        assert_eq!(active_cpt_after.len(), 1);
+
+        let list = repo
+            .list_by_type("CPT", Pagination::new(0, 50))
+            .await
+            .unwrap();
+        assert_eq!(list.items.len(), 1);
+        assert_eq!(list.total, 1);
+    }
+
+    // -------- Phase 2.2 coverage: CDS alert methods --------
+
+    fn make_alert(id: &str, severity: &str, encounter: Option<&str>, rule: &str) -> CdsAlertEntity {
+        CdsAlertEntity {
+            id: id.to_string(),
+            patient_id: "pat-1".to_string(),
+            encounter_id: encounter.map(|e| e.to_string()),
+            provider_id: "prov-1".to_string(),
+            alert_datetime: Utc::now(),
+            alert_type: "drug_interaction".to_string(),
+            alert_category: "safety".to_string(),
+            severity: severity.to_string(),
+            alert_title: "Test".to_string(),
+            alert_message: "msg".to_string(),
+            clinical_evidence: None,
+            recommendation: None,
+            source_system: None,
+            rule_id: Some(rule.to_string()),
+            rule_version: None,
+            trigger_data: None,
+            related_order_id: None,
+            related_medication_id: None,
+            related_lab_id: None,
+            status: "active".to_string(),
+            acknowledged_by: None,
+            acknowledged_datetime: None,
+            override_reason: None,
+            override_justification: None,
+            action_taken: None,
+            action_datetime: None,
+            auto_resolved: None,
+            resolution_reason: None,
+            was_helpful: None,
+            feedback_notes: None,
+            displayed_duration_seconds: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cds_alert_dismiss_and_filters() {
+        let repo = MemoryCdsAlertRepository::new();
+        repo.create(make_alert("a-1", "critical", Some("enc-1"), "R-A"))
+            .await
+            .unwrap();
+        repo.create(make_alert("a-2", "low", Some("enc-1"), "R-B"))
+            .await
+            .unwrap();
+        repo.create(make_alert("a-3", "high", None, "R-A"))
+            .await
+            .unwrap();
+
+        // get_by_encounter
+        let in_enc = repo.get_by_encounter("enc-1").await.unwrap();
+        assert_eq!(in_enc.len(), 2);
+
+        // get_unacknowledged (with patient filter and without)
+        let all_unack = repo.get_unacknowledged(None).await.unwrap();
+        assert_eq!(all_unack.len(), 3);
+        let pat_unack = repo.get_unacknowledged(Some("pat-1")).await.unwrap();
+        assert_eq!(pat_unack.len(), 3);
+
+        // get_high_severity (critical + high, excludes low)
+        let high = repo.get_high_severity().await.unwrap();
+        assert_eq!(high.len(), 2);
+
+        // get_by_rule pagination
+        let by_rule = repo
+            .get_by_rule("R-A", Pagination::new(0, 10))
+            .await
+            .unwrap();
+        assert_eq!(by_rule.total, 2);
+
+        // dismiss
+        let dismissed = repo.dismiss("a-2").await.unwrap();
+        assert_eq!(dismissed.status, "dismissed");
     }
 }

@@ -217,6 +217,57 @@ impl AppointmentRepository for PgAppointmentRepository {
 
         Ok(items)
     }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AppointmentEntity>> {
+        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM appointments")
+            .fetch_one(&self.pool)
+            .await? as u64;
+
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM appointments ORDER BY scheduled_datetime DESC LIMIT ");
+        qb.push_bind(pagination.limit() as i32);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i32);
+
+        let items = qb
+            .build_query_as::<AppointmentEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
+
+    async fn get_by_provider_all(
+        &self,
+        provider_id: &str,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<AppointmentEntity>> {
+        let mut count_qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT COUNT(*) FROM appointments WHERE provider_id = ");
+        count_qb.push_bind(provider_id);
+        let total = count_qb
+            .build_query_scalar::<i64>()
+            .fetch_one(&self.pool)
+            .await? as u64;
+
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM appointments WHERE provider_id = ");
+        qb.push_bind(provider_id);
+        qb.push(" ORDER BY scheduled_datetime DESC LIMIT ");
+        qb.push_bind(pagination.limit() as i32);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i32);
+
+        let items = qb
+            .build_query_as::<AppointmentEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, total, &pagination))
+    }
 }
 
 // =============================================================================

@@ -1,6 +1,6 @@
 # MediChain Implementation Plan
 
-> **Last audited:** 2026-04-18
+> **Last audited:** 2026-06-01 (Round 2 partial: 10 entities migrated to repositories + 7 admin-list endpoints migrated to repositories — access_logs, nfc_tags, medical_records, allergies, vital_signs, triage_assessments, cds_alerts, appointments, medication_reminders, immunization_records; admin list endpoints now use list_all() for chain_of_custody, lab_qc, critical_values, radiology orders+reports, pathology_reports, immunization_schedules, blood bank trio; patients/lab_submissions/sync_queue deferred pending schema work)
 > **Method:** Full codebase investigation across all layers (backend, frontend, blockchain, database, DevOps)
 
 ## Executive Summary
@@ -71,53 +71,101 @@ MediChain is approximately **60-65% production-ready**. The core architecture is
 **Impact:** All clinical data is lost on server restart
 
 ### 2.1 Clinical Endpoints: Memory → PostgreSQL :large_orange_diamond:
-**File:** `api/src/clinical_endpoints.rs` (~16K lines, ~478 handlers)
+**File:** `api/src/clinical_endpoints.rs` (~16K lines, ~478 handlers) + `api/src/main.rs`
 
-**Current state:** All clinical handlers (Code Blue, Trauma, Stroke, Cardiac, Sepsis, SOAP notes, vitals, etc.) store data in `AppState` RwLock-protected HashMaps. PostgreSQL repository implementations exist in `api/src/repositories/postgres/` but the clinical endpoint handlers don't use them — they directly read/write the in-memory HashMaps on `AppState`.
+**Current state (Round 2 partial):** Migration is now entity-by-entity. Conversion impls (legacy struct ↔ repository entity) live in `main.rs` next to the legacy struct definitions. Sites migrated to `data.repositories.*` for these entity types:
 
-**What's needed:**
-- [ ] Refactor all clinical endpoint handlers to use `data.repositories.*` instead of direct HashMap access
-- [ ] Ensure `MEDICHAIN_STORAGE=postgres` activates PostgreSQL for ALL endpoints, not just the repository-based ones
+**Migrated (read+write paths via repositories):**
+- [x] `access_logs` — 16 sites (12 in main.rs, 4 in clinical_endpoints.rs); read/write via `AccessLogRepository`
+- [x] `nfc_tags` — 3 handler sites (registration write, emergency-access read, simulate-nfc-tap read+write) via `NfcTagRepository`. Seed loader at `main.rs:1900` left on legacy HashMap (init-only path).
+- [x] `medical_records` — 4 sites (upload write, ownership read, list read, lab-approval write) via `MedicalRecordRepository`. Bidirectional `MedicalRecordReference ↔ MedicalRecordEntity` conversion.
+- [x] `allergies` — 1 site (drug-interaction check) via `AllergyRepository`.
+- [x] `vital_signs` — 2 sites (add-reading write, FHIR Observation read) via `VitalSignsRepository`. Bidirectional `VitalSignsReading ↔ VitalSignsEntity` conversion.
+- [x] `triage_assessments` — 1 site (FHIR Encounter read) via `TriageAssessmentRepository`.
+- [x] `cds_alerts` — 8 sites (create, list-by-provider, get-by-id, respond, list-by-patient, analytics dashboard, list-all, rules-engine write inside record_vital_signs) via `CdsAlertRepository`. Bidirectional `CDSAlert ↔ CdsAlertEntity` round-trips via packing extras (clinical_context, expires_at, guideline_reference, original triggering_data) into `trigger_data` JSON, and serializing `recommended_actions`/`evidence` arrays to JSON strings in `recommendation`/`clinical_evidence`. Added `update()` and `list_all(pagination)` trait methods + memory + postgres impls to support response-payload round-trips and admin views.
+- [x] `appointments` — 9 sites (book, get-by-patient, get-by-provider, cancel, check-in, available-slots, dashboard analytics, appointment analytics, patient sync data) via `AppointmentRepository`. Bidirectional `Appointment ↔ AppointmentEntity` conversion packs legacy-only fields (provider_name, scheduled_date/start_time strings, AppointmentLocation struct, reminders_sent, instructions, booked_by, is_telehealth) into `entity.data` (a `serde_json::Value`). **Postgres caveat:** `entity.data` is `#[sqlx(skip)]` and not persisted, so a postgres round-trip reconstructs primary fields from columns but loses the extras (provider_name → defaults to "Dr. Provider", location → flat string, reminders_sent → empty). Memory backend preserves everything. Added `list_all(pagination)` and `get_by_provider_all(provider_id, pagination)` to the trait with memory + postgres impls.
+- [x] `medication_reminders` — 6 sites (create, list-active by patient, ownership check for adherence log, deactivate, background due-time scanner, patient sync data) via `MedicationReminderRepository`. Bidirectional `MedicationReminder ↔ MedicationReminderEntity` conversion packs the legacy multi-time `reminder_times: Vec<String>`, `frequency` enum, `created_by`, and `notification_prefs` struct into a new `entity.data` field. The entity's single `scheduled_time: NaiveTime` is seeded from the first reminder time so postgres backends still trigger once per day. **Postgres caveat:** Same `#[sqlx(skip)]` pattern as appointments — extras are lost on postgres round-trip, so the background HH:MM matcher only fires on `scheduled_time` (the first/seed time), not the full Vec, after a postgres reload. Added `list_all_active()` trait method + memory + postgres impls to support the background scanner.
+- [x] `immunization_records` — 3 sites (create, FHIR Bundle by patient, admin list-all) via `ImmunizationRecordRepository`. Bidirectional `ImmunizationRecord ↔ ImmunizationRecordEntity` conversion now populates primary entity columns (vaccine_name, cvx_code, lot_number, manufacturer, administration_date, route enum→string, funding_source enum→string, etc.) instead of stuffing the whole record into `entity.data`. Legacy-only fields (`expiration_date`, `registry_reported`, plus enum snapshots for restoration) are packed into `entity.data`. Added `list_all()` trait method + memory + postgres impls for the admin endpoint. **Postgres caveat:** `expiration_date` and `registry_reported` are lost on postgres round-trip (no columns); FHIR Bundle still works because primary fields are now persisted.
+
+**Admin-list endpoints migrated (read-only via `list_all()`):** These return entity types directly (rather than legacy structs) since the admin endpoints don't have established client consumers and the shape change is acceptable. Each entity got a `list_all()` default trait method + memory backend override; postgres backends inherit the default (which returns `NotFound`) so they fall through `unwrap_or_default()` to an empty list — postgres `list_all` impls are a Round-3 follow-up.
+- [x] `chain_of_custody` (admin list, line 19565) — via `ChainOfCustodyRepository::list_all()`
+- [x] `lab_qc_records` (admin list, line 19608) — via `LabQcRecordRepository::list_all()`
+- [x] `critical_values` (admin list, line 19654) — via `CriticalValueRepository::list_all()`
+- [x] `radiology_orders` + `radiology_reports` (admin list, lines 19700-01) — via `RadiologyOrderRepository::list_all()` + `RadiologyReportRepository::list_all()`
+- [x] `pathology_reports` (admin list, line 19751) — via `PathologyReportRepository::list_all()`
+- [x] `immunization_schedules` (admin list, line 19809) — via `ImmunizationScheduleRepository::list_all()`
+- [x] `blood_type_screens` + `crossmatch_records` + `transfusion_records` (admin list, lines 19858-60) — via respective `*::list_all()`
+
+**list_all default trait method added (memory backend overrides included) but admin endpoints not yet migrated:** these have parity ready for Round 3 endpoint migration: `BloodTypeScreen`, `Crossmatch`, `Transfusion`, `ImmunizationSchedule`, `SpecimenCollection`, `SpecimenRejection`, `LabPanel`, `Anesthesia`, `CodeBlue`, `OperativeNote`, `IntubationRecord`, `LacerationRepair`, `HistoryPhysical`, `LabTrend`. (Memory overrides done for those used in admin endpoints; remaining ones inherit the default and need overrides during Round 3 endpoint migration.)
+
+**Not yet migrated (deferred, with reasons):**
+
+*Schema/encryption blockers (need design work):*
+- [ ] `patients` (18 main.rs + 4 clinical_endpoints.rs sites) — **BLOCKED**: `PatientProfile` (rich plaintext nested struct) cannot losslessly convert to `PatientEntity` (encrypted byte fields + missing address/insurance/preferences/contacts). Needs encryption helpers (ChaCha20 using `data.encryption_key`) + side tables OR a JSON blob column on `patients` table.
+- [ ] `lab_submissions` (10 sites across main.rs + clinical_endpoints.rs) — **BLOCKED**: `LabResultSubmission` models a *result review workflow* (status=Pending/Approved/Rejected, reviewed_by, rejection_reason, IPFS content_hash); `LabSubmissionEntity` models a *test order ticket* (ordering_provider_id, tests_ordered JSON, priority, no review fields). Different domain concepts. Either add review fields to `LabSubmissionEntity`, build a new `LabResultRepository`, or accept lossy mapping.
+- [ ] `sync_queue` (3 sites) — **BLOCKED**: `SyncQueueItem` is a *per-item pending queue* (device_id, entity_type, entity_id, operation, attempts, priority); `SyncOperationEntity` is a *batch sync run summary* (total_records, processed_records, success_count). Different concepts. Needs a `SyncQueueItemRepository` or rework of `SyncOperationEntity`.
+
+*Workable but non-trivial (enum→string + datetime conversion):*
+- (none currently — see Migrated list above)
+
+*Round 3 — Feature-site migrations (repos+list_all ready, sites still on legacy HashMap):*
+- [ ] `lab_panels` (1 site: 4883), `specimen_collections` (2 sites: 3147, 4853), `specimen_rejections` (1 site: 4859), `lab_trends` (3 sites: 17147, 17305, 17347) — feature flows on legacy HashMap; admin list cluster already migrated.
+- [ ] `radiology_reports` feature read (1 site: 10424) — admin list already migrated.
+- [ ] `anesthesia_records` (1 site: 8144), `operative_notes` (1 site: 10567), `intubation_records` (1 site: 10622), `laceration_records` (1 site: 10661) — surgical/procedural reads.
+- [ ] `history_physicals` (1 site: 4260), `code_blue_records` (1 site: 5429) — feature reads.
+- [ ] `io_records` (1 site: 20315), `adherence_logs` (1 site: 11413) — repos exist.
+- [ ] `insurance_claims` (5 sites: 18024, 18056, 18115, 18175, 18524) — needs `InsuranceClaimRepository` (no current repo for `InsuranceClaim`; `InsuranceRecordRepository` covers a different entity).
+- [ ] `wound_assessments` (1 site: 5646), `iv_assessments` (1 site: 5662) — repos exist (`WoundAssessmentRepository`, `IVAssessmentRepository`).
+- [ ] `drug_interactions` (2 sites: 12262, 12329) — `DrugInteractionRepository` exists.
+
+*Round 3 — Blocked (no repository OR schema mismatch):*
+- [ ] `users` (~30 sites) — no repository exists; auth subsystem keeps own state.
+- [ ] `family_groups` (8 sites: 12403-12712), `wearable_*` (~10 sites: 13290-13790), `telehealth_sessions` (6 sites: 15888-16254), `symptom_sessions` (6 sites: 13869-14519), `e_prescriptions_v2` (7 sites: 17576-17851), `autopsy_requests/reports` (3 sites: 9478, 9527, 19916-17), `consult_notes` (1 site: 19968), `satisfaction_surveys` (2 sites: 9574, 9624), `eligibility_checks` (1 site: 18418), `language_preferences` (2 sites: 19068, 19099) — repos may exist but shape doesn't match legacy struct (e.g., `EPrescriptionRepository` vs legacy `EPrescriptionV2`), or no repo at all (`family_groups`, `autopsy_*`, `satisfaction_surveys`, `eligibility_checks`, `language_preferences`).
+
+**What's still needed:**
+- [ ] Complete the deferred migrations above (~6 hours, mostly mechanical)
+- [ ] Resolve patient encryption/schema wall (separate design task)
+- [ ] Ensure `MEDICHAIN_STORAGE=postgres` activates PostgreSQL for ALL endpoints
 - [ ] Add database transaction support for multi-step operations (e.g., creating a record + logging access)
 - [ ] Verify all 70+ DB tables have matching repository CRUD operations
 - [ ] Add connection pool health monitoring and graceful degradation
 
-### 2.2 Unimplemented Repository Trait Methods :large_orange_diamond:
+### 2.2 Unimplemented Repository Trait Methods :white_check_mark:
 **File:** `api/src/repositories/traits.rs`
 
-**Current state:** 41 trait methods return `RepositoryError::NotImplemented` as their default. These need real implementations in both `memory/` and `postgres/` backends.
+**Current state:** All 43 previously-default `NotImplemented` trait methods now have real implementations in both `memory/` and `postgres/` backends. Memory backend covered by 11 new unit tests in `phase5.rs` and `phase6.rs` (44 memory tests pass).
 
 **What's needed (by repository):**
 
 **InsuranceRecordRepository:**
-- [ ] `deactivate()` — mark insurance record inactive
-- [ ] `get_expiring()` — find records nearing expiration
-- [ ] `get_primary()` — return patient's primary insurance
-- [ ] `get_active()` — list active insurance records
-- [ ] `verify_eligibility()` — run eligibility rules engine
-- [ ] `set_primary()` — designate primary insurance
-- [ ] `terminate()` — end an insurance record
+- [x] `deactivate()` — mark insurance record inactive
+- [x] `get_expiring()` — find records nearing expiration
+- [x] `get_primary()` — return patient's primary insurance
+- [x] `get_active()` — list active insurance records
+- [x] `verify_eligibility()` — run eligibility rules engine
+- [x] `set_primary()` — designate primary insurance
+- [x] `terminate()` — end an insurance record
 
 **BillingCodeRepository:**
-- [ ] `get_active()`, `deactivate()`, `list_by_type()`
+- [x] `get_active()`, `deactivate()`, `list_by_type()`
 
 **CdsAlertRepository:**
-- [ ] `get_by_encounter()`, `get_unacknowledged()`, `dismiss()`, `get_by_rule()`, `get_high_severity()`
+- [x] `get_by_encounter()`, `get_unacknowledged()`, `dismiss()`, `get_by_rule()`, `get_high_severity()`
 
 **DeathRecordRepository:**
-- [ ] `certify()`, `get_pending_certification()`, `get_medical_examiner_cases()`, `get_pending_autopsies()`
+- [x] `certify()`, `get_pending_certification()`, `get_medical_examiner_cases()`, `get_pending_autopsies()`
 
 **OrganDonationRecordRepository:**
-- [ ] `get_pending_recovery()`, `get_by_opo()`
+- [x] `get_pending_recovery()`, `get_by_opo()`
 
 **SyncOperationRepository:**
-- [ ] `update_progress()`, `complete()`, `fail()`, `get_pending_retries()`, `get_in_progress()`
+- [x] `update_progress()`, `complete()`, `fail()`, `get_pending_retries()`, `get_in_progress()`
 
 **SyncConflictRepository:**
-- [ ] `get_auto_resolvable()`
+- [x] `get_auto_resolvable()`
 
 **ExternalIdMappingRepository:**
-- [ ] `update_sync_time()`, `delete()`, `deactivate()`, `get_by_system()`
+- [x] `update_sync_time()`, `delete()`, `deactivate()`, `get_by_system()`
 
 ---
 
@@ -373,11 +421,11 @@ MediChain is approximately **60-65% production-ready**. The core architecture is
 
 | # | Feature | Status | Priority |
 |---|---------|--------|----------|
-| 1.1 | Blockchain real extrinsic submission | :red_circle: Not Started | CRITICAL |
-| 1.2 | Substrate node implementation | :red_circle: Not Started | CRITICAL |
-| 1.3 | Frontend wallet integration | :red_circle: Not Started | CRITICAL |
+| 1.1 | Blockchain real extrinsic submission | :white_check_mark: Fully Implemented | CRITICAL |
+| 1.2 | Substrate node implementation | :white_check_mark: Fully Implemented | CRITICAL |
+| 1.3 | Frontend wallet integration | :white_check_mark: Fully Implemented | CRITICAL |
 | 2.1 | Clinical endpoints → PostgreSQL | :large_orange_diamond: Partial | CRITICAL |
-| 2.2 | 41 repository trait methods | :red_circle: Not Started | CRITICAL |
+| 2.2 | 43 repository trait methods | :white_check_mark: Fully Implemented | CRITICAL |
 | 3.1 | Clinical form pages API integration | :large_orange_diamond: Partial | HIGH |
 | 3.2 | Patient app completeness | :large_orange_diamond: Partial | HIGH |
 | 3.3 | SSE real-time events in frontend | :red_circle: Not Started | HIGH |
@@ -598,11 +646,11 @@ MediChain is approximately **60-65% production-ready**. The core architecture is
 
 | # | Feature | Status | Priority |
 |---|---------|--------|----------|
-| 1.1 | Blockchain real extrinsic submission | :red_circle: Not Started | CRITICAL |
-| 1.2 | Substrate node implementation | :red_circle: Not Started | CRITICAL |
-| 1.3 | Frontend wallet integration | :red_circle: Not Started | CRITICAL |
+| 1.1 | Blockchain real extrinsic submission | :white_check_mark: Fully Implemented | CRITICAL |
+| 1.2 | Substrate node implementation | :white_check_mark: Fully Implemented | CRITICAL |
+| 1.3 | Frontend wallet integration | :white_check_mark: Fully Implemented | CRITICAL |
 | 2.1 | Clinical endpoints → PostgreSQL | :large_orange_diamond: Partial | CRITICAL |
-| 2.2 | 41 repository trait methods | :red_circle: Not Started | CRITICAL |
+| 2.2 | 43 repository trait methods | :white_check_mark: Fully Implemented | CRITICAL |
 | 3.1 | Clinical form pages API integration | :large_orange_diamond: Partial | HIGH |
 | 3.2 | Patient app completeness | :large_orange_diamond: Partial | HIGH |
 | 3.3 | SSE real-time events in frontend | :red_circle: Not Started | HIGH |

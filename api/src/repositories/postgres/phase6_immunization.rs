@@ -199,6 +199,17 @@ impl ImmunizationRecordRepository for PgImmunizationRecordRepository {
 
         Ok(items)
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM immunization_records ORDER BY administration_date DESC",
+        );
+        let items = qb
+            .build_query_as::<ImmunizationRecordEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(items)
+    }
 }
 
 // =============================================================================

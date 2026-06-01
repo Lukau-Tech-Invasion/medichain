@@ -155,6 +155,50 @@ impl CdsAlertRepository for PgCdsAlertRepository {
         Ok(items)
     }
 
+    async fn update(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity> {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE cds_alerts SET ");
+        qb.push("patient_id = ").push_bind(&alert.patient_id);
+        qb.push(", encounter_id = ").push_bind(&alert.encounter_id);
+        qb.push(", provider_id = ").push_bind(&alert.provider_id);
+        qb.push(", alert_datetime = ").push_bind(alert.alert_datetime);
+        qb.push(", alert_type = ").push_bind(&alert.alert_type);
+        qb.push(", alert_category = ").push_bind(&alert.alert_category);
+        qb.push(", severity = ").push_bind(&alert.severity);
+        qb.push(", alert_title = ").push_bind(&alert.alert_title);
+        qb.push(", alert_message = ").push_bind(&alert.alert_message);
+        qb.push(", clinical_evidence = ").push_bind(&alert.clinical_evidence);
+        qb.push(", recommendation = ").push_bind(&alert.recommendation);
+        qb.push(", source_system = ").push_bind(&alert.source_system);
+        qb.push(", rule_id = ").push_bind(&alert.rule_id);
+        qb.push(", rule_version = ").push_bind(&alert.rule_version);
+        qb.push(", trigger_data = ").push_bind(&alert.trigger_data);
+        qb.push(", related_order_id = ").push_bind(&alert.related_order_id);
+        qb.push(", related_medication_id = ").push_bind(&alert.related_medication_id);
+        qb.push(", related_lab_id = ").push_bind(&alert.related_lab_id);
+        qb.push(", status = ").push_bind(&alert.status);
+        qb.push(", acknowledged_by = ").push_bind(&alert.acknowledged_by);
+        qb.push(", acknowledged_datetime = ").push_bind(alert.acknowledged_datetime);
+        qb.push(", override_reason = ").push_bind(&alert.override_reason);
+        qb.push(", override_justification = ").push_bind(&alert.override_justification);
+        qb.push(", action_taken = ").push_bind(&alert.action_taken);
+        qb.push(", action_datetime = ").push_bind(alert.action_datetime);
+        qb.push(", auto_resolved = ").push_bind(alert.auto_resolved);
+        qb.push(", resolution_reason = ").push_bind(&alert.resolution_reason);
+        qb.push(", was_helpful = ").push_bind(alert.was_helpful);
+        qb.push(", feedback_notes = ").push_bind(&alert.feedback_notes);
+        qb.push(", displayed_duration_seconds = ")
+            .push_bind(alert.displayed_duration_seconds);
+        qb.push(", updated_at = NOW() WHERE id = ").push_bind(&alert.id);
+        qb.push(" RETURNING *");
+
+        let result = qb
+            .build_query_as::<CdsAlertEntity>()
+            .fetch_one(&self.pool)
+            .await?;
+
+        Ok(result)
+    }
+
     async fn acknowledge(
         &self,
         id: &str,
@@ -246,14 +290,14 @@ impl CdsAlertRepository for PgCdsAlertRepository {
 
     async fn get_high_severity(&self) -> RepositoryResult<Vec<CdsAlertEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM cds_alerts 
-             WHERE severity IN ('critical', 'high') 
-             AND status = 'active' 
-             AND acknowledged_by IS NULL 
-             ORDER BY CASE severity 
-                 WHEN 'critical' THEN 1 
-                 WHEN 'high' THEN 2 
-                 ELSE 3 
+            "SELECT * FROM cds_alerts
+             WHERE severity IN ('critical', 'high')
+             AND status = 'active'
+             AND acknowledged_by IS NULL
+             ORDER BY CASE severity
+                 WHEN 'critical' THEN 1
+                 WHEN 'high' THEN 2
+                 ELSE 3
              END, created_at ASC",
         );
 
@@ -263,5 +307,27 @@ impl CdsAlertRepository for PgCdsAlertRepository {
             .await?;
 
         Ok(items)
+    }
+
+    async fn list_all(
+        &self,
+        pagination: Pagination,
+    ) -> RepositoryResult<PaginatedResult<CdsAlertEntity>> {
+        let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM cds_alerts")
+            .fetch_one(&self.pool)
+            .await? as u64;
+
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM cds_alerts ORDER BY created_at DESC LIMIT ");
+        qb.push_bind(pagination.limit() as i32);
+        qb.push(" OFFSET ");
+        qb.push_bind(pagination.offset() as i32);
+
+        let items = qb
+            .build_query_as::<CdsAlertEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(PaginatedResult::new(items, total, &pagination))
     }
 }
