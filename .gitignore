@@ -50,6 +50,10 @@ coverage/
 # AI assistant / tooling artifacts (never commit)
 .claude/
 .junie/
+.ai/
+.aiassistant/
+mcp.json
+**/mcp.json
 .aiignore
 .aiexclude
 .cursor/
