@@ -14,7 +14,7 @@ import {
   getApiErrorMessage,
   issueJwt
 } from '@medichain/shared';
-import { connectRealWallet, signMessage } from '@medichain/shared/src/wallet/service';
+import { connectRealWallet, signMessage } from '@medichain/shared';
 import type { Role as WalletRole } from '@medichain/shared';
 
 /**

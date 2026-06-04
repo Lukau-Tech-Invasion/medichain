@@ -200,4 +200,3 @@ pub async fn verify_session_token(req: HttpRequest) -> impl Responder {
         expires_at,
     })
 }
-

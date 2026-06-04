@@ -775,9 +775,9 @@ impl RepositoryContainer {
             wearable_alert_rules: Arc::new(postgres::PgWearableAlertRuleRepository::new(
                 pool.clone(),
             )),
-            telehealth_session_records: Arc::new(postgres::PgTelehealthSessionRecordRepository::new(
-                pool.clone(),
-            )),
+            telehealth_session_records: Arc::new(
+                postgres::PgTelehealthSessionRecordRepository::new(pool.clone()),
+            ),
 
             // Round 6: shape-mismatch domains (PostgreSQL)
             e_prescriptions_v2: Arc::new(postgres::PgEPrescriptionV2Repository::new(pool.clone())),

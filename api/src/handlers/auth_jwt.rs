@@ -40,7 +40,10 @@ pub struct JwtIssueResponse {
 /// The signed message format matches the challenge from `/api/auth/challenge`:
 /// `<timestamp>:<wallet_address>`. In demo mode the signature may be omitted.
 #[post("/api/auth/jwt")]
-pub async fn issue_jwt(data: web::Data<AppState>, body: web::Json<JwtIssueRequest>) -> impl Responder {
+pub async fn issue_jwt(
+    data: web::Data<AppState>,
+    body: web::Json<JwtIssueRequest>,
+) -> impl Responder {
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
@@ -106,7 +109,10 @@ pub struct JwtRefreshRequest {
 ///
 /// POST /api/auth/jwt/refresh
 #[post("/api/auth/jwt/refresh")]
-pub async fn refresh_jwt(data: web::Data<AppState>, body: web::Json<JwtRefreshRequest>) -> impl Responder {
+pub async fn refresh_jwt(
+    data: web::Data<AppState>,
+    body: web::Json<JwtRefreshRequest>,
+) -> impl Responder {
     let claims = match jwt::decode_token(&body.refresh_token) {
         Ok(c) if c.typ == jwt::TYP_REFRESH => c,
         _ => {
@@ -224,25 +230,38 @@ pub struct MfaCodeRequest {
 ///
 /// POST /api/auth/mfa/verify
 #[post("/api/auth/mfa/verify")]
-pub async fn mfa_verify(data: web::Data<AppState>, req: HttpRequest, body: web::Json<MfaCodeRequest>) -> impl Responder {
+pub async fn mfa_verify(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<MfaCodeRequest>,
+) -> impl Responder {
     let wallet = match get_current_user_id(&req) {
         Some(id) => id,
         None => return unauthorized_missing_user(),
     };
 
-    let secret = match data.security.mfa.read().ok().and_then(|m| m.get(&wallet).map(|r| r.secret_base32.clone())) {
+    let secret = match data
+        .security
+        .mfa
+        .read()
+        .ok()
+        .and_then(|m| m.get(&wallet).map(|r| r.secret_base32.clone()))
+    {
         Some(s) => s,
         None => {
             return HttpResponse::BadRequest().json(ErrorResponse {
                 success: false,
-                error: "No MFA enrollment in progress. Call /api/auth/mfa/enroll first.".to_string(),
+                error: "No MFA enrollment in progress. Call /api/auth/mfa/enroll first."
+                    .to_string(),
                 code: "MFA_NOT_ENROLLED".to_string(),
             })
         }
     };
 
     if !mfa::verify_code(&secret, &wallet, &body.code) {
-        data.security.observe_failed_auth(&data.ws_manager, &wallet).await;
+        data.security
+            .observe_failed_auth(&data.ws_manager, &wallet)
+            .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
             success: false,
             error: "Invalid MFA code".to_string(),
@@ -270,14 +289,20 @@ pub async fn mfa_verify(data: web::Data<AppState>, req: HttpRequest, body: web::
 ///
 /// POST /api/auth/mfa/challenge
 #[post("/api/auth/mfa/challenge")]
-pub async fn mfa_challenge(data: web::Data<AppState>, req: HttpRequest, body: web::Json<MfaCodeRequest>) -> impl Responder {
+pub async fn mfa_challenge(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<MfaCodeRequest>,
+) -> impl Responder {
     let wallet = match get_current_user_id(&req) {
         Some(id) => id,
         None => return unauthorized_missing_user(),
     };
 
     let secret = match data.security.mfa.read().ok().and_then(|m| {
-        m.get(&wallet).filter(|r| r.enabled).map(|r| r.secret_base32.clone())
+        m.get(&wallet)
+            .filter(|r| r.enabled)
+            .map(|r| r.secret_base32.clone())
     }) {
         Some(s) => s,
         None => {
@@ -290,7 +315,9 @@ pub async fn mfa_challenge(data: web::Data<AppState>, req: HttpRequest, body: we
     };
 
     if !mfa::verify_code(&secret, &wallet, &body.code) {
-        data.security.observe_failed_auth(&data.ws_manager, &wallet).await;
+        data.security
+            .observe_failed_auth(&data.ws_manager, &wallet)
+            .await;
         return HttpResponse::Unauthorized().json(ErrorResponse {
             success: false,
             error: "Invalid MFA code".to_string(),
@@ -342,14 +369,20 @@ pub async fn mfa_status(data: web::Data<AppState>, req: HttpRequest) -> impl Res
 ///
 /// POST /api/auth/mfa/disable
 #[post("/api/auth/mfa/disable")]
-pub async fn mfa_disable(data: web::Data<AppState>, req: HttpRequest, body: web::Json<MfaCodeRequest>) -> impl Responder {
+pub async fn mfa_disable(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<MfaCodeRequest>,
+) -> impl Responder {
     let wallet = match get_current_user_id(&req) {
         Some(id) => id,
         None => return unauthorized_missing_user(),
     };
 
     let secret = match data.security.mfa.read().ok().and_then(|m| {
-        m.get(&wallet).filter(|r| r.enabled).map(|r| r.secret_base32.clone())
+        m.get(&wallet)
+            .filter(|r| r.enabled)
+            .map(|r| r.secret_base32.clone())
     }) {
         Some(s) => s,
         None => {
@@ -414,7 +447,11 @@ pub struct DeclareBreachRequest {
 ///
 /// POST /api/admin/security/breach
 #[post("/api/admin/security/breach")]
-pub async fn declare_breach(data: web::Data<AppState>, req: HttpRequest, body: web::Json<DeclareBreachRequest>) -> impl Responder {
+pub async fn declare_breach(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<DeclareBreachRequest>,
+) -> impl Responder {
     match require_admin(&data, &req) {
         Ok(()) => {}
         Err(resp) => return resp,
@@ -426,15 +463,17 @@ pub async fn declare_breach(data: web::Data<AppState>, req: HttpRequest, body: w
 
     let alert = data
         .security
-        .declare_breach(&data.ws_manager, body.actor.clone(), body.description.clone())
+        .declare_breach(
+            &data.ws_manager,
+            body.actor.clone(),
+            body.description.clone(),
+        )
         .await;
 
     // Automated notification dispatch to the security officer (SMS); best-effort.
-    let notified = crate::notifications::dispatch_breach_notification(
-        &alert.message,
-        alert.notify_deadline,
-    )
-    .await;
+    let notified =
+        crate::notifications::dispatch_breach_notification(&alert.message, alert.notify_deadline)
+            .await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

@@ -98,7 +98,10 @@ pub async fn wallet_login(
 
 /// Login with wallet address (GET version for frontend compatibility)
 #[get("/api/auth/login/{address}")]
-pub async fn wallet_login_get(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
+pub async fn wallet_login_get(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
     let wallet_address = path.into_inner();
 
     // Validate wallet address format
@@ -493,16 +496,17 @@ pub async fn list_users(
             let mut user_with_profile = user.clone();
 
             // Try to get profile data from database
-            let profile_result: Result<Option<crate::models::user::DbUserProfile>, _> = sqlx::query_as(
-                r#"
+            let profile_result: Result<Option<crate::models::user::DbUserProfile>, _> =
+                sqlx::query_as(
+                    r#"
                 SELECT up.* FROM user_profiles up
                 INNER JOIN users u ON up.user_id = u.id
                 WHERE u.wallet_address = $1
                 "#,
-            )
-            .bind(&user.wallet_address)
-            .fetch_optional(pool)
-            .await;
+                )
+                .bind(&user.wallet_address)
+                .fetch_optional(pool)
+                .await;
 
             if let Ok(Some(profile)) = profile_result {
                 user_with_profile.phone = profile.phone;
@@ -801,4 +805,3 @@ pub async fn save_settings(
         "user_id": current_user_id,
     }))
 }
-

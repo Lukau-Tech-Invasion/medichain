@@ -69,8 +69,8 @@ fn put_cached(key: String, status: u16, content_type: Option<String>, body: Vec<
 }
 
 fn build_response(status: u16, content_type: Option<String>, body: Vec<u8>) -> HttpResponse {
-    let code = actix_web::http::StatusCode::from_u16(status)
-        .unwrap_or(actix_web::http::StatusCode::OK);
+    let code =
+        actix_web::http::StatusCode::from_u16(status).unwrap_or(actix_web::http::StatusCode::OK);
     let mut builder = HttpResponse::build(code);
     if let Some(ct) = content_type {
         builder.insert_header((header::CONTENT_TYPE, ct));
@@ -125,8 +125,7 @@ where
             .get("Idempotency-Key")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_owned());
-        let participates =
-            matches!(*req.method(), Method::POST | Method::PUT) && key.is_some();
+        let participates = matches!(*req.method(), Method::POST | Method::PUT) && key.is_some();
 
         Box::pin(async move {
             if let (true, Some(key)) = (participates, key.clone()) {
@@ -147,7 +146,9 @@ where
                     .map(|s| s.to_owned());
                 let body = to_bytes(resp.into_body())
                     .await
-                    .map_err(|_| actix_web::error::ErrorInternalServerError("response body read failed"))?
+                    .map_err(|_| {
+                        actix_web::error::ErrorInternalServerError("response body read failed")
+                    })?
                     .to_vec();
 
                 // Only cache successful, idempotent outcomes (2xx).
@@ -170,7 +171,12 @@ mod tests {
 
     #[test]
     fn cache_round_trips_and_expires_pruning() {
-        put_cached("k1".into(), 200, Some("application/json".into()), b"{}".to_vec());
+        put_cached(
+            "k1".into(),
+            200,
+            Some("application/json".into()),
+            b"{}".to_vec(),
+        );
         let got = get_cached("k1");
         assert!(got.is_some());
         let (status, ct, body) = got.unwrap();

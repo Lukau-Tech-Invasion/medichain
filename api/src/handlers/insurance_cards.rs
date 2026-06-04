@@ -55,7 +55,12 @@ pub async fn list_insurance_cards(
         return resp;
     }
     let patient_id = path.into_inner();
-    match data.repositories.insurance_cards.get_by_owner(&patient_id).await {
+    match data
+        .repositories
+        .insurance_cards
+        .get_by_owner(&patient_id)
+        .await
+    {
         Ok(records) => {
             // get_by_owner already returns newest-first (ts DESC) — the order
             // paginate_cursor expects.
@@ -233,7 +238,10 @@ pub async fn upload_insurance_card_image(
 
     let metadata = EncryptedMetadata {
         filename: format!("insurance-card-{}", id),
-        content_type: body.content_type.clone().unwrap_or_else(|| "image/jpeg".to_string()),
+        content_type: body
+            .content_type
+            .clone()
+            .unwrap_or_else(|| "image/jpeg".to_string()),
         uploaded_at: Utc::now().timestamp(),
         patient_id: existing.owner_id.clone(),
         uploaded_by: uploader,
@@ -258,7 +266,10 @@ pub async fn upload_insurance_card_image(
     // Persist the IPFS hash onto the card.
     let mut new_data = existing.data.clone();
     if let Some(obj) = new_data.as_object_mut() {
-        obj.insert("image_ipfs_hash".to_string(), serde_json::json!(result.ipfs_hash));
+        obj.insert(
+            "image_ipfs_hash".to_string(),
+            serde_json::json!(result.ipfs_hash),
+        );
     }
     let entity = crate::repositories::traits::JsonRecordEntity {
         id: id.clone(),

@@ -1705,7 +1705,12 @@ mod tests {
 
     // -------- Phase 2.2 coverage: insurance lifecycle methods --------
 
-    fn make_insurance(id: &str, patient: &str, kind: &str, term_days: i64) -> InsuranceRecordEntity {
+    fn make_insurance(
+        id: &str,
+        patient: &str,
+        kind: &str,
+        term_days: i64,
+    ) -> InsuranceRecordEntity {
         let today = chrono::Utc::now().date_naive();
         let now = Utc::now();
         InsuranceRecordEntity {
@@ -1814,10 +1819,7 @@ mod tests {
             .await
             .unwrap();
 
-        let verified = repo
-            .verify_eligibility("ins-V", "staff-007")
-            .await
-            .unwrap();
+        let verified = repo.verify_eligibility("ins-V", "staff-007").await.unwrap();
         assert_eq!(verified.verification_status.as_deref(), Some("verified"));
         assert_eq!(verified.last_verified_by.as_deref(), Some("staff-007"));
     }

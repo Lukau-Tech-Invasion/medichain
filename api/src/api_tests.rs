@@ -3,14 +3,17 @@
 
 #[cfg(test)]
 mod tests {
-    use actix_web::{test, App, web, HttpResponse};
-    use crate::{AppState, health_check, get_current_user_info, User, Role, register_patient, get_patient_by_id};
+    use crate::{
+        get_current_user_info, get_patient_by_id, health_check, register_patient, AppState, Role,
+        User,
+    };
+    use actix_web::{test, web, App, HttpResponse};
     use chrono::Utc;
     use serde_json::json;
 
     async fn setup_app_state() -> web::Data<AppState> {
         let state = AppState::new();
-        
+
         // Setup a mock doctor
         let doctor = User {
             wallet_address: "doctor_wallet".to_string(),
@@ -28,23 +31,20 @@ mod tests {
             status: "active".to_string(),
             last_login: None,
         };
-        
+
         {
             let mut users = state.users.write().unwrap();
             users.insert("doctor_wallet".to_string(), doctor);
         }
-        
+
         web::Data::new(state)
     }
 
     #[actix_rt::test]
     async fn test_health_check() {
         let app_state = setup_app_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(app_state.clone())
-                .service(health_check)
-        ).await;
+        let app =
+            test::init_service(App::new().app_data(app_state.clone()).service(health_check)).await;
 
         let req = test::TestRequest::get().uri("/health").to_request();
         let resp = test::call_service(&app, req).await;
@@ -58,8 +58,9 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
-                .service(get_current_user_info)
-        ).await;
+                .service(get_current_user_info),
+        )
+        .await;
 
         let req = test::TestRequest::get()
             .uri("/api/auth/me")
@@ -79,12 +80,11 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(app_state.clone())
-                .service(get_current_user_info)
-        ).await;
+                .service(get_current_user_info),
+        )
+        .await;
 
-        let req = test::TestRequest::get()
-            .uri("/api/auth/me")
-            .to_request();
+        let req = test::TestRequest::get().uri("/api/auth/me").to_request();
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
@@ -97,8 +97,9 @@ mod tests {
             App::new()
                 .app_data(app_state.clone())
                 .service(register_patient)
-                .service(get_patient_by_id)
-        ).await;
+                .service(get_patient_by_id),
+        )
+        .await;
 
         let registration_payload = json!({
             "full_name": "Test Patient",
@@ -130,9 +131,11 @@ mod tests {
             let body = test::read_body(resp).await;
             panic!("Registration failed with status {}: {:?}", status, body);
         }
-        
+
         let created: serde_json::Value = test::read_body_json(resp).await;
-        let patient_id = created["patient_id"].as_str().expect("patient_id should be a string");
+        let patient_id = created["patient_id"]
+            .as_str()
+            .expect("patient_id should be a string");
 
         // Retrieve patient
         let req = test::TestRequest::get()

@@ -147,4 +147,3 @@ pub struct AccessLogsResponse {
     pub access_logs: Vec<AccessLogEntry>,
     pub total_accesses: usize,
 }
-

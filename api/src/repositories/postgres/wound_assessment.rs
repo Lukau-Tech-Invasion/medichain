@@ -201,9 +201,8 @@ impl WoundAssessmentRepository for PgWoundAssessmentRepository {
             .fetch_one(&self.pool)
             .await?;
 
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM wound_assessments ORDER BY assessed_at DESC LIMIT ",
-        );
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM wound_assessments ORDER BY assessed_at DESC LIMIT ");
         qb.push_bind(pagination.limit() as i64);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i64);

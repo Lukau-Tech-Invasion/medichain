@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// Verify a national ID number against the appropriate government API.
 ///
 /// Falls back to a deterministic SHA3-256 stub when no real API key is
@@ -135,4 +134,3 @@ pub async fn simulate_nfc_tap(
         message: "NFC tap simulated. Use the tag_id for emergency access.".to_string(),
     })
 }
-

@@ -167,7 +167,10 @@ pub async fn create_gcs_assessment(
         total_score: total_score as i32,
         interpretation: interpretation.clone(),
         notes: None,
-        pupil_assessment: req.pupil_assessment.as_ref().map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
+        pupil_assessment: req
+            .pupil_assessment
+            .as_ref()
+            .map(|p| serde_json::to_value(p).unwrap_or(serde_json::Value::Null)),
         assessed_by: current_user_id.clone(),
         assessed_at: Utc::now(),
         created_at: Utc::now(),
@@ -258,17 +261,26 @@ pub async fn get_gcs_assessment(
         });
     }
 
-    match data.repositories.gcs_assessments.get_by_id(&assessment_id).await {
+    match data
+        .repositories
+        .gcs_assessments
+        .get_by_id(&assessment_id)
+        .await
+    {
         Ok(entity) => {
             let assessment = GlasgowComaScale {
                 assessment_id: entity.id,
                 patient_id: entity.patient_id,
                 eye_response: crate::clinical::EyeResponse::from_score(entity.eye_response as u8)
                     .unwrap_or(crate::clinical::EyeResponse::None),
-                verbal_response: crate::clinical::VerbalResponse::from_score(entity.verbal_response as u8)
-                    .unwrap_or(crate::clinical::VerbalResponse::None),
-                motor_response: crate::clinical::MotorResponse::from_score(entity.motor_response as u8)
-                    .unwrap_or(crate::clinical::MotorResponse::None),
+                verbal_response: crate::clinical::VerbalResponse::from_score(
+                    entity.verbal_response as u8,
+                )
+                .unwrap_or(crate::clinical::VerbalResponse::None),
+                motor_response: crate::clinical::MotorResponse::from_score(
+                    entity.motor_response as u8,
+                )
+                .unwrap_or(crate::clinical::MotorResponse::None),
                 total_score: entity.total_score as u8,
                 interpretation: entity.interpretation,
                 pupil_assessment: None,
@@ -338,14 +350,18 @@ pub async fn get_patient_gcs_assessments(
                 .map(|entity| GlasgowComaScale {
                     assessment_id: entity.id,
                     patient_id: entity.patient_id,
-                    eye_response: crate::clinical::EyeResponse::from_score(entity.eye_response as u8)
-                        .unwrap_or(crate::clinical::EyeResponse::None),
+                    eye_response: crate::clinical::EyeResponse::from_score(
+                        entity.eye_response as u8,
+                    )
+                    .unwrap_or(crate::clinical::EyeResponse::None),
                     verbal_response: crate::clinical::VerbalResponse::from_score(
                         entity.verbal_response as u8,
                     )
                     .unwrap_or(crate::clinical::VerbalResponse::None),
-                    motor_response: crate::clinical::MotorResponse::from_score(entity.motor_response as u8)
-                        .unwrap_or(crate::clinical::MotorResponse::None),
+                    motor_response: crate::clinical::MotorResponse::from_score(
+                        entity.motor_response as u8,
+                    )
+                    .unwrap_or(crate::clinical::MotorResponse::None),
                     total_score: entity.total_score as u8,
                     interpretation: entity.interpretation,
                     pupil_assessment: None,
@@ -368,4 +384,3 @@ pub async fn get_patient_gcs_assessments(
         })),
     }
 }
-

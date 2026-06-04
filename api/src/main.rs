@@ -21,10 +21,10 @@ use actix_web::{web, App, HttpServer};
 
 use crate::middleware::idempotency::IdempotencyMiddleware;
 use crate::middleware::metrics::MetricsMiddleware;
-use crate::middleware::versioning::ApiVersionMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
 use crate::middleware::security_headers::SecurityHeadersMiddleware;
 use crate::middleware::signature_auth::SignatureAuthMiddleware;
+use crate::middleware::versioning::ApiVersionMiddleware;
 
 // Database modules (PostgreSQL integration)
 mod db;
@@ -75,7 +75,9 @@ pub(crate) use types::*;
 /// `log::` records into it (structured logs for aggregation). Otherwise the
 /// human-readable `env_logger` is used. Both honor `RUST_LOG`.
 fn init_logging() {
-    let json = std::env::var("LOG_FORMAT").map(|v| v == "json").unwrap_or(false);
+    let json = std::env::var("LOG_FORMAT")
+        .map(|v| v == "json")
+        .unwrap_or(false);
     if json {
         use tracing_subscriber::{fmt, EnvFilter};
         // Route `log::` macros (used throughout the codebase) into `tracing`.

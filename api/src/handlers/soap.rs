@@ -135,16 +135,23 @@ pub async fn create_soap_note(
     }
 
     // Log access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: req.patient_id.clone(),
-        accessor_id: current_user_id,
-        accessor_role: current_user.role.to_string(),
-        access_type: "create_soap_note".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: false,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: req.patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: "create_soap_note".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
 
     log::info!(
         "SOAP note {} created for patient {}",
@@ -397,4 +404,3 @@ pub async fn add_soap_addendum(
         "message": "Addendum added successfully"
     }))
 }
-

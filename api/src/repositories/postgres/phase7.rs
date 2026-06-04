@@ -27,10 +27,7 @@ macro_rules! pg_json_repo {
 
         #[async_trait]
         impl JsonRecordRepository for $name {
-            async fn create(
-                &self,
-                record: JsonRecordEntity,
-            ) -> RepositoryResult<JsonRecordEntity> {
+            async fn create(&self, record: JsonRecordEntity) -> RepositoryResult<JsonRecordEntity> {
                 let result = sqlx::query_as::<_, JsonRecordEntity>(concat!(
                     "INSERT INTO ",
                     $table,
@@ -115,10 +112,16 @@ pg_json_repo!(PgSyncQueueItemRepository, "sync_queue_items");
 // Round 5: wearables + telehealth legacy shapes (repos existed but entity shapes
 // don't match the rich legacy structs, so these persist losslessly as JSON).
 pg_json_repo!(PgWearableDeviceRecordRepository, "wearable_device_records");
-pg_json_repo!(PgWearableReadingRecordRepository, "wearable_reading_records");
+pg_json_repo!(
+    PgWearableReadingRecordRepository,
+    "wearable_reading_records"
+);
 pg_json_repo!(PgWearableAlertRecordRepository, "wearable_alert_records");
 pg_json_repo!(PgWearableAlertRuleRepository, "wearable_alert_rules");
-pg_json_repo!(PgTelehealthSessionRecordRepository, "telehealth_session_records");
+pg_json_repo!(
+    PgTelehealthSessionRecordRepository,
+    "telehealth_session_records"
+);
 
 // Round 6: shape-mismatch domains (legacy structs differ from existing typed
 // entities). Persisted losslessly as JSON under distinct table names.

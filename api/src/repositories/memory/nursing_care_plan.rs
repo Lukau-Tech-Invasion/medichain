@@ -174,11 +174,8 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
     ) -> RepositoryResult<PaginatedResult<NursingCarePlanEntity>> {
         let storage = self.data.read().unwrap();
 
-        let mut plans: Vec<NursingCarePlanEntity> = storage
-            .values()
-            .filter(|p| p.is_active)
-            .cloned()
-            .collect();
+        let mut plans: Vec<NursingCarePlanEntity> =
+            storage.values().filter(|p| p.is_active).cloned().collect();
 
         plans.sort_by(|a, b| b.start_date.cmp(&a.start_date));
 

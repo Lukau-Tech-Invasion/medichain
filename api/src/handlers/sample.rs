@@ -55,11 +55,18 @@ pub async fn create_sample_history(
     let entity = SampleHistoryEntity {
         id: Uuid::new_v4().to_string(),
         patient_id: req.patient_id.clone(),
-        signs_symptoms: serde_json::to_value(&req.signs_symptoms).unwrap_or(serde_json::Value::Array(vec![])),
-        allergies_snapshot: serde_json::to_value(&req.allergies).unwrap_or(serde_json::Value::Array(vec![])),
-        medications: serde_json::to_value(&req.medications).unwrap_or(serde_json::Value::Array(vec![])),
-        past_medical_history: serde_json::to_value(&req.past_medical_history).unwrap_or(serde_json::Value::Array(vec![])),
-        last_intake: req.last_intake.as_ref().map(|li| serde_json::to_value(li).unwrap_or(serde_json::Value::Null)),
+        signs_symptoms: serde_json::to_value(&req.signs_symptoms)
+            .unwrap_or(serde_json::Value::Array(vec![])),
+        allergies_snapshot: serde_json::to_value(&req.allergies)
+            .unwrap_or(serde_json::Value::Array(vec![])),
+        medications: serde_json::to_value(&req.medications)
+            .unwrap_or(serde_json::Value::Array(vec![])),
+        past_medical_history: serde_json::to_value(&req.past_medical_history)
+            .unwrap_or(serde_json::Value::Array(vec![])),
+        last_intake: req
+            .last_intake
+            .as_ref()
+            .map(|li| serde_json::to_value(li).unwrap_or(serde_json::Value::Null)),
         events_leading: req.events_leading.clone(),
         collected_by: current_user_id.clone(),
         collected_at: Utc::now(),
@@ -116,16 +123,30 @@ pub async fn get_sample_history(
             code: "UNAUTHORIZED".to_string(),
         });
     }
-    match data.repositories.sample_history.get_by_patient(&patient_id, Pagination::new(0, 1)).await {
+    match data
+        .repositories
+        .sample_history
+        .get_by_patient(&patient_id, Pagination::new(0, 1))
+        .await
+    {
         Ok(result) => {
             if let Some(entity) = result.items.first() {
                 let history = crate::clinical::SAMPLEHistory {
                     patient_id: entity.patient_id.clone(),
-                    signs_symptoms: serde_json::from_value(entity.signs_symptoms.clone()).unwrap_or_default(),
-                    allergies: serde_json::from_value(entity.allergies_snapshot.clone()).unwrap_or_default(),
-                    medications: serde_json::from_value(entity.medications.clone()).unwrap_or_default(),
-                    past_medical_history: serde_json::from_value(entity.past_medical_history.clone()).unwrap_or_default(),
-                    last_intake: entity.last_intake.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok()),
+                    signs_symptoms: serde_json::from_value(entity.signs_symptoms.clone())
+                        .unwrap_or_default(),
+                    allergies: serde_json::from_value(entity.allergies_snapshot.clone())
+                        .unwrap_or_default(),
+                    medications: serde_json::from_value(entity.medications.clone())
+                        .unwrap_or_default(),
+                    past_medical_history: serde_json::from_value(
+                        entity.past_medical_history.clone(),
+                    )
+                    .unwrap_or_default(),
+                    last_intake: entity
+                        .last_intake
+                        .as_ref()
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
                     events_leading: entity.events_leading.clone(),
                     collected_by: entity.collected_by.clone(),
                     collected_at: entity.collected_at.timestamp(),
@@ -246,4 +267,3 @@ pub async fn get_autopsy_request(
         }),
     }
 }
-

@@ -59,11 +59,11 @@ pub use sample_history::MemorySampleHistoryRepository;
 pub use wound_assessment::MemoryWoundAssessmentRepository;
 
 // Emergency protocol exports
-pub use emergency::MemoryCodeBlueRepository;
-pub use emergency::MemoryTraumaAssessmentRepository;
-pub use emergency::MemoryStrokeAssessmentRepository;
 pub use emergency::MemoryCardiacEventRepository;
+pub use emergency::MemoryCodeBlueRepository;
 pub use emergency::MemorySepsisAssessmentRepository;
+pub use emergency::MemoryStrokeAssessmentRepository;
+pub use emergency::MemoryTraumaAssessmentRepository;
 
 // Phase 3 exports - Lab & Diagnostics
 pub use phase3::MemoryCriticalValueRepository;

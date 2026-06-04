@@ -69,7 +69,8 @@ impl From<(String, crate::ipfs::MedicalRecordReference)>
     for crate::repositories::traits::MedicalRecordEntity
 {
     fn from((patient_id, r): (String, crate::ipfs::MedicalRecordReference)) -> Self {
-        let record_date = DateTime::<Utc>::from_timestamp(r.uploaded_at, 0).unwrap_or_else(Utc::now);
+        let record_date =
+            DateTime::<Utc>::from_timestamp(r.uploaded_at, 0).unwrap_or_else(Utc::now);
         Self {
             id: format!("REC-{}", Uuid::new_v4()),
             patient_id,
@@ -93,7 +94,9 @@ impl From<(String, crate::ipfs::MedicalRecordReference)>
     }
 }
 
-impl From<crate::repositories::traits::MedicalRecordEntity> for crate::ipfs::MedicalRecordReference {
+impl From<crate::repositories::traits::MedicalRecordEntity>
+    for crate::ipfs::MedicalRecordReference
+{
     fn from(entity: crate::repositories::traits::MedicalRecordEntity) -> Self {
         Self {
             content_hash: entity.ipfs_content_hash.unwrap_or_default(),
@@ -234,8 +237,7 @@ pub fn cds_parse_alert_type(s: &str) -> crate::clinical::CDSAlertType {
 
 impl From<crate::clinical::CDSAlert> for crate::repositories::traits::CdsAlertEntity {
     fn from(a: crate::clinical::CDSAlert) -> Self {
-        let created_at =
-            DateTime::<Utc>::from_timestamp(a.created_at, 0).unwrap_or_else(Utc::now);
+        let created_at = DateTime::<Utc>::from_timestamp(a.created_at, 0).unwrap_or_else(Utc::now);
         let extras = cds_pack_extras(&a);
         let recommendation = (!a.recommended_actions.is_empty())
             .then(|| serde_json::to_string(&a.recommended_actions).unwrap_or_default());
@@ -264,15 +266,15 @@ impl From<crate::clinical::CDSAlert> for crate::repositories::traits::CdsAlertEn
             related_lab_id: None,
             status: format!("{:?}", a.status).to_lowercase(),
             acknowledged_by: resp.as_ref().map(|r| r.responded_by.clone()),
-            acknowledged_datetime: resp
-                .as_ref()
-                .map(|r| DateTime::<Utc>::from_timestamp(r.responded_at, 0).unwrap_or_else(Utc::now)),
+            acknowledged_datetime: resp.as_ref().map(|r| {
+                DateTime::<Utc>::from_timestamp(r.responded_at, 0).unwrap_or_else(Utc::now)
+            }),
             override_reason: resp.as_ref().and_then(|r| r.override_reason.clone()),
             override_justification: None,
             action_taken: resp.as_ref().map(|r| format!("{:?}", r.action_taken)),
-            action_datetime: resp
-                .as_ref()
-                .map(|r| DateTime::<Utc>::from_timestamp(r.responded_at, 0).unwrap_or_else(Utc::now)),
+            action_datetime: resp.as_ref().map(|r| {
+                DateTime::<Utc>::from_timestamp(r.responded_at, 0).unwrap_or_else(Utc::now)
+            }),
             auto_resolved: None,
             resolution_reason: None,
             was_helpful: None,
@@ -342,12 +344,18 @@ pub fn appt_parse_status(s: &str) -> crate::clinical::AppointmentStatus {
 
 /// Parse "YYYY-MM-DD" + "HH:MM" into a UTC DateTime; falls back to `now` on error.
 pub fn appt_to_datetime(date: &str, time: &str) -> DateTime<Utc> {
-    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok().and_then(|d| {
-        let t = chrono::NaiveTime::parse_from_str(time, "%H:%M").ok()
-            .or_else(|| chrono::NaiveTime::parse_from_str(time, "%H:%M:%S").ok())
-            .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-        Some(DateTime::<Utc>::from_naive_utc_and_offset(d.and_time(t), Utc))
-    });
+    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .ok()
+        .and_then(|d| {
+            let t = chrono::NaiveTime::parse_from_str(time, "%H:%M")
+                .ok()
+                .or_else(|| chrono::NaiveTime::parse_from_str(time, "%H:%M:%S").ok())
+                .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+            Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                d.and_time(t),
+                Utc,
+            ))
+        });
     parsed.unwrap_or_else(Utc::now)
 }
 
@@ -357,14 +365,21 @@ impl From<crate::clinical::Appointment> for crate::repositories::traits::Appoint
             .scheduled_time
             .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0))
             .unwrap_or_else(|| appt_to_datetime(&a.scheduled_date, &a.start_time));
-        let created_at =
-            DateTime::<Utc>::from_timestamp(a.created_at, 0).unwrap_or_else(Utc::now);
-        let updated_at =
-            DateTime::<Utc>::from_timestamp(a.updated_at, 0).unwrap_or_else(Utc::now);
-        let check_in_time = a.check_in_time.and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
-        let location_str = Some(format!("{} / {}", a.location.facility_name, a.location.department));
+        let created_at = DateTime::<Utc>::from_timestamp(a.created_at, 0).unwrap_or_else(Utc::now);
+        let updated_at = DateTime::<Utc>::from_timestamp(a.updated_at, 0).unwrap_or_else(Utc::now);
+        let check_in_time = a
+            .check_in_time
+            .and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
+        let location_str = Some(format!(
+            "{} / {}",
+            a.location.facility_name, a.location.department
+        ));
         let room = a.location.room.clone();
-        let visit_type = if a.is_telehealth { Some("telehealth".to_string()) } else { None };
+        let visit_type = if a.is_telehealth {
+            Some("telehealth".to_string())
+        } else {
+            None
+        };
         let extras = appt_pack_extras(&a);
         Self {
             id: a.appointment_id,
@@ -407,7 +422,11 @@ impl From<crate::clinical::Appointment> for crate::repositories::traits::Appoint
 impl From<crate::repositories::traits::AppointmentEntity> for crate::clinical::Appointment {
     fn from(e: crate::repositories::traits::AppointmentEntity) -> Self {
         // Extras packed into `data`; fall back to reconstruction when missing (postgres path).
-        let extras = if e.data.is_object() { e.data.clone() } else { serde_json::json!({}) };
+        let extras = if e.data.is_object() {
+            e.data.clone()
+        } else {
+            serde_json::json!({})
+        };
         let scheduled_date = extras
             .get("scheduled_date")
             .and_then(|v| v.as_str())
@@ -520,7 +539,9 @@ pub fn med_rem_parse_frequency(s: &str) -> crate::clinical::ReminderFrequency {
     }
 }
 
-impl From<crate::clinical::MedicationReminder> for crate::repositories::traits::MedicationReminderEntity {
+impl From<crate::clinical::MedicationReminder>
+    for crate::repositories::traits::MedicationReminderEntity
+{
     fn from(r: crate::clinical::MedicationReminder) -> Self {
         let scheduled_time = r
             .reminder_times
@@ -537,8 +558,7 @@ impl From<crate::clinical::MedicationReminder> for crate::repositories::traits::
             .end_date
             .as_deref()
             .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let created_at =
-            DateTime::<Utc>::from_timestamp(r.created_at, 0).unwrap_or_else(Utc::now);
+        let created_at = DateTime::<Utc>::from_timestamp(r.created_at, 0).unwrap_or_else(Utc::now);
         let extras = med_rem_pack_extras(&r);
         Self {
             id: r.reminder_id,
@@ -563,9 +583,15 @@ impl From<crate::clinical::MedicationReminder> for crate::repositories::traits::
     }
 }
 
-impl From<crate::repositories::traits::MedicationReminderEntity> for crate::clinical::MedicationReminder {
+impl From<crate::repositories::traits::MedicationReminderEntity>
+    for crate::clinical::MedicationReminder
+{
     fn from(e: crate::repositories::traits::MedicationReminderEntity) -> Self {
-        let extras = if e.data.is_object() { e.data.clone() } else { serde_json::json!({}) };
+        let extras = if e.data.is_object() {
+            e.data.clone()
+        } else {
+            serde_json::json!({})
+        };
         let reminder_times: Vec<String> = extras
             .get("reminder_times")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -645,10 +671,13 @@ pub fn imm_parse_funding(s: &str) -> crate::clinical::FundingSource {
     }
 }
 
-impl From<crate::clinical::ImmunizationRecord> for crate::repositories::traits::ImmunizationRecordEntity {
+impl From<crate::clinical::ImmunizationRecord>
+    for crate::repositories::traits::ImmunizationRecordEntity
+{
     fn from(r: crate::clinical::ImmunizationRecord) -> Self {
-        let administration_date = chrono::NaiveDate::parse_from_str(&r.administration_date, "%Y-%m-%d")
-            .unwrap_or_else(|_| chrono::Utc::now().date_naive());
+        let administration_date =
+            chrono::NaiveDate::parse_from_str(&r.administration_date, "%Y-%m-%d")
+                .unwrap_or_else(|_| chrono::Utc::now().date_naive());
         let vis_date = chrono::NaiveDate::parse_from_str(&r.vis_date, "%Y-%m-%d").ok();
         let now = chrono::Utc::now();
         let extras = imm_pack_extras(&r);
@@ -693,9 +722,15 @@ impl From<crate::clinical::ImmunizationRecord> for crate::repositories::traits::
     }
 }
 
-impl From<crate::repositories::traits::ImmunizationRecordEntity> for crate::clinical::ImmunizationRecord {
+impl From<crate::repositories::traits::ImmunizationRecordEntity>
+    for crate::clinical::ImmunizationRecord
+{
     fn from(e: crate::repositories::traits::ImmunizationRecordEntity) -> Self {
-        let extras = if e.data.is_object() { e.data.clone() } else { serde_json::json!({}) };
+        let extras = if e.data.is_object() {
+            e.data.clone()
+        } else {
+            serde_json::json!({})
+        };
         let expiration_date = extras
             .get("expiration_date")
             .and_then(|v| v.as_str())
@@ -775,14 +810,17 @@ impl From<crate::repositories::traits::CdsAlertEntity> for crate::clinical::CDSA
             .as_deref()
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or_default();
-        let response = e.action_taken.as_deref().map(|action| crate::clinical::CDSResponse {
-            responded_at: e.action_datetime.unwrap_or(e.created_at).timestamp(),
-            responded_by: e.acknowledged_by.clone().unwrap_or_default(),
-            action_taken: cds_parse_action_taken(action),
-            override_reason: e.override_reason.clone(),
-            notes: e.feedback_notes.clone(),
-            time_to_response_seconds: e.displayed_duration_seconds.unwrap_or(0) as u32,
-        });
+        let response = e
+            .action_taken
+            .as_deref()
+            .map(|action| crate::clinical::CDSResponse {
+                responded_at: e.action_datetime.unwrap_or(e.created_at).timestamp(),
+                responded_by: e.acknowledged_by.clone().unwrap_or_default(),
+                action_taken: cds_parse_action_taken(action),
+                override_reason: e.override_reason.clone(),
+                notes: e.feedback_notes.clone(),
+                time_to_response_seconds: e.displayed_duration_seconds.unwrap_or(0) as u32,
+            });
         Self {
             alert_id: e.id,
             patient_id: e.patient_id,
@@ -803,4 +841,3 @@ impl From<crate::repositories::traits::CdsAlertEntity> for crate::clinical::CDSA
         }
     }
 }
-

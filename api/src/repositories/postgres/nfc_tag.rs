@@ -171,9 +171,8 @@ impl NfcTagRepository for PgNfcTagRepository {
             QueryBuilder::new("SELECT COUNT(*) FROM nfc_tags");
         let count: (i64,) = count_qb.build_query_as().fetch_one(&self.pool).await?;
 
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM nfc_tags ORDER BY issued_at DESC LIMIT "
-        );
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM nfc_tags ORDER BY issued_at DESC LIMIT ");
         qb.push_bind(pagination.limit() as i64);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i64);

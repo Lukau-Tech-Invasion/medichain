@@ -114,4 +114,3 @@ pub struct PendingLabResultsResponse {
     pub submissions: Vec<LabResultSubmission>,
     pub total: usize,
 }
-

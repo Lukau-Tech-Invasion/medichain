@@ -144,4 +144,3 @@ impl serde::Serialize for ErrorResponse {
             .serialize(serializer)
     }
 }
-

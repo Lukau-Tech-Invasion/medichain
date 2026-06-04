@@ -125,16 +125,23 @@ pub async fn add_vital_signs(
     }
 
     // Log access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: req.patient_id.clone(),
-        accessor_id: current_user_id,
-        accessor_role: current_user.role.to_string(),
-        access_type: "add_vital_signs".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: has_critical,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: req.patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: "add_vital_signs".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: has_critical,
+            }
+            .into(),
+        )
+        .await;
 
     log::info!(
         "Vital signs {} added for patient {}{}",
@@ -362,7 +369,12 @@ pub async fn get_patient_latest_vitals(
         });
     }
 
-    match data.repositories.vital_signs.get_latest_by_patient(&patient_id).await {
+    match data
+        .repositories
+        .vital_signs
+        .get_latest_by_patient(&patient_id)
+        .await
+    {
         Ok(Some(vitals)) => {
             let reading = crate::clinical::VitalSignsReading {
                 reading_id: vitals.id,
@@ -396,4 +408,3 @@ pub async fn get_patient_latest_vitals(
         }),
     }
 }
-

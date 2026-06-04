@@ -494,10 +494,8 @@ pub trait NfcTagRepository: Send + Sync + fmt::Debug {
     async fn record_usage(&self, id: &str) -> RepositoryResult<()>;
 
     /// List all tags
-    async fn list(
-        &self,
-        pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<NfcTagEntity>>;
+    async fn list(&self, pagination: Pagination)
+        -> RepositoryResult<PaginatedResult<NfcTagEntity>>;
 }
 
 /// Vital signs repository trait
@@ -1012,7 +1010,9 @@ pub trait HistoryPhysicalRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<HistoryPhysicalEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<HistoryPhysicalEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -1320,7 +1320,9 @@ pub trait CodeBlueRepository: Send + Sync + fmt::Debug {
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
     /// List all code blue records
     async fn list_all(&self) -> RepositoryResult<Vec<CodeBlueEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2223,7 +2225,9 @@ pub trait LabPanelRepository: Send + Sync + fmt::Debug {
     async fn get_abnormal_results(&self, patient_id: &str)
         -> RepositoryResult<Vec<LabPanelEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<LabPanelEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2243,7 +2247,9 @@ pub trait LabQcRecordRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<Vec<LabQcRecordEntity>>;
     async fn update(&self, record: LabQcRecordEntity) -> RepositoryResult<LabQcRecordEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<LabQcRecordEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2265,7 +2271,9 @@ pub trait CriticalValueRepository: Send + Sync + fmt::Debug {
         action_taken: &str,
     ) -> RepositoryResult<CriticalValueEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2290,7 +2298,9 @@ pub trait SpecimenCollectionRepository: Send + Sync + fmt::Debug {
         specimen: SpecimenCollectionEntity,
     ) -> RepositoryResult<SpecimenCollectionEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<SpecimenCollectionEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2308,7 +2318,9 @@ pub trait SpecimenRejectionRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
     async fn get_pending_recollections(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2325,7 +2337,9 @@ pub trait LabTrendRepository: Send + Sync + fmt::Debug {
     async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<LabTrendEntity>>;
     async fn update(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<LabTrendEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2374,7 +2388,9 @@ pub trait OperativeNoteRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<PaginatedResult<OperativeNoteEntity>>;
     async fn update(&self, note: OperativeNoteEntity) -> RepositoryResult<OperativeNoteEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<OperativeNoteEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2418,7 +2434,9 @@ pub trait AnesthesiaRecordRepository: Send + Sync + fmt::Debug {
         record: AnesthesiaRecordEntity,
     ) -> RepositoryResult<AnesthesiaRecordEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<AnesthesiaRecordEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2441,7 +2459,9 @@ pub trait IntubationRecordRepository: Send + Sync + fmt::Debug {
         record: IntubationRecordEntity,
     ) -> RepositoryResult<IntubationRecordEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<IntubationRecordEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2464,7 +2484,9 @@ pub trait LacerationRepairRepository: Send + Sync + fmt::Debug {
         repair: LacerationRepairEntity,
     ) -> RepositoryResult<LacerationRepairEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<LacerationRepairEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2508,7 +2530,9 @@ pub trait RadiologyOrderRepository: Send + Sync + fmt::Debug {
         modality: &str,
     ) -> RepositoryResult<Vec<RadiologyOrderEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<RadiologyOrderEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2533,7 +2557,9 @@ pub trait RadiologyReportRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<RadiologyReportEntity>;
     async fn get_critical_findings(&self) -> RepositoryResult<Vec<RadiologyReportEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<RadiologyReportEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2559,7 +2585,9 @@ pub trait PathologyReportRepository: Send + Sync + fmt::Debug {
         report: PathologyReportEntity,
     ) -> RepositoryResult<PathologyReportEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<PathologyReportEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2585,7 +2613,9 @@ pub trait BloodTypeScreenRepository: Send + Sync + fmt::Debug {
         screen: BloodTypeScreenEntity,
     ) -> RepositoryResult<BloodTypeScreenEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2612,7 +2642,9 @@ pub trait CrossmatchRecordRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<CrossmatchRecordEntity>;
     async fn get_reserved_units(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -2638,7 +2670,9 @@ pub trait TransfusionRecordRepository: Send + Sync + fmt::Debug {
         date_range: Option<DateRange>,
     ) -> RepositoryResult<Vec<TransfusionRecordEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<TransfusionRecordEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -3802,7 +3836,9 @@ pub trait ChainOfCustodyRepository: Send + Sync + fmt::Debug {
         custodian_id: &str,
     ) -> RepositoryResult<Vec<ChainOfCustodyEntity>>;
     async fn list_all(&self) -> RepositoryResult<Vec<ChainOfCustodyEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 
@@ -4858,7 +4894,9 @@ pub trait ImmunizationScheduleRepository: Send + Sync {
     ) -> RepositoryResult<ImmunizationScheduleEntity>;
     async fn skip(&self, id: &str, reason: &str) -> RepositoryResult<ImmunizationScheduleEntity>;
     async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationScheduleEntity>> {
-        Err(RepositoryError::NotFound("list_all not implemented".to_string()))
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
     }
 }
 

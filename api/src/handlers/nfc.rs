@@ -190,16 +190,23 @@ pub async fn nfc_tap(
 
     if tap_result.success {
         // Log the access via repository
-        let _ = data.repositories.access_logs.create(AccessLogEntry {
-            access_id: secure_tokens::generate_access_id(),
-            patient_id: tap_result.patient_id.clone(),
-            accessor_id: current_user_id.clone(),
-            accessor_role: current_user.role.to_string(),
-            access_type: "nfc_tap".to_string(),
-            location: None,
-            timestamp: Utc::now(),
-            emergency: true,
-        }.into()).await;
+        let _ = data
+            .repositories
+            .access_logs
+            .create(
+                AccessLogEntry {
+                    access_id: secure_tokens::generate_access_id(),
+                    patient_id: tap_result.patient_id.clone(),
+                    accessor_id: current_user_id.clone(),
+                    accessor_role: current_user.role.to_string(),
+                    access_type: "nfc_tap".to_string(),
+                    location: None,
+                    timestamp: Utc::now(),
+                    emergency: true,
+                }
+                .into(),
+            )
+            .await;
 
         log::info!(
             "NFC tap successful for patient {} by {}",
@@ -314,16 +321,23 @@ pub async fn verify_qr_code(
     }
 
     // Log the access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: qr_data.patient_id.clone(),
-        accessor_id: current_user_id.clone(),
-        accessor_role: current_user.role.to_string(),
-        access_type: "qr_verification".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: true,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: qr_data.patient_id.clone(),
+                accessor_id: current_user_id.clone(),
+                accessor_role: current_user.role.to_string(),
+                access_type: "qr_verification".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: true,
+            }
+            .into(),
+        )
+        .await;
 
     log::info!(
         "QR code verified for patient {} by {}",
@@ -533,4 +547,3 @@ pub async fn list_nfc_cards(
         "pagination": pagination
     }))
 }
-

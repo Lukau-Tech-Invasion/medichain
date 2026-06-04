@@ -30,11 +30,11 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
 
-use subxt::tx::Signer;
-use subxt::{OnlineClient, PolkadotConfig};
-use subxt::dynamic::Value as DynamicValue;
 use sp_core::sr25519::Pair as Sr25519Pair;
 use sp_core::Pair;
+use subxt::dynamic::Value as DynamicValue;
+use subxt::tx::Signer;
+use subxt::{OnlineClient, PolkadotConfig};
 
 // ------------------------------------------------------------------
 // Blockchain feature flag
@@ -180,7 +180,10 @@ impl SubstrateClient {
             match OnlineClient::<PolkadotConfig>::from_url(ws_url).await {
                 Ok(client) => Some(client),
                 Err(e) => {
-                    warn!("[blockchain] Failed to initialize subxt client at {}: {}", ws_url, e);
+                    warn!(
+                        "[blockchain] Failed to initialize subxt client at {}: {}",
+                        ws_url, e
+                    );
                     None
                 }
             }
@@ -304,7 +307,9 @@ impl SubstrateClient {
             Err(_) => {
                 // If not a valid address, we can't submit to a real chain.
                 // Fall back to placeholder if needed, or error out.
-                return self.pending_extrinsic("PatientIdentity", "register_patient", vec![]).await;
+                return self
+                    .pending_extrinsic("PatientIdentity", "register_patient", vec![])
+                    .await;
             }
         };
 
@@ -327,12 +332,18 @@ impl SubstrateClient {
         };
 
         let params = vec![
-            DynamicValue::unnamed_variant("AccountId32", vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(&patient_account))]),
+            DynamicValue::unnamed_variant(
+                "AccountId32",
+                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
+                    &patient_account,
+                ))],
+            ),
             DynamicValue::unnamed_variant(id_type_variant, vec![]),
             DynamicValue::from_bytes(&id_hash_bytes),
         ];
 
-        self.pending_extrinsic("PatientIdentity", "register_patient", params).await
+        self.pending_extrinsic("PatientIdentity", "register_patient", params)
+            .await
     }
 
     /// Record an IPFS content hash on-chain.
@@ -364,7 +375,9 @@ impl SubstrateClient {
         let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
             Ok(acc) => acc,
             Err(_) => {
-                return self.pending_extrinsic("MedicalRecords", "update_ipfs_hash", vec![]).await;
+                return self
+                    .pending_extrinsic("MedicalRecords", "update_ipfs_hash", vec![])
+                    .await;
             }
         };
 
@@ -372,11 +385,17 @@ impl SubstrateClient {
         // If the record doesn't exist, we should technically call create_health_record first,
         // but for this audit-logging purpose we assume it exists or use update_ipfs_hash.
         let params = vec![
-            DynamicValue::unnamed_variant("AccountId32", vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(&patient_account))]),
+            DynamicValue::unnamed_variant(
+                "AccountId32",
+                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
+                    &patient_account,
+                ))],
+            ),
             DynamicValue::from_bytes(ipfs_hash.as_bytes()), // IPFS hash as Vec<u8>
         ];
 
-        self.pending_extrinsic("MedicalRecords", "update_ipfs_hash", params).await
+        self.pending_extrinsic("MedicalRecords", "update_ipfs_hash", params)
+            .await
     }
 
     /// Log a record-access event on-chain.
@@ -408,7 +427,9 @@ impl SubstrateClient {
         let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
             Ok(acc) => acc,
             Err(_) => {
-                return self.pending_extrinsic("AccessControl", "grant_emergency_access", vec![]).await;
+                return self
+                    .pending_extrinsic("AccessControl", "grant_emergency_access", vec![])
+                    .await;
             }
         };
 
@@ -419,11 +440,17 @@ impl SubstrateClient {
         let reason_hash: [u8; 32] = hasher.finalize().into();
 
         let params = vec![
-            DynamicValue::unnamed_variant("AccountId32", vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(&patient_account))]),
+            DynamicValue::unnamed_variant(
+                "AccountId32",
+                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
+                    &patient_account,
+                ))],
+            ),
             DynamicValue::from_bytes(&reason_hash),
         ];
 
-        self.pending_extrinsic("AccessControl", "grant_emergency_access", params).await
+        self.pending_extrinsic("AccessControl", "grant_emergency_access", params)
+            .await
     }
 
     // ------------------------------------------------------------------
@@ -669,7 +696,10 @@ mod tests {
             .pending_extrinsic("patientIdentity", "registerPatient", vec![])
             .await
             .unwrap();
-        let h2 = client.pending_extrinsic("accessControl", "logAccess", vec![]).await.unwrap();
+        let h2 = client
+            .pending_extrinsic("accessControl", "logAccess", vec![])
+            .await
+            .unwrap();
 
         // Different call names → different hashes.
         assert_ne!(h1, h2, "different call names must yield different hashes");
@@ -686,20 +716,24 @@ mod tests {
         let var_name = "SUBSTRATE_WS_URL_TEST_ABSENT";
         let original_val = std::env::var(var_name).ok();
         std::env::remove_var(var_name);
-        
+
         // We need to modify SubstrateClient::from_env to take a var name or test it indirectly
         // Actually, let's just make sure SUBSTRATE_WS_URL is unset for this test
         let real_original = std::env::var("SUBSTRATE_WS_URL").ok();
         std::env::remove_var("SUBSTRATE_WS_URL");
-        
+
         let result = SubstrateClient::from_env();
-        
+
         // Restore
         if let Some(val) = real_original {
             std::env::set_var("SUBSTRATE_WS_URL", val);
         }
-        
-        assert!(result.is_none(), "Expected None when SUBSTRATE_WS_URL is unset, got {:?}", result);
+
+        assert!(
+            result.is_none(),
+            "Expected None when SUBSTRATE_WS_URL is unset, got {:?}",
+            result
+        );
     }
 
     /// `from_env` returns the variable value when it is set.

@@ -245,4 +245,3 @@ pub async fn wallet_register(
         message: "User registered successfully".to_string(),
     })
 }
-

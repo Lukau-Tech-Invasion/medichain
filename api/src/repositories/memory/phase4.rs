@@ -1255,8 +1255,7 @@ impl AmaDischargeRepository for MemoryAmaDischargeRepository {
         let total = items.len() as u64;
         let offset = pagination.offset() as usize;
         let limit = pagination.limit() as usize;
-        let page: Vec<AmaDischargeEntity> =
-            items.into_iter().skip(offset).take(limit).collect();
+        let page: Vec<AmaDischargeEntity> = items.into_iter().skip(offset).take(limit).collect();
         Ok(PaginatedResult::new(page, total, &pagination))
     }
 }
@@ -1546,8 +1545,7 @@ impl IncidentReportRepository for MemoryIncidentReportRepository {
         let total = items.len() as u64;
         let offset = pagination.offset() as usize;
         let limit = pagination.limit() as usize;
-        let page: Vec<IncidentReportEntity> =
-            items.into_iter().skip(offset).take(limit).collect();
+        let page: Vec<IncidentReportEntity> = items.into_iter().skip(offset).take(limit).collect();
         Ok(PaginatedResult::new(page, total, &pagination))
     }
 }

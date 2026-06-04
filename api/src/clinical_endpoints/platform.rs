@@ -930,7 +930,10 @@ pub async fn perform_sync(
                 serde_json::from_value::<crate::clinical::SyncQueueItem>(e.data.clone())
             {
                 let key = (prev.entity_type.clone(), prev.entity_id.clone());
-                let newer = latest.get(&key).map(|(ts, _)| prev.created_at >= *ts).unwrap_or(true);
+                let newer = latest
+                    .get(&key)
+                    .map(|(ts, _)| prev.created_at >= *ts)
+                    .unwrap_or(true);
                 if newer {
                     latest.insert(key, (prev.created_at, prev.data.clone()));
                 }
@@ -982,7 +985,11 @@ pub async fn perform_sync(
                     resolution_notes: None,
                     created_at: Some(chrono::Utc::now()),
                 };
-                let _ = data.repositories.sync_conflicts.create(conflict_entity).await;
+                let _ = data
+                    .repositories
+                    .sync_conflicts
+                    .create(conflict_entity)
+                    .await;
                 continue; // hold the client change until the conflict is resolved
             }
         }
@@ -1089,7 +1096,12 @@ pub async fn resolve_sync_conflict(
     };
     let conflict_id = path.into_inner();
 
-    let conflict = match data.repositories.sync_conflicts.get_by_id(&conflict_id).await {
+    let conflict = match data
+        .repositories
+        .sync_conflicts
+        .get_by_id(&conflict_id)
+        .await
+    {
         Ok(c) => c,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
@@ -1105,17 +1117,24 @@ pub async fn resolve_sync_conflict(
         "uselocal" | "use_local" | "local" | "keep_local" => {
             (conflict.local_value.clone().unwrap_or_default(), "UseLocal")
         }
-        "useserver" | "use_server" | "server" | "keep_server" => {
-            (conflict.remote_value.clone().unwrap_or_default(), "UseServer")
-        }
+        "useserver" | "use_server" | "server" | "keep_server" => (
+            conflict.remote_value.clone().unwrap_or_default(),
+            "UseServer",
+        ),
         "merge" => (
-            req.merged_data.as_ref().map(|v| v.to_string()).unwrap_or_default(),
+            req.merged_data
+                .as_ref()
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
             "Merge",
         ),
         other => {
             return HttpResponse::BadRequest().json(ErrorResponse {
                 success: false,
-                error: format!("Unknown resolution '{}' (use UseLocal, UseServer, or Merge)", other),
+                error: format!(
+                    "Unknown resolution '{}' (use UseLocal, UseServer, or Merge)",
+                    other
+                ),
                 code: "INVALID_RESOLUTION".to_string(),
             })
         }
@@ -1156,7 +1175,12 @@ pub async fn resolve_sync_conflict(
     match data
         .repositories
         .sync_conflicts
-        .resolve(&conflict_id, &resolved_value, &current_user_id, Some(strategy))
+        .resolve(
+            &conflict_id,
+            &resolved_value,
+            &current_user_id,
+            Some(strategy),
+        )
         .await
     {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({

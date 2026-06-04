@@ -171,9 +171,9 @@ impl TraumaAssessmentRepository for MemoryTraumaAssessmentRepository {
             .data
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        data.get(id).cloned().ok_or_else(|| {
-            RepositoryError::NotFound(format!("Trauma assessment {} not found", id))
-        })
+        data.get(id)
+            .cloned()
+            .ok_or_else(|| RepositoryError::NotFound(format!("Trauma assessment {} not found", id)))
     }
 
     async fn get_by_patient(
@@ -226,9 +226,7 @@ impl TraumaAssessmentRepository for MemoryTraumaAssessmentRepository {
             .write()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         data.remove(id)
-            .ok_or_else(|| {
-                RepositoryError::NotFound(format!("Trauma assessment {} not found", id))
-            })
+            .ok_or_else(|| RepositoryError::NotFound(format!("Trauma assessment {} not found", id)))
             .map(|_| ())
     }
 }
@@ -282,9 +280,9 @@ impl StrokeAssessmentRepository for MemoryStrokeAssessmentRepository {
             .data
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        data.get(id).cloned().ok_or_else(|| {
-            RepositoryError::NotFound(format!("Stroke assessment {} not found", id))
-        })
+        data.get(id)
+            .cloned()
+            .ok_or_else(|| RepositoryError::NotFound(format!("Stroke assessment {} not found", id)))
     }
 
     async fn get_by_patient(
@@ -337,9 +335,7 @@ impl StrokeAssessmentRepository for MemoryStrokeAssessmentRepository {
             .write()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         data.remove(id)
-            .ok_or_else(|| {
-                RepositoryError::NotFound(format!("Stroke assessment {} not found", id))
-            })
+            .ok_or_else(|| RepositoryError::NotFound(format!("Stroke assessment {} not found", id)))
             .map(|_| ())
     }
 }
@@ -496,9 +492,9 @@ impl SepsisAssessmentRepository for MemorySepsisAssessmentRepository {
             .data
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
-        data.get(id).cloned().ok_or_else(|| {
-            RepositoryError::NotFound(format!("Sepsis assessment {} not found", id))
-        })
+        data.get(id)
+            .cloned()
+            .ok_or_else(|| RepositoryError::NotFound(format!("Sepsis assessment {} not found", id)))
     }
 
     async fn get_by_patient(
@@ -551,9 +547,7 @@ impl SepsisAssessmentRepository for MemorySepsisAssessmentRepository {
             .write()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         data.remove(id)
-            .ok_or_else(|| {
-                RepositoryError::NotFound(format!("Sepsis assessment {} not found", id))
-            })
+            .ok_or_else(|| RepositoryError::NotFound(format!("Sepsis assessment {} not found", id)))
             .map(|_| ())
     }
 }

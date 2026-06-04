@@ -6,11 +6,11 @@ use crate::clinical::*;
 use crate::ipfs::{IpfsClient, MedicalRecordReference};
 use crate::nfc_simulator::CardRegistry;
 use crate::repositories::*;
+use crate::support::*;
 use crate::types::*;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::RwLock;
-use crate::support::*;
 
 // ============================================================================
 // Application State
@@ -544,10 +544,11 @@ impl AppState {
             None => return Err("No database pool configured".to_string()),
         };
 
-        let users_result =
-            sqlx::query_as::<_, crate::models::DbUser>("SELECT * FROM users WHERE is_active = true")
-                .fetch_all(pool)
-                .await;
+        let users_result = sqlx::query_as::<_, crate::models::DbUser>(
+            "SELECT * FROM users WHERE is_active = true",
+        )
+        .fetch_all(pool)
+        .await;
 
         match users_result {
             Ok(db_users) => {
@@ -609,30 +610,35 @@ impl AppState {
         self.security.load_alerts_from_db().await;
 
         // MFA enrollments: decrypt each secret with the app encryption key.
-        let rows: Vec<(String, Vec<u8>, bool, chrono::DateTime<Utc>)> =
-            sqlx::query_as("SELECT wallet_address, secret_encrypted, enabled, created_at FROM user_mfa")
-                .fetch_all(pool)
-                .await
-                .map_err(|e| format!("Failed to query user_mfa: {}", e))?;
+        let rows: Vec<(String, Vec<u8>, bool, chrono::DateTime<Utc>)> = sqlx::query_as(
+            "SELECT wallet_address, secret_encrypted, enabled, created_at FROM user_mfa",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("Failed to query user_mfa: {}", e))?;
 
         let mut loaded = 0usize;
         if let Ok(mut map) = self.security.mfa.write() {
             for (wallet, secret_encrypted, enabled, created_at) in rows {
-                let secret_base32 = match medichain_crypto::EncryptedData::from_bytes(&secret_encrypted)
-                    .and_then(|ed| medichain_crypto::decrypt(&self.encryption_key, &ed))
-                {
-                    Ok(bytes) => match String::from_utf8(bytes) {
-                        Ok(s) => s,
-                        Err(_) => {
-                            log::warn!("MFA secret for {} is not valid UTF-8; skipping", wallet);
+                let secret_base32 =
+                    match medichain_crypto::EncryptedData::from_bytes(&secret_encrypted)
+                        .and_then(|ed| medichain_crypto::decrypt(&self.encryption_key, &ed))
+                    {
+                        Ok(bytes) => match String::from_utf8(bytes) {
+                            Ok(s) => s,
+                            Err(_) => {
+                                log::warn!(
+                                    "MFA secret for {} is not valid UTF-8; skipping",
+                                    wallet
+                                );
+                                continue;
+                            }
+                        },
+                        Err(e) => {
+                            log::warn!("Failed to decrypt MFA secret for {}: {}", wallet, e);
                             continue;
                         }
-                    },
-                    Err(e) => {
-                        log::warn!("Failed to decrypt MFA secret for {}: {}", wallet, e);
-                        continue;
-                    }
-                };
+                    };
                 map.insert(
                     wallet,
                     crate::security::mfa::MfaRecord {
@@ -655,7 +661,9 @@ impl AppState {
         secret_base32: &str,
         enabled: bool,
     ) -> Result<(), String> {
-        let Some(pool) = &self.db_pool else { return Ok(()) };
+        let Some(pool) = &self.db_pool else {
+            return Ok(());
+        };
         let encrypted = medichain_crypto::encrypt(&self.encryption_key, secret_base32.as_bytes())
             .map_err(|e| format!("encrypt MFA secret: {}", e))?
             .to_bytes();
@@ -674,7 +682,9 @@ impl AppState {
 
     /// Update the `enabled` flag of a persisted MFA enrollment. No-op on memory.
     pub async fn update_mfa_enabled(&self, wallet: &str, enabled: bool) -> Result<(), String> {
-        let Some(pool) = &self.db_pool else { return Ok(()) };
+        let Some(pool) = &self.db_pool else {
+            return Ok(());
+        };
         sqlx::query("UPDATE user_mfa SET enabled = $2 WHERE wallet_address = $1")
             .bind(wallet)
             .bind(enabled)
@@ -686,7 +696,9 @@ impl AppState {
 
     /// Delete a persisted MFA enrollment. No-op on memory.
     pub async fn delete_mfa_enrollment(&self, wallet: &str) -> Result<(), String> {
-        let Some(pool) = &self.db_pool else { return Ok(()) };
+        let Some(pool) = &self.db_pool else {
+            return Ok(());
+        };
         sqlx::query("DELETE FROM user_mfa WHERE wallet_address = $1")
             .bind(wallet)
             .execute(pool)
@@ -869,4 +881,3 @@ impl Default for AppState {
         Self::new()
     }
 }
-

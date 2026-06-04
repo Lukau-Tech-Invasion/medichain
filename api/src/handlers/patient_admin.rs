@@ -438,4 +438,3 @@ pub async fn add_emergency_contact(
         "message": "Emergency contact added successfully"
     }))
 }
-

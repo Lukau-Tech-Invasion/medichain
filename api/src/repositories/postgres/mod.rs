@@ -170,17 +170,27 @@ pub use phase6_audit::{
 // Phase 7 (Round 4): generic JSON-record feature domains
 mod phase7;
 pub use phase7::{
-    PgAutopsyReportRepository, PgAutopsyRequestRepository, PgEligibilityCheckRepository,
-    PgFamilyGroupRepository, PgInsuranceCardRepository, PgInsuranceClaimRepository,
-    PgLanguagePreferenceRepository,
-    PgSatisfactionSurveyRepository, PgSymptomSessionRepository, PgSyncQueueItemRepository,
-    // Round 5: wearables + telehealth
-    PgTelehealthSessionRecordRepository, PgWearableAlertRecordRepository,
-    PgWearableAlertRuleRepository, PgWearableDeviceRecordRepository,
-    PgWearableReadingRecordRepository,
+    PgAutopsyReportRepository,
+    PgAutopsyRequestRepository,
     // Round 6: shape-mismatch domains
-    PgDrugInteractionCheckRepository, PgEPrescriptionV2Repository,
-    PgLabResultSubmissionRepository, PgLabTrendResultRepository,
+    PgDrugInteractionCheckRepository,
+    PgEPrescriptionV2Repository,
+    PgEligibilityCheckRepository,
+    PgFamilyGroupRepository,
+    PgInsuranceCardRepository,
+    PgInsuranceClaimRepository,
+    PgLabResultSubmissionRepository,
+    PgLabTrendResultRepository,
+    PgLanguagePreferenceRepository,
+    PgSatisfactionSurveyRepository,
     // Round 7: SOAP clinical notes
     PgSoapNoteRecordRepository,
+    PgSymptomSessionRepository,
+    PgSyncQueueItemRepository,
+    // Round 5: wearables + telehealth
+    PgTelehealthSessionRecordRepository,
+    PgWearableAlertRecordRepository,
+    PgWearableAlertRuleRepository,
+    PgWearableDeviceRecordRepository,
+    PgWearableReadingRecordRepository,
 };

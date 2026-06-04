@@ -1767,10 +1767,7 @@ mod tests {
         let pending_autopsies = repo.get_pending_autopsies().await.unwrap();
         assert!(pending_autopsies.iter().any(|r| r.id == "DR-2"));
 
-        let certified = repo
-            .certify("DR-1", "doc-9", "Dr. Smith")
-            .await
-            .unwrap();
+        let certified = repo.certify("DR-1", "doc-9", "Dr. Smith").await.unwrap();
         assert_eq!(certified.certifier_id.as_deref(), Some("doc-9"));
         assert!(certified.certification_date.is_some());
 

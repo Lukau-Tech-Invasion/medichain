@@ -126,10 +126,17 @@ mod tests {
 
     #[test]
     fn access_token_round_trips() {
-        let t = issue_access_token("5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY", "Doctor", true)
-            .unwrap();
+        let t = issue_access_token(
+            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            "Doctor",
+            true,
+        )
+        .unwrap();
         let claims = decode_token(&t).unwrap();
-        assert_eq!(claims.sub, "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY");
+        assert_eq!(
+            claims.sub,
+            "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+        );
         assert_eq!(claims.role, "Doctor");
         assert!(claims.mfa);
         assert_eq!(claims.typ, TYP_ACCESS);

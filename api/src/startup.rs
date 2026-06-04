@@ -70,7 +70,6 @@ pub fn validate_production_secrets() -> Result<(), String> {
     Ok(())
 }
 
-
 /// Print the ASCII startup banner and endpoint cheat-sheet.
 pub fn print_startup_banner(bind_addr: &str) {
     println!();

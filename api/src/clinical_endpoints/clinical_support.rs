@@ -338,9 +338,12 @@ pub async fn join_telehealth_session(
     } else {
         "Patient".to_string()
     };
-    let jitsi = data
-        .telehealth_service
-        .join_credentials(&session_id, &current_user_id, &display_name, &role_str);
+    let jitsi = data.telehealth_service.join_credentials(
+        &session_id,
+        &current_user_id,
+        &display_name,
+        &role_str,
+    );
 
     // Room pre-config (Phase 3): privacy-first defaults applied client-side once
     // the room loads. The subject is deliberately PHI-free (no patient name in
@@ -561,7 +564,11 @@ pub async fn telehealth_recording(
         .await;
 
     // Audit + broadcast.
-    let action = if starting { "recording-started" } else { "recording-stopped" };
+    let action = if starting {
+        "recording-started"
+    } else {
+        "recording-stopped"
+    };
     let log = crate::repositories::traits::AccessLogEntity {
         id: uuid::Uuid::new_v4().to_string(),
         accessor_id: actor.clone(),
@@ -908,10 +915,7 @@ pub async fn telehealth_join_redirect(path: web::Path<String>) -> impl Responder
 /// URL as a PNG (base64) so a patient/paramedic can scan and join in-browser
 /// without installing anything. Auth-gated like the other session endpoints.
 #[get("/api/telehealth/sessions/{session_id}/qr")]
-pub async fn telehealth_join_qr(
-    http_req: HttpRequest,
-    path: web::Path<String>,
-) -> impl Responder {
+pub async fn telehealth_join_qr(http_req: HttpRequest, path: web::Path<String>) -> impl Responder {
     let session_id = path.into_inner();
     if crate::support::get_current_user_id(&http_req).is_none() {
         return HttpResponse::Unauthorized().json(ErrorResponse {

@@ -168,11 +168,8 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
     ) -> RepositoryResult<PaginatedResult<MedicationRecordEntity>> {
         let storage = self.data.read().unwrap();
 
-        let mut records: Vec<MedicationRecordEntity> = storage
-            .values()
-            .filter(|r| r.is_active)
-            .cloned()
-            .collect();
+        let mut records: Vec<MedicationRecordEntity> =
+            storage.values().filter(|r| r.is_active).cloned().collect();
 
         records.sort_by(|a, b| b.record_date.cmp(&a.record_date));
 

@@ -35,7 +35,10 @@ impl Serialize for ApiError {
                     obj.insert("details".to_string(), serde_json::Value::String(d.clone()));
                 }
                 if let Some(r) = r {
-                    obj.insert("request_id".to_string(), serde_json::Value::String(r.clone()));
+                    obj.insert(
+                        "request_id".to_string(),
+                        serde_json::Value::String(r.clone()),
+                    );
                 }
                 Some(serde_json::Value::Object(obj))
             }

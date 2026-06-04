@@ -291,13 +291,19 @@ pub async fn get_triage_assessment(
         });
     }
 
-    match data.repositories.triage_assessments.get_by_id(&assessment_id).await {
+    match data
+        .repositories
+        .triage_assessments
+        .get_by_id(&assessment_id)
+        .await
+    {
         Ok(entity) => {
             // Convert Entity to TriageAssessment struct
             let assessment = TriageAssessment {
                 assessment_id: entity.id,
                 patient_id: entity.patient_id,
-                esi_level: ESILevel::from_level(entity.esi_level as u8).unwrap_or(ESILevel::Level3Urgent),
+                esi_level: ESILevel::from_level(entity.esi_level as u8)
+                    .unwrap_or(ESILevel::Level3Urgent),
                 chief_complaint: entity.chief_complaint,
                 vital_signs: crate::clinical::TriageVitalSigns {
                     heart_rate: entity.heart_rate.map(|v| v as u16),
@@ -450,7 +456,12 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
         });
     }
 
-    match data.repositories.triage_assessments.get_ed_dashboard().await {
+    match data
+        .repositories
+        .triage_assessments
+        .get_ed_dashboard()
+        .await
+    {
         Ok(items) => {
             let assessments: Vec<TriageAssessment> = items
                 .into_iter()
@@ -492,4 +503,3 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
         })),
     }
 }
-

@@ -595,4 +595,3 @@ pub async fn emergency_access(
         message: "Emergency access granted. All accesses are logged and auditable.".to_string(),
     })
 }
-

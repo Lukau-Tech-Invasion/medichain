@@ -29,8 +29,7 @@ pub fn render_document(
     subtitle: Option<&str>,
     sections: &[PdfSection],
 ) -> Result<Vec<u8>, String> {
-    let (doc, page1, layer1) =
-        PdfDocument::new(title, Mm(PAGE_W), Mm(PAGE_H), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new(title, Mm(PAGE_W), Mm(PAGE_H), "Layer 1");
     let font = doc
         .add_builtin_font(BuiltinFont::Helvetica)
         .map_err(|e| format!("font load failed: {e}"))?;
@@ -49,7 +48,10 @@ pub fn render_document(
         y -= 8.0;
     }
     layer.use_text(
-        format!("Generated: {}", chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")),
+        format!(
+            "Generated: {}",
+            chrono::Utc::now().format("%Y-%m-%d %H:%M UTC")
+        ),
         9.0,
         Mm(MARGIN),
         Mm(y),
@@ -82,7 +84,8 @@ pub fn render_document(
     }
 
     let mut buf = std::io::BufWriter::new(Vec::<u8>::new());
-    doc.save(&mut buf).map_err(|e| format!("pdf save failed: {e}"))?;
+    doc.save(&mut buf)
+        .map_err(|e| format!("pdf save failed: {e}"))?;
     buf.into_inner()
         .map_err(|e| format!("pdf buffer error: {e}"))
 }

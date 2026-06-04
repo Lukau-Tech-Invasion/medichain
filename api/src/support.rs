@@ -144,7 +144,6 @@ pub fn get_default_supported_languages() -> Vec<crate::clinical::SupportedLangua
     ]
 }
 
-
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -260,4 +259,3 @@ pub fn generate_qr_code_base64(data: &str) -> Option<String> {
         &buffer,
     ))
 }
-

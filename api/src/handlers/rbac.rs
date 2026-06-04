@@ -183,4 +183,3 @@ pub async fn revoke_role(
         message: "Role revoked successfully".to_string(),
     })
 }
-

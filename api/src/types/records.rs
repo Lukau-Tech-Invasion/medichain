@@ -64,4 +64,3 @@ pub struct IpfsHealthResponse {
     pub api_url: String,
     pub gateway_url: String,
 }
-

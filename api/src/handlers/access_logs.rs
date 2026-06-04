@@ -58,8 +58,7 @@ pub async fn get_all_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogEntry> =
-        result.items.into_iter().map(Into::into).collect();
+    let paginated_logs: Vec<AccessLogEntry> = result.items.into_iter().map(Into::into).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "access_logs": paginated_logs,
@@ -143,8 +142,7 @@ pub async fn get_access_logs(
         }
     };
 
-    let paginated_logs: Vec<AccessLogEntry> =
-        result.items.into_iter().map(Into::into).collect();
+    let paginated_logs: Vec<AccessLogEntry> = result.items.into_iter().map(Into::into).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,
@@ -158,4 +156,3 @@ pub async fn get_access_logs(
         },
     }))
 }
-

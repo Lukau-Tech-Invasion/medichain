@@ -177,9 +177,8 @@ impl IORecordRepository for PgIORecordRepository {
             .fetch_one(&self.pool)
             .await?;
 
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM io_records ORDER BY record_date DESC, shift LIMIT ",
-        );
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM io_records ORDER BY record_date DESC, shift LIMIT ");
         qb.push_bind(pagination.limit() as i64);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i64);

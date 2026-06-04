@@ -142,7 +142,8 @@ pub async fn submit_lab_results(
         }
         if !lab_values.is_empty() {
             let (conditions, meds) =
-                crate::clinical_endpoints::patient_conditions_and_meds(&data, &req.patient_id).await;
+                crate::clinical_endpoints::patient_conditions_and_meds(&data, &req.patient_id)
+                    .await;
             crate::clinical_endpoints::run_and_persist_cds_alerts(
                 &data,
                 &req.patient_id,
@@ -156,16 +157,23 @@ pub async fn submit_lab_results(
     }
 
     // Log access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: req.patient_id.clone(),
-        accessor_id: current_user_id,
-        accessor_role: current_user.role.to_string(),
-        access_type: "lab_submission".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: false,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: req.patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: "lab_submission".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
 
     log::info!(
         "Lab results submitted: {} for patient {}",
@@ -547,16 +555,23 @@ pub async fn review_lab_results_impl(
     }
 
     // Log access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id,
-        accessor_id: current_user_id,
-        accessor_role: current_user.role.to_string(),
-        access_type: format!("lab_review_{}", action),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: false,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id,
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: format!("lab_review_{}", action),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
 
     HttpResponse::Ok().json(ReviewLabResultResponse {
         success: true,
@@ -683,4 +698,3 @@ pub async fn get_patient_lab_submissions(
         "total": total
     }))
 }
-

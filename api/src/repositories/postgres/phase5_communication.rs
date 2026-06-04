@@ -52,24 +52,20 @@ impl DeviceTokenRepository for PgDeviceTokenRepository {
     }
 
     async fn delete(&self, user_id: &str, token: &str) -> RepositoryResult<()> {
-        sqlx::query(
-            "DELETE FROM device_tokens WHERE user_id = $1 AND token = $2",
-        )
-        .bind(user_id)
-        .bind(token)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM device_tokens WHERE user_id = $1 AND token = $2")
+            .bind(user_id)
+            .bind(token)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
 
     async fn update_last_seen(&self, id: &str) -> RepositoryResult<()> {
-        sqlx::query(
-            "UPDATE device_tokens SET last_seen_at = NOW() WHERE id = $1",
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE device_tokens SET last_seen_at = NOW() WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }

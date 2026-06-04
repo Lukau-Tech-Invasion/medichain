@@ -216,7 +216,9 @@ fn sign_jitsi_jwt(
     display_name: &str,
     moderator: bool,
 ) -> Option<String> {
-    let secret = std::env::var("JITSI_APP_SECRET").ok().filter(|s| !s.is_empty())?;
+    let secret = std::env::var("JITSI_APP_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())?;
     let app_id = std::env::var("JITSI_APP_ID").unwrap_or_else(|_| "medichain".to_string());
     let now = Utc::now().timestamp();
     let claims = JitsiClaims {
@@ -247,7 +249,10 @@ fn sign_jitsi_jwt(
 /// Verify a Jitsi HS256 JWT and confirm it grants access to `room` (Phase 3).
 /// When `JITSI_APP_SECRET` is unset (open-room mode) any token is accepted.
 fn verify_jitsi_jwt(token: &str, room: &str) -> Result<(), TelehealthError> {
-    let secret = match std::env::var("JITSI_APP_SECRET").ok().filter(|s| !s.is_empty()) {
+    let secret = match std::env::var("JITSI_APP_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => s,
         None => return Ok(()), // open rooms: no token to verify
     };
@@ -260,7 +265,11 @@ fn verify_jitsi_jwt(token: &str, room: &str) -> Result<(), TelehealthError> {
     )
     .map_err(|e| TelehealthError::ProviderError(format!("invalid token: {}", e)))?;
     // A `room` claim of "*" (wildcard) or an exact match is accepted.
-    let claim = decoded.claims.get("room").and_then(|v| v.as_str()).unwrap_or("");
+    let claim = decoded
+        .claims
+        .get("room")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     if claim == "*" || claim == room {
         Ok(())
     } else {
@@ -1101,7 +1110,10 @@ mod tests {
         let service = TelehealthService::with_provider(Box::new(JitsiProvider::new()));
 
         // Provider creates the session.
-        let info = service.create_session(make_params("TH-e2e-001")).await.unwrap();
+        let info = service
+            .create_session(make_params("TH-e2e-001"))
+            .await
+            .unwrap();
         assert_eq!(info.provider_name, "jitsi");
         assert!(service.get_session("TH-e2e-001").is_some());
 
@@ -1134,7 +1146,9 @@ mod tests {
     #[tokio::test]
     async fn test_telehealth_concurrent_session_load() {
         use std::sync::Arc;
-        let service = Arc::new(TelehealthService::with_provider(Box::new(JitsiProvider::new())));
+        let service = Arc::new(TelehealthService::with_provider(Box::new(
+            JitsiProvider::new(),
+        )));
 
         const SESSIONS: usize = 200;
         let mut handles = Vec::with_capacity(SESSIONS);

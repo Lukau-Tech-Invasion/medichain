@@ -427,7 +427,10 @@ pub struct PatientProfile {
 // ----------------------------------------------------------------------------
 
 /// Encrypt a UTF-8 string into the stored (nonce || ciphertext) byte form.
-pub fn enc_patient_field(key: &medichain_crypto::EncryptionKey, plaintext: &str) -> Option<Vec<u8>> {
+pub fn enc_patient_field(
+    key: &medichain_crypto::EncryptionKey,
+    plaintext: &str,
+) -> Option<Vec<u8>> {
     medichain_crypto::encrypt(key, plaintext.as_bytes())
         .ok()
         .map(|e| e.to_bytes())
@@ -521,4 +524,3 @@ pub struct AccessLogEntry {
     pub timestamp: DateTime<Utc>,
     pub emergency: bool,
 }
-

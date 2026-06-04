@@ -181,4 +181,3 @@ pub async fn demo_info() -> impl Responder {
         "auth_header": "Use 'X-User-Id' header with wallet address (SS58 format) for authentication"
     }))
 }
-

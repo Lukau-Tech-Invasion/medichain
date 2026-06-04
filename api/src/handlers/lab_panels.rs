@@ -107,4 +107,3 @@ pub struct DeviceRegistrationRequest {
     pub device_type: Option<String>,
     pub device_name: Option<String>,
 }
-

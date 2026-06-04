@@ -179,16 +179,23 @@ pub async fn upload_medical_record(
     }
 
     // Log access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: req.patient_id.clone(),
-        accessor_id: current_user_id,
-        accessor_role: current_user.role.to_string(),
-        access_type: "upload_record".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: false,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: req.patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: "upload_record".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
 
     HttpResponse::Created().json(UploadMedicalRecordResponse {
         success: true,
@@ -285,16 +292,23 @@ pub async fn download_medical_record(
     };
 
     // Log access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: download_result.metadata.patient_id.clone(),
-        accessor_id: current_user_id,
-        accessor_role: current_user.role.to_string(),
-        access_type: "download_record".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: false,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: download_result.metadata.patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: "download_record".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
 
     // Encode content as base64 for JSON response
     let content_base64 = base64::Engine::encode(
@@ -384,16 +398,23 @@ pub async fn list_patient_records(
         result.items.into_iter().map(Into::into).collect();
 
     // Log access via repository
-    let _ = data.repositories.access_logs.create(AccessLogEntry {
-        access_id: secure_tokens::generate_access_id(),
-        patient_id: patient_id.clone(),
-        accessor_id: current_user_id,
-        accessor_role: current_user.role.to_string(),
-        access_type: "list_records".to_string(),
-        location: None,
-        timestamp: Utc::now(),
-        emergency: false,
-    }.into()).await;
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: "list_records".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,
@@ -409,4 +430,3 @@ pub async fn list_patient_records(
         }
     }))
 }
-

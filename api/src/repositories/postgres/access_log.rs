@@ -177,9 +177,8 @@ impl AccessLogRepository for PgAccessLogRepository {
             QueryBuilder::new("SELECT COUNT(*) FROM access_logs");
         let count: (i64,) = count_qb.build_query_as().fetch_one(&self.pool).await?;
 
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM access_logs ORDER BY accessed_at DESC LIMIT "
-        );
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new("SELECT * FROM access_logs ORDER BY accessed_at DESC LIMIT ");
         qb.push_bind(pagination.limit() as i64);
         qb.push(" OFFSET ");
         qb.push_bind(pagination.offset() as i64);
