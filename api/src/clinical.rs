@@ -746,6 +746,60 @@ pub struct VitalSignsReading {
     pub notes: Option<String>,
 }
 
+/// Parse an ABO/Rh blood type string into `(ABO, is_rh_positive)`.
+/// Returns `None` for unrecognized input.
+fn parse_blood_type(s: &str) -> Option<(&'static str, bool)> {
+    let s = s.trim().to_uppercase();
+    let (abo, rh_positive) = if let Some(stripped) = s.strip_suffix('+') {
+        (stripped.to_string(), true)
+    } else if let Some(stripped) = s.strip_suffix('-') {
+        (stripped.to_string(), false)
+    } else {
+        return None;
+    };
+    let abo_static = match abo.as_str() {
+        "O" => "O",
+        "A" => "A",
+        "B" => "B",
+        "AB" => "AB",
+        _ => return None,
+    };
+    Some((abo_static, rh_positive))
+}
+
+/// Whether `donor` red blood cells can be transfused into `recipient`
+/// (ABO + Rh compatibility). Returns `false` for unparseable inputs.
+///
+/// Rules: O- is the universal donor, AB+ the universal recipient; an Rh-positive
+/// donor cannot give to an Rh-negative recipient; ABO antigens must be absent in
+/// the recipient's plasma (O→all, A→A/AB, B→B/AB, AB→AB).
+pub fn blood_type_compatible(donor: &str, recipient: &str) -> bool {
+    let (Some((d_abo, d_rh)), Some((r_abo, r_rh))) =
+        (parse_blood_type(donor), parse_blood_type(recipient))
+    else {
+        return false;
+    };
+    // Rh: a positive donor's cells are incompatible with a negative recipient.
+    if d_rh && !r_rh {
+        return false;
+    }
+    match d_abo {
+        "O" => true,
+        "A" => r_abo == "A" || r_abo == "AB",
+        "B" => r_abo == "B" || r_abo == "AB",
+        "AB" => r_abo == "AB",
+        _ => false,
+    }
+}
+
+/// Mean arterial pressure (mmHg) from systolic/diastolic: `(SBP + 2*DBP) / 3`.
+///
+/// Uses widened arithmetic so it can never overflow for any `u16` inputs
+/// (Phase 12.2 — overflow prevention in clinical arithmetic).
+pub fn mean_arterial_pressure(systolic: u16, diastolic: u16) -> u16 {
+    ((systolic as u32 + 2 * diastolic as u32) / 3) as u16
+}
+
 impl VitalSignsReading {
     /// Calculate MAP if systolic and diastolic are available
     /// MAP = DBP + 1/3(SBP - DBP) or (SBP + 2*DBP) / 3
@@ -7087,6 +7141,13 @@ pub struct ElectronicPrescription {
     pub transmitted_at: Option<i64>,
     /// Notes to pharmacist
     pub pharmacist_notes: Option<String>,
+    /// Set true when the prescriber acknowledges and overrides an interaction
+    /// warning at prescribe time (required to save a contraindicated combination).
+    #[serde(default)]
+    pub override_interactions: bool,
+    /// Free-text reason recorded when overriding a contraindicated interaction.
+    #[serde(default)]
+    pub override_reason: Option<String>,
 }
 
 /// Medication form

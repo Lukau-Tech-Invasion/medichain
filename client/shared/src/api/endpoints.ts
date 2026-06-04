@@ -293,6 +293,198 @@ export async function getCurrentUser(): Promise<WalletUserInfo> {
 }
 
 // ============================================================================
+// JWT authentication (Phase 9.4)
+// ============================================================================
+
+export interface JwtIssueRequest {
+  wallet_address: string;
+  /** Hex sr25519 signature over `<timestamp>:<wallet_address>` (omit only in demo mode). */
+  signature?: string;
+  timestamp?: number;
+}
+
+export interface JwtIssueResponse {
+  success: boolean;
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  mfa: boolean;
+  mfa_required: boolean;
+}
+
+/** Issue JWT access + refresh tokens after a verified wallet signature challenge. */
+export async function issueJwt(data: JwtIssueRequest): Promise<JwtIssueResponse> {
+  return getApiClient().post('/api/auth/jwt', data);
+}
+
+/** Exchange a refresh token for a fresh access token. */
+export async function refreshJwt(
+  refreshToken: string
+): Promise<{ success: boolean; access_token: string; token_type: string; expires_in: number }> {
+  return getApiClient().post('/api/auth/jwt/refresh', { refresh_token: refreshToken });
+}
+
+// ============================================================================
+// Multi-factor authentication — TOTP (Phase 11.3)
+// ============================================================================
+
+export interface MfaEnrollResponse {
+  success: boolean;
+  secret: string;
+  otpauth_uri: string;
+  qr_code_base64?: string;
+}
+
+/** Begin TOTP enrollment; returns the secret + provisioning QR. */
+export async function mfaEnroll(): Promise<MfaEnrollResponse> {
+  return getApiClient().post('/api/auth/mfa/enroll', {});
+}
+
+/** Confirm enrollment by verifying the first code, activating MFA. */
+export async function mfaVerify(code: string): Promise<{ success: boolean; message: string }> {
+  return getApiClient().post('/api/auth/mfa/verify', { code });
+}
+
+/** Step up the current session to MFA-satisfied; returns a new access token. */
+export async function mfaChallenge(
+  code: string
+): Promise<{ success: boolean; access_token: string; token_type: string; expires_in: number; mfa: boolean }> {
+  return getApiClient().post('/api/auth/mfa/challenge', { code });
+}
+
+/** Report MFA enrollment status for the current user. */
+export async function mfaStatus(): Promise<{ success: boolean; enrolled: boolean; enabled: boolean }> {
+  return getApiClient().get('/api/auth/mfa/status');
+}
+
+/** Disable MFA after verifying a current code. */
+export async function mfaDisable(code: string): Promise<{ success: boolean; message: string }> {
+  return getApiClient().post('/api/auth/mfa/disable', { code });
+}
+
+// ============================================================================
+// Security alerts & breach declaration — Admin (Phase 11.4)
+// ============================================================================
+
+export interface SecurityAlert {
+  id: string;
+  kind: string;
+  severity: string;
+  actor?: string | null;
+  message: string;
+  notify_deadline?: string | null;
+  created_at: string;
+}
+
+/** List recent security alerts (Admin only). */
+export async function getSecurityAlerts(): Promise<{ success: boolean; alerts: SecurityAlert[]; count: number }> {
+  return getApiClient().get('/api/admin/security/alerts');
+}
+
+/** Declare a data breach (Admin only); starts the POPIA 72-hour clock. */
+export async function declareBreach(
+  description: string,
+  actor?: string
+): Promise<{ success: boolean; alert: SecurityAlert; message: string }> {
+  return getApiClient().post('/api/admin/security/breach', { description, actor });
+}
+
+// ============================================================================
+// Insurance cards CRUD (Phase 13.4)
+// ============================================================================
+
+/** An insurance card is an open JSON shape; `patient_id` is required on create. */
+export type InsuranceCard = Record<string, unknown> & { id?: string; patient_id: string };
+
+/** List a patient's insurance cards. */
+export async function getInsuranceCards(
+  patientId: string
+): Promise<{ success: boolean; cards: InsuranceCard[]; count: number }> {
+  return getApiClient().get(`/api/insurance/cards/${patientId}`);
+}
+
+/** Create an insurance card (body must include `patient_id`). */
+export async function createInsuranceCard(
+  card: InsuranceCard
+): Promise<{ success: boolean; card: InsuranceCard }> {
+  return getApiClient().post('/api/insurance/cards', card);
+}
+
+/** Replace an existing insurance card. */
+export async function updateInsuranceCard(
+  id: string,
+  card: InsuranceCard
+): Promise<{ success: boolean; card: InsuranceCard }> {
+  return getApiClient().put(`/api/insurance/cards/${id}`, card);
+}
+
+/** Delete an insurance card. */
+export async function deleteInsuranceCard(
+  id: string
+): Promise<{ success: boolean; message: string }> {
+  return getApiClient().delete(`/api/insurance/cards/${id}`);
+}
+
+/** Upload a card image (base64); stored encrypted on IPFS, hash saved on the card. */
+export async function uploadInsuranceCardImage(
+  id: string,
+  imageBase64: string,
+  contentType?: string
+): Promise<{ success: boolean; image_ipfs_hash: string }> {
+  return getApiClient().post(`/api/insurance/cards/${id}/image`, {
+    image_base64: imageBase64,
+    content_type: contentType,
+  });
+}
+
+// ============================================================================
+// PDF export (Phase 13.3)
+// ============================================================================
+
+export interface PdfSectionInput {
+  heading: string;
+  lines: string[];
+}
+
+export interface PdfDocumentInput {
+  title: string;
+  subtitle?: string;
+  sections: PdfSectionInput[];
+  filename?: string;
+}
+
+/**
+ * Render `doc` to a PDF via the API and trigger a browser download.
+ * Powers "Export as PDF" buttons (lab results, prescriptions, visit summaries).
+ */
+export async function exportDocumentToPdf(doc: PdfDocumentInput): Promise<void> {
+  const client = getApiClient();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = client.getAccessToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const uid = client.getUserId();
+  if (uid) headers['X-User-Id'] = uid;
+
+  const resp = await fetch(`${client.getBaseUrl()}/api/pdf/document`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(doc),
+  });
+  if (!resp.ok) throw new Error(`PDF export failed: ${resp.status}`);
+
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${doc.filename ?? 'medichain-document'}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================================
 // Medical Records (IPFS)
 // ============================================================================
 
@@ -1206,12 +1398,47 @@ export async function endTelehealthSession(sessionId: string, data?: unknown): P
   return getApiClient().post(`/api/telehealth/sessions/${sessionId}/end`, data || {});
 }
 
+/** Relay a telehealth lifecycle event (Phase 7): SSE-broadcast + audit-logged. */
+export async function telehealthEvent(
+  sessionId: string,
+  eventType: string,
+  detail?: string
+): Promise<unknown> {
+  return getApiClient().post(`/api/telehealth/sessions/${sessionId}/event`, {
+    event_type: eventType,
+    detail,
+  });
+}
+
+/** Start/stop recording (Phase 6, moderator-only; starting requires consent). */
+export async function telehealthRecording(
+  sessionId: string,
+  action: 'start' | 'stop',
+  consent?: boolean
+): Promise<{ success: boolean; recording_enabled?: boolean }> {
+  return getApiClient().post(`/api/telehealth/sessions/${sessionId}/recording`, {
+    action,
+    consent,
+  });
+}
+
 export async function submitDeviceCheck(data: unknown): Promise<unknown> {
   return getApiClient().post('/api/telehealth/device-check', data);
 }
 
 export async function getPatientTelehealthSessions(patientId: string): Promise<unknown> {
   return getApiClient().get(`/api/telehealth/patient/${patientId}/sessions`);
+}
+
+/**
+ * Fetch the in-app QR code for single-tap mobile join (Phase 4). The QR encodes
+ * the in-browser PWA join URL — scanning it keeps the patient inside MediChain
+ * (no native-app download).
+ */
+export async function getTelehealthJoinQr(
+  sessionId: string
+): Promise<{ success: boolean; join_url: string; qr_png_base64: string }> {
+  return getApiClient().get(`/api/telehealth/sessions/${sessionId}/qr`);
 }
 
 // ============================================================================
@@ -1331,6 +1558,17 @@ export async function getSyncStatus(deviceId: string): Promise<unknown> {
 
 export async function registerSyncDevice(data: unknown): Promise<unknown> {
   return getApiClient().post('/api/sync/register', data);
+}
+
+export async function getSyncConflicts(): Promise<unknown> {
+  return getApiClient().get('/api/sync/conflicts');
+}
+
+export async function resolveSyncConflict(
+  conflictId: string,
+  resolution: 'UseLocal' | 'UseServer' | 'Merge',
+): Promise<unknown> {
+  return getApiClient().post(`/api/sync/conflicts/${conflictId}/resolve`, { resolution });
 }
 
 export async function performSync(data: unknown): Promise<unknown> {

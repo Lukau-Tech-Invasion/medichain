@@ -1,0 +1,41 @@
+# =============================================================================
+# MediChain — Production overrides
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# REQUIRED before running:
+#   * Set strong POSTGRES_PASSWORD, SESSION_SECRET and JWT_SECRET in .env — the
+#     API aborts on startup if demo secrets are used while IS_DEMO=false.
+#   * Provide TLS certificates at ./nginx/certs/{fullchain.pem,privkey.pem}
+#     (e.g. from Let's Encrypt / certbot).
+# =============================================================================
+
+services:
+  api:
+    restart: always
+    environment:
+      IS_DEMO: "false"
+      REQUIRE_SIGNATURES: "true"
+      MEDICHAIN_STORAGE: postgres
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+      BLOCKCHAIN_ENABLED: ${BLOCKCHAIN_ENABLED:-false}
+
+  postgres:
+    restart: always
+    # Do NOT publish the database to the host in production.
+    ports: []
+
+  pgadmin:
+    # pgAdmin is a development convenience — keep it off the public network.
+    ports: []
+    restart: "no"
+
+  nginx:
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro

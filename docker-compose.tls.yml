@@ -1,0 +1,30 @@
+# MediChain TLS overlay (Phase 6.2).
+#
+# Adds a Caddy reverse proxy that terminates HTTPS (automatic Let's Encrypt) in
+# front of the API. Run alongside the base stack:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+#
+# Set DOMAIN / API_DOMAIN (and an email for ACME) in your .env for production.
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      API_DOMAIN: ${API_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./client/doctor-portal/dist:/srv/doctor-portal:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:

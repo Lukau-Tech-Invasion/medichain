@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { useSidebarData, useSSE } from '@medichain/shared';
+import { useSidebarData, useSSE, useApiStatus } from '@medichain/shared';
 import {
   LogOut,
   Shield,
@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   Bell,
   RefreshCw,
+  WifiOff,
 } from 'lucide-react';
 import CommandPalette from './CommandPalette';
 import { useToastActions } from './Toast';
@@ -281,7 +282,17 @@ function Layout() {
   // Real-time events
   const { events, isConnected: isSSEConnected } = useSSE();
   const { showInfo, showWarning, showError, showSuccess } = useToastActions();
+  // Connectivity status (offline banner + pending-write count)
+  const { isOnline, queueSize, checkConnection } = useApiStatus();
   const lastProcessedEventRef = useRef<number>(0);
+
+  const userRole = (user?.role as Role) || 'Doctor';
+
+  // Fetch real-time sidebar data from API
+  const { badges, recentPatients, isLoading: isBadgesLoading, refetch: refetchBadges } = useSidebarData(
+    userRole,
+    30000 // Refresh every 30 seconds
+  );
 
   // Handle incoming real-time events
   useEffect(() => {
@@ -323,18 +334,11 @@ function Layout() {
   }, [events, showInfo, showWarning, showSuccess, showInfo, refetchBadges]);
 
   // Get role-specific configuration
-  const userRole = (user?.role as Role) || 'Doctor';
   const theme = useMemo(() => getThemeForRole(userRole), [userRole]);
   const navigation = useMemo(() => getNavForRole(userRole), [userRole]);
   const defaultExpanded = useMemo(() => getDefaultExpandedSections(userRole), [userRole]);
   
   const [expandedSections, setExpandedSections] = useState<Set<string>>(defaultExpanded);
-
-  // Fetch real-time sidebar data from API
-  const { badges, recentPatients, isLoading: isBadgesLoading, refetch: refetchBadges } = useSidebarData(
-    userRole,
-    30000 // Refresh every 30 seconds
-  );
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -566,8 +570,9 @@ function Layout() {
           onClick={() => navigate('/notifications')}
           className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative"
           aria-label="Notifications"
+          title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
         >
-          <Bell size={24} className={isSSEConnected ? 'text-blue-600' : 'text-gray-700'} title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'} />
+          <Bell size={24} className={isSSEConnected ? 'text-blue-600' : 'text-gray-700'} />
           {totalUnread > 0 && (
             <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
               {totalUnread > 9 ? '9+' : totalUnread}
@@ -609,6 +614,24 @@ function Layout() {
 
       {/* Main content */}
       <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-gray-100 dark:bg-gray-900">
+        {/* Offline indicator — writes are queued locally and synced on reconnect */}
+        {!isOnline && (
+          <div className="flex items-center gap-2 bg-amber-500 text-white text-sm px-4 py-2">
+            <WifiOff className="w-4 h-4" />
+            <span>You're offline. Changes are saved locally and will sync when the connection returns.</span>
+            {queueSize > 0 && (
+              <span className="ml-1 px-2 py-0.5 bg-amber-700 rounded-full text-xs font-medium">
+                {queueSize} pending
+              </span>
+            )}
+            <button
+              onClick={() => checkConnection()}
+              className="ml-auto underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         <Outlet />
       </main>
       <CommandPalette open={isPaletteOpen} onClose={() => setIsPaletteOpen(false)} />

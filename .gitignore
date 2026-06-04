@@ -27,6 +27,9 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+!.env.example
+*.pem
+*.key
 
 # PostgreSQL & Database
 *.db
@@ -44,8 +47,29 @@ docs/logs/
 *.runlog.txt
 coverage/
 
-# Claude Code worktrees (local dev tool artifacts)
-.claude/worktrees/
+# AI assistant / tooling artifacts (never commit)
+.claude/
+.junie/
+.aiignore
+.aiexclude
+.cursor/
+.cursorrules
+.aider*
+.mcp.json
+.claude.json
+CLAUDE.md
+AGENTS.md
+COPILOT.MD
+COPILOT.md
+GEMINI.md
+copilot-instructions.md
+docs/copilot-instructions.md
+.github/instructions/
+*.local.json
+
+# Nested/embedded working clone — not part of this repo
+/medichain
+/medichain/
 
 # Temporary documentation (internal planning - remove after project completion)
 # These are development artifacts that should not be in final release:

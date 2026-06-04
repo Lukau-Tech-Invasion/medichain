@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { MedicationRemindersPage } from './MedicationRemindersPage';
 import { usePatientAuthStore } from '../store/authStore';
-import * as sharedApi from '@shared/api/endpoints';
+import * as sharedApi from '@medichain/shared';
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
@@ -10,7 +10,7 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared API
-vi.mock('@shared/api/endpoints', () => ({
+vi.mock('@medichain/shared', () => ({
   getPatientReminders: vi.fn(),
   createMedicationReminder: vi.fn(),
 }));

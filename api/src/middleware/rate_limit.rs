@@ -11,8 +11,9 @@
 //! © 2025-2026 Trustware. All rights reserved.
 
 use actix_web::{
+    body::EitherBody,
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error,
+    Error, HttpResponse,
 };
 use futures::future::{ok, LocalBoxFuture, Ready};
 use std::cell::RefCell;
@@ -76,7 +77,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type Transform = RateLimitMiddlewareService<S>;
     type InitError = ();
@@ -114,7 +115,7 @@ where
     S::Future: 'static,
     B: 'static,
 {
-    type Response = ServiceResponse<B>;
+    type Response = ServiceResponse<EitherBody<B>>;
     type Error = Error;
     type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -168,15 +169,33 @@ where
                     limit
                 );
 
-                // Return 429 Too Many Requests
-                return Err(actix_web::error::ErrorTooManyRequests(format!(
-                    "Rate limit exceeded. Please retry after {} seconds.",
-                    retry_after
-                )));
+                // Return 429 with the canonical error envelope and a Retry-After
+                // header so clients can back off correctly (Phase 9.5).
+                let body = crate::middleware::error_handling::error_envelope_json(
+                    crate::middleware::error_handling::error_codes::RATE_LIMIT_EXCEEDED,
+                    &format!(
+                        "Rate limit exceeded. Please retry after {} seconds.",
+                        retry_after
+                    ),
+                    Some(serde_json::json!({
+                        "limit": limit,
+                        "retry_after_secs": retry_after
+                    })),
+                );
+                let response = HttpResponse::TooManyRequests()
+                    .insert_header((
+                        actix_web::http::header::RETRY_AFTER,
+                        retry_after.to_string(),
+                    ))
+                    .json(body);
+                return Ok(req.into_response(response).map_into_right_body());
             }
 
-            // Continue with request
-            service.call(req).await
+            // Continue with request, mapping the inner body into the Either.
+            service
+                .call(req)
+                .await
+                .map(ServiceResponse::map_into_left_body)
         })
     }
 }

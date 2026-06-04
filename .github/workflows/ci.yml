@@ -59,6 +59,54 @@ jobs:
               run: cargo audit
 
     # ============================================================================
+    # Supply-Chain Security (cargo-deny advisories/licenses/bans + SBOM)
+    # ============================================================================
+    supply-chain:
+        name: Supply Chain
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            # Enforced (under our control): no banned crates, crates.io sources only.
+            # Config lives in deny.toml at the repo root.
+            - name: cargo-deny (bans + sources, enforced)
+              uses: EmbarkStudios/cargo-deny-action@v2
+              with:
+                  command: check
+                  arguments: bans sources
+
+            # Report-only for now: the substrate/subxt transitive tree carries
+            # several upstream-flagged advisories (unmaintained crates, older
+            # CVEs) and licenses we don't directly control. Surface them in logs
+            # without failing the build until the deny.toml ignore-list/license
+            # exceptions are curated (tracked follow-up).
+            - name: cargo-deny (advisories + licenses, report-only)
+              uses: EmbarkStudios/cargo-deny-action@v2
+              continue-on-error: true
+              with:
+                  command: check
+                  arguments: advisories licenses
+
+            # Generate a CycloneDX Software Bill of Materials for compliance.
+            - name: Install cargo-cyclonedx
+              run: cargo install cargo-cyclonedx --locked
+
+            - name: Generate SBOM (CycloneDX)
+              run: cargo cyclonedx --format json --all
+
+            - name: Upload SBOM artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: sbom-cyclonedx
+                  path: "**/*.cdx.json"
+                  if-no-files-found: warn
+
+    # ============================================================================
     # TypeScript/React Client Apps (doctor-portal, patient-app)
     # ============================================================================
     client:
@@ -91,6 +139,43 @@ jobs:
 
             - name: Run linting
               run: npm run lint --workspaces --if-present
+
+    # ============================================================================
+    # Performance budgets — Lighthouse CI (Phase 12.1)
+    # ============================================================================
+    # Report-only for now (perf is environment-noisy in CI); budgets live in
+    # client/.lighthouserc.json and docs/PERFORMANCE_BUDGETS.md.
+    lighthouse:
+        name: Lighthouse Budgets
+        runs-on: ubuntu-latest
+        continue-on-error: true
+
+        defaults:
+            run:
+                working-directory: client
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: "npm"
+                  cache-dependency-path: client/package-lock.json
+
+            - name: Install dependencies
+              run: npm install
+
+            - name: Build patient app
+              run: npm run build:patient
+
+            - name: Install Lighthouse CI
+              run: npm install -g @lhci/cli@0.13.x
+
+            - name: Run Lighthouse CI (patient app)
+              run: lhci autorun --config=.lighthouserc.json --collect.staticDistDir=patient-app/dist
 
     # ============================================================================
     # WebAssembly Crypto Module

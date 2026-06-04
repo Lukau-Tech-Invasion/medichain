@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { apiUrl } from '@medichain/shared';
+import { useState, useCallback } from 'react';
+import { apiUrl, useOfflineCache, useTranslation } from '@medichain/shared';
 import {
   AlertTriangle,
   Heart,
@@ -13,6 +13,7 @@ import {
   Check,
   Info,
   Wifi,
+  WifiOff,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -46,75 +47,75 @@ interface EmergencyData {
  * © 2025 Trustware. All rights reserved.
  */
 export function EmergencyCardPage() {
-  const [emergencyData, setEmergencyData] = useState<EmergencyData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { t } = useTranslation();
   const [showMedicalInfo, setShowMedicalInfo] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadEmergencyData();
-  }, []);
-
-  const loadEmergencyData = async () => {
-    setIsLoading(true);
-    
+  // Patient ID from stored auth (used as the cache key + request identity).
+  const patientId = (() => {
     try {
-      // Get patient ID from stored auth
       const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : null;
-      
-      if (!patientId) {
-        setEmergencyData(null);
-        setIsLoading(false);
-        return;
-      }
-
-      const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
-        headers: {
-          'X-User-Id': patientId,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const emergencyInfo = data.emergency_info || {};
-        const emergencyContact = emergencyInfo.emergency_contacts?.[0] || {};
-
-        setEmergencyData({
-          patientId: data.patient_id,
-          nationalHealthId: data.national_id || data.patient_id,
-          fullName: data.full_name,
-          dateOfBirth: data.date_of_birth,
-          bloodType: emergencyInfo.blood_type || 'Unknown',
-          allergies: emergencyInfo.allergies?.map((a: { name: string }) => a.name) || [],
-          chronicConditions: emergencyInfo.chronic_conditions || [],
-          currentMedications: emergencyInfo.current_medications || [],
-          emergencyContact: {
-            name: emergencyContact.name || 'Not set',
-            phone: emergencyContact.phone || 'Not set',
-            relationship: emergencyContact.relationship || 'Not set',
-          },
-          organDonor: emergencyInfo.organ_donor || false,
-          dnrStatus: emergencyInfo.dnr_status || false,
-          cardHash: data.patient_id.replace(/-/g, '').toLowerCase(),
-          lastUpdated: data.last_updated || new Date().toISOString(),
-        });
-      } else {
-        setEmergencyData(null);
-      }
-    } catch (error) {
-      console.error('Failed to load emergency data:', error);
-      setEmergencyData(null);
+      return authData ? JSON.parse(authData).patientId : null;
+    } catch {
+      return null;
     }
-    
-    setIsLoading(false);
-  };
+  })();
+
+  // Fetch + map the emergency card. Throws on failure so useOfflineCache can fall
+  // back to the cached copy (critical: emergency data must be viewable offline).
+  const fetchEmergencyData = useCallback(async (): Promise<EmergencyData> => {
+    if (!patientId) {
+      throw new Error('Not signed in');
+    }
+    const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
+      headers: {
+        'X-User-Id': patientId,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to load emergency data (${response.status})`);
+    }
+    const data = await response.json();
+    const emergencyInfo = data.emergency_info || {};
+    const emergencyContact = emergencyInfo.emergency_contacts?.[0] || {};
+    return {
+      patientId: data.patient_id,
+      nationalHealthId: data.national_id || data.patient_id,
+      fullName: data.full_name,
+      dateOfBirth: data.date_of_birth,
+      bloodType: emergencyInfo.blood_type || 'Unknown',
+      allergies: emergencyInfo.allergies?.map((a: { name: string }) => a.name) || [],
+      chronicConditions: emergencyInfo.chronic_conditions || [],
+      currentMedications: emergencyInfo.current_medications || [],
+      emergencyContact: {
+        name: emergencyContact.name || 'Not set',
+        phone: emergencyContact.phone || 'Not set',
+        relationship: emergencyContact.relationship || 'Not set',
+      },
+      organDonor: emergencyInfo.organ_donor || false,
+      dnrStatus: emergencyInfo.dnr_status || false,
+      cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
+      lastUpdated: data.last_updated || new Date().toISOString(),
+    };
+  }, [patientId]);
+
+  // Cache-through: caches on every successful load, serves cached card offline.
+  const {
+    data: emergencyData,
+    loading: isLoading,
+    fromCache,
+    refresh,
+  } = useOfflineCache<EmergencyData>(
+    `emergency-card-${patientId || 'none'}`,
+    'emergency',
+    fetchEmergencyData,
+  );
 
   const handleRefreshQR = async () => {
     setIsRefreshing(true);
-    await loadEmergencyData();
+    await refresh();
     setIsRefreshing(false);
   };
 
@@ -161,9 +162,17 @@ export function EmergencyCardPage() {
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header */}
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-neutral-900">Emergency Card</h1>
-        <p className="text-neutral-600">Scan for emergency medical access</p>
+        <h1 className="text-2xl font-bold text-neutral-900">{t('emergency.cardTitle')}</h1>
+        <p className="text-neutral-600">{t('emergency.cardSubtitle')}</p>
       </div>
+
+      {/* Offline indicator — emergency data is cached for no-network viewing */}
+      {fromCache && (
+        <div className="flex items-center justify-center gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl py-2 px-3">
+          <WifiOff className="w-4 h-4" />
+          {t('emergency.offlineNotice')}
+        </div>
+      )}
 
       {/* QR Code Card */}
       <div className="patient-card overflow-hidden">
@@ -175,7 +184,7 @@ export function EmergencyCardPage() {
                 <Heart className="w-6 h-6" />
               </div>
               <div>
-                <div className="text-xs text-white/80">National Health ID</div>
+                <div className="text-xs text-white/80">{t('emergency.nationalHealthId')}</div>
                 <div className="font-mono font-semibold tracking-wide">
                   {emergencyData.nationalHealthId}
                 </div>
@@ -242,14 +251,14 @@ export function EmergencyCardPage() {
               className="flex items-center gap-2 px-4 py-2 text-sm text-neutral-600 hover:text-neutral-900 transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('common.refresh')}
             </button>
             <button
               onClick={handleShare}
               className="flex items-center gap-2 px-4 py-2 text-sm text-neutral-600 hover:text-neutral-900 transition-colors"
             >
               <Share2 className="w-4 h-4" />
-              Share
+              {t('emergency.share')}
             </button>
           </div>
         </div>
@@ -259,7 +268,7 @@ export function EmergencyCardPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-neutral-900">{emergencyData.fullName}</div>
-              <div className="text-sm text-neutral-500">DOB: {formatDate(emergencyData.dateOfBirth)}</div>
+              <div className="text-sm text-neutral-500">{t('emergency.dob')}: {formatDate(emergencyData.dateOfBirth)}</div>
             </div>
             <div className="flex items-center gap-2">
               <Droplet className="w-5 h-5 text-emergency-500" />
@@ -276,15 +285,15 @@ export function EmergencyCardPage() {
             <Wifi className="w-6 h-6 text-primary-600 rotate-90" />
           </div>
           <div className="flex-1">
-            <h3 className="font-medium text-neutral-900">NFC Card Ready</h3>
-            <p className="text-sm text-neutral-500">Tap your card for instant access</p>
+            <h3 className="font-medium text-neutral-900">{t('emergency.nfcReady')}</h3>
+            <p className="text-sm text-neutral-500">{t('emergency.nfcTapHint')}</p>
           </div>
           <div className="w-3 h-3 bg-success-500 rounded-full animate-pulse" />
         </div>
         
         <div className="mt-4 p-3 bg-neutral-50 rounded-xl text-sm text-neutral-600">
           <Info className="w-4 h-4 inline mr-2 text-info" />
-          Healthcare providers can tap their NFC reader to access your emergency medical data instantly.
+          {t('emergency.nfcInfo')}
         </div>
       </div>
 
@@ -296,7 +305,7 @@ export function EmergencyCardPage() {
         >
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-warning-600" />
-            <span className="font-medium text-neutral-900">Critical Medical Info</span>
+            <span className="font-medium text-neutral-900">{t('emergency.criticalInfo')}</span>
           </div>
           {showMedicalInfo ? (
             <ChevronUp className="w-5 h-5 text-neutral-400" />
@@ -312,7 +321,7 @@ export function EmergencyCardPage() {
               <div className="p-3 bg-emergency-50 border border-emergency-200 rounded-xl">
                 <div className="flex items-center gap-2 text-emergency-700 font-medium mb-2">
                   <AlertTriangle className="w-4 h-4" />
-                  Allergies
+                  {t('emergency.allergies')}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {emergencyData.allergies.map((allergy, i) => (
@@ -329,7 +338,7 @@ export function EmergencyCardPage() {
               <div className="p-3 bg-warning-50 border border-warning-200 rounded-xl">
                 <div className="flex items-center gap-2 text-warning-700 font-medium mb-2">
                   <Heart className="w-4 h-4" />
-                  Chronic Conditions
+                  {t('emergency.chronicConditions')}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {emergencyData.chronicConditions.map((condition, i) => (
@@ -346,7 +355,7 @@ export function EmergencyCardPage() {
               <div className="p-3 bg-info-light border border-info/20 rounded-xl">
                 <div className="flex items-center gap-2 text-info font-medium mb-2">
                   <Pill className="w-4 h-4" />
-                  Current Medications
+                  {t('emergency.currentMedications')}
                 </div>
                 <ul className="space-y-1">
                   {emergencyData.currentMedications.map((med, i) => (
@@ -365,7 +374,7 @@ export function EmergencyCardPage() {
               }`}>
                 <Heart className="w-5 h-5 mx-auto mb-1" />
                 <div className="text-xs font-medium">
-                  {emergencyData.organDonor ? 'Organ Donor' : 'Not a Donor'}
+                  {emergencyData.organDonor ? t('emergency.organDonor') : t('emergency.notDonor')}
                 </div>
               </div>
               <div className={`flex-1 p-3 rounded-xl text-center ${
@@ -375,7 +384,7 @@ export function EmergencyCardPage() {
               }`}>
                 <Shield className="w-5 h-5 mx-auto mb-1" />
                 <div className="text-xs font-medium">
-                  {emergencyData.dnrStatus ? 'DNR Order' : 'Full Resuscitation'}
+                  {emergencyData.dnrStatus ? t('emergency.dnrOrder') : t('emergency.fullResuscitation')}
                 </div>
               </div>
             </div>
@@ -387,7 +396,7 @@ export function EmergencyCardPage() {
       <div className="patient-card">
         <h3 className="font-medium text-neutral-900 mb-4 flex items-center gap-2">
           <Phone className="w-5 h-5 text-primary-600" />
-          Emergency Contact
+          {t('emergency.emergencyContact')}
         </h3>
         
         <div className="flex items-center justify-between">
@@ -400,18 +409,18 @@ export function EmergencyCardPage() {
             className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
           >
             <Phone className="w-4 h-4" />
-            Call
+            {t('emergency.call')}
           </a>
         </div>
       </div>
 
       {/* Card Security Info */}
       <div className="text-center text-xs text-neutral-400 space-y-1">
-        <p>Card Hash: {emergencyData.cardHash.slice(0, 16)}...</p>
-        <p>Last Updated: {formatDate(emergencyData.lastUpdated)}</p>
+        <p>{t('emergency.cardHash')}: {emergencyData.cardHash.slice(0, 16)}...</p>
+        <p>{t('emergency.lastUpdated')}: {formatDate(emergencyData.lastUpdated)}</p>
         <p className="flex items-center justify-center gap-1">
           <Shield className="w-3 h-3" />
-          Secured by MediChain Blockchain
+          {t('emergency.securedBy')}
         </p>
       </div>
     </div>

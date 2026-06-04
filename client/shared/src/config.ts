@@ -18,6 +18,14 @@ export const IS_DEVELOPMENT = import.meta.env?.DEV ?? true;
 export const IS_PRODUCTION = import.meta.env?.PROD ?? false;
 
 /**
+ * Demo mode. When enabled, pages may fall back to bundled sample/demo data for
+ * features that don't have real backend wiring yet. Driven by the
+ * `VITE_DEMO_MODE` env var and defaults to **false**, so production builds never
+ * surface fabricated data to clinicians or patients.
+ */
+export const IS_DEMO = (import.meta.env?.VITE_DEMO_MODE ?? 'false') === 'true';
+
+/**
  * Detect the best API URL based on environment
  * Priority:
  * 1. Environment variable VITE_API_URL

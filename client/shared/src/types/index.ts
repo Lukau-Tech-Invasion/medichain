@@ -498,10 +498,26 @@ export interface PushEvent {
 // API Response Types
 // ============================================================================
 
+/**
+ * Normalized API error surfaced by the client (and passed to the `onError`
+ * callback). Decoded from the canonical wire envelope {@link ApiErrorEnvelope}.
+ */
 export interface ApiError {
   success: false;
   error: string;
   code: string;
+}
+
+/**
+ * Canonical error envelope returned by the backend (Phase 9.5):
+ * `{ "error": { "code", "message", "details"? } }`.
+ */
+export interface ApiErrorEnvelope {
+  error: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
 }
 
 export interface HealthCheckResponse {

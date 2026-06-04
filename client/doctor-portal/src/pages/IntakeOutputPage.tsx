@@ -200,7 +200,7 @@ const IntakeOutputPage: React.FC = () => {
         patientId: selectedPatient.patientId,
         timestamp: new Date().toISOString(),
         ...newEntry,
-        recordedBy: user?.name || 'Healthcare Provider'
+        recordedBy: user?.username || 'Healthcare Provider'
       };
 
       await createIntakeOutput(payload);
@@ -218,7 +218,7 @@ const IntakeOutputPage: React.FC = () => {
         })));
         
         // Update selected patient too
-        const updatedSelected = (data as any[]).find(p => p.patientId === selectedPatient.patientId);
+        const updatedSelected = (data as NonNullable<typeof selectedPatient>[]).find(p => p.patientId === selectedPatient.patientId);
         if (updatedSelected) {
           setSelectedPatient({
             ...updatedSelected,
@@ -424,7 +424,7 @@ const IntakeOutputPage: React.FC = () => {
                 <select
                   id="io-category"
                   value={newEntry.category}
-                  onChange={(e) => setNewEntry({ ...newEntry, category: e.target.value as any })}
+                  onChange={(e) => setNewEntry({ ...newEntry, category: e.target.value as typeof newEntry.category })}
                   className="w-full border rounded-lg px-3 py-2"
                 >
                   {(entryType === 'intake' ? getIntakeCategories() : getOutputCategories()).map(cat => (
@@ -450,7 +450,7 @@ const IntakeOutputPage: React.FC = () => {
                   <select
                     id="io-unit"
                     value={newEntry.unit}
-                    onChange={(e) => setNewEntry({ ...newEntry, unit: e.target.value as any })}
+                    onChange={(e) => setNewEntry({ ...newEntry, unit: e.target.value as typeof newEntry.unit })}
                     className="w-full border rounded-lg px-3 py-2"
                   >
                     <option value="ml">ml</option>

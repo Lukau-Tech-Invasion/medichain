@@ -1,0 +1,71 @@
+# cargo-deny configuration for MediChain
+# Run locally with:  cargo deny check
+# CI runs this on every push/PR (see .github/workflows/ci.yml).
+#
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Check the dependency graph for all targets we actually ship.
+all-features = true
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# Security advisories (RustSec) — fail the build on known vulnerabilities.
+# ---------------------------------------------------------------------------
+[advisories]
+version = 2
+# NOTE: the substrate/subxt dependency tree pulls in several upstream-flagged
+# advisories (unmaintained crates such as `instant`, `paste`, `parity-wasm`,
+# `proc-macro-error`, and older transitive CVEs) that this project cannot fix
+# directly. CI runs the advisories check in report-only mode until this list is
+# curated with the specific RUSTSEC IDs + justification. Add IDs here as they
+# are reviewed, e.g.:
+#   ignore = ["RUSTSEC-2024-XXXX"]
+ignore = []
+
+# ---------------------------------------------------------------------------
+# License compliance — only permissive / health-data-safe licenses allowed.
+# A copyleft dependency (e.g. GPL) must be reviewed before being added here.
+# ---------------------------------------------------------------------------
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "0BSD",
+    "BSL-1.0",
+]
+confidence-threshold = 0.8
+# Per-crate license clarifications go here if a crate ships ambiguous metadata.
+exceptions = []
+
+# ---------------------------------------------------------------------------
+# Dependency bans — flag duplicate versions and wildcard requirements.
+# ---------------------------------------------------------------------------
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+# Deny crates we never want pulled in transitively (add as needed).
+deny = []
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Source control — only crates.io and explicitly-allowed git sources.
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

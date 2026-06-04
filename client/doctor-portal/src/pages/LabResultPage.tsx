@@ -68,7 +68,7 @@ const LabResultPage: React.FC = () => {
     try {
       const submissions = await getAllLabSubmissions();
       // Map API response to LabResult interface
-      const mappedResults: LabResult[] = ((submissions as unknown) as any[]).map((s: any) => ({
+      const mappedResults: LabResult[] = ((submissions as unknown) as unknown[]).map((s: any) => ({
         id: s.id || s.submission_id || '',
         patientId: s.patient_id || s.patientId || '',
         patientName: s.patient_name || s.patientName || 'Unknown Patient',
@@ -205,7 +205,7 @@ const LabResultPage: React.FC = () => {
         <select
           id="labresult-status-filter"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as any)}
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
           className="border rounded-lg px-3 py-2"
         >
           <option value="all">All Status</option>

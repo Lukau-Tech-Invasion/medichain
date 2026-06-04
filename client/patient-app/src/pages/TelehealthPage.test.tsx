@@ -3,18 +3,34 @@ import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { TelehealthPage } from './TelehealthPage';
 import { usePatientAuthStore } from '../store/authStore';
+import { ToastProvider } from '../components/Toast';
+
+/** TelehealthPage uses toast notifications, so it must render under a provider. */
+const renderPage = () =>
+  render(
+    <MemoryRouter>
+      <ToastProvider>
+        <TelehealthPage />
+      </ToastProvider>
+    </MemoryRouter>
+  );
 
 // Mock the auth store
 vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
 
+// Keep the real shared module (apiUrl, ToastProvider, …) but make the join
+// endpoint deterministic: return no Jitsi creds so the page uses the in-app
+// fallback (the API client isn't initialized in the test environment).
+vi.mock('@medichain/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@medichain/shared')>();
+  return { ...actual, joinTelehealthSession: vi.fn().mockResolvedValue({}) };
+});
+
 // Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
-
-// Mock window.open
-window.open = vi.fn();
 
 describe('TelehealthPage (Patient)', () => {
   const mockPatient = {
@@ -68,40 +84,34 @@ describe('TelehealthPage (Patient)', () => {
   });
 
   it('renders telehealth page with upcoming sessions', async () => {
-    render(
-      <MemoryRouter>
-        <TelehealthPage />
-      </MemoryRouter>
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByText(/Telehealth Visits/i)).toBeInTheDocument();
       expect(screen.getByText(/Dr. Video/i)).toBeInTheDocument();
-      expect(screen.getByText(/Join Session/i)).toBeInTheDocument();
+      expect(screen.getByText(/Join Video Call/i)).toBeInTheDocument();
     });
   });
 
-  it('allows joining a session', async () => {
-    render(
-      <MemoryRouter>
-        <TelehealthPage />
-      </MemoryRouter>
-    );
+  it('opens the in-browser call when joining (falls back to the join URL)', async () => {
+    renderPage();
 
     await waitFor(() => {
-      const joinButton = screen.getByText(/Join Session/i);
-      fireEvent.click(joinButton);
+      expect(screen.getByText(/Join Video Call/i)).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByText(/Join Video Call/i));
 
-    expect(window.open).toHaveBeenCalledWith('https://join.zoom.us/s/123', '_blank', 'noopener,noreferrer');
+    // The join endpoint mock returns no Jitsi credentials, so the page falls
+    // back to embedding the session's join URL in-app (no native app / new tab).
+    await waitFor(() => {
+      const frame = screen.getByTitle(/Telehealth video call/i) as HTMLIFrameElement;
+      expect(frame).toBeInTheDocument();
+      expect(frame.src).toContain('https://join.zoom.us/s/123');
+    });
   });
 
   it('allows switching to past sessions tab', async () => {
-    render(
-      <MemoryRouter>
-        <TelehealthPage />
-      </MemoryRouter>
-    );
+    renderPage();
 
     await waitFor(() => {
       expect(screen.getByText(/Upcoming/i)).toBeInTheDocument();

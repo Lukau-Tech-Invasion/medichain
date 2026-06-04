@@ -4,6 +4,7 @@ import { useAuthStore } from './store/authStore';
 import { useThemeStore } from './store/themeStore';
 import Layout from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { I18nProvider } from '@medichain/shared';
 
 // Loading fallback for lazy-loaded components
 function PageLoader() {
@@ -345,7 +346,9 @@ function AppWithErrorBoundary() {
         console.error('Component stack:', errorInfo.componentStack);
       }}
     >
-      <App />
+      <I18nProvider>
+        <App />
+      </I18nProvider>
     </ErrorBoundary>
   );
 }

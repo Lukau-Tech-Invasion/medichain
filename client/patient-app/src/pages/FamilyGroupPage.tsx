@@ -39,7 +39,6 @@ export function FamilyGroupPage() {
   }, []);
 
   const loadGroups = () => {
-    // @ts-ignore
     getMyFamilyGroups()
       .then((res: any) => setGroups(res.groups || []))
       .catch(console.error)
@@ -51,7 +50,6 @@ export function FamilyGroupPage() {
     if (!patient?.healthId || !newGroupName.trim()) return;
     setIsCreating(true);
     try {
-      // @ts-ignore
       await createFamilyGroup({
         group_name: newGroupName.trim(),
         primary_contact_id: patient.healthId,
@@ -72,7 +70,6 @@ export function FamilyGroupPage() {
     if (!addMemberGroupId || !newMemberHealthId.trim()) return;
     setIsAddingMember(true);
     try {
-      // @ts-ignore
       await addFamilyMember(addMemberGroupId, {
         patient_id: newMemberHealthId.trim(),
         relationship: newMemberRelationship.trim() || undefined,

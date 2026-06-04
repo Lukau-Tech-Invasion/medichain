@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, IS_DEVELOPMENT, FEATURES } from '@medichain/shared';
+import { apiUrl, IS_DEVELOPMENT, FEATURES, useTranslation, LanguageSwitcher } from '@medichain/shared';
 import { Heart, Shield, Lock, Eye, EyeOff, Wallet, UserPlus, Zap, UserCircle } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -64,13 +64,14 @@ const DEMO_PATIENTS: DemoPatient[] = [
  */
 export function LoginPage() {
   const navigate = useNavigate();
-  const { 
-    login, 
-    loginWithDemoWallet, 
-    isAuthenticated, 
-    isLoading, 
-    error, 
-    clearError 
+  const { t } = useTranslation();
+  const {
+    login,
+    loginWithDemoWallet,
+    isAuthenticated,
+    isLoading,
+    error,
+    clearError
   } = usePatientAuthStore();
   
   const [walletAddress, setWalletAddress] = useState('');
@@ -91,13 +92,13 @@ export function LoginPage() {
     setLocalError('');
 
     if (!walletAddress.trim()) {
-      setLocalError('Please enter your wallet address');
+      setLocalError(t('auth.errEnterWallet'));
       return;
     }
 
     // Basic validation - should start with 5 and be 48 chars
     if (!walletAddress.startsWith('5') || walletAddress.length !== 48) {
-      setLocalError('Invalid wallet address format. Must be 48 characters starting with "5".');
+      setLocalError(t('auth.errInvalidWallet'));
       return;
     }
 
@@ -136,11 +137,14 @@ export function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-success-50 flex flex-col">
       {/* Header */}
       <header className="p-6">
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-primary-500 rounded-xl flex items-center justify-center">
-            <Heart className="w-6 h-6 text-white" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-primary-500 rounded-xl flex items-center justify-center">
+              <Heart className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-xl font-semibold text-neutral-800">MediChain</span>
           </div>
-          <span className="text-xl font-semibold text-neutral-800">MediChain</span>
+          <LanguageSwitcher className="text-sm border border-neutral-200 rounded-lg px-2 py-1 bg-white" />
         </div>
       </header>
 
@@ -150,10 +154,10 @@ export function LoginPage() {
           {/* Welcome text */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-neutral-900 mb-2">
-              Welcome to MediChain
+              {t('auth.welcomeTitle')}
             </h1>
             <p className="text-neutral-600">
-              Connect your wallet to access your medical records
+              {t('auth.welcomeSubtitle')}
             </p>
           </div>
 
@@ -170,7 +174,7 @@ export function LoginPage() {
               {/* Wallet Address input */}
               <div>
                 <label htmlFor="walletAddress" className="block text-sm font-medium text-neutral-700 mb-2">
-                  Wallet Address
+                  {t('auth.walletAddressLabel')}
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -181,13 +185,13 @@ export function LoginPage() {
                     id="walletAddress"
                     value={walletAddress}
                     onChange={(e) => setWalletAddress(e.target.value)}
-                    placeholder="5ABC...XYZ (48 characters)"
+                    placeholder={t('auth.walletPlaceholder')}
                     className="block w-full pl-12 pr-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors font-mono text-sm"
                     disabled={isLoading}
                   />
                 </div>
                 <p className="mt-1 text-xs text-neutral-500">
-                  Your Substrate wallet address (SS58 format)
+                  {t('auth.walletHint')}
                 </p>
               </div>
 
@@ -200,12 +204,12 @@ export function LoginPage() {
                 {isLoading ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Connecting...
+                    {t('auth.connecting')}
                   </>
                 ) : (
                   <>
                     <Wallet className="w-5 h-5" />
-                    Connect Wallet
+                    {t('auth.connectWallet')}
                   </>
                 )}
               </button>
@@ -221,7 +225,7 @@ export function LoginPage() {
                   <div className="relative flex justify-center text-sm">
                     <span className="px-4 bg-white text-neutral-500 flex items-center gap-1">
                       <UserCircle className="w-4 h-4" />
-                      Quick Login - Demo Patients
+                      {t('auth.quickLoginDemo')}
                     </span>
                   </div>
                 </div>
@@ -242,7 +246,7 @@ export function LoginPage() {
                 </div>
 
                 <p className="mt-3 text-xs text-center text-neutral-400">
-                  Click any patient to instantly login with their wallet
+                  {t('auth.quickLoginHint')}
                 </p>
               </>
             )}
@@ -253,7 +257,7 @@ export function LoginPage() {
                 <div className="w-full border-t border-neutral-200" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-neutral-500">or</span>
+                <span className="px-4 bg-white text-neutral-500">{t('common.or')}</span>
               </div>
             </div>
 
@@ -264,14 +268,14 @@ export function LoginPage() {
                 className="w-full border border-neutral-200 text-neutral-700 py-3 px-4 rounded-xl font-medium hover:bg-neutral-50 transition-colors flex items-center justify-center gap-2"
               >
                 <img src="/nfc-icon.svg" alt="" className="w-5 h-5" onError={(e) => e.currentTarget.style.display = 'none'} />
-                Sign in with NFC Card
+                {t('auth.signInNfc')}
               </button>
               <button
                 type="button"
                 className="w-full border border-neutral-200 text-neutral-700 py-3 px-4 rounded-xl font-medium hover:bg-neutral-50 transition-colors flex items-center justify-center gap-2"
               >
                 <img src="/qr-icon.svg" alt="" className="w-5 h-5" onError={(e) => e.currentTarget.style.display = 'none'} />
-                Scan QR Code
+                {t('auth.scanQr')}
               </button>
             </div>
           </div>
@@ -281,7 +285,7 @@ export function LoginPage() {
             <div className="mt-6 bg-warning-50 border border-warning-200 rounded-xl p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Zap className="w-5 h-5 text-warning-600" />
-                <span className="font-medium text-warning-800">Development Mode</span>
+                <span className="font-medium text-warning-800">{t('auth.devMode')}</span>
               </div>
               
               {!showDemoForm ? (
@@ -290,7 +294,7 @@ export function LoginPage() {
                   className="w-full bg-warning-100 text-warning-800 py-2 px-4 rounded-lg font-medium hover:bg-warning-200 transition-colors flex items-center justify-center gap-2"
                 >
                   <UserPlus className="w-4 h-4" />
-                  Create Demo Wallet
+                  {t('auth.createDemoWallet')}
                 </button>
               ) : (
                 <div className="space-y-3">
@@ -298,7 +302,7 @@ export function LoginPage() {
                     type="text"
                     value={demoName}
                     onChange={(e) => setDemoName(e.target.value)}
-                    placeholder="Enter your name (optional)"
+                    placeholder={t('auth.demoNamePlaceholder')}
                     className="block w-full px-4 py-2 border border-warning-200 rounded-lg focus:ring-2 focus:ring-warning-500 focus:border-warning-500 transition-colors"
                   />
                   <div className="flex gap-2">
@@ -307,13 +311,13 @@ export function LoginPage() {
                       disabled={isLoading}
                       className="flex-1 bg-warning-500 text-white py-2 px-4 rounded-lg font-medium hover:bg-warning-600 transition-colors disabled:opacity-50"
                     >
-                      {isLoading ? 'Creating...' : 'Create & Login'}
+                      {isLoading ? t('auth.creating') : t('auth.createAndLogin')}
                     </button>
                     <button
                       onClick={() => setShowDemoForm(false)}
                       className="px-4 py-2 border border-warning-200 text-warning-700 rounded-lg hover:bg-warning-100 transition-colors"
                     >
-                      Cancel
+                      {t('common.cancel')}
                     </button>
                   </div>
                 </div>
@@ -324,7 +328,7 @@ export function LoginPage() {
           {/* Security notice */}
           <div className="mt-6 flex items-center justify-center gap-2 text-neutral-500 text-sm">
             <Shield className="w-4 h-4" />
-            <span>Blockchain-secured authentication</span>
+            <span>{t('auth.securityNotice')}</span>
           </div>
         </div>
       </main>

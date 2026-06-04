@@ -70,7 +70,7 @@ export function VitalsPage() {
     setLoading(true);
     try {
       const data = await getPatientVitals(patient.healthId);
-      const list: VitalReading[] = (data as any).readings || (data as any).vitals || (Array.isArray(data) ? data : []);
+      const list: VitalReading[] = (data as { readings?: VitalReading[]; vitals?: VitalReading[] }).readings || (data as { readings?: VitalReading[]; vitals?: VitalReading[] }).vitals || (Array.isArray(data) ? data : []);
       setReadings(list);
       setApiConnected(true);
       

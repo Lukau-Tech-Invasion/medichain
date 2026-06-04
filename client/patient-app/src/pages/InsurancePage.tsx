@@ -16,7 +16,7 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { getPatientInsuranceClaims } from '@medichain/shared';
+import { getPatientInsuranceClaims, IS_DEMO } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -126,12 +126,14 @@ const InsurancePage: React.FC = () => {
         
         if (apiClaims && Array.isArray(apiClaims) && apiClaims.length > 0) {
           setClaims(apiClaims);
-        } else {
+        } else if (IS_DEMO) {
           loadDemoClaims();
         }
-        
-        // For insurance cards, we still need to load demo data since there's no API endpoint
-        loadDemoCards();
+
+        // Insurance cards have no API endpoint yet — only show sample cards in demo mode
+        if (IS_DEMO) {
+          loadDemoCards();
+        }
         setLoading(false);
         return;
       } catch (err) {
@@ -139,9 +141,11 @@ const InsurancePage: React.FC = () => {
       }
     }
     
-    // Fallback to demo data
-    loadDemoCards();
-    loadDemoClaims();
+    // Fallback to demo data (demo mode only — production shows an empty state)
+    if (IS_DEMO) {
+      loadDemoCards();
+      loadDemoClaims();
+    }
     setLoading(false);
   };
 

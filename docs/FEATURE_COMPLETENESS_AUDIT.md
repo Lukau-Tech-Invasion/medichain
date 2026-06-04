@@ -1,8 +1,14 @@
 # MediChain Feature Completeness Audit
 
-**Audit Date:** February 16, 2026  
-**Last Updated:** February 16, 2026 (Verification Complete)  
-**Auditor:** GitHub Copilot (Automated Analysis)
+**Original audit:** February 16, 2026  
+**Last refreshed:** June 4, 2026
+
+> ⚠️ **Historical document.** This audit captured a mid-development snapshot (Feb 2026).
+> Many gaps it lists have since been closed (PostgreSQL persistence, SSE on the frontend,
+> JWT/MFA, telehealth, offline support, tests, observability, TLS). For the **current**
+> status see [`../IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) (per-feature tables)
+> and [`NEXT_WEEK_TODO.md`](NEXT_WEEK_TODO.md) (remaining work). The detail below is kept
+> for reference only.
 
 ## Summary
 

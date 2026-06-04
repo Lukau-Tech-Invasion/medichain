@@ -18,6 +18,18 @@ use uuid::Uuid;
 /// Maximum number of cards that can be stored in the registry
 pub const MAX_CARDS: usize = 10_000;
 
+/// SHA3-256 hash of `(card_id, patient_id)` used as the NFC card identifier.
+///
+/// The `:` separator is significant: it prevents `(α, βγ)` and `(αβ, γ)` from
+/// colliding to the same hash (Phase 12.2 property test target).
+pub fn card_hash(card_id: &str, patient_id: &str) -> String {
+    let mut hasher = Sha3_256::new();
+    hasher.update(card_id.as_bytes());
+    hasher.update(b":");
+    hasher.update(patient_id.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
 /// Card ID prefix for MediChain cards
 pub const CARD_PREFIX: &str = "MC";
 
@@ -182,11 +194,7 @@ impl NFCCard {
 
     /// Generate a SHA3-256 hash from card ID and patient ID
     fn generate_hash(card_id: &str, patient_id: &str) -> String {
-        let mut hasher = Sha3_256::new();
-        hasher.update(card_id.as_bytes());
-        hasher.update(b":");
-        hasher.update(patient_id.as_bytes());
-        hex::encode(hasher.finalize())
+        card_hash(card_id, patient_id)
     }
 
     /// Verify the card hash is valid

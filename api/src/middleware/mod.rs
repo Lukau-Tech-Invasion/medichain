@@ -9,8 +9,12 @@
 //! © 2025-2026 Trustware. All rights reserved.
 
 pub mod error_handling;
+pub mod idempotency;
+pub mod metrics;
 pub mod rate_limit;
+pub mod security_headers;
 pub mod signature_auth;
+pub mod versioning;
 
 // Re-exports for convenience - allow unused as these are public API ready for use
 #[allow(unused_imports)]

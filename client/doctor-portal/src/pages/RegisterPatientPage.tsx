@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage } from '@medichain/shared';
 import { 
   UserPlus, 
   CheckCircle, 
@@ -88,7 +88,7 @@ function RegisterPatientPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Registration failed');
+        throw new Error(getApiErrorMessage(data, 'Registration failed'));
       }
 
       setSuccess({

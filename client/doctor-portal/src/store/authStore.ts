@@ -10,7 +10,9 @@ import {
   checkApiHealth,
   isValidWalletAddress,
   syncApiClientUserId,
-  getApiClient
+  getApiClient,
+  getApiErrorMessage,
+  issueJwt
 } from '@medichain/shared';
 import { connectRealWallet, signMessage } from '@medichain/shared/src/wallet/service';
 import type { Role as WalletRole } from '@medichain/shared';
@@ -71,6 +73,39 @@ function generateDemoAddress(): string {
 }
 
 /**
+ * Acquire JWT access + refresh tokens after a successful wallet login (Phase 9.4).
+ *
+ * Non-fatal: if issuance fails (e.g. unsigned request in production), the client
+ * keeps working via the legacy `X-User-Id` header. When a `sign` callback is
+ * provided (real wallet), the challenge is signed so the token is valid even
+ * with `REQUIRE_SIGNATURES=true`.
+ */
+async function acquireJwtTokens(
+  walletAddress: string,
+  sign?: (message: string) => Promise<string>
+): Promise<void> {
+  try {
+    let signature: string | undefined;
+    let timestamp: number | undefined;
+    if (sign) {
+      timestamp = Math.floor(Date.now() / 1000);
+      try {
+        signature = await sign(`${timestamp}:${walletAddress}`);
+      } catch {
+        timestamp = undefined; // fall back to demo (unsigned) issuance
+      }
+    }
+    const resp = await issueJwt({ wallet_address: walletAddress, signature, timestamp });
+    if (resp?.access_token) {
+      getApiClient().setTokens(resp.access_token, resp.refresh_token);
+      debugLog('authStore', `JWT acquired (mfa_required=${resp.mfa_required})`);
+    }
+  } catch (e) {
+    debugLog('authStore', 'JWT acquisition failed; continuing with X-User-Id:', e);
+  }
+}
+
+/**
  * Auth store with persistence
  */
 export const useAuthStore = create<AuthState>()(
@@ -108,12 +143,17 @@ export const useAuthStore = create<AuthState>()(
           }
 
           const walletAddress = accounts[0].address;
-          
+
           // Set signature provider in ApiClient
           const apiClient = getApiClient();
           apiClient.setSignatureProvider((message) => signMessage(walletAddress, message));
-          
-          return await get().login(walletAddress);
+
+          const ok = await get().login(walletAddress);
+          if (ok) {
+            // Upgrade to a signature-backed JWT (valid even with REQUIRE_SIGNATURES=true).
+            await acquireJwtTokens(walletAddress, (message) => signMessage(walletAddress, message));
+          }
+          return ok;
         } catch (error) {
           set({ 
             isLoading: false, 
@@ -162,14 +202,17 @@ export const useAuthStore = create<AuthState>()(
             
             // Sync API client with new userId
             syncApiClientUserId();
-            
+
             set({
               user,
               isAuthenticated: true,
               isLoading: false,
               error: null,
             });
-            
+
+            // Acquire JWT tokens (demo path / unsigned; loginWithExtension upgrades with a signature).
+            await acquireJwtTokens(user.walletAddress);
+
             debugLog('authStore', 'Logged in with wallet:', walletAddress);
             return true;
           }
@@ -240,7 +283,7 @@ export const useAuthStore = create<AuthState>()(
           
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error || 'Failed to create demo user');
+            throw new Error(getApiErrorMessage(errorData, 'Failed to create demo user'));
           }
           
           const demoUser = await response.json();
@@ -262,14 +305,17 @@ export const useAuthStore = create<AuthState>()(
           
           // Sync API client with new userId
           syncApiClientUserId();
-          
+
           set({
             user,
             isAuthenticated: true,
             isLoading: false,
             error: null,
           });
-          
+
+          // Demo wallets cannot sign; rely on demo-mode (unsigned) JWT issuance.
+          await acquireJwtTokens(user.walletAddress);
+
           debugLog('authStore', 'Created and registered demo wallet:', { walletAddress: user.walletAddress, role: user.role });
           return true;
         } catch (error) {
@@ -288,7 +334,8 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         clearStoredAuth();
-        // Clear API client userId
+        // Clear API client userId + JWT tokens
+        getApiClient().clearTokens();
         syncApiClientUserId();
         set({
           user: null,
@@ -355,6 +402,8 @@ export const useAuthStore = create<AuthState>()(
               },
               isAuthenticated: true,
             });
+            // Re-acquire JWTs (tokens are not persisted to storage).
+            await acquireJwtTokens(storedAuth.address);
             debugLog('authStore', 'Session validated and restored');
             return true;
           }
@@ -390,6 +439,8 @@ export const useAuthStore = create<AuthState>()(
               },
               isAuthenticated: true,
             });
+            // Re-acquire JWTs (tokens are not persisted to storage).
+            await acquireJwtTokens(demoUser.wallet_address || storedAuth.address);
             debugLog('authStore', 'Session re-registered successfully');
             return true;
           }

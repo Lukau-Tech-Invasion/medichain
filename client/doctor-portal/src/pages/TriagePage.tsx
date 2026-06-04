@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage } from '@medichain/shared';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -288,7 +288,7 @@ function TriagePage() {
           weight_kg: null,
         });
       } else {
-        setError(data.error || 'Failed to create triage assessment');
+        setError(getApiErrorMessage(data, 'Failed to create triage assessment'));
       }
     } catch (err) {
       setError('Failed to connect to API server');

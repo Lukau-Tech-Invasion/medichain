@@ -198,8 +198,7 @@ const FamilyHistoryPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createFamilyHistory(member);
-      // @ts-ignore
+      const response = await createFamilyHistory(member) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setFamilyMembers([member, ...familyMembers]);
         setNewMember({
@@ -217,7 +216,6 @@ const FamilyHistoryPage: React.FC = () => {
         setActiveTab('overview');
         showSuccess(`Family member ${member.memberId} added successfully`);
       } else {
-        // @ts-ignore
         setError(response.error || 'Failed to save family member');
       }
     } catch (err) {

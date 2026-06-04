@@ -1,5 +1,10 @@
 # 📅 MediChain - 2-Week Development Task Tracker
 
+> ⚠️ **Historical (hackathon) tracker.** This plan covered the original Jan 4-18, 2026
+> hackathon sprint. The project has progressed far beyond it. For **current** status and
+> the active backlog see [`../IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) and
+> [`NEXT_WEEK_TODO.md`](NEXT_WEEK_TODO.md). Retained for historical reference.
+
 **Hackathon Period:** January 4-18, 2026  
 **Total Days:** 15 days (14 working days + 1 buffer)  
 **Total Hours:** ~112 hours (8 hours/day)

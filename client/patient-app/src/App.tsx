@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { Layout } from '@medichain/shared';
+import { Layout, I18nProvider } from '@medichain/shared';
 import { ToastProvider } from './components/Toast';
 import {
   LoginPage,
@@ -48,6 +48,7 @@ import {
  */
 function App() {
   return (
+    <I18nProvider>
     <ToastProvider>
     <Routes>
       {/* Public routes */}
@@ -91,6 +92,7 @@ function App() {
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
     </ToastProvider>
+    </I18nProvider>
   );
 }
 

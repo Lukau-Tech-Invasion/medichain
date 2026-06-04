@@ -2,6 +2,43 @@
 
 This folder contains a comprehensive Expo starter app for testing connectivity between React Native/Expo mobile apps and the MediChain backend services.
 
+## 📲 Patient App (Phase 8.3)
+
+Beyond the diagnostic tester, `expo-starter/src/` now contains a **functional patient app core**:
+
+```
+src/
+  api/client.ts          MobileApiClient — JWT Bearer (+ X-User-Id fallback), auto-refresh
+  auth/AuthContext.tsx   Wallet login, secure-store session, biometric unlock gate
+  screens/
+    LoginScreen.tsx      Wallet sign-in
+    EmergencyCardScreen.tsx  Blood type / allergies / conditions / contact (headline feature)
+    MyRecordsScreen.tsx  Patient record list + sign-out + re-verify
+  MediChainApp.tsx       Root: Login → biometric gate → Emergency/Records tabs
+```
+
+**Activate it** (the diagnostic `App.tsx` is intentionally preserved):
+
+```ts
+// App.tsx (or index.js)
+import MediChainApp from './src/MediChainApp';
+export default MediChainApp;
+```
+
+It uses only dependencies already declared in `package.json` (`expo-secure-store`,
+`expo-local-authentication`, async-storage) — no navigation library — so the
+starter stays self-contained.
+
+> **Status / verification:** This code is delivered **unverified in CI** — the
+> mobile project's `node_modules` are not installed in the build environment, so
+> `npm run typecheck` was not run here. Run `npm install && npm run typecheck`
+> before use.
+>
+> **Remaining native features** (require device hardware / extra Expo modules):
+> NFC card scanning (`react-native-nfc-manager`), QR scanning
+> (`expo-barcode-scanner`), and offline-first sync (wire the existing
+> `services/offlineQueue.ts`). Biometric auth is wired via `expo-local-authentication`.
+
 ## 🚀 Quick Start
 
 ```bash

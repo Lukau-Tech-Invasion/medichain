@@ -10,7 +10,7 @@
 **#RustAfricaHackathon**
 
 > **Team:** Trustware (Keorapetswe Kgoatlha)  
-> **Event:** Rust Africa Hackathon 2026 (January 4-31)
+> **Origin:** Rust Africa Hackathon 2026 (1st-place submission) — now evolving toward production.
 
 © 2025 Trustware. All rights reserved.
 
@@ -52,6 +52,40 @@ MediChain provides a **blockchain-verified national health ID** with **NFC/QR em
 - **Multilingual Support** — English, Swahili, Amharic, Hausa, Yoruba, Zulu + translation API
 - **Offline-First Design** — Sync queue and offline data download endpoints
 - **Low-Resource Optimized** — Minimal data requirements, works on 2G networks
+
+---
+
+## 📊 Project Status
+
+> Updated 2026-06-04. MediChain has progressed well past the hackathon prototype. The
+> table below reflects what is **actually implemented and verified** in the codebase
+> today. Remaining work is tracked in [`docs/NEXT_WEEK_TODO.md`](docs/NEXT_WEEK_TODO.md)
+> and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+
+### ✅ Implemented & working
+
+| Area | Status |
+|------|--------|
+| **Blockchain** | Real `subxt` extrinsic submission (register patient, IPFS hash, emergency access); Substrate node + chain specs; `@polkadot/extension-dapp` wallet sign-in |
+| **Persistence** | Dual storage (in-memory default + PostgreSQL via `MEDICHAIN_STORAGE=postgres`); 70+ tables; clinical domains migrated to repositories |
+| **Authentication** | JWT (HS256 access 1h + refresh 7d) over wallet challenge-response, with `X-User-Id` legacy/demo fallback; **TOTP MFA** (RFC-6238) for ePHI step-up (HIPAA 2025) |
+| **Real-time** | SSE (`/api/events`) wired into **both** apps (toasts, badges, live telehealth status) |
+| **Offline** | IndexedDB read cache, offline write queue + sync-on-reconnect, last-write-wins conflict resolution UI |
+| **Telehealth** | Jitsi JWT rooms, in-browser video (doctor + patient), recording w/ consent + audit, transcription hook, in-app mobile QR/redirect, self-host stack |
+| **Clinical logic** | Drug-interaction screening (blocks contraindicated Rx), multi-symptom checker w/ ICD-10 + red-flags, 15+ CDS rules with alert-fatigue suppression |
+| **Storage/crypto** | ChaCha20-Poly1305 encrypted IPFS, Argon2id KDF, SHA3-256 NFC hashing |
+| **Security hardening** | TOCTOU-safe emergency access, incident-response playbook + breach detection, secrets gate, supply-chain (`cargo-deny` + SBOM) |
+| **API design** | `/api/v1` versioning, idempotency keys, cursor pagination, canonical error envelope |
+| **Observability** | Prometheus `/api/metrics`, structured JSON logging, Grafana dashboard + alert rules |
+| **Transport** | TLS termination via Caddy reverse proxy + HSTS/security headers |
+| **i18n** | Provider + language switcher + 4 locales (English, Swahili, Amharic, French) |
+| **Testing** | Vitest unit/component + Playwright E2E (frontend); integration + property tests (backend); pre-commit hooks; CI/CD |
+
+### 🔭 In progress / planned
+
+See [`docs/NEXT_WEEK_TODO.md`](docs/NEXT_WEEK_TODO.md). Highlights: full i18n string extraction
+across all pages, FCM push, remaining PostgreSQL round-trip fidelity, module-split &
+dead-code cleanup, and a multi-agent codebase-cleanup pass.
 
 ---
 
@@ -190,21 +224,29 @@ npm install && npm run dev
 
 ## 🔑 Authentication
 
-### Wallet-Based Authentication (Production)
+### Wallet-Based Authentication + JWT (Production)
 
-MediChain uses **SS58 wallet addresses** (48 characters starting with "5") for authentication.
+MediChain authenticates with **SS58 wallet addresses** (48 characters starting with "5")
+via a challenge-response that issues **JWT** tokens. **TOTP MFA** adds a second factor for
+sensitive ePHI operations (HIPAA 2025).
 
 ```
 Authentication Flow:
 1. Frontend requests challenge → POST /api/auth/challenge
-2. Wallet signs challenge message
-3. Submit signature → POST /api/auth/login
-4. Server verifies and returns user info
-5. All API requests include X-User-Id header
+2. Wallet signs the challenge message
+3. Submit signature → POST /api/auth/jwt  → { access_token (1h), refresh_token (7d) }
+4. All API requests send  Authorization: Bearer <access_token>
+   (the client auto-refreshes once on a 401 via POST /api/auth/jwt/refresh)
+5. Step-up: POST /api/auth/mfa/challenge issues an mfa=true token for gated actions
 ```
+
+> Legacy/demo clients may still send `X-User-Id: <wallet>` instead of a Bearer token —
+> the backend accepts either, preferring a verified JWT.
 
 **API Request Example:**
 ```bash
+curl -H "Authorization: Bearer <jwt>" http://localhost:8080/api/patients
+# or (demo/legacy):
 curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" \
      http://localhost:8080/api/patients
 ```

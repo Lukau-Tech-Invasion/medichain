@@ -1,0 +1,34 @@
+# MediChain TLS termination (Phase 6.2) — Caddy reverse proxy.
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically and
+# terminates HTTPS, forwarding plaintext to the internal services. It sets
+# X-Forwarded-Proto so the API emits HSTS only over real HTTPS, and redirects
+# HTTP→HTTPS by default.
+#
+# Usage: set DOMAIN / API_DOMAIN env vars and run `docker compose -f
+# docker-compose.tls.yml up -d`. For local testing use `localhost` (Caddy issues
+# an internal cert).
+
+{$API_DOMAIN:localhost} {
+	encode gzip
+	reverse_proxy api:8080 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+	# Defense-in-depth: Caddy also asserts HSTS at the edge.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+{$DOMAIN:localhost} {
+	encode gzip
+	# Doctor portal (built static assets) by default; route /api to the backend.
+	handle /api/* {
+		reverse_proxy api:8080 {
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+	handle {
+		root * /srv/doctor-portal
+		try_files {path} /index.html
+		file_server
+	}
+}

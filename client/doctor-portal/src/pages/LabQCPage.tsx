@@ -150,7 +150,7 @@ const LabQCPage: React.FC = () => {
     fetchData();
   }, [fetchData, user]);
 
-  const handleSubmitQC = (e: React.FormEvent) => {
+  const handleSubmitQC = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!instrument || !analyte || !observedValue || !expectedMean || !expectedSD) {
       showWarning('Please fill in all required fields');
@@ -194,8 +194,14 @@ const LabQCPage: React.FC = () => {
       comments: qcComments || undefined
     };
 
+    // Persist to the backend (was: local state only)
+    try {
+      await createLabQc(newTest);
+      showSuccess(`QC test ${newTest.testId} recorded - Result: ${result.toUpperCase()}`);
+    } catch {
+      showWarning(`QC test ${newTest.testId} recorded locally; failed to sync to server.`);
+    }
     setQcTests([...qcTests, newTest]);
-    showSuccess(`QC test ${newTest.testId} recorded - Result: ${result.toUpperCase()}`);
 
     // Reset form
     setInstrument('');
@@ -540,7 +546,7 @@ const LabQCPage: React.FC = () => {
                 <select
                   id="labqc-level"
                   value={level}
-                  onChange={(e) => setLevel(e.target.value as any)}
+                  onChange={(e) => setLevel(e.target.value as typeof level)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
@@ -817,7 +823,7 @@ const LabQCPage: React.FC = () => {
                 <select
                   id="labqc-cal-type"
                   value={calibrationType}
-                  onChange={(e) => setCalibrationType(e.target.value as any)}
+                  onChange={(e) => setCalibrationType(e.target.value as typeof calibrationType)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
@@ -866,7 +872,7 @@ const LabQCPage: React.FC = () => {
                 <select
                   id="labqc-cal-result"
                   value={calResult}
-                  onChange={(e) => setCalResult(e.target.value as any)}
+                  onChange={(e) => setCalResult(e.target.value as typeof calResult)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >

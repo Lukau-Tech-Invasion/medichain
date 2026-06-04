@@ -166,3 +166,21 @@ pub use phase6_audit::{
     PgComplianceReportRepository, PgConsentRecordRepository, PgDataRetentionPolicyRepository,
     PgRetentionJobRunRepository,
 };
+
+// Phase 7 (Round 4): generic JSON-record feature domains
+mod phase7;
+pub use phase7::{
+    PgAutopsyReportRepository, PgAutopsyRequestRepository, PgEligibilityCheckRepository,
+    PgFamilyGroupRepository, PgInsuranceCardRepository, PgInsuranceClaimRepository,
+    PgLanguagePreferenceRepository,
+    PgSatisfactionSurveyRepository, PgSymptomSessionRepository, PgSyncQueueItemRepository,
+    // Round 5: wearables + telehealth
+    PgTelehealthSessionRecordRepository, PgWearableAlertRecordRepository,
+    PgWearableAlertRuleRepository, PgWearableDeviceRecordRepository,
+    PgWearableReadingRecordRepository,
+    // Round 6: shape-mismatch domains
+    PgDrugInteractionCheckRepository, PgEPrescriptionV2Repository,
+    PgLabResultSubmissionRepository, PgLabTrendResultRepository,
+    // Round 7: SOAP clinical notes
+    PgSoapNoteRecordRepository,
+};

@@ -31,6 +31,8 @@ import {
   type CachedDataItem,
   performSync,
   downloadOfflineData,
+  getSyncConflicts,
+  resolveSyncConflict,
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
@@ -69,6 +71,15 @@ interface StorageInfo {
   quota: number;
 }
 
+interface ConflictItem {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  local_value?: string | null;
+  remote_value?: string | null;
+  conflict_type?: string;
+}
+
 const OfflineSyncPage: React.FC = () => {
   const { patient } = usePatientAuthStore();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -80,6 +91,7 @@ const OfflineSyncPage: React.FC = () => {
   const [lastFullSync, setLastFullSync] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'status' | 'cache' | 'settings'>('status');
   const [loading, setLoading] = useState(true);
+  const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
 
   // Load data from IndexedDB
   const loadOfflineData = useCallback(async () => {
@@ -160,6 +172,25 @@ const OfflineSyncPage: React.FC = () => {
     { id: 'q2', action: 'download', description: 'Lab results update', timestamp: '2026-01-25T10:45:00Z', status: 'pending', retryCount: 0 }
   ];
 
+  // Load server-detected sync conflicts (last-write-wins, from /api/sync/conflicts)
+  const loadConflicts = useCallback(async () => {
+    try {
+      const res = (await getSyncConflicts()) as { conflicts?: ConflictItem[] };
+      setConflicts(res?.conflicts ?? []);
+    } catch {
+      setConflicts([]);
+    }
+  }, []);
+
+  const handleResolveConflict = async (id: string, resolution: 'UseLocal' | 'UseServer') => {
+    try {
+      await resolveSyncConflict(id, resolution);
+      setConflicts((prev) => prev.filter((c) => c.id !== id));
+    } catch {
+      // Leave the conflict listed if the resolution call fails.
+    }
+  };
+
   useEffect(() => {
     // Monitor online/offline status
     const handleOnline = () => setIsOnline(true);
@@ -170,12 +201,13 @@ const OfflineSyncPage: React.FC = () => {
 
     // Load data from IndexedDB
     loadOfflineData();
+    loadConflicts();
 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [loadOfflineData]);
+  }, [loadOfflineData, loadConflicts]);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -368,6 +400,52 @@ const OfflineSyncPage: React.FC = () => {
       {/* Status Tab */}
       {activeTab === 'status' && (
         <div className="px-4 pb-8 space-y-4">
+          {/* Sync Conflicts — records changed both locally and on the server */}
+          {conflicts.length > 0 && (
+            <div className="bg-white rounded-lg shadow p-4 border border-amber-300">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <h3 className="font-medium text-gray-900">Sync Conflicts ({conflicts.length})</h3>
+              </div>
+              <p className="text-sm text-gray-500 mb-3">
+                These records were changed both on this device and on the server. Choose which version to keep.
+              </p>
+              <div className="space-y-3">
+                {conflicts.map((c) => (
+                  <div key={c.id} className="border border-gray-200 rounded-lg p-3">
+                    <div className="text-sm font-medium text-gray-800">
+                      {c.entity_type} · {c.entity_id}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                      <div className="bg-blue-50 rounded p-2 overflow-hidden">
+                        <div className="font-semibold text-blue-700 mb-1">Your version</div>
+                        <pre className="whitespace-pre-wrap break-words text-gray-600 max-h-24 overflow-auto">{c.local_value ?? '—'}</pre>
+                      </div>
+                      <div className="bg-gray-50 rounded p-2 overflow-hidden">
+                        <div className="font-semibold text-gray-700 mb-1">Server version</div>
+                        <pre className="whitespace-pre-wrap break-words text-gray-600 max-h-24 overflow-auto">{c.remote_value ?? '—'}</pre>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => handleResolveConflict(c.id, 'UseLocal')}
+                        className="flex-1 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        Keep mine
+                      </button>
+                      <button
+                        onClick={() => handleResolveConflict(c.id, 'UseServer')}
+                        className="flex-1 px-3 py-1.5 text-sm bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
+                      >
+                        Keep server
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Last Sync Info */}
           <div className="bg-white rounded-lg shadow p-4">
             <div className="flex items-center justify-between">

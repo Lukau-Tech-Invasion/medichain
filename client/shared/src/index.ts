@@ -10,6 +10,16 @@
 // Configuration
 export * from './config';
 
+// Internationalization (Phase 3.5) — React layer + locale configs/types.
+export {
+  I18nProvider,
+  useTranslation,
+  LanguageSwitcher,
+  ACTIVE_LOCALES,
+} from './i18n/react';
+export { LOCALE_CONFIGS } from './i18n';
+export type { SupportedLocale, LocaleConfig } from './i18n';
+
 // Wallet Types and Service (Blockchain Identity)
 export * from './wallet/types';
 export * from './wallet/service';
@@ -22,9 +32,7 @@ export * from './api/client';
 export * from './api/endpoints';
 
 // Hooks
-export * from './hooks/useAuth';
-export * from './hooks/useApi';
-export * from './hooks/useSidebarData';
+export * from './hooks';
 
 // Utilities
 export * from './utils/cache';
@@ -47,4 +55,5 @@ export * from './components/Loading';
 export * from './components/PatientCard';
 export * from './components/QRCodeDisplay';
 export * from './components/EmergencyBanner';
+export * from './components/JitsiMeetComponent';
 

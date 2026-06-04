@@ -134,7 +134,7 @@ const IncidentReportPage: React.FC = () => {
         id: `INC-${Date.now()}`,
         ...formData,
         dateTime: new Date(formData.dateTime).toISOString(),
-        reportedBy: user?.name || 'Healthcare Provider',
+        reportedBy: user?.username || 'Healthcare Provider',
         reportedAt: new Date().toISOString(),
         status: 'open' as IncidentStatus,
         staffInvolved: formData.staffInvolved.split(',').map(s => s.trim()).filter(Boolean),
@@ -336,7 +336,7 @@ const IncidentReportPage: React.FC = () => {
             </div>
             <select
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as any)}
+              onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
               className="px-4 py-2 border rounded-lg"
             >
               <option value="all">All Types</option>
@@ -349,7 +349,7 @@ const IncidentReportPage: React.FC = () => {
             </select>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
               className="px-4 py-2 border rounded-lg"
             >
               <option value="all">All Statuses</option>

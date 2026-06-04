@@ -11,15 +11,37 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// Standard API error response format
 #[allow(dead_code)]
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub struct ApiError {
     pub success: bool,
     pub error: String,
     pub code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+}
+
+impl Serialize for ApiError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Phase 9.5: emit the canonical error envelope. `details` and
+        // `request_id` (when present) are folded into the nested `details` object.
+        let details = match (&self.details, &self.request_id) {
+            (None, None) => None,
+            (d, r) => {
+                let mut obj = serde_json::Map::new();
+                if let Some(d) = d {
+                    obj.insert("details".to_string(), serde_json::Value::String(d.clone()));
+                }
+                if let Some(r) = r {
+                    obj.insert("request_id".to_string(), serde_json::Value::String(r.clone()));
+                }
+                Some(serde_json::Value::Object(obj))
+            }
+        };
+        error_envelope_json(&self.code, &self.error, details).serialize(serializer)
+    }
 }
 
 #[allow(dead_code)]
@@ -101,6 +123,25 @@ pub mod error_codes {
     pub const PATIENT_NOT_FOUND: &str = "PATIENT_NOT_FOUND";
 }
 
+/// Build the project-standard error envelope as a JSON value:
+/// `{ "error": { "code": <code>, "message": <message>, "details": <details?> } }`.
+///
+/// This is the canonical error shape (Phase 9.5). New and refactored handlers
+/// should emit failures through this helper instead of ad-hoc JSON so every
+/// error response shares one machine-readable structure with stable codes
+/// (see [`error_codes`]).
+pub fn error_envelope_json(
+    code: &str,
+    message: &str,
+    details: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut err = serde_json::json!({ "code": code, "message": message });
+    if let Some(detail) = details {
+        err["details"] = detail;
+    }
+    serde_json::json!({ "error": err })
+}
+
 /// Extension trait for safe RwLock access
 #[allow(dead_code)]
 pub trait SafeRwLock<T> {
@@ -142,11 +183,13 @@ macro_rules! safe_read {
     ($lock:expr) => {
         $lock.read().map_err(|e| {
             log::error!("RwLock read poison error: {}", e);
-            HttpResponse::InternalServerError().json(serde_json::json!({
-                "success": false,
-                "error": "Internal server error",
-                "code": "LOCK_ERROR"
-            }))
+            actix_web::HttpResponse::InternalServerError().json(
+                $crate::middleware::error_handling::error_envelope_json(
+                    $crate::middleware::error_handling::error_codes::LOCK_ERROR,
+                    "Internal server error",
+                    None,
+                ),
+            )
         })
     };
 }
@@ -157,11 +200,13 @@ macro_rules! safe_write {
     ($lock:expr) => {
         $lock.write().map_err(|e| {
             log::error!("RwLock write poison error: {}", e);
-            HttpResponse::InternalServerError().json(serde_json::json!({
-                "success": false,
-                "error": "Internal server error",
-                "code": "LOCK_ERROR"
-            }))
+            actix_web::HttpResponse::InternalServerError().json(
+                $crate::middleware::error_handling::error_envelope_json(
+                    $crate::middleware::error_handling::error_codes::LOCK_ERROR,
+                    "Internal server error",
+                    None,
+                ),
+            )
         })
     };
 }
@@ -330,6 +375,22 @@ mod tests {
         assert!(!error.success);
         assert_eq!(error.code, "TEST_ERROR");
         assert_eq!(error.error, "Test error message");
+    }
+
+    #[test]
+    fn test_error_envelope_shape() {
+        // Canonical 9.5 shape: { "error": { code, message, details? } }
+        let without = error_envelope_json(error_codes::NOT_FOUND, "missing", None);
+        assert_eq!(without["error"]["code"], error_codes::NOT_FOUND);
+        assert_eq!(without["error"]["message"], "missing");
+        assert!(without["error"].get("details").is_none());
+
+        let with = error_envelope_json(
+            error_codes::RATE_LIMIT_EXCEEDED,
+            "slow down",
+            Some(serde_json::json!({ "retry_after_secs": 30 })),
+        );
+        assert_eq!(with["error"]["details"]["retry_after_secs"], 30);
     }
 
     #[test]

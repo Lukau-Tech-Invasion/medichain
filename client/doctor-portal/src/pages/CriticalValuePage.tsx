@@ -120,8 +120,8 @@ const CriticalValuePage: React.FC = () => {
       setPatients(Array.isArray(patientData) ? patientData : []);
       
       // Map API response to interface
-      const items = (Array.isArray(criticalData) ? criticalData : []) as any[];
-      const mappedNotifications: CriticalValueNotification[] = items.map((item) => ({
+      const items = (Array.isArray(criticalData) ? criticalData : []) as unknown[];
+      const mappedNotifications: CriticalValueNotification[] = items.map((item: any) => ({
         notificationId: (item.notification_id || item.notificationId || '') as string,
         patientId: (item.patient_id || item.patientId || '') as string,
         patientName: (item.patient_name || item.patientName || '') as string,
@@ -216,8 +216,7 @@ const CriticalValuePage: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const response = await createCriticalValue(newNotification);
-      // @ts-ignore
+      const response = await createCriticalValue(newNotification) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setNotifications([newNotification, ...notifications]);
         setNewCritical({
@@ -230,7 +229,6 @@ const CriticalValuePage: React.FC = () => {
         setActiveTab('pending');
         showSuccess(`Critical value notification ${newNotification.notificationId} created`);
       } else {
-        // @ts-ignore
         showError(response.error || 'Failed to create critical value notification');
       }
     } catch (err) {

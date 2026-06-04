@@ -131,6 +131,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
       weight: '',
       bmi: 0
     },
+    reviewOfSystems: '',
+    physicalExam: '',
     assessment: '',
     plan: ''
   });
@@ -156,7 +158,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
         
         setAvailablePatients(pts);
         
-        const records = Array.isArray(hpData) ? hpData : ((hpData as any).records || (hpData as any).hp_records || []);
+        const records = Array.isArray(hpData) ? hpData : ((hpData as { records?: unknown[]; hp_records?: unknown[] }).records || (hpData as { records?: unknown[]; hp_records?: unknown[] }).hp_records || []);
         if (Array.isArray(records)) {
           setHpRecords(records.map((record: any) => ({
             ...record,
@@ -203,7 +205,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
         physical_exam: formData.physicalExam,
         assessment: formData.assessment,
         plan: formData.plan,
-        provider: user?.name || 'Healthcare Provider',
+        provider: user?.username || 'Healthcare Provider',
         status,
       };
 
@@ -213,7 +215,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
       
       // Refresh list
       const hpData = await listHistoryPhysicals();
-      const records = Array.isArray(hpData) ? hpData : ((hpData as any).records || (hpData as any).hp_records || []);
+      const records = Array.isArray(hpData) ? hpData : ((hpData as { records?: unknown[]; hp_records?: unknown[] }).records || (hpData as { records?: unknown[]; hp_records?: unknown[] }).hp_records || []);
       setHpRecords(records.map((record: any) => ({
         ...record,
         dateOfExam: new Date(record.dateOfExam || record.date_of_exam || Date.now()),
@@ -581,7 +583,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                                   name="examType"
                                   value={type}
                                   checked={formData.examType === type}
-                                  onChange={() => setFormData({ ...formData, examType: type as any })}
+                                  onChange={() => setFormData({ ...formData, examType: type as HistoryAndPhysical['examType'] })}
                                   className="text-indigo-600"
                                 />
                                 <span className="text-sm capitalize">{type.replace('-', ' ')}</span>
@@ -956,7 +958,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     <h3 className="font-semibold text-gray-900">{template.name}</h3>
                     <p className="text-sm text-gray-500 mt-1">{template.description}</p>
                   </div>
-                  {getExamTypeBadge(template.type as any)}
+                  {getExamTypeBadge(template.type as HistoryAndPhysical['examType'])}
                 </div>
                 <button className="mt-4 text-sm text-indigo-600 font-medium flex items-center gap-1">
                   Use Template

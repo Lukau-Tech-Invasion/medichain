@@ -18,7 +18,26 @@ import {
   IS_DEVELOPMENT,
   generateHealthId,
   syncApiClientUserId,
+  getApiClient,
+  issueJwt,
 } from '@medichain/shared';
+
+/**
+ * Acquire JWT access + refresh tokens after a successful login (Phase 9.4).
+ * Non-fatal: falls back to the legacy `X-User-Id` header if issuance fails.
+ * Patient demo wallets cannot sign, so this uses demo-mode (unsigned) issuance.
+ */
+async function acquireJwtTokens(walletAddress: string): Promise<void> {
+  try {
+    const resp = await issueJwt({ wallet_address: walletAddress });
+    if (resp?.access_token) {
+      getApiClient().setTokens(resp.access_token, resp.refresh_token);
+      debugLog('patientAuthStore', 'JWT acquired');
+    }
+  } catch (e) {
+    debugLog('patientAuthStore', 'JWT acquisition failed; continuing with X-User-Id:', e);
+  }
+}
 
 /**
  * Patient information (wallet-based)
@@ -134,7 +153,9 @@ export const usePatientAuthStore = create<AuthState>()(
               isLoading: false,
               error: null,
             });
-            
+
+            await acquireJwtTokens(patient.walletAddress);
+
             debugLog('patientAuthStore', 'Logged in with wallet:', walletAddress);
             return true;
           }
@@ -204,7 +225,9 @@ export const usePatientAuthStore = create<AuthState>()(
             isLoading: false,
             error: null,
           });
-          
+
+          await acquireJwtTokens(patient.walletAddress);
+
           debugLog('patientAuthStore', 'Created demo wallet:', { walletAddress, healthId });
           return true;
         } catch (error) {
@@ -220,7 +243,8 @@ export const usePatientAuthStore = create<AuthState>()(
 
       logout: () => {
         clearStoredAuth();
-        // Clear API client userId
+        // Clear API client userId + JWT tokens
+        getApiClient().clearTokens();
         syncApiClientUserId();
         set({
           patient: null,
@@ -269,6 +293,8 @@ export const usePatientAuthStore = create<AuthState>()(
             },
             isAuthenticated: true,
           });
+          // Re-acquire JWTs (not persisted); fire-and-forget since this is sync.
+          void acquireJwtTokens(storedAuth.address);
           debugLog('patientAuthStore', 'Restored session from storage');
         }
       },

@@ -21,6 +21,8 @@ export type SupportedLocale =
   | 'ar-SA'
   | 'hi-IN'
   | 'ru-RU'
+  | 'sw-KE'
+  | 'am-ET'
   | 'vi-VN';
 
 export interface LocaleConfig {
@@ -49,6 +51,9 @@ export const LOCALE_CONFIGS: Record<SupportedLocale, LocaleConfig> = {
   'hi-IN': { code: 'hi-IN', name: 'Hindi', nativeName: 'हिन्दी', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '12h' },
   'ru-RU': { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', direction: 'ltr', dateFormat: 'DD.MM.YYYY', timeFormat: '24h' },
   'vi-VN': { code: 'vi-VN', name: 'Vietnamese', nativeName: 'Tiếng Việt', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
+  // African target markets (Phase 3.5)
+  'sw-KE': { code: 'sw-KE', name: 'Swahili', nativeName: 'Kiswahili', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
+  'am-ET': { code: 'am-ET', name: 'Amharic', nativeName: 'አማርኛ', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
 };
 
 // Translation key-value store for each locale

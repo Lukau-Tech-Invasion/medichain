@@ -92,7 +92,7 @@ const MedicationAdminPage: React.FC = () => {
       // Fetch MAR (Medication Administration Records)
       const marData = await listMar();
       // Map API response to ScheduledMedication interface
-      const mappedMeds: ScheduledMedication[] = (marData as any[]).map((m: any) => ({
+      const mappedMeds: ScheduledMedication[] = (marData as unknown[]).map((m: any) => ({
         medId: m.med_id || m.medId || '',
         patientId: m.patient_id || m.patientId || '',
         patientName: m.patient_name || m.patientName || '',
@@ -557,7 +557,7 @@ const MedicationAdminPage: React.FC = () => {
                 <select
                   id="medadmin-status"
                   value={status}
-                  onChange={(e) => setStatus(e.target.value as any)}
+                  onChange={(e) => setStatus(e.target.value as typeof status)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >

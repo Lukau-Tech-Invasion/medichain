@@ -141,4 +141,12 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
         let items = consultations.into_iter().skip(offset).take(limit).collect();
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<ConsultationNoteEntity>> {
+        let storage = self.data.read().unwrap();
+        let mut items: Vec<ConsultationNoteEntity> =
+            storage.values().filter(|c| c.is_active).cloned().collect();
+        items.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        Ok(items)
+    }
 }

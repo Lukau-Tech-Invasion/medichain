@@ -97,7 +97,7 @@ const AMAPage: React.FC = () => {
       try {
         const data = await listAMADischarges();
         // Convert date strings to Date objects
-        const amaRecords = (data as any[]).map((r: any) => ({
+        const amaRecords = (data as unknown[]).map((r: any) => ({
           ...r,
           dateCreated: new Date(r.dateCreated || Date.now())
         }));
@@ -150,7 +150,7 @@ const AMAPage: React.FC = () => {
         dateCreated: new Date().toISOString(),
         status: 'pending-signatures' as AMAStatus,
         riskLevel: riskLevel,
-        provider: user?.name || 'Healthcare Provider',
+        provider: user?.username || 'Healthcare Provider',
         diagnosis,
         recommendedTreatment: recommendedTreatment,
         patientStatement: patientStatement,
@@ -165,7 +165,7 @@ const AMAPage: React.FC = () => {
       
       // Refresh list
       const updatedData = await listAMADischarges();
-      const amaRecords = (updatedData as any[]).map((r: any) => ({
+      const amaRecords = (updatedData as unknown[]).map((r: any) => ({
         ...r,
         dateCreated: new Date(r.dateCreated || Date.now())
       }));
@@ -555,17 +555,17 @@ const AMAPage: React.FC = () => {
                     <select
                       id="ama-patient-select"
                       onChange={(e) => {
-                        const p = availablePatients.find(p => p.id === e.target.value);
+                        const p = availablePatients.find(p => p.patient_id === e.target.value);
                         if (p) {
-                          setPatientId(p.id);
-                          setPatientName(p.name);
+                          setPatientId(p.patient_id);
+                          setPatientName(p.full_name);
                         }
                       }}
                       className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     >
                       <option value="">-- Select Existing Patient --</option>
                       {availablePatients.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
+                        <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
                       ))}
                     </select>
                   </div>

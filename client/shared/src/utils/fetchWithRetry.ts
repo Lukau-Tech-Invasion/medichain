@@ -8,6 +8,8 @@
  * - Error handling and logging
  */
 
+import { getApiErrorMessage } from '../api/client';
+
 export interface RetryConfig {
   maxRetries: number;
   baseDelay: number;
@@ -64,9 +66,9 @@ export async function fetchWithRetry<T = unknown>(
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new FetchError(
-          errorData.error || `HTTP ${response.status}: ${response.statusText}`,
+          getApiErrorMessage(errorData, `HTTP ${response.status}: ${response.statusText}`),
           response.status,
-          errorData.code,
+          errorData?.error?.code ?? errorData?.code,
           errorData
         );
       }

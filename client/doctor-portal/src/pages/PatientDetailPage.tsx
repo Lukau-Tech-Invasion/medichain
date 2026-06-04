@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage } from '@medichain/shared';
 import { useAuthStore } from '../store';
 import { 
   ArrowLeft, 
@@ -72,7 +72,7 @@ function PatientDetailPage() {
             setPatient(null);
           } else {
             const errorData = await response.json().catch(() => ({}));
-            setError(errorData.error || `Error: ${response.status}`);
+            setError(getApiErrorMessage(errorData, `Error: ${response.status}`));
           }
           setLoading(false);
           return;

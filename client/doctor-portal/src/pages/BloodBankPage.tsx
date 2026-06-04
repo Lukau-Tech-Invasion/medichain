@@ -171,8 +171,7 @@ const BloodBankPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createBloodTypeScreen(newOrder);
-      // @ts-ignore
+      const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setOrders([newOrder, ...orders]);
         showSuccess(`Blood bank order ${newOrder.orderId} submitted successfully`);
@@ -183,7 +182,6 @@ const BloodBankPage: React.FC = () => {
         setPriority('routine');
         setActiveTab('orders');
       } else {
-        // @ts-ignore
         setError(response.error || 'Failed to submit blood bank order');
       }
     } catch (err) {
@@ -253,15 +251,13 @@ const BloodBankPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createTransfusion(updatedOrder);
-      // @ts-ignore
+      const response = await createTransfusion(updatedOrder) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setOrders(orders.map(o => o.orderId === selectedOrder.orderId ? updatedOrder : o));
         showSuccess(`Transfusion record ${endTime ? 'completed' : 'started'} successfully`);
         setActiveTab('orders');
         setSelectedOrder(null);
       } else {
-        // @ts-ignore
         setError(response.error || 'Failed to save transfusion record');
       }
     } catch (err) {
@@ -528,7 +524,7 @@ const BloodBankPage: React.FC = () => {
                 <select
                   id="bloodbank-product"
                   value={product}
-                  onChange={(e) => setProduct(e.target.value as any)}
+                  onChange={(e) => setProduct(e.target.value as typeof product)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
@@ -565,7 +561,7 @@ const BloodBankPage: React.FC = () => {
                 <select
                   id="bloodbank-priority"
                   value={priority}
-                  onChange={(e) => setPriority(e.target.value as any)}
+                  onChange={(e) => setPriority(e.target.value as typeof priority)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >

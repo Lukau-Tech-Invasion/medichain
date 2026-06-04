@@ -6,6 +6,17 @@
 //! - ChaCha20-Poly1305 encryption before upload
 //! - Automatic decryption on download
 //! - Content-addressed storage via IPFS hashes
+//!
+//! ## Encryption Enforcement (Phase 6.3)
+//!
+//! Encryption is **mandatory** for every document that reaches IPFS. This is
+//! guaranteed structurally, not by convention:
+//! - The only public upload entry point is [`IpfsClient::upload_encrypted`],
+//!   which always runs ChaCha20-Poly1305 before any bytes leave the process.
+//! - The raw transport helper [`IpfsClient::upload_raw`] is **private**, so no
+//!   handler can bypass encryption by calling it directly.
+//! - `upload_encrypted` additionally refuses to persist content whose ciphertext
+//!   equals its plaintext (a broken/no-op cipher), as a defense-in-depth check.
 
 use medichain_crypto::{decrypt, encrypt, CryptoError, EncryptionKey};
 use reqwest::multipart::{Form, Part};
@@ -207,6 +218,12 @@ impl IpfsClient {
         // Encrypt the content
         let encrypted_content = encrypt(encryption_key, content)?;
         let encrypted_size = encrypted_content.ciphertext.len();
+
+        // ENCRYPTION ENFORCEMENT (Phase 6.3): defense-in-depth — never persist
+        // content whose ciphertext equals the plaintext (a no-op/broken cipher).
+        if !content.is_empty() && encrypted_content.ciphertext.as_slice() == content {
+            return Err(IpfsError::CryptoError(CryptoError::EncryptionFailed));
+        }
 
         // Serialize encrypted data for storage
         let encrypted_bytes = serde_json::to_vec(&encrypted_content)
@@ -464,6 +481,16 @@ mod tests {
 
         assert_eq!(parsed.original_size, 1024);
         assert_eq!(parsed.encrypted_size, 1040);
+    }
+
+    #[test]
+    fn test_upload_encryption_transforms_plaintext() {
+        // Encryption enforcement (6.3): ciphertext must differ from plaintext,
+        // which is the invariant `upload_encrypted` relies on before persisting.
+        let key = EncryptionKey::from_bytes([7u8; 32]);
+        let plaintext = b"sensitive lab result PHI";
+        let encrypted = encrypt(&key, plaintext).expect("encryption must succeed");
+        assert_ne!(encrypted.ciphertext.as_slice(), plaintext.as_slice());
     }
 
     #[test]

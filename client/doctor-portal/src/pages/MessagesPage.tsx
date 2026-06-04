@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage } from '@medichain/shared';
 import { MessageSquare, Send, Loader2, RefreshCw, User } from 'lucide-react';
 
 interface Message {
@@ -91,7 +91,7 @@ export default function MessagesPage() {
         setTimeout(() => setSuccess(''), 3000);
       } else {
         const data = await res.json();
-        setError(data.error || 'Failed to send message');
+        setError(getApiErrorMessage(data, 'Failed to send message'));
       }
     } catch (e) {
       setError('Failed to send message');

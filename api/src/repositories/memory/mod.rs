@@ -172,3 +172,7 @@ pub use phase6::MemoryComplianceReportRepository;
 pub use phase6::MemoryConsentRecordRepository;
 pub use phase6::MemoryDataRetentionPolicyRepository;
 pub use phase6::MemoryRetentionJobRunRepository;
+
+// Phase 7 (Round 4): generic JSON-record feature domains
+mod phase7;
+pub use phase7::MemoryJsonRecordRepository;

@@ -778,7 +778,7 @@ const DeathCertificatePage: React.FC = () => {
                   <select
                     id="death-tobacco-contributed"
                     value={causeInfo.tobaccoContributed}
-                    onChange={(e) => setCauseInfo({ ...causeInfo, tobaccoContributed: e.target.value as any })}
+                    onChange={(e) => setCauseInfo({ ...causeInfo, tobaccoContributed: e.target.value as typeof causeInfo.tobaccoContributed })}
                     className="w-full border rounded-lg px-3 py-2"
                   >
                     <option value="yes">Yes</option>

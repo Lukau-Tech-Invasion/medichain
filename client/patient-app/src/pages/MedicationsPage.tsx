@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
-  getPatientEPrescriptions, 
-  getMedicationReminders, 
-  logMedicationAdherence 
+  getPatientEPrescriptions,
+  getPatientReminders,
+  logMedicationAdherence
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -91,12 +91,12 @@ export function MedicationsPage() {
       // Fetch prescriptions from correct endpoint
       const [prescData, remindersData] = await Promise.all([
         getPatientEPrescriptions(patientId),
-        getMedicationReminders(patientId).catch(() => ({ reminders: [] }))
+        getPatientReminders(patientId).catch(() => ({ reminders: [] }))
       ]);
 
       setApiConnected(true);
 
-      const meds: Medication[] = ((prescData as any).prescriptions || (prescData as any).medications || []).map((m: any) => ({
+      const meds: Medication[] = ((prescData as { prescriptions?: unknown[]; medications?: unknown[] }).prescriptions || (prescData as { prescriptions?: unknown[]; medications?: unknown[] }).medications || []).map((m: any) => ({
         id: m.prescription_id || m.medication_id || '',
         name: m.medication_name || m.name || '',
         dosage: m.dosage,
@@ -113,7 +113,7 @@ export function MedicationsPage() {
 
       setMedications(meds);
       
-      const apiReminders: MedicationReminder[] = ((remindersData as any).reminders || []).map((r: any) => ({
+      const apiReminders: MedicationReminder[] = ((remindersData as { reminders?: unknown[] }).reminders || []).map((r: any) => ({
         id: r.reminder_id || r.id || `reminder-${Date.now()}`,
         medicationId: r.medication_id,
         medicationName: r.medication_name,

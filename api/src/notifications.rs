@@ -212,6 +212,172 @@ pub async fn send_sms(msg: SmsMessage) -> Result<(), NotificationError> {
 }
 
 // ---------------------------------------------------------------------------
+// SMS templates, delivery tracking, and opt-out handling (Phase 5.3)
+// ---------------------------------------------------------------------------
+
+/// Standardized SMS templates for the notification types MediChain sends.
+/// Centralizing copy here keeps tone/branding consistent and makes localization
+/// and compliance review tractable.
+#[derive(Debug, Clone)]
+pub enum SmsTemplate {
+    MedicationReminder { medication: String },
+    AppointmentReminder { provider: String, when: String },
+    LabResultReady { test_name: String },
+    CriticalAlert { message: String },
+    VerificationCode { code: String },
+}
+
+/// Footer appended to non-critical, non-OTP messages so recipients always have
+/// a documented way to opt out (required for SMS compliance in many markets).
+const SMS_OPT_OUT_FOOTER: &str = " Reply STOP to opt out.";
+
+impl SmsTemplate {
+    /// Render the SMS body, including the opt-out footer where appropriate.
+    /// Verification codes and critical alerts intentionally omit the footer.
+    pub fn render(&self) -> String {
+        match self {
+            SmsTemplate::MedicationReminder { medication } => format!(
+                "MediChain: It's time to take your {}.{}",
+                medication, SMS_OPT_OUT_FOOTER
+            ),
+            SmsTemplate::AppointmentReminder { provider, when } => format!(
+                "MediChain: Reminder — your appointment with {} is on {}.{}",
+                provider, when, SMS_OPT_OUT_FOOTER
+            ),
+            SmsTemplate::LabResultReady { test_name } => format!(
+                "MediChain: Your {} results are ready. Open the app to view.{}",
+                test_name, SMS_OPT_OUT_FOOTER
+            ),
+            SmsTemplate::CriticalAlert { message } => format!("MediChain ALERT: {}", message),
+            SmsTemplate::VerificationCode { code } => {
+                format!("MediChain verification code: {}. Do not share it.", code)
+            }
+        }
+    }
+}
+
+/// Returns true if inbound text is a canonical SMS opt-out keyword. Inbound
+/// STOP handling persists the preference; this recognizes the keywords for it.
+pub fn is_sms_stop_keyword(text: &str) -> bool {
+    matches!(
+        text.trim().to_ascii_uppercase().as_str(),
+        "STOP" | "STOPALL" | "UNSUBSCRIBE" | "CANCEL" | "END" | "QUIT"
+    )
+}
+
+/// Global SMS kill-switch independent of per-recipient opt-in. When
+/// `SMS_GLOBAL_DISABLE=true`, no SMS is dispatched regardless of preferences.
+pub fn sms_globally_disabled() -> bool {
+    std::env::var("SMS_GLOBAL_DISABLE")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .unwrap_or(false)
+}
+
+/// Outcome of an SMS send attempt, for delivery tracking and retry decisions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SmsDeliveryStatus {
+    /// Provider accepted the message (or it was logged in disabled mode).
+    Sent,
+    /// Suppressed locally (opt-out / global disable) — not an error.
+    Suppressed,
+    /// All retry attempts failed.
+    Failed,
+}
+
+/// Maximum SMS send attempts (bounded per NASA Power-of-10 rule 2).
+const SMS_MAX_ATTEMPTS: u8 = 3;
+
+/// Send an SMS with bounded retries plus opt-out / kill-switch enforcement.
+///
+/// `opted_in` is the per-recipient opt-in flag (e.g. the reminder's SMS pref).
+/// Returns a [`SmsDeliveryStatus`] describing the final outcome.
+pub async fn send_sms_with_retry(msg: SmsMessage, opted_in: bool) -> SmsDeliveryStatus {
+    if !opted_in || sms_globally_disabled() {
+        info!(
+            "[sms] Suppressed for {} (opted_in={}, global_disable={})",
+            msg.to,
+            opted_in,
+            sms_globally_disabled()
+        );
+        return SmsDeliveryStatus::Suppressed;
+    }
+
+    let mut attempt: u8 = 0;
+    while attempt < SMS_MAX_ATTEMPTS {
+        attempt += 1;
+        match send_sms(msg.clone()).await {
+            Ok(()) => {
+                info!("[sms] Delivered to {} on attempt {}", msg.to, attempt);
+                return SmsDeliveryStatus::Sent;
+            }
+            Err(e) => warn!(
+                "[sms] Attempt {}/{} to {} failed: {}",
+                attempt, SMS_MAX_ATTEMPTS, msg.to, e
+            ),
+        }
+    }
+    warn!(
+        "[sms] Giving up on {} after {} attempts",
+        msg.to, SMS_MAX_ATTEMPTS
+    );
+    SmsDeliveryStatus::Failed
+}
+
+// ---------------------------------------------------------------------------
+// Breach notification dispatch (Phase 11.4)
+// ---------------------------------------------------------------------------
+
+/// Dispatch a data-breach notification to the configured security officer(s).
+///
+/// Channel: SMS via Africa's Talking to `SECURITY_OFFICER_PHONE` (a comma-
+/// separated list is supported). These are operational alerts, not marketing,
+/// so they are always treated as opted-in. Returns the number of recipients the
+/// dispatch was attempted for.
+///
+/// Regulator and affected-data-subject notification (email/postal) is a tracked
+/// follow-up — no SMTP provider is wired yet; see `docs/INCIDENT_RESPONSE.md`.
+pub async fn dispatch_breach_notification(
+    summary: &str,
+    notify_deadline: Option<chrono::DateTime<chrono::Utc>>,
+) -> usize {
+    let recipients = match std::env::var("SECURITY_OFFICER_PHONE") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => {
+            warn!("[breach] SECURITY_OFFICER_PHONE not set; breach notification not dispatched");
+            return 0;
+        }
+    };
+
+    let deadline = notify_deadline
+        .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| "ASAP".to_string());
+    let body = format!(
+        "MediChain SECURITY BREACH: {}. Regulator/data-subject notification due by {} (POPIA 72h).",
+        summary, deadline
+    );
+
+    let mut count = 0usize;
+    for to in recipients
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        let msg = SmsMessage {
+            to: to.to_string(),
+            body: body.clone(),
+        };
+        let _ = send_sms_with_retry(msg, true).await;
+        count += 1;
+    }
+    info!(
+        "[breach] Dispatched breach notification to {} recipient(s)",
+        count
+    );
+    count
+}
+
+// ---------------------------------------------------------------------------
 // Convenience helpers for clinical event types
 // ---------------------------------------------------------------------------
 
@@ -317,4 +483,78 @@ pub async fn notify_critical_alert(
         },
     )
     .await;
+}
+
+// ---------------------------------------------------------------------------
+// Tests (Phase 5.3)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_medication_reminder_template_has_opt_out_footer() {
+        let body = SmsTemplate::MedicationReminder {
+            medication: "Metformin".to_string(),
+        }
+        .render();
+        assert!(body.contains("Metformin"));
+        assert!(body.contains("Reply STOP to opt out"));
+    }
+
+    #[test]
+    fn test_otp_and_critical_templates_omit_footer() {
+        let otp = SmsTemplate::VerificationCode {
+            code: "123456".to_string(),
+        }
+        .render();
+        assert!(otp.contains("123456"));
+        assert!(!otp.contains("opt out"));
+
+        let alert = SmsTemplate::CriticalAlert {
+            message: "Code Blue, Ward 3".to_string(),
+        }
+        .render();
+        assert!(alert.starts_with("MediChain ALERT:"));
+        assert!(!alert.contains("opt out"));
+    }
+
+    #[test]
+    fn test_stop_keyword_detection() {
+        assert!(is_sms_stop_keyword("STOP"));
+        assert!(is_sms_stop_keyword("  stop  "));
+        assert!(is_sms_stop_keyword("Unsubscribe"));
+        assert!(!is_sms_stop_keyword("hello"));
+    }
+
+    #[tokio::test]
+    async fn test_send_sms_with_retry_suppresses_when_opted_out() {
+        let status = send_sms_with_retry(
+            SmsMessage {
+                to: "+254700000000".to_string(),
+                body: "test".to_string(),
+            },
+            false, // opted out
+        )
+        .await;
+        assert_eq!(status, SmsDeliveryStatus::Suppressed);
+    }
+
+    #[tokio::test]
+    async fn test_send_sms_with_retry_logs_when_disabled() {
+        // With SMS disabled (default), send_sms returns Ok after logging, so a
+        // opted-in recipient yields Sent without hitting the network.
+        std::env::remove_var("SMS_ENABLED");
+        std::env::remove_var("SMS_GLOBAL_DISABLE");
+        let status = send_sms_with_retry(
+            SmsMessage {
+                to: "+254700000000".to_string(),
+                body: "test".to_string(),
+            },
+            true,
+        )
+        .await;
+        assert_eq!(status, SmsDeliveryStatus::Sent);
+    }
 }

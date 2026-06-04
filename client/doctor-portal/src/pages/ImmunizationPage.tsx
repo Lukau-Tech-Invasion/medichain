@@ -242,8 +242,7 @@ const ImmunizationPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createImmunization(newAdmin);
-      // @ts-ignore
+      const response = await createImmunization(newAdmin) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setAdministrations([newAdmin, ...administrations]);
         setNewVaccine({
@@ -268,7 +267,6 @@ const ImmunizationPage: React.FC = () => {
         setActiveTab('records');
         showSuccess(`Vaccination ${newAdmin.administrationId} administered successfully`);
       } else {
-        // @ts-ignore
         setError(response.error || 'Failed to record vaccination');
       }
     } catch (err) {

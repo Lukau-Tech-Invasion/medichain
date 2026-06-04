@@ -41,6 +41,19 @@ subxt-signer = { version = "0.37.0", features = ["sr25519"] }
 sha3 = "0.10"
 hex = "0.4"
 
+# JWT authentication (Phase 9.4) and TOTP multi-factor auth (Phase 11.3)
+jsonwebtoken = "9"
+totp-rs = { version = "5.6", default-features = false, features = ["otpauth", "gen_secret"] }
+
+# Observability (Phase 8.2): Prometheus metrics + structured JSON logging
+prometheus = "0.13"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-log = "0.2"
+
+# PDF generation (Phase 13.3)
+printpdf = "0.7"
+
 # QR Code generation
 qrcode = "0.14"
 image = "0.25"
@@ -75,3 +88,5 @@ postgres = []
 
 [dev-dependencies]
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres"] }
+# Property-based testing (Phase 12.2)
+proptest = "1"

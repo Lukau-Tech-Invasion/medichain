@@ -99,6 +99,175 @@ pub trait TelehealthProvider: Send + Sync {
     async fn end_session(&self, session_id: &str) -> Result<(), TelehealthError>;
 
     fn provider_name(&self) -> &'static str;
+
+    /// Return IFrame-API join credentials (domain, room, optional JWT) for a
+    /// participant. Phase 1: only [`JitsiProvider`] implements this; other
+    /// providers return `None` and the frontend falls back to plain URLs.
+    fn join_credentials(
+        &self,
+        _session_id: &str,
+        _user_id: &str,
+        _display_name: &str,
+        _moderator: bool,
+    ) -> Option<JitsiCredentials> {
+        None
+    }
+
+    /// Server-side room pre-configuration (Phase 3). Defaults are
+    /// privacy-first: recording **off**, chat **on**, transcription **off**
+    /// (HIPAA concern without E2EE consent), and a PHI-free subject. Providers
+    /// may override; the frontend applies these once the room loads.
+    fn configure_room(&self, _session_id: &str) -> RoomConfig {
+        RoomConfig::default()
+    }
+
+    /// Validate a previously issued join token against a room (Phase 3).
+    /// Providers that don't issue tokens accept all callers (returns `Ok`).
+    /// [`JitsiProvider`] verifies the HS256 signature + room claim.
+    fn validate_token(&self, _token: &str, _room: &str) -> Result<(), TelehealthError> {
+        Ok(())
+    }
+}
+
+/// Server-side room pre-configuration (Phase 3). Serialized into the join
+/// response so the frontend can apply matching `configOverwrite` options.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RoomConfig {
+    pub recording_enabled: bool,
+    pub chat_enabled: bool,
+    pub transcription_enabled: bool,
+    /// PHI-free room subject (never contains a patient name).
+    pub subject: String,
+}
+
+impl Default for RoomConfig {
+    fn default() -> Self {
+        RoomConfig {
+            recording_enabled: false,
+            chat_enabled: true,
+            transcription_enabled: false,
+            subject: "MediChain Telehealth Visit".to_string(),
+        }
+    }
+}
+
+// ============================================================================
+// Jitsi JWT (Phase 1) — self-hosted Prosody token auth (HS256)
+// ============================================================================
+
+/// IFrame-API join credentials returned to the frontend.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct JitsiCredentials {
+    /// Jitsi domain to pass to `JitsiMeetExternalAPI` (no scheme).
+    pub domain: String,
+    /// Room name.
+    pub room: String,
+    /// Signed JWT (`None` when `JITSI_APP_SECRET` is unset → unauthenticated room).
+    pub jwt: Option<String>,
+    /// Whether this participant is a Jitsi moderator.
+    pub moderator: bool,
+    /// Token lifetime in seconds.
+    pub expires_in: i64,
+}
+
+/// Telehealth JWT lifetime: 30 minutes (plan §1).
+pub const TELEHEALTH_JWT_TTL_SECS: i64 = 30 * 60;
+
+/// Map a MediChain role string to a Jitsi moderator flag (Phase 1 §role-mapping).
+/// Doctor/Nurse/LabTechnician/Admin moderate; Pharmacist/Patient observe.
+pub fn role_is_moderator(role: &str) -> bool {
+    matches!(
+        role.to_ascii_lowercase().as_str(),
+        "doctor" | "nurse" | "labtechnician" | "lab_technician" | "admin"
+    )
+}
+
+#[derive(serde::Serialize)]
+struct JitsiUser {
+    id: String,
+    name: String,
+    email: String,
+    moderator: bool,
+}
+
+#[derive(serde::Serialize)]
+struct JitsiContext {
+    user: JitsiUser,
+}
+
+#[derive(serde::Serialize)]
+struct JitsiClaims {
+    iss: String,
+    aud: String,
+    sub: String,
+    room: String,
+    iat: i64,
+    nbf: i64,
+    exp: i64,
+    context: JitsiContext,
+}
+
+/// Sign a Jitsi JWT (HS256) for a self-hosted deployment configured with Prosody
+/// token auth. Returns `None` if `JITSI_APP_SECRET` is unset/empty.
+fn sign_jitsi_jwt(
+    domain: &str,
+    room: &str,
+    user_id: &str,
+    display_name: &str,
+    moderator: bool,
+) -> Option<String> {
+    let secret = std::env::var("JITSI_APP_SECRET").ok().filter(|s| !s.is_empty())?;
+    let app_id = std::env::var("JITSI_APP_ID").unwrap_or_else(|_| "medichain".to_string());
+    let now = Utc::now().timestamp();
+    let claims = JitsiClaims {
+        iss: app_id,
+        aud: "jitsi".to_string(),
+        sub: domain.to_string(),
+        room: room.to_string(),
+        iat: now,
+        nbf: now,
+        exp: now + TELEHEALTH_JWT_TTL_SECS,
+        context: JitsiContext {
+            user: JitsiUser {
+                id: user_id.to_string(),
+                name: display_name.to_string(),
+                email: String::new(),
+                moderator,
+            },
+        },
+    };
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .ok()
+}
+
+/// Verify a Jitsi HS256 JWT and confirm it grants access to `room` (Phase 3).
+/// When `JITSI_APP_SECRET` is unset (open-room mode) any token is accepted.
+fn verify_jitsi_jwt(token: &str, room: &str) -> Result<(), TelehealthError> {
+    let secret = match std::env::var("JITSI_APP_SECRET").ok().filter(|s| !s.is_empty()) {
+        Some(s) => s,
+        None => return Ok(()), // open rooms: no token to verify
+    };
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.set_audience(&["jitsi"]);
+    let decoded = jsonwebtoken::decode::<serde_json::Value>(
+        token,
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
+        &validation,
+    )
+    .map_err(|e| TelehealthError::ProviderError(format!("invalid token: {}", e)))?;
+    // A `room` claim of "*" (wildcard) or an exact match is accepted.
+    let claim = decoded.claims.get("room").and_then(|v| v.as_str()).unwrap_or("");
+    if claim == "*" || claim == room {
+        Ok(())
+    } else {
+        Err(TelehealthError::ProviderError(
+            "token room claim does not match requested room".to_string(),
+        ))
+    }
 }
 
 // ============================================================================
@@ -179,6 +348,126 @@ impl TelehealthProvider for InternalProvider {
 
     fn provider_name(&self) -> &'static str {
         "internal"
+    }
+}
+
+// ============================================================================
+// JitsiProvider — Jitsi Meet (real WebRTC video, no API key required)
+// ============================================================================
+
+/// Generates working WebRTC video-call URLs backed by a Jitsi Meet server.
+///
+/// Defaults to the public `meet.jit.si` instance, which needs **no API key** and
+/// creates rooms on first join — so the URLs open a real, functioning video call
+/// out of the box. Point `JITSI_DOMAIN` at a self-hosted Jitsi deployment for
+/// production (recommended for PHI), and optionally set `JITSI_ROOM_PREFIX`.
+pub struct JitsiProvider {
+    domain: String,
+    room_prefix: String,
+}
+
+impl JitsiProvider {
+    pub fn new() -> Self {
+        let domain = std::env::var("JITSI_DOMAIN").unwrap_or_else(|_| "meet.jit.si".to_string());
+        let room_prefix =
+            std::env::var("JITSI_ROOM_PREFIX").unwrap_or_else(|_| "MediChain".to_string());
+        JitsiProvider {
+            domain,
+            room_prefix,
+        }
+    }
+
+    /// Build a Jitsi-safe room name (alphanumeric + hyphens only) from a session id.
+    fn room_name(&self, session_id: &str) -> String {
+        let cleaned: String = session_id
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect();
+        format!("{}-{}", self.room_prefix, cleaned)
+    }
+
+    fn build_url(&self, session_id: &str, role: &str) -> String {
+        let room = self.room_name(session_id);
+        // The `#userInfo.displayName` hash is consumed by the Jitsi web client to
+        // pre-fill the participant's display name when the room loads.
+        let display = match role {
+            "provider" => "Care%20Provider",
+            "patient" => "Patient",
+            _ => "Participant",
+        };
+        format!(
+            "https://{}/{}#userInfo.displayName=%22{}%22",
+            self.domain, room, display
+        )
+    }
+}
+
+impl Default for JitsiProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl TelehealthProvider for JitsiProvider {
+    async fn create_session(
+        &self,
+        params: CreateSessionParams,
+    ) -> Result<SessionInfo, TelehealthError> {
+        // No external API call needed — Jitsi rooms are created on first join.
+        let provider_url = self.build_url(&params.session_id, "provider");
+        let patient_url = self.build_url(&params.session_id, "patient");
+        let expires_at =
+            params.scheduled_at + chrono::Duration::minutes(params.duration_minutes as i64 + 30);
+
+        Ok(SessionInfo {
+            session_id: params.session_id,
+            provider_join_url: provider_url,
+            patient_join_url: patient_url,
+            expires_at,
+            provider_name: self.provider_name().to_string(),
+        })
+    }
+
+    async fn get_join_url(
+        &self,
+        session_id: &str,
+        _participant: &str,
+        role: ParticipantRole,
+    ) -> Result<String, TelehealthError> {
+        Ok(self.build_url(session_id, &role.to_string()))
+    }
+
+    async fn end_session(&self, _session_id: &str) -> Result<(), TelehealthError> {
+        // Jitsi rooms are ephemeral and close automatically when the last
+        // participant leaves — nothing to tear down server-side.
+        Ok(())
+    }
+
+    fn provider_name(&self) -> &'static str {
+        "jitsi"
+    }
+
+    fn join_credentials(
+        &self,
+        session_id: &str,
+        user_id: &str,
+        display_name: &str,
+        moderator: bool,
+    ) -> Option<JitsiCredentials> {
+        let room = self.room_name(session_id);
+        let jwt = sign_jitsi_jwt(&self.domain, &room, user_id, display_name, moderator);
+        Some(JitsiCredentials {
+            domain: self.domain.clone(),
+            room,
+            jwt,
+            moderator,
+            expires_in: TELEHEALTH_JWT_TTL_SECS,
+        })
+    }
+
+    fn validate_token(&self, token: &str, room: &str) -> Result<(), TelehealthError> {
+        verify_jitsi_jwt(token, room)
     }
 }
 
@@ -471,9 +760,17 @@ impl TelehealthService {
     /// configured provider cannot be initialised (e.g. missing API key).
     pub fn new() -> Self {
         let provider_name =
-            std::env::var("TELEHEALTH_PROVIDER").unwrap_or_else(|_| "internal".to_string());
+            std::env::var("TELEHEALTH_PROVIDER").unwrap_or_else(|_| "jitsi".to_string());
 
         let provider: Box<dyn TelehealthProvider> = match provider_name.to_lowercase().as_str() {
+            "jitsi" => {
+                log::info!("TelehealthService: using Jitsi Meet provider");
+                Box::new(JitsiProvider::new())
+            }
+            "internal" => {
+                log::info!("TelehealthService: using internal provider");
+                Box::new(InternalProvider::new())
+            }
             "daily" => match DailyProvider::from_env() {
                 Some(p) => {
                     log::info!("TelehealthService: using Daily.co provider");
@@ -500,12 +797,26 @@ impl TelehealthService {
                     Box::new(InternalProvider::new())
                 }
             },
-            _ => {
-                log::info!("TelehealthService: using internal provider");
-                Box::new(InternalProvider::new())
+            other => {
+                log::warn!(
+                    "Unknown TELEHEALTH_PROVIDER '{}'; defaulting to Jitsi Meet",
+                    other
+                );
+                Box::new(JitsiProvider::new())
             }
         };
 
+        TelehealthService {
+            provider,
+            sessions: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Construct the service around an explicit provider (dependency injection).
+    /// Bypasses `TELEHEALTH_PROVIDER` env selection — used by tests and by
+    /// callers that already hold a configured provider.
+    #[allow(dead_code)] // test-only DI seam today; kept public for reuse
+    pub fn with_provider(provider: Box<dyn TelehealthProvider>) -> Self {
         TelehealthService {
             provider,
             sessions: RwLock::new(HashMap::new()),
@@ -546,6 +857,21 @@ impl TelehealthService {
             .await
     }
 
+    /// Build IFrame-API join credentials (domain, room, JWT) for a participant,
+    /// mapping the MediChain `role` to a Jitsi moderator flag (Phase 1). Returns
+    /// `None` for providers that don't support the IFrame API.
+    pub fn join_credentials(
+        &self,
+        session_id: &str,
+        user_id: &str,
+        display_name: &str,
+        role: &str,
+    ) -> Option<JitsiCredentials> {
+        let moderator = role_is_moderator(role);
+        self.provider
+            .join_credentials(session_id, user_id, display_name, moderator)
+    }
+
     /// End (tear down) the session on the provider side and mark it locally.
     pub async fn end_session(&self, session_id: &str) -> Result<(), TelehealthError> {
         // Remove from our local store
@@ -554,6 +880,16 @@ impl TelehealthService {
             sessions.remove(session_id);
         }
         self.provider.end_session(session_id).await
+    }
+
+    /// Server-side room pre-configuration for a session (Phase 3).
+    pub fn configure_room(&self, session_id: &str) -> RoomConfig {
+        self.provider.configure_room(session_id)
+    }
+
+    /// Validate a join token against a room (Phase 3).
+    pub fn validate_token(&self, token: &str, room: &str) -> Result<(), TelehealthError> {
+        self.provider.validate_token(token, room)
     }
 
     /// Name of the active provider (useful for diagnostics / health-check).
@@ -575,6 +911,76 @@ impl Default for TelehealthService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_role_to_moderator_mapping() {
+        assert!(role_is_moderator("Doctor"));
+        assert!(role_is_moderator("nurse"));
+        assert!(role_is_moderator("LabTechnician"));
+        assert!(role_is_moderator("Admin"));
+        assert!(!role_is_moderator("Patient"));
+        assert!(!role_is_moderator("Pharmacist"));
+    }
+
+    // Single test (no parallel sibling) controls JITSI_APP_SECRET to avoid the
+    // process-global env-var race inherent to Rust's parallel test runner.
+    #[test]
+    fn test_jitsi_jwt_credentials_lifecycle() {
+        std::env::set_var("JITSI_APP_ID", "medichain");
+        std::env::set_var("JITSI_APP_SECRET", "test-prosody-secret");
+        let provider = JitsiProvider::new();
+
+        let creds = provider
+            .join_credentials("TH-jwt-001", "5Grw", "Dr. Test", true)
+            .expect("jitsi provider returns credentials");
+        assert!(!creds.domain.is_empty());
+        assert!(creds.room.contains("TH-jwt-001"));
+        assert!(creds.moderator);
+        let token = creds.jwt.expect("JWT present when secret set");
+
+        // Verify the signed JWT decodes with the same secret and carries the room.
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        validation.set_audience(&["jitsi"]);
+        let decoded = jsonwebtoken::decode::<serde_json::Value>(
+            &token,
+            &jsonwebtoken::DecodingKey::from_secret(b"test-prosody-secret"),
+            &validation,
+        )
+        .expect("token verifies");
+        assert_eq!(decoded.claims["room"], creds.room);
+        assert_eq!(decoded.claims["context"]["user"]["moderator"], true);
+
+        // validate_token (Phase 3): the issued token verifies against its room,
+        // a different room is rejected, and garbage is rejected. Kept in this
+        // single secret-controlling test to avoid the env-var race.
+        assert!(provider.validate_token(&token, &creds.room).is_ok());
+        assert!(provider.validate_token(&token, "SomeOtherRoom").is_err());
+        assert!(provider.validate_token("not-a-jwt", &creds.room).is_err());
+
+        // With the secret cleared, no JWT is issued (open-room fallback) and
+        // validate_token accepts any token (nothing to verify).
+        std::env::remove_var("JITSI_APP_SECRET");
+        let open_provider = JitsiProvider::new();
+        let open = open_provider
+            .join_credentials("TH-open-001", "5Grw", "Patient", false)
+            .unwrap();
+        assert!(open.jwt.is_none());
+        assert!(!open.moderator);
+        assert!(open_provider.validate_token("anything", "any-room").is_ok());
+
+        std::env::remove_var("JITSI_APP_ID");
+    }
+
+    #[test]
+    fn test_jitsi_room_config_defaults_are_privacy_first() {
+        let provider = JitsiProvider::new();
+        let cfg = provider.configure_room("TH-cfg-001");
+        // Recording + transcription off by default; chat on; PHI-free subject.
+        assert!(!cfg.recording_enabled);
+        assert!(!cfg.transcription_enabled);
+        assert!(cfg.chat_enabled);
+        assert_eq!(cfg.subject, "MediChain Telehealth Visit");
+    }
 
     fn make_params(session_id: &str) -> CreateSessionParams {
         CreateSessionParams {
@@ -618,6 +1024,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_jitsi_provider_create_session_real_url() {
+        std::env::remove_var("JITSI_DOMAIN");
+        std::env::remove_var("JITSI_ROOM_PREFIX");
+        let provider = JitsiProvider::new();
+        let info = provider
+            .create_session(make_params("TH-jitsi-001"))
+            .await
+            .unwrap();
+        assert_eq!(info.provider_name, "jitsi");
+        // URLs point at a real, joinable room on the default public Jitsi server.
+        assert!(info
+            .provider_join_url
+            .starts_with("https://meet.jit.si/MediChain-TH-jitsi-001"));
+        assert!(info
+            .patient_join_url
+            .starts_with("https://meet.jit.si/MediChain-TH-jitsi-001"));
+    }
+
+    #[tokio::test]
+    async fn test_jitsi_provider_sanitizes_room_name() {
+        std::env::remove_var("JITSI_DOMAIN");
+        std::env::remove_var("JITSI_ROOM_PREFIX");
+        let provider = JitsiProvider::new();
+        let url = provider
+            .get_join_url("TH/weird id!", "alice", ParticipantRole::Patient)
+            .await
+            .unwrap();
+        // Non-alphanumeric characters in the session id collapse to hyphens.
+        assert!(url.contains("MediChain-TH-weird-id-"));
+    }
+
+    #[tokio::test]
     async fn test_telehealth_service_create_and_get() {
         std::env::set_var("TELEHEALTH_PROVIDER", "internal");
         let service = TelehealthService::new();
@@ -651,5 +1089,73 @@ mod tests {
         assert_eq!(ParticipantRole::Provider.to_string(), "provider");
         assert_eq!(ParticipantRole::Patient.to_string(), "patient");
         assert_eq!(ParticipantRole::Observer.to_string(), "observer");
+    }
+
+    /// Phase 8 (e2e): exercise the full session lifecycle at the service
+    /// boundary — create → fetch → both parties get credentials → room
+    /// pre-config → end (state cleared). Uses an injected provider so it is
+    /// independent of the process-global `TELEHEALTH_PROVIDER`/secret env vars
+    /// (token signing/validation is covered by the dedicated JWT test).
+    #[tokio::test]
+    async fn test_telehealth_e2e_session_flow() {
+        let service = TelehealthService::with_provider(Box::new(JitsiProvider::new()));
+
+        // Provider creates the session.
+        let info = service.create_session(make_params("TH-e2e-001")).await.unwrap();
+        assert_eq!(info.provider_name, "jitsi");
+        assert!(service.get_session("TH-e2e-001").is_some());
+
+        // Provider (moderator) and patient (participant) each get credentials.
+        // Moderator flags derive from role, not the JWT secret, so this is
+        // race-free regardless of whether a secret is set.
+        let doc = service
+            .join_credentials("TH-e2e-001", "5Doc", "Dr. E2E", "doctor")
+            .expect("doctor creds");
+        let pat = service
+            .join_credentials("TH-e2e-001", "5Pat", "Patient", "patient")
+            .expect("patient creds");
+        assert!(doc.moderator);
+        assert!(!pat.moderator);
+        assert_eq!(doc.room, pat.room);
+
+        // Pre-config is privacy-first.
+        let cfg = service.configure_room("TH-e2e-001");
+        assert!(!cfg.recording_enabled && cfg.chat_enabled);
+
+        // Provider ends the session → server state cleared.
+        service.end_session("TH-e2e-001").await.unwrap();
+        assert!(service.get_session("TH-e2e-001").is_none());
+    }
+
+    /// Phase 8 (load): drive many concurrent create+join operations against one
+    /// shared service to confirm the in-memory store stays consistent and never
+    /// deadlocks under contention. Bounded (NASA Rule 2) — 200 sessions. Uses an
+    /// injected provider so it is env-race-free.
+    #[tokio::test]
+    async fn test_telehealth_concurrent_session_load() {
+        use std::sync::Arc;
+        let service = Arc::new(TelehealthService::with_provider(Box::new(JitsiProvider::new())));
+
+        const SESSIONS: usize = 200;
+        let mut handles = Vec::with_capacity(SESSIONS);
+        for i in 0..SESSIONS {
+            let svc = Arc::clone(&service);
+            handles.push(tokio::spawn(async move {
+                let sid = format!("TH-load-{:04}", i);
+                svc.create_session(make_params(&sid)).await.unwrap();
+                // Both parties resolve credentials concurrently with creation.
+                let creds = svc.join_credentials(&sid, "5Usr", "User", "doctor");
+                assert!(creds.is_some());
+                svc.get_session(&sid).is_some()
+            }));
+        }
+
+        let mut ok = 0usize;
+        for h in handles {
+            if h.await.unwrap() {
+                ok += 1;
+            }
+        }
+        assert_eq!(ok, SESSIONS, "every concurrent session must persist");
     }
 }

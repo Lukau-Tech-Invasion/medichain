@@ -41,6 +41,75 @@ export interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+/**
+ * Pull the `{ message, code }` out of any error response body the backend can
+ * emit, returning `undefined` for fields it can't recognize. Tolerates:
+ *  - Canonical envelope (Phase 9.5): `{ error: { code, message, details? } }`
+ *  - Legacy flat shape: `{ error: "msg", code: "CODE" }`
+ *  - FHIR OperationOutcome: `{ resourceType: "OperationOutcome", issue: [{ diagnostics, code }] }`
+ */
+function parseErrorBody(data: unknown): { message?: string; code?: string } {
+  if (!data || typeof data !== 'object') return {};
+  const body = data as Record<string, unknown>;
+  const err = body.error;
+
+  // Canonical envelope: `error` is a nested object
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    return {
+      message: typeof e.message === 'string' ? e.message : undefined,
+      code: typeof e.code === 'string' ? e.code : undefined,
+    };
+  }
+
+  // Legacy flat shape: `error` is a string
+  if (typeof err === 'string') {
+    return {
+      message: err || undefined,
+      code: typeof body.code === 'string' ? body.code : undefined,
+    };
+  }
+
+  // FHIR OperationOutcome
+  if (
+    body.resourceType === 'OperationOutcome' &&
+    Array.isArray(body.issue) &&
+    body.issue.length > 0
+  ) {
+    const issue = body.issue[0] as Record<string, unknown>;
+    return {
+      message: typeof issue.diagnostics === 'string' ? issue.diagnostics : undefined,
+      code: typeof issue.code === 'string' ? issue.code.toUpperCase() : undefined,
+    };
+  }
+
+  return {};
+}
+
+/** Normalize an error body into a guaranteed `{ message, code }` (used by the client). */
+function extractApiError(
+  data: unknown,
+  status: number
+): { message: string; code: string } {
+  const parsed = parseErrorBody(data);
+  return {
+    message: parsed.message ?? `HTTP ${status}`,
+    code: parsed.code ?? 'API_ERROR',
+  };
+}
+
+/**
+ * Extract a human-readable error message from any backend error body.
+ *
+ * For use by pages/components that issue raw `fetch` calls (bypassing the typed
+ * client) and read the error body directly. Handles the canonical Phase 9.5
+ * envelope as well as legacy and FHIR shapes; returns `fallback` when no message
+ * can be found.
+ */
+export function getApiErrorMessage(data: unknown, fallback = 'Request failed'): string {
+  return parseErrorBody(data).message ?? fallback;
+}
+
 export class ApiClient {
   private baseUrl: string;
   private userId?: string;
@@ -53,6 +122,11 @@ export class ApiClient {
   private lastHealthCheck: number = 0;
   private signatureProvider: ((message: string) => Promise<string>) | null = null;
   private offlineQueue: OfflineQueue;
+  // JWT auth (Phase 9.4): when set, requests send `Authorization: Bearer <access>`
+  // and transparently refresh on a 401 using the refresh token.
+  private accessToken?: string;
+  private refreshToken?: string;
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor(config: ApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, '');
@@ -83,6 +157,73 @@ export class ApiClient {
   }
 
   /**
+   * Set JWT access + refresh tokens (Phase 9.4).
+   *
+   * Once set, requests carry `Authorization: Bearer <access>` (preferred by the
+   * backend) and a 401 triggers a one-time refresh + retry. `X-User-Id` is still
+   * sent as a backward-compatible fallback.
+   */
+  setTokens(accessToken: string | undefined, refreshToken?: string): void {
+    this.accessToken = accessToken;
+    if (refreshToken !== undefined) {
+      this.refreshToken = refreshToken;
+    }
+    debugLog('ApiClient', `JWT tokens ${accessToken ? 'set' : 'cleared'}`);
+  }
+
+  /**
+   * Clear stored JWT tokens (e.g. on logout).
+   */
+  clearTokens(): void {
+    this.accessToken = undefined;
+    this.refreshToken = undefined;
+  }
+
+  /**
+   * Get the current access token, if any.
+   */
+  getAccessToken(): string | undefined {
+    return this.accessToken;
+  }
+
+  /**
+   * Refresh the access token using the stored refresh token. Concurrent callers
+   * share a single in-flight refresh. Returns true on success.
+   */
+  private async refreshAccessToken(): Promise<boolean> {
+    if (!this.refreshToken) {
+      return false;
+    }
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+    this.refreshPromise = (async () => {
+      try {
+        const resp = await fetch(`${this.baseUrl}/api/auth/jwt/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: this.refreshToken }),
+        });
+        if (!resp.ok) {
+          this.clearTokens();
+          return false;
+        }
+        const data = await resp.json();
+        if (data?.access_token) {
+          this.accessToken = data.access_token as string;
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+    return this.refreshPromise;
+  }
+
+  /**
    * Get the current user ID
    */
   getUserId(): string | undefined {
@@ -108,7 +249,9 @@ export class ApiClient {
       
       // If we just reconnected, process the offline queue
       if (connected) {
-        this.offlineQueue.processQueue(this as any).catch(err => {
+        this.offlineQueue.processQueue({
+          request: (method, path, body) => this.request(method, path, body),
+        }).catch(err => {
           debugLog('ApiClient', 'Error processing offline queue after reconnection:', err);
         });
       }
@@ -202,7 +345,7 @@ export class ApiClient {
             if ((method === 'POST' || method === 'PUT' || method === 'DELETE') && !options?.headers?.['X-Offline-Retry']) {
               debugLog('ApiClient', `Network error, enqueuing ${method} ${path} for offline sync`);
               this.offlineQueue.enqueue({
-                method: method as any,
+                method,
                 path,
                 body
               }).catch(err => debugLog('ApiClient', 'Failed to enqueue offline operation:', err));
@@ -234,39 +377,66 @@ export class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), timeout ?? this.timeout);
 
     try {
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...extraHeaders,
-      };
+      // Build headers fresh each attempt so a refreshed Bearer token is picked up.
+      const buildHeaders = async (): Promise<Record<string, string>> => {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...extraHeaders,
+        };
 
-      // Add authentication header if user ID is set
-      if (this.userId) {
-        headers['X-User-Id'] = this.userId;
+        // JWT Bearer (Phase 9.4) — preferred by the backend.
+        if (this.accessToken) {
+          headers['Authorization'] = `Bearer ${this.accessToken}`;
+        }
 
-        // If a signature provider is available, sign a challenge
-        if (this.signatureProvider) {
-          const timestamp = Math.floor(Date.now() / 1000).toString();
-          const message = `${timestamp}:${this.userId}`;
-          try {
-            const signature = await this.signatureProvider(message);
-            headers['X-Signature'] = signature;
-            headers['X-Timestamp'] = timestamp;
-          } catch (e) {
-            debugLog('ApiClient', 'Failed to sign request:', e);
+        // Add legacy auth header if user ID is set (backward-compatible fallback).
+        if (this.userId) {
+          headers['X-User-Id'] = this.userId;
+
+          // If a signature provider is available, sign a challenge
+          if (this.signatureProvider) {
+            const timestamp = Math.floor(Date.now() / 1000).toString();
+            const message = `${timestamp}:${this.userId}`;
+            try {
+              const signature = await this.signatureProvider(message);
+              headers['X-Signature'] = signature;
+              headers['X-Timestamp'] = timestamp;
+            } catch (e) {
+              debugLog('ApiClient', 'Failed to sign request:', e);
+            }
           }
         }
-      }
+        return headers;
+      };
 
       const url = `${this.baseUrl}${path}`;
       debugLog('ApiClient', `${method} ${path}`);
 
-      const response = await fetch(url, {
+      let response = await fetch(url, {
         method,
-        headers,
+        headers: await buildHeaders(),
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
+
+      // JWT auto-refresh on 401 (Phase 9.4): refresh once and retry the request.
+      if (
+        response.status === 401 &&
+        this.accessToken &&
+        this.refreshToken &&
+        path !== '/api/auth/jwt/refresh'
+      ) {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          response = await fetch(url, {
+            method,
+            headers: await buildHeaders(),
+            body: body ? JSON.stringify(body) : undefined,
+            signal: controller.signal,
+          });
+        }
+      }
 
       clearTimeout(timeoutId);
 
@@ -287,13 +457,9 @@ export class ApiClient {
       const data = await response.json();
 
       if (!response.ok) {
-        const error = data as ApiError;
-        this.onError?.(error);
-        throw new ApiClientError(
-          error.error || `HTTP ${response.status}`,
-          error.code || 'API_ERROR',
-          response.status
-        );
+        const { message, code } = extractApiError(data, response.status);
+        this.onError?.({ success: false, error: message, code });
+        throw new ApiClientError(message, code, response.status);
       }
 
       // Response Normalization: Handle wrapped responses {items: [], total: X} or {records: [], total: X}

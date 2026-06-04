@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage } from '@medichain/shared';
 import { 
   FileText, ArrowLeft, Check, Loader2, AlertCircle,
   User, Activity, Stethoscope, Pill, Calendar
@@ -342,7 +342,7 @@ function SOAPNotePage() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create SOAP note');
+        throw new Error(getApiErrorMessage(errorData, 'Failed to create SOAP note'));
       }
 
       setSuccess(true);
@@ -761,7 +761,7 @@ function SOAPNotePage() {
                   Diagnosis Status
                 </label>
                 <select                  id="soap-diagnosis-status"                  value={primaryStatus}
-                  onChange={(e) => setPrimaryStatus(e.target.value as any)}
+                  onChange={(e) => setPrimaryStatus(e.target.value as typeof primaryStatus)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 >
                   {DIAGNOSIS_STATUSES.map(status => (

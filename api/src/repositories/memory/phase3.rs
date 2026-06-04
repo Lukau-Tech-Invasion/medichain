@@ -630,6 +630,14 @@ impl SpecimenCollectionRepository for MemorySpecimenCollectionRepository {
         data.insert(specimen.id.clone(), specimen.clone());
         Ok(specimen)
     }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenCollectionEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
+    }
 }
 
 /// Memory-based specimen rejection repository
@@ -707,6 +715,14 @@ impl SpecimenRejectionRepository for MemorySpecimenRejectionRepository {
             .filter(|r| r.recollection_required && r.recollection_scheduled.is_none())
             .cloned()
             .collect())
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 
@@ -1297,6 +1313,14 @@ impl AnesthesiaRecordRepository for MemoryAnesthesiaRecordRepository {
         }
         data.insert(record.id.clone(), record.clone());
         Ok(record)
+    }
+
+    async fn list_all(&self) -> RepositoryResult<Vec<AnesthesiaRecordEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        Ok(data.values().cloned().collect())
     }
 }
 

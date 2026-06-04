@@ -77,6 +77,9 @@ impl StorageBackend {
 #[derive(Clone)]
 pub struct RepositoryContainer {
     pub backend: StorageBackend,
+    /// Connection pool, present only for the PostgreSQL backend. Used to run
+    /// multi-step writes inside a single transaction (see `create_patient_with_nfc`).
+    pub pool: Option<sqlx::PgPool>,
     // Phase 1 repositories
     pub patients: Arc<dyn PatientRepository>,
     pub allergies: Arc<dyn AllergyRepository>,
@@ -204,6 +207,34 @@ pub struct RepositoryContainer {
     pub data_retention_policies: Arc<dyn DataRetentionPolicyRepository>,
     pub retention_job_runs: Arc<dyn RetentionJobRunRepository>,
     pub consent_records: Arc<dyn ConsentRecordRepository>,
+
+    // Phase 7 (Round 4): generic JSON-record feature domains
+    pub language_preferences: Arc<dyn JsonRecordRepository>,
+    pub eligibility_checks: Arc<dyn JsonRecordRepository>,
+    pub satisfaction_surveys: Arc<dyn JsonRecordRepository>,
+    pub symptom_sessions: Arc<dyn JsonRecordRepository>,
+    pub family_groups: Arc<dyn JsonRecordRepository>,
+    pub insurance_claims: Arc<dyn JsonRecordRepository>,
+    pub insurance_cards: Arc<dyn JsonRecordRepository>,
+    pub autopsy_requests: Arc<dyn JsonRecordRepository>,
+    pub autopsy_reports: Arc<dyn JsonRecordRepository>,
+    pub sync_queue_items: Arc<dyn JsonRecordRepository>,
+
+    // Round 5: wearables + telehealth legacy shapes (JSON-record backed)
+    pub wearable_device_records: Arc<dyn JsonRecordRepository>,
+    pub wearable_reading_records: Arc<dyn JsonRecordRepository>,
+    pub wearable_alert_records: Arc<dyn JsonRecordRepository>,
+    pub wearable_alert_rules: Arc<dyn JsonRecordRepository>,
+    pub telehealth_session_records: Arc<dyn JsonRecordRepository>,
+
+    // Round 6: shape-mismatch domains (JSON-record backed)
+    pub e_prescriptions_v2: Arc<dyn JsonRecordRepository>,
+    pub drug_interaction_checks: Arc<dyn JsonRecordRepository>,
+    pub lab_trend_results: Arc<dyn JsonRecordRepository>,
+    pub lab_result_submissions: Arc<dyn JsonRecordRepository>,
+
+    // Round 7: SOAP clinical notes (JSON-record backed)
+    pub soap_note_records: Arc<dyn JsonRecordRepository>,
 }
 
 impl RepositoryContainer {
@@ -211,6 +242,7 @@ impl RepositoryContainer {
     pub fn new_memory() -> Self {
         Self {
             backend: StorageBackend::Memory,
+            pool: None,
             patients: Arc::new(memory::MemoryPatientRepository::new()),
             allergies: Arc::new(memory::MemoryAllergyRepository::new()),
             medical_records: Arc::new(memory::MemoryMedicalRecordRepository::new()),
@@ -341,7 +373,201 @@ impl RepositoryContainer {
             data_retention_policies: Arc::new(memory::MemoryDataRetentionPolicyRepository::new()),
             retention_job_runs: Arc::new(memory::MemoryRetentionJobRunRepository::new()),
             consent_records: Arc::new(memory::MemoryConsentRecordRepository::new()),
+
+            // Phase 7 (Round 4): generic JSON-record feature domains (memory)
+            language_preferences: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            eligibility_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            satisfaction_surveys: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            symptom_sessions: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            family_groups: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            insurance_claims: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            insurance_cards: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            autopsy_requests: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            autopsy_reports: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            sync_queue_items: Arc::new(memory::MemoryJsonRecordRepository::new()),
+
+            // Round 5: wearables + telehealth legacy shapes (memory)
+            wearable_device_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            wearable_reading_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            wearable_alert_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            wearable_alert_rules: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            telehealth_session_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+
+            // Round 6: shape-mismatch domains (memory)
+            e_prescriptions_v2: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            drug_interaction_checks: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            lab_trend_results: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            lab_result_submissions: Arc::new(memory::MemoryJsonRecordRepository::new()),
+
+            // Round 7: SOAP clinical notes (memory)
+            soap_note_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
         }
+    }
+
+    /// Persist a new patient and its NFC tag.
+    ///
+    /// On the PostgreSQL backend both rows are written inside a single
+    /// transaction, so a patient is never left without its tag (or vice versa)
+    /// when the second insert fails — the transaction rolls back. The in-memory
+    /// backend is single-process and writes the two rows sequentially.
+    pub async fn create_patient_with_nfc(
+        &self,
+        patient: PatientEntity,
+        nfc: NfcTagEntity,
+    ) -> RepositoryResult<()> {
+        let pool = match &self.pool {
+            Some(p) => p,
+            None => {
+                // In-memory backend: sequential writes (single process).
+                self.patients.create(patient).await?;
+                self.nfc_tags.create(nfc).await?;
+                return Ok(());
+            }
+        };
+        // Built with QueryBuilder + push_bind (same convention as postgres/patient.rs
+        // and postgres/nfc_tag.rs) — no hand-written placeholders, all values bound.
+        let mut tx = pool.begin().await?;
+
+        let mut patient_q: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, \
+             first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, \
+             blood_type, phone_encrypted, email_encrypted, address_encrypted, \
+             emergency_contact_name_encrypted, emergency_contact_phone_encrypted, \
+             emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, \
+             wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted) ",
+        );
+        patient_q.push_values([&patient], |mut b, p| {
+            b.push_bind(&p.id)
+                .push_bind(&p.health_id)
+                .push_bind(&p.national_id_hash)
+                .push_bind(&p.national_id_type)
+                .push_bind(&p.first_name_encrypted)
+                .push_bind(&p.last_name_encrypted)
+                .push_bind(&p.date_of_birth_encrypted)
+                .push_bind(&p.gender)
+                .push_bind(&p.blood_type)
+                .push_bind(&p.phone_encrypted)
+                .push_bind(&p.email_encrypted)
+                .push_bind(&p.address_encrypted)
+                .push_bind(&p.emergency_contact_name_encrypted)
+                .push_bind(&p.emergency_contact_phone_encrypted)
+                .push_bind(&p.emergency_contact_relationship)
+                .push_bind(p.organ_donor)
+                .push_bind(p.dnr_status)
+                .push_bind(&p.primary_provider_id)
+                .push_bind(&p.wallet_address)
+                .push_bind(&p.registered_by)
+                .push_bind(p.is_verified)
+                .push_bind(p.is_active)
+                .push_bind(&p.profile_extras_encrypted);
+        });
+        patient_q.build().execute(&mut *tx).await?;
+
+        let mut nfc_q: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO nfc_tags (id, tag_uid, patient_id, tag_type, is_active, pin_hash, \
+             issued_at, expires_at, last_used_at, use_count, issued_by) ",
+        );
+        nfc_q.push_values([&nfc], |mut b, t| {
+            b.push_bind(&t.id)
+                .push_bind(&t.tag_uid)
+                .push_bind(&t.patient_id)
+                .push_bind(&t.tag_type)
+                .push_bind(t.is_active)
+                .push_bind(&t.pin_hash)
+                .push_bind(t.issued_at)
+                .push_bind(t.expires_at)
+                .push_bind(t.last_used_at)
+                .push_bind(t.use_count)
+                .push_bind(&t.issued_by);
+        });
+        nfc_q.build().execute(&mut *tx).await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// TOCTOU-safe access recording (Phase 11.1).
+    ///
+    /// Closes the time-of-check-to-time-of-use gap between "verify the patient
+    /// exists and is active" and "write the access-log row". On PostgreSQL the
+    /// patient row is locked `FOR UPDATE` inside a transaction, so a concurrent
+    /// writer cannot deactivate or delete the patient between the check and the
+    /// insert — the access is logged against a definitively-valid, locked row,
+    /// or the whole unit rolls back. The in-memory backend is single-process, so
+    /// the check-then-act is performed under the repository's own locking.
+    ///
+    /// Returns [`RepositoryError::NotFound`] if the patient does not exist and
+    /// [`RepositoryError::Validation`] if the patient is inactive.
+    pub async fn record_access_atomic(
+        &self,
+        patient_id: &str,
+        log: AccessLogEntity,
+    ) -> RepositoryResult<()> {
+        let pool = match &self.pool {
+            Some(p) => p,
+            None => {
+                // In-memory backend: single process. `get_by_id` errors with
+                // NotFound if the patient is absent, giving us the same check.
+                let patient = self.patients.get_by_id(patient_id).await?;
+                if !patient.is_active {
+                    return Err(RepositoryError::Validation(format!(
+                        "patient {} is inactive",
+                        patient_id
+                    )));
+                }
+                self.access_logs.create(log).await?;
+                return Ok(());
+            }
+        };
+
+        let mut tx = pool.begin().await?;
+
+        // Acquire a row-level lock on the patient; blocks concurrent writers to
+        // this row until we commit/rollback.
+        let row: Option<(bool,)> =
+            sqlx::query_as("SELECT is_active FROM patients WHERE id = $1 FOR UPDATE")
+                .bind(patient_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        match row {
+            Some((true,)) => {}
+            Some((false,)) => {
+                return Err(RepositoryError::Validation(format!(
+                    "patient {} is inactive",
+                    patient_id
+                )))
+            }
+            None => return Err(RepositoryError::NotFound(patient_id.to_string())),
+        }
+
+        // Write the access-log row in the same transaction.
+        let mut qb: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO access_logs (
+                id, accessor_id, accessor_role, patient_id, resource_type, resource_id,
+                action, access_reason, is_emergency_access, ip_address, user_agent,
+                blockchain_tx_hash, accessed_at, facility_id
+            ) ",
+        );
+        qb.push_values([&log], |mut b, l| {
+            b.push_bind(&l.id)
+                .push_bind(&l.accessor_id)
+                .push_bind(&l.accessor_role)
+                .push_bind(&l.patient_id)
+                .push_bind(&l.resource_type)
+                .push_bind(&l.resource_id)
+                .push_bind(&l.action)
+                .push_bind(&l.access_reason)
+                .push_bind(l.is_emergency_access)
+                .push_bind(&l.ip_address)
+                .push_bind(&l.user_agent)
+                .push_bind(&l.blockchain_tx_hash)
+                .push_bind(l.accessed_at)
+                .push_bind(&l.facility_id);
+        });
+        qb.build().execute(&mut *tx).await?;
+
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Create a new repository container with PostgreSQL backend
@@ -349,6 +575,7 @@ impl RepositoryContainer {
     pub async fn new_postgres(pool: sqlx::PgPool) -> Result<Self, RepositoryError> {
         Ok(Self {
             backend: StorageBackend::Postgres,
+            pool: Some(pool.clone()),
             patients: Arc::new(postgres::PgPatientRepository::new(pool.clone())),
             allergies: Arc::new(postgres::PgAllergyRepository::new(pool.clone())),
             medical_records: Arc::new(postgres::PgMedicalRecordRepository::new(pool.clone())),
@@ -518,6 +745,53 @@ impl RepositoryContainer {
                 pool.clone(),
             )),
             retention_job_runs: Arc::new(postgres::PgRetentionJobRunRepository::new(pool.clone())),
+
+            // Phase 7 (Round 4): generic JSON-record feature domains (PostgreSQL)
+            language_preferences: Arc::new(postgres::PgLanguagePreferenceRepository::new(
+                pool.clone(),
+            )),
+            eligibility_checks: Arc::new(postgres::PgEligibilityCheckRepository::new(pool.clone())),
+            satisfaction_surveys: Arc::new(postgres::PgSatisfactionSurveyRepository::new(
+                pool.clone(),
+            )),
+            symptom_sessions: Arc::new(postgres::PgSymptomSessionRepository::new(pool.clone())),
+            family_groups: Arc::new(postgres::PgFamilyGroupRepository::new(pool.clone())),
+            insurance_claims: Arc::new(postgres::PgInsuranceClaimRepository::new(pool.clone())),
+            insurance_cards: Arc::new(postgres::PgInsuranceCardRepository::new(pool.clone())),
+            autopsy_requests: Arc::new(postgres::PgAutopsyRequestRepository::new(pool.clone())),
+            autopsy_reports: Arc::new(postgres::PgAutopsyReportRepository::new(pool.clone())),
+            sync_queue_items: Arc::new(postgres::PgSyncQueueItemRepository::new(pool.clone())),
+
+            // Round 5: wearables + telehealth legacy shapes (PostgreSQL)
+            wearable_device_records: Arc::new(postgres::PgWearableDeviceRecordRepository::new(
+                pool.clone(),
+            )),
+            wearable_reading_records: Arc::new(postgres::PgWearableReadingRecordRepository::new(
+                pool.clone(),
+            )),
+            wearable_alert_records: Arc::new(postgres::PgWearableAlertRecordRepository::new(
+                pool.clone(),
+            )),
+            wearable_alert_rules: Arc::new(postgres::PgWearableAlertRuleRepository::new(
+                pool.clone(),
+            )),
+            telehealth_session_records: Arc::new(postgres::PgTelehealthSessionRecordRepository::new(
+                pool.clone(),
+            )),
+
+            // Round 6: shape-mismatch domains (PostgreSQL)
+            e_prescriptions_v2: Arc::new(postgres::PgEPrescriptionV2Repository::new(pool.clone())),
+            drug_interaction_checks: Arc::new(postgres::PgDrugInteractionCheckRepository::new(
+                pool.clone(),
+            )),
+            lab_trend_results: Arc::new(postgres::PgLabTrendResultRepository::new(pool.clone())),
+            lab_result_submissions: Arc::new(postgres::PgLabResultSubmissionRepository::new(
+                pool.clone(),
+            )),
+
+            // Round 7: SOAP clinical notes (PostgreSQL)
+            soap_note_records: Arc::new(postgres::PgSoapNoteRecordRepository::new(pool.clone())),
+
             consent_records: Arc::new(postgres::PgConsentRecordRepository::new(pool)),
         })
     }

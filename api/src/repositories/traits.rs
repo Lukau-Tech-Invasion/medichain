@@ -182,6 +182,14 @@ pub struct PatientEntity {
     pub registered_by: Option<String>,
     pub is_verified: bool,
     pub is_active: bool,
+
+    /// Full `PatientProfile` (address, insurance, doctors, preferences, advanced
+    /// directives, structured emergency_info) serialized to JSON and encrypted
+    /// with ChaCha20-Poly1305. Lossless source of truth on read; a real persisted
+    /// column so it survives a PostgreSQL round-trip.
+    #[serde(skip_serializing)]
+    #[serde(default)]
+    pub profile_extras_encrypted: Option<Vec<u8>>,
 }
 
 /// Allergy entity (database model)
@@ -1035,6 +1043,11 @@ pub trait ConsultationNoteRepository: Send + Sync + fmt::Debug {
         status: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ConsultationNoteEntity>>;
+    async fn list_all(&self) -> RepositoryResult<Vec<ConsultationNoteEntity>> {
+        Err(RepositoryError::NotFound(
+            "list_all not implemented".to_string(),
+        ))
+    }
 }
 
 /// Nursing care plan repository trait
@@ -5679,6 +5692,50 @@ pub trait ConsentRecordRepository: Send + Sync {
         consent_type: &str,
         purpose: &str,
     ) -> RepositoryResult<bool>;
+}
+
+// =============================================================================
+// PHASE 7 (Round 4): GENERIC JSON-RECORD DOMAINS
+// =============================================================================
+//
+// Several feature domains (language preferences, eligibility checks, satisfaction
+// surveys, symptom sessions, family groups, insurance claims, autopsy
+// requests/reports, sync-queue items) previously lived only in volatile AppState
+// HashMaps and were lost on restart. Their payloads are rich, heterogeneous
+// structs whose full shape we want to preserve losslessly. Rather than model each
+// with a bespoke column set, they share one JSON-blob entity: the full legacy
+// struct is serialized into `data` (JSONB), with `id` + `owner_id` kept as
+// queryable columns.
+
+/// Generic JSON-blob record entity shared by the Phase-7 feature domains.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, sqlx::FromRow)]
+pub struct JsonRecordEntity {
+    /// Primary key (e.g. survey id, claim id, or owner id for singleton records).
+    pub id: String,
+    /// Owning entity id (patient id, user id, device id, deceased id, ...).
+    pub owner_id: String,
+    /// Full domain payload, serialized losslessly.
+    pub data: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Generic repository for JSON-blob feature records.
+///
+/// `create` has upsert semantics (insert-or-replace by `id`) so singleton
+/// records (e.g. one language preference per user) and status updates both work.
+#[async_trait]
+pub trait JsonRecordRepository: Send + Sync + fmt::Debug {
+    /// Insert or replace a record by `id`.
+    async fn create(&self, record: JsonRecordEntity) -> RepositoryResult<JsonRecordEntity>;
+    /// Fetch a single record by primary key.
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<Option<JsonRecordEntity>>;
+    /// Fetch all records owned by `owner_id`, newest first.
+    async fn get_by_owner(&self, owner_id: &str) -> RepositoryResult<Vec<JsonRecordEntity>>;
+    /// Fetch all records, newest first (bounded).
+    async fn list_all(&self) -> RepositoryResult<Vec<JsonRecordEntity>>;
+    /// Delete a record by id. Idempotent: deleting a missing id is `Ok(())`.
+    async fn delete(&self, id: &str) -> RepositoryResult<()>;
 }
 
 #[cfg(test)]

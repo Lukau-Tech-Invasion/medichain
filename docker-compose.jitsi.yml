@@ -1,0 +1,93 @@
+# Self-hosted Jitsi Meet for MediChain telehealth (Phase 5).
+#
+# Based on the official jitsi/docker-jitsi-meet stack, wired so its JWT auth uses
+# the SAME app id/secret the API signs tokens with (JITSI_APP_ID/JITSI_APP_SECRET
+# from your .env → JWT_APP_ID/JWT_APP_SECRET here). That closes the loop: the API
+# mints HS256 tokens (api/src/telehealth.rs) that this Prosody instance validates.
+#
+# Run:  docker compose -f docker-compose.yml -f docker-compose.jitsi.yml up -d
+# Then: set JITSI_DOMAIN=<your domain> for the API so it signs `sub` correctly.
+#
+# Full variable reference: https://github.com/jitsi/docker-jitsi-meet (env.example).
+# This file pins the MediChain-specific bits; copy Jitsi's env.example into .env
+# and generate strong passwords with their gen-passwords.sh.
+
+services:
+  jitsi-web:
+    image: jitsi/web:stable
+    restart: unless-stopped
+    ports:
+      - "8443:443" # HTTPS (front this with the Caddy reverse proxy / real TLS)
+      - "8000:80"
+    volumes:
+      - ${JITSI_CONFIG:-./.jitsi-config}/web:/config:Z
+      - ${JITSI_CONFIG:-./.jitsi-config}/web/crontabs:/var/spool/cron/crontabs:Z
+      - ${JITSI_CONFIG:-./.jitsi-config}/transcripts:/usr/share/jitsi-meet/transcripts:Z
+    environment:
+      - ENABLE_AUTH=1
+      - ENABLE_GUESTS=0 # require a JWT — no anonymous joiners (HIPAA posture)
+      - AUTH_TYPE=jwt
+      - JWT_APP_ID=${JITSI_APP_ID:-medichain}
+      - JWT_APP_SECRET=${JITSI_APP_SECRET:?set JITSI_APP_SECRET in .env}
+      - JWT_ACCEPTED_ISSUERS=${JITSI_APP_ID:-medichain}
+      - JWT_ACCEPTED_AUDIENCES=jitsi
+      - PUBLIC_URL=https://${JITSI_DOMAIN:-meet.medichain.local}
+      - TZ=UTC
+      # E2EE off so recording/transcription is possible (per the recording decision).
+      - ENABLE_E2EE=0
+    depends_on:
+      - jitsi-prosody
+
+  jitsi-prosody:
+    image: jitsi/prosody:stable
+    restart: unless-stopped
+    expose:
+      - "5222"
+      - "5347"
+      - "5280"
+    volumes:
+      - ${JITSI_CONFIG:-./.jitsi-config}/prosody/config:/config:Z
+      - ${JITSI_CONFIG:-./.jitsi-config}/prosody/prosody-plugins-custom:/prosody-plugins-custom:Z
+    environment:
+      - ENABLE_AUTH=1
+      - ENABLE_GUESTS=0
+      - AUTH_TYPE=jwt
+      - JWT_APP_ID=${JITSI_APP_ID:-medichain}
+      - JWT_APP_SECRET=${JITSI_APP_SECRET:?set JITSI_APP_SECRET in .env}
+      - JWT_ACCEPTED_ISSUERS=${JITSI_APP_ID:-medichain}
+      - JWT_ACCEPTED_AUDIENCES=jitsi
+      - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_MUC_DOMAIN=muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - TZ=UTC
+
+  jitsi-jicofo:
+    image: jitsi/jicofo:stable
+    restart: unless-stopped
+    volumes:
+      - ${JITSI_CONFIG:-./.jitsi-config}/jicofo:/config:Z
+    environment:
+      - XMPP_DOMAIN=${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - TZ=UTC
+    depends_on:
+      - jitsi-prosody
+
+  jitsi-jvb:
+    image: jitsi/jvb:stable
+    restart: unless-stopped
+    ports:
+      - "10000:10000/udp" # media — must be reachable; open UDP 10000 on the firewall
+    volumes:
+      - ${JITSI_CONFIG:-./.jitsi-config}/jvb:/config:Z
+    environment:
+      - XMPP_AUTH_DOMAIN=auth.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_INTERNAL_MUC_DOMAIN=internal-muc.${JITSI_DOMAIN:-meet.medichain.local}
+      - XMPP_SERVER=jitsi-prosody
+      # Public IP for NAT traversal; set to the host's reachable address.
+      - JVB_ADVERTISE_IPS=${JVB_ADVERTISE_IPS:-}
+      - TZ=UTC
+    depends_on:
+      - jitsi-prosody

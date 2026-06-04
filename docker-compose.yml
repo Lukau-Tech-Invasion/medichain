@@ -10,9 +10,11 @@ services:
     container_name: medichain_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: medichain
-      POSTGRES_PASSWORD: medichain_dev_2024
-      POSTGRES_DB: medichain
+      # Credentials are interpolated from the environment / .env file.
+      # Defaults are DEV-ONLY; production MUST set these (see .env.example).
+      POSTGRES_USER: ${POSTGRES_USER:-medichain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medichain_dev_2024}
+      POSTGRES_DB: ${POSTGRES_DB:-medichain}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
@@ -42,6 +44,11 @@ services:
       - "8080:8080"
     volumes:
       - ipfs_data:/data/ipfs
+    healthcheck:
+      test: ["CMD-SHELL", "ipfs id > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
     networks:
       - medichain_network
 
@@ -49,13 +56,23 @@ services:
   # MediChain API
   # =============================================================================
   api:
-    build: ./api
+    build:
+      # Context is the repo root so the workspace members (crypto, pallets) are
+      # available to the build; see api/Dockerfile.
+      context: .
+      dockerfile: api/Dockerfile
     container_name: medichain_api
     restart: unless-stopped
+    expose:
+      - "8080"
     environment:
-      DATABASE_URL: postgres://medichain:medichain_dev_2024@postgres:5432/medichain
+      DATABASE_URL: postgres://${POSTGRES_USER:-medichain}:${POSTGRES_PASSWORD:-medichain_dev_2024}@postgres:5432/${POSTGRES_DB:-medichain}
       IPFS_API_URL: http://ipfs:5001
       IPFS_GATEWAY_URL: http://ipfs:8080
+      # Production secrets — set these in .env (no insecure defaults baked in).
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      IS_DEMO: ${IS_DEMO:-true}
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,8 +91,9 @@ services:
     container_name: medichain_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@medichain.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      # DEV-ONLY defaults; override in .env for any shared/production deployment.
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@medichain.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
       PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
       - "5050:80"
@@ -84,6 +102,54 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - medichain_network
+
+  # =============================================================================
+  # Nginx Reverse Proxy
+  # Routes http://localhost/ → API (and /api/events SSE). TLS is added in
+  # docker-compose.prod.yml. NOTE: IPFS already binds host :8080, so the API is
+  # reached through nginx on :80 rather than a direct host port.
+  # =============================================================================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: medichain_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - medichain_network
+
+  # =============================================================================
+  # Substrate Node (OPT-IN — `docker compose --profile blockchain up`)
+  # The node/ + runtime/ crates need polkadot-sdk *git* deps and are excluded
+  # from the Rust workspace, so this service is gated behind the `blockchain`
+  # profile and is NOT started by a default `up`. To use it you must first add
+  # `node/Dockerfile` and make the node buildable; until then the API runs with
+  # BLOCKCHAIN_ENABLED=false (deterministic placeholder hashes).
+  # =============================================================================
+  substrate-node:
+    profiles: ["blockchain"]
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: medichain_substrate
+    restart: unless-stopped
+    command: ["--dev", "--rpc-external", "--rpc-cors=all", "--rpc-methods=safe"]
+    ports:
+      - "9944:9944"   # WebSocket RPC (SUBSTRATE_WS_URL)
+      - "9933:9933"   # HTTP RPC
+      - "30333:30333" # libp2p
     networks:
       - medichain_network
 

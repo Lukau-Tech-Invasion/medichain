@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { usePatientAuthStore } from '../store/authStore';
+import { setLanguagePreference } from '@medichain/shared';
 import {
   Globe,
   Check,
@@ -45,6 +47,7 @@ interface RegionalSettings {
 }
 
 const LanguageSettingsPage: React.FC = () => {
+  const patient = usePatientAuthStore((s) => s.patient);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('en-US');
   const [showRegionalSettings, setShowRegionalSettings] = useState(false);
@@ -143,13 +146,26 @@ const LanguageSettingsPage: React.FC = () => {
     }
   };
 
-  const handleSaveSettings = () => {
+  const handleSaveSettings = async () => {
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      // Persist the language preference to the backend (was: simulated setTimeout)
+      await setLanguagePreference({
+        user_id: patient?.walletAddress || '',
+        preferred_language: selectedLanguage.split('-')[0],
+        secondary_language: null,
+        reading_proficiency: 'Fluent',
+        needs_interpreter: false,
+        interpreter_language: null,
+        updated_at: Math.floor(Date.now() / 1000),
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    }, 1500);
+    } catch {
+      // Network/API failure — leave the selection applied locally.
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getCurrentLanguage = () => languages.find(l => l.code === selectedLanguage);
@@ -329,7 +345,7 @@ const LanguageSettingsPage: React.FC = () => {
               <select
                 id="lang-first-day"
                 value={regionalSettings.firstDayOfWeek}
-                onChange={(e) => setRegionalSettings(prev => ({ ...prev, firstDayOfWeek: e.target.value as any }))}
+                onChange={(e) => setRegionalSettings(prev => ({ ...prev, firstDayOfWeek: e.target.value as typeof regionalSettings.firstDayOfWeek }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
               >
                 <option value="sunday">Sunday</option>

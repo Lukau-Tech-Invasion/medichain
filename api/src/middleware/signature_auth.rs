@@ -157,11 +157,15 @@ where
 
             // If signature or timestamp missing, reject
             let (Some(signature), Some(msg_timestamp)) = (signature, timestamp) else {
-                let response = HttpResponse::Unauthorized().json(serde_json::json!({
-                    "error": "Missing signature headers",
-                    "message": "Authenticated requests require X-Signature and X-Timestamp headers",
-                    "hint": "Sign message '<timestamp>:<wallet_address>' with your wallet"
-                }));
+                let response = HttpResponse::Unauthorized().json(
+                    crate::middleware::error_handling::error_envelope_json(
+                        crate::middleware::error_handling::error_codes::UNAUTHORIZED,
+                        "Authenticated requests require X-Signature and X-Timestamp headers",
+                        Some(serde_json::json!({
+                            "hint": "Sign message '<timestamp>:<wallet_address>' with your wallet"
+                        })),
+                    ),
+                );
                 return Ok(req.into_response(response).map_into_right_body());
             };
 

@@ -26,7 +26,7 @@ impl PgPatientRepository {
 impl PatientRepository for PgPatientRepository {
     async fn create(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, wallet_address, registered_by, is_verified, is_active) "
+            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted) "
         );
 
         qb.push_values([&patient], |mut b, p| {
@@ -51,7 +51,8 @@ impl PatientRepository for PgPatientRepository {
                 .push_bind(&p.wallet_address)
                 .push_bind(&p.registered_by)
                 .push_bind(p.is_verified)
-                .push_bind(p.is_active);
+                .push_bind(p.is_active)
+                .push_bind(&p.profile_extras_encrypted);
         });
 
         qb.push(" RETURNING *");
@@ -155,6 +156,8 @@ impl PatientRepository for PgPatientRepository {
             .push_bind(&patient.wallet_address);
         qb.push(", is_verified = ").push_bind(patient.is_verified);
         qb.push(", is_active = ").push_bind(patient.is_active);
+        qb.push(", profile_extras_encrypted = ")
+            .push_bind(&patient.profile_extras_encrypted);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&patient.id);
         qb.push(" RETURNING *");

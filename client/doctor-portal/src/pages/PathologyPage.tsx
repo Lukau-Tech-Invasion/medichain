@@ -512,7 +512,7 @@ const PathologyPage: React.FC = () => {
                 <select
                   id="path-specimen-type"
                   value={specimenType}
-                  onChange={(e) => setSpecimenType(e.target.value as any)}
+                  onChange={(e) => setSpecimenType(e.target.value as typeof specimenType)}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
@@ -572,7 +572,7 @@ const PathologyPage: React.FC = () => {
                 <select
                   id="path-laterality"
                   value={laterality}
-                  onChange={(e) => setLaterality(e.target.value as any)}
+                  onChange={(e) => setLaterality(e.target.value as typeof laterality)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
                   <option value="n/a">Not Applicable</option>
@@ -604,7 +604,7 @@ const PathologyPage: React.FC = () => {
                 <select
                   id="path-priority"
                   value={priority}
-                  onChange={(e) => setPriority(e.target.value as any)}
+                  onChange={(e) => setPriority(e.target.value as typeof priority)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
                   <option value="routine">Routine</option>

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-// @ts-ignore - Pending specific endpoint implementation
-import { getPatientReminders, createMedicationReminder } from '@shared/api/endpoints';
+import { getPatientReminders, createMedicationReminder } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore'; 
 
 export function MedicationRemindersPage() {
@@ -11,7 +10,6 @@ export function MedicationRemindersPage() {
 
   useEffect(() => {
     if (patient?.healthId) {
-      // @ts-ignore
       getPatientReminders(patient.healthId)
         .then((res: any) => setReminders(res.reminders || []))
         .catch(console.error)

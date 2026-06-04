@@ -1,7 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage, joinTelehealthSession } from '@medichain/shared';
 import { Video, Plus, ExternalLink, Square, Calendar, Clock, User, Loader2 } from 'lucide-react';
+import { JitsiMeetComponent } from '@medichain/shared';
+
+/** Jitsi IFrame-API credentials returned by the join endpoint (Phase 1). */
+interface JitsiCredentials {
+  domain: string;
+  room: string;
+  jwt?: string | null;
+  moderator: boolean;
+  expires_in: number;
+}
+
+interface JoinResponse {
+  jitsi?: JitsiCredentials | null;
+  video_room_url?: string | null;
+  role?: string;
+  subject?: string | null;
+}
 
 interface TelehealthSession {
   session_id: string;
@@ -24,6 +41,11 @@ export default function TelehealthPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [patientId, setPatientId] = useState('');
+  const [activeCallUrl, setActiveCallUrl] = useState<string | null>(null);
+  // Jitsi IFrame-API call (preferred over the raw-iframe fallback).
+  const [activeCall, setActiveCall] = useState<JitsiCredentials | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState('');
+  const [activeSubject, setActiveSubject] = useState<string | undefined>(undefined);
 
   const [formData, setFormData] = useState({
     patient_id: '',
@@ -40,6 +62,20 @@ export default function TelehealthPage() {
       setLoading(false);
     }
   }, [patientId]);
+
+  /**
+   * Deep-link auto-join (Phase 4): when the page is opened via the in-app QR /
+   * redirect (`/telehealth?session=...&join=1`), join straight into the call —
+   * no native app, no extra taps. Runs once on mount.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('session');
+    if (sid && params.get('join') === '1') {
+      void joinBySessionId(sid);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchSessions = async (pid: string) => {
     if (!user || !pid) return;
@@ -97,7 +133,7 @@ export default function TelehealthPage() {
         setTimeout(() => setSuccess(''), 3000);
       } else {
         const data = await res.json();
-        setError(data.error || 'Failed to create session');
+        setError(getApiErrorMessage(data, 'Failed to create session'));
       }
     } catch (e) {
       setError('Failed to connect to server');
@@ -126,6 +162,53 @@ export default function TelehealthPage() {
       setError('Error ending session');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  /**
+   * Join a session: ask the backend for Jitsi credentials (domain/room/JWT) and
+   * open the IFrame-API call. Falls back to the raw-iframe URL if the provider
+   * doesn't return credentials.
+   */
+  const handleJoin = async (session: TelehealthSession) => {
+    setError('');
+    try {
+      const resp = (await joinTelehealthSession(session.session_id)) as JoinResponse;
+      if (resp.jitsi && resp.jitsi.domain && resp.jitsi.room) {
+        setActiveSessionId(session.session_id);
+        setActiveSubject(resp.subject ?? undefined);
+        setActiveCall(resp.jitsi);
+      } else if (resp.video_room_url || session.join_url) {
+        setActiveCallUrl(resp.video_room_url || session.join_url!);
+      } else {
+        setError('No video room available for this session');
+      }
+    } catch (e) {
+      // Fall back to the join URL if the join call fails but a URL exists.
+      if (session.join_url) {
+        setActiveCallUrl(session.join_url);
+      } else {
+        setError(getApiErrorMessage(e, 'Failed to join the video call'));
+      }
+    }
+  };
+
+  /** Join by id only (used by the deep-link/QR flow, which has no session row). */
+  const joinBySessionId = async (sessionId: string) => {
+    setError('');
+    try {
+      const resp = (await joinTelehealthSession(sessionId)) as JoinResponse;
+      if (resp.jitsi && resp.jitsi.domain && resp.jitsi.room) {
+        setActiveSessionId(sessionId);
+        setActiveSubject(resp.subject ?? undefined);
+        setActiveCall(resp.jitsi);
+      } else if (resp.video_room_url) {
+        setActiveCallUrl(resp.video_room_url);
+      } else {
+        setError('No video room available for this session');
+      }
+    } catch (e) {
+      setError(getApiErrorMessage(e, 'Failed to join the video call'));
     }
   };
 
@@ -234,16 +317,14 @@ export default function TelehealthPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 ml-4">
-                  {session.join_url && session.status !== 'ended' && session.status !== 'cancelled' && (
-                    <a
-                      href={session.join_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {session.status !== 'ended' && session.status !== 'cancelled' && (
+                    <button
+                      onClick={() => handleJoin(session)}
                       className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700"
                     >
-                      <ExternalLink size={14} />
+                      <Video size={14} />
                       Join
-                    </a>
+                    </button>
                   )}
                   {(session.status === 'active' || session.status === 'scheduled') && (
                     <button
@@ -337,6 +418,53 @@ export default function TelehealthPage() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Jitsi IFrame-API call (Phase 2) — JWT auth + lifecycle events. */}
+      {activeCall && (
+        <JitsiMeetComponent
+          sessionId={activeSessionId}
+          domain={activeCall.domain}
+          room={activeCall.room}
+          jwt={activeCall.jwt ?? undefined}
+          displayName={user?.username || 'Care Provider'}
+          isModerator={activeCall.moderator}
+          subject={activeSubject}
+          onClose={() => setActiveCall(null)}
+        />
+      )}
+
+      {/* Fallback: raw iframe for providers that don't return Jitsi credentials. */}
+      {!activeCall && activeCallUrl && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          <div className="flex items-center justify-between p-3 bg-gray-900 text-white">
+            <span className="flex items-center gap-2 font-medium">
+              <Video size={20} /> Telehealth Video Call
+            </span>
+            <div className="flex items-center gap-2">
+              <a
+                href={activeCallUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-gray-700 hover:bg-gray-600"
+              >
+                <ExternalLink size={16} /> Open in new tab
+              </a>
+              <button
+                onClick={() => setActiveCallUrl(null)}
+                className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700"
+              >
+                Leave call
+              </button>
+            </div>
+          </div>
+          <iframe
+            title="Telehealth video call"
+            src={activeCallUrl}
+            className="flex-1 w-full border-0"
+            allow="camera; microphone; fullscreen; display-capture; autoplay"
+          />
         </div>
       )}
     </div>

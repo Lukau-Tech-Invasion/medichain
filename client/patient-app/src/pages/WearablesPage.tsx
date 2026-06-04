@@ -23,7 +23,7 @@ import {
   Zap,
   Loader2
 } from 'lucide-react';
-import { getWearableDevices, getWearableReadings, registerWearableDevice } from '@medichain/shared';
+import { getWearableDevices, getWearableReadings, registerWearableDevice, IS_DEMO } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -95,13 +95,13 @@ const WearablesPage: React.FC = () => {
         
         if (apiDevices && Array.isArray(apiDevices) && apiDevices.length > 0) {
           setDevices(apiDevices);
-        } else {
+        } else if (IS_DEMO) {
           loadDemoDevices();
         }
         
         if (apiReadings && Array.isArray(apiReadings) && apiReadings.length > 0) {
           setMetrics(apiReadings);
-        } else {
+        } else if (IS_DEMO) {
           loadDemoMetrics();
         }
         
@@ -112,9 +112,11 @@ const WearablesPage: React.FC = () => {
       }
     }
     
-    // Fallback to demo data
-    loadDemoDevices();
-    loadDemoMetrics();
+    // Fallback to demo data (demo mode only — production shows an empty state)
+    if (IS_DEMO) {
+      loadDemoDevices();
+      loadDemoMetrics();
+    }
     setLoading(false);
   };
 

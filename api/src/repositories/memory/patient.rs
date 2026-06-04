@@ -259,6 +259,7 @@ mod tests {
             registered_by: None,
             is_verified: false,
             is_active: true,
+            profile_extras_encrypted: None,
         }
     }
 

@@ -1,0 +1,63 @@
+# Prometheus alerting rules for MediChain (Phase 8.2).
+#
+# Load alongside a scrape job that targets the API's /api/metrics endpoint:
+#
+#   scrape_configs:
+#     - job_name: medichain-api
+#       metrics_path: /api/metrics
+#       static_configs: [{ targets: ["api:8080"] }]
+#
+# Then reference this file from prometheus.yml `rule_files:`.
+
+groups:
+  - name: medichain-api
+    rules:
+      - alert: ApiInstanceDown
+        expr: up{job="medichain-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "MediChain API instance down"
+          description: "No successful scrape of {{ $labels.instance }} for 1m."
+
+      - alert: HighErrorRate
+        # >5% of requests returning 5xx over 5m.
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "High 5xx error rate (>5%)"
+          description: "5xx ratio is {{ $value | humanizePercentage }} over 5m."
+
+      - alert: EmergencyAccessLatencyBudgetBreached
+        # The emergency path has a 400ms p95 server budget (PERFORMANCE_BUDGETS.md).
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{path="/api/emergency-access"}[5m])) by (le)
+          ) > 0.4
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Emergency-access p95 latency over budget"
+          description: "p95 is {{ $value }}s (budget 0.4s)."
+
+      - alert: ApiLatencyHigh
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1.0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Overall API p95 latency > 1s"
+          description: "p95 across all routes is {{ $value }}s over 10m."
+
+      - alert: SecurityAlertSpike
+        # The breach detectors emit logs; this watches the failed-auth burst proxy
+        # via 401 rate as an early credential-stuffing signal.
+        expr: sum(rate(http_requests_total{status="401"}[5m])) > 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Elevated 401 rate — possible credential stuffing"
+          description: "401s at {{ $value }}/s over 5m; check /api/admin/security/alerts."

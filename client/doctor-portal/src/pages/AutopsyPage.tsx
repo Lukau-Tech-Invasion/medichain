@@ -221,8 +221,7 @@ const AutopsyPage: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const response = await createAutopsyReport(autopsy);
-      // @ts-ignore - Assuming shared library response type
+      const response = await createAutopsyReport(autopsy) as { success?: boolean; error?: string };
       if (response.success) {
         setAutopsies([autopsy, ...autopsies]);
         setNewAutopsy({
@@ -265,7 +264,6 @@ const AutopsyPage: React.FC = () => {
         setActiveTab('reports');
         alert('Autopsy report created successfully');
       } else {
-        // @ts-ignore
         setError(response.error || 'Failed to create autopsy report');
       }
     } catch (err) {

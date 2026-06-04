@@ -16,7 +16,7 @@ import {
   LineChart as LineChartIcon,
   Loader2
 } from 'lucide-react';
-import { getLabTrends } from '@medichain/shared';
+import { getLabTrends, IS_DEMO } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -82,8 +82,7 @@ const LabTrendsPage: React.FC = () => {
     // Try to load from API first
     if (patient?.walletAddress) {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const response = await getLabTrends(patient.walletAddress) as any;
+        const response = await getLabTrends(patient.walletAddress) as { success?: boolean; trends?: unknown[] };
         // API returns { success: true, trends: [...] }
         if (response?.success && response?.trends && Array.isArray(response.trends) && response.trends.length > 0) {
           // Transform API response to frontend format
@@ -152,8 +151,10 @@ const LabTrendsPage: React.FC = () => {
       }
     }
     
-    // Fallback to demo data
-    loadDemoData();
+    // Fallback to demo data (demo mode only — production shows an empty state)
+    if (IS_DEMO) {
+      loadDemoData();
+    }
     setLoading(false);
   };
 

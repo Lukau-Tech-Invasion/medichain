@@ -1,0 +1,47 @@
+# MediChain pre-commit hooks (Phase 12.3).
+#
+# Install once:   pip install pre-commit && pre-commit install
+# Run manually:   pre-commit run --all-files
+#
+# Mirrors the CI gates (rustfmt, clippy, frontend typecheck) so failures are
+# caught locally before they reach GitHub Actions.
+
+repos:
+  # Generic hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.(svg|lock)$'
+      - id: end-of-file-fixer
+        exclude: '\.(svg|lock)$'
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      - id: detect-private-key
+
+  # Rust: format + lint (local system hooks — require a Rust toolchain installed)
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt (check)
+        entry: cargo fmt --all -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy (-D warnings)
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Frontend type safety (both apps) — runs when any client TS/TSX changes.
+      - id: frontend-typecheck
+        name: client typecheck
+        entry: bash -c 'cd client && npm run typecheck'
+        language: system
+        files: '^client/.*\.(ts|tsx)$'
+        pass_filenames: false

@@ -90,7 +90,7 @@ export class OfflineQueue {
           await apiClient.request(op.method, op.path, op.body);
         } else {
           // Fallback to fetch (requires global API URL)
-          const apiUrl = (globalThis as any).__MEDICHAIN_API_URL__ || 'http://localhost:8080';
+          const apiUrl = (globalThis as { __MEDICHAIN_API_URL__?: string }).__MEDICHAIN_API_URL__ || 'http://localhost:8080';
           const response = await fetch(`${apiUrl}${op.path}`, {
             method: op.method,
             headers: {
