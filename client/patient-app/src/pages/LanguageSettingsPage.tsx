@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { usePatientAuthStore } from '../store/authStore';
-import { setLanguagePreference } from '@medichain/shared';
+import { setLanguagePreference, LOCALE_CONFIGS } from '@medichain/shared';
+import type { SupportedLocale } from '@medichain/shared';
 import {
   Globe,
   Check,
@@ -29,7 +30,6 @@ interface Language {
   code: string;
   name: string;
   nativeName: string;
-  flag: string;
   direction: 'ltr' | 'rtl';
   region: string;
   isAvailable: boolean;
@@ -46,6 +46,22 @@ interface RegionalSettings {
   numberFormat: 'comma-period' | 'period-comma' | 'space-comma';
 }
 
+/**
+ * Resolve the locale's currency symbol from shared LOCALE_CONFIGS. MediChain
+ * targets African markets, so unknown/unsupported language codes fall back to
+ * the platform default (ZAR "R") rather than a bare US '$'.
+ */
+const currencySymbolFor = (code: string): string =>
+  LOCALE_CONFIGS[code as SupportedLocale]?.currencySymbol ?? 'R';
+
+/**
+ * Short code badge for a locale (e.g. "en-US" -> "EN", "zh-CN" -> "ZH").
+ * Replaces flag emoji: flags render inconsistently across platforms and are a
+ * poor proxy for languages. The full language name is always shown alongside.
+ */
+const languageBadge = (code: string): string =>
+  (code.split('-')[0] || code).toUpperCase();
+
 const LanguageSettingsPage: React.FC = () => {
   const patient = usePatientAuthStore((s) => s.patient);
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,33 +73,33 @@ const LanguageSettingsPage: React.FC = () => {
     firstDayOfWeek: 'sunday',
     temperatureUnit: 'fahrenheit',
     measurementSystem: 'imperial',
-    currencySymbol: '$',
+    currencySymbol: currencySymbolFor('en-US'),
     numberFormat: 'comma-period'
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const languages: Language[] = [
-    { code: 'en-US', name: 'English (US)', nativeName: 'English', flag: '🇺🇸', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 100 },
-    { code: 'en-GB', name: 'English (UK)', nativeName: 'English', flag: '🇬🇧', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 100 },
-    { code: 'es-ES', name: 'Spanish (Spain)', nativeName: 'Español', flag: '🇪🇸', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 98 },
-    { code: 'es-MX', name: 'Spanish (Mexico)', nativeName: 'Español', flag: '🇲🇽', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 95 },
-    { code: 'fr-FR', name: 'French', nativeName: 'Français', flag: '🇫🇷', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 92 },
-    { code: 'de-DE', name: 'German', nativeName: 'Deutsch', flag: '🇩🇪', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 90 },
-    { code: 'it-IT', name: 'Italian', nativeName: 'Italiano', flag: '🇮🇹', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 88 },
-    { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português', flag: '🇧🇷', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 85 },
-    { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: '简体中文', flag: '🇨🇳', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 82 },
-    { code: 'zh-TW', name: 'Chinese (Traditional)', nativeName: '繁體中文', flag: '🇹🇼', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 78 },
-    { code: 'ja-JP', name: 'Japanese', nativeName: '日本語', flag: '🇯🇵', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 75 },
-    { code: 'ko-KR', name: 'Korean', nativeName: '한국어', flag: '🇰🇷', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 72 },
-    { code: 'ar-SA', name: 'Arabic', nativeName: 'العربية', flag: '🇸🇦', direction: 'rtl', region: 'Middle East', isAvailable: true, translationProgress: 68 },
-    { code: 'hi-IN', name: 'Hindi', nativeName: 'हिन्दी', flag: '🇮🇳', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 65 },
-    { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', flag: '🇷🇺', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 70 },
-    { code: 'vi-VN', name: 'Vietnamese', nativeName: 'Tiếng Việt', flag: '🇻🇳', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 55 },
-    { code: 'th-TH', name: 'Thai', nativeName: 'ไทย', flag: '🇹🇭', direction: 'ltr', region: 'Asia', isAvailable: false, translationProgress: 40 },
-    { code: 'nl-NL', name: 'Dutch', nativeName: 'Nederlands', flag: '🇳🇱', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 35 },
-    { code: 'pl-PL', name: 'Polish', nativeName: 'Polski', flag: '🇵🇱', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 30 },
-    { code: 'tr-TR', name: 'Turkish', nativeName: 'Türkçe', flag: '🇹🇷', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 25 }
+    { code: 'en-US', name: 'English (US)', nativeName: 'English', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 100 },
+    { code: 'en-GB', name: 'English (UK)', nativeName: 'English', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 100 },
+    { code: 'es-ES', name: 'Spanish (Spain)', nativeName: 'Español', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 98 },
+    { code: 'es-MX', name: 'Spanish (Mexico)', nativeName: 'Español', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 95 },
+    { code: 'fr-FR', name: 'French', nativeName: 'Français', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 92 },
+    { code: 'de-DE', name: 'German', nativeName: 'Deutsch', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 90 },
+    { code: 'it-IT', name: 'Italian', nativeName: 'Italiano', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 88 },
+    { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português', direction: 'ltr', region: 'Americas', isAvailable: true, translationProgress: 85 },
+    { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: '简体中文', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 82 },
+    { code: 'zh-TW', name: 'Chinese (Traditional)', nativeName: '繁體中文', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 78 },
+    { code: 'ja-JP', name: 'Japanese', nativeName: '日本語', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 75 },
+    { code: 'ko-KR', name: 'Korean', nativeName: '한국어', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 72 },
+    { code: 'ar-SA', name: 'Arabic', nativeName: 'العربية', direction: 'rtl', region: 'Middle East', isAvailable: true, translationProgress: 68 },
+    { code: 'hi-IN', name: 'Hindi', nativeName: 'हिन्दी', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 65 },
+    { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', direction: 'ltr', region: 'Europe', isAvailable: true, translationProgress: 70 },
+    { code: 'vi-VN', name: 'Vietnamese', nativeName: 'Tiếng Việt', direction: 'ltr', region: 'Asia', isAvailable: true, translationProgress: 55 },
+    { code: 'th-TH', name: 'Thai', nativeName: 'ไทย', direction: 'ltr', region: 'Asia', isAvailable: false, translationProgress: 40 },
+    { code: 'nl-NL', name: 'Dutch', nativeName: 'Nederlands', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 35 },
+    { code: 'pl-PL', name: 'Polish', nativeName: 'Polski', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 30 },
+    { code: 'tr-TR', name: 'Turkish', nativeName: 'Türkçe', direction: 'ltr', region: 'Europe', isAvailable: false, translationProgress: 25 }
   ];
 
   const dateFormats = [
@@ -119,7 +135,7 @@ const LanguageSettingsPage: React.FC = () => {
           firstDayOfWeek: 'sunday',
           temperatureUnit: 'fahrenheit',
           measurementSystem: 'imperial',
-          currencySymbol: '$',
+          currencySymbol: currencySymbolFor(code),
           numberFormat: 'comma-period'
         });
       } else if (code.startsWith('en-GB') || code.startsWith('de') || code.startsWith('fr')) {
@@ -129,7 +145,7 @@ const LanguageSettingsPage: React.FC = () => {
           firstDayOfWeek: 'monday',
           temperatureUnit: 'celsius',
           measurementSystem: 'metric',
-          currencySymbol: code.startsWith('en-GB') ? '£' : '€',
+          currencySymbol: currencySymbolFor(code),
           numberFormat: 'period-comma'
         });
       } else if (code.startsWith('ar')) {
@@ -139,7 +155,7 @@ const LanguageSettingsPage: React.FC = () => {
           firstDayOfWeek: 'saturday',
           temperatureUnit: 'celsius',
           measurementSystem: 'metric',
-          currencySymbol: 'ر.س',
+          currencySymbol: currencySymbolFor(code),
           numberFormat: 'comma-period'
         });
       }
@@ -186,7 +202,9 @@ const LanguageSettingsPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="text-3xl">{getCurrentLanguage()?.flag}</span>
+              <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-100 text-indigo-700 font-bold text-sm" aria-hidden="true">
+                {languageBadge(getCurrentLanguage()?.code ?? '')}
+              </span>
               <div>
                 <p className="font-semibold text-gray-900">{getCurrentLanguage()?.name}</p>
                 <p className="text-sm text-gray-500">{getCurrentLanguage()?.nativeName}</p>
@@ -233,7 +251,9 @@ const LanguageSettingsPage: React.FC = () => {
                   } ${selectedLanguage === lang.code ? 'bg-indigo-50' : ''}`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">{lang.flag}</span>
+                    <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-gray-100 text-gray-700 font-bold text-xs" aria-hidden="true">
+                      {languageBadge(lang.code)}
+                    </span>
                     <div className="text-left">
                       <p className={`font-medium ${selectedLanguage === lang.code ? 'text-indigo-600' : 'text-gray-900'}`}>
                         {lang.name}

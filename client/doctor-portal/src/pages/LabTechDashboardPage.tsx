@@ -12,6 +12,7 @@ import {
   CheckCircle,
   XCircle,
   Activity,
+  BarChart3,
 } from 'lucide-react';
 import { getLabDashboard } from '@medichain/shared';
 import {
@@ -150,7 +151,9 @@ export default function LabTechDashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* STAT Queue */}
         <div className="bg-white rounded-lg shadow p-4 border border-red-200">
-          <h3 className="text-sm font-semibold text-red-700 mb-3">🔴 STAT Queue</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-red-700 mb-3">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" aria-hidden="true" /> STAT Queue
+          </h3>
           {statQueue.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -183,7 +186,9 @@ export default function LabTechDashboardPage() {
 
         {/* QC Status */}
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">⚠️ QC Status</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+            <AlertTriangle size={16} aria-hidden="true" /> QC Status
+          </h3>
           {data?.qc_records && data.qc_records.length > 0 ? (
             <div className="space-y-2">
               {data.qc_records.slice(0, 4).map((qc: any, idx: number) => (
@@ -201,7 +206,13 @@ export default function LabTechDashboardPage() {
                         : 'bg-red-100 text-red-700'
                     }`}
                   >
-                    {qc.status === 'passed' ? '✅ PASSED' : qc.status === 'due' ? '⚠️ DUE NOW' : '❌ FAILED'}
+                    {qc.status === 'passed' ? (
+                      <span className="inline-flex items-center gap-1"><CheckCircle size={12} aria-hidden="true" /> PASSED</span>
+                    ) : qc.status === 'due' ? (
+                      <span className="inline-flex items-center gap-1"><AlertTriangle size={12} aria-hidden="true" /> DUE NOW</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><XCircle size={12} aria-hidden="true" /> FAILED</span>
+                    )}
                   </span>
                 </div>
               ))}
@@ -221,7 +232,9 @@ export default function LabTechDashboardPage() {
       {/* Pending Specimens Queue Table */}
       <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700">📊 Pending Specimens Queue</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <BarChart3 size={16} aria-hidden="true" /> Pending Specimens Queue
+          </h3>
           <button
             onClick={() => navigate('/lab-results')}
             className="text-xs text-blue-600 hover:text-blue-800"
@@ -274,7 +287,9 @@ export default function LabTechDashboardPage() {
 
         {/* Rejected Specimens */}
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">❌ Rejected Specimens</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+            <XCircle size={16} aria-hidden="true" /> Rejected Specimens
+          </h3>
           {data?.rejections && data.rejections.length > 0 ? (
             <div className="space-y-2">
               {data.rejections.map((rej: any, idx: number) => (

@@ -217,7 +217,14 @@ pub fn request_has_mfa(req: &HttpRequest) -> bool {
     get_current_claims(req).map(|c| c.mfa).unwrap_or(false)
 }
 
-/// Get user by wallet address from app state
+/// Get user by wallet address from app state.
+///
+/// RBAC invariant: a caller's ROLE is authoritative ONLY when read from this
+/// server-side user store, keyed by the wallet address that `get_current_user_id`
+/// resolved (a JWT `sub` claim or the signature-verified `X-User-Id`). Handlers
+/// MUST derive authorization from `get_user(...).role` and MUST NEVER trust a
+/// client-supplied role header (e.g. `X-User-Role`/`X-Provider-Role`), which is
+/// spoofable. No handler in this codebase derives authorization from such a header.
 pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User> {
     data.users.read().ok()?.get(wallet_address).cloned()
 }

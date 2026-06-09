@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiUrl, IS_DEVELOPMENT, FEATURES, useTranslation, LanguageSwitcher } from '@medichain/shared';
-import { Heart, Shield, Lock, Eye, EyeOff, Wallet, UserPlus, Zap, UserCircle } from 'lucide-react';
+import { Heart, Shield, Lock, Eye, EyeOff, Wallet, UserPlus, Zap, UserCircle, UserRound, type LucideIcon } from 'lucide-react';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -12,7 +12,7 @@ interface DemoPatient {
   name: string;
   displayName: string;
   walletAddress: string;
-  icon: string;
+  icon: LucideIcon;
   condition: string;
 }
 
@@ -21,36 +21,36 @@ const DEMO_PATIENTS: DemoPatient[] = [
     name: 'Thabo Mokoena', 
     displayName: 'Thabo (Cardiac)', 
     walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z', 
-    icon: '🧑', 
-    condition: 'Cardiac' 
+    icon: UserRound,
+    condition: 'Cardiac'
   },
   { 
     name: 'Nomvula Dlamini', 
     displayName: 'Nomvula (Diabetic)', 
     walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ', 
-    icon: '👩', 
-    condition: 'Diabetic' 
+    icon: UserRound,
+    condition: 'Diabetic'
   },
   { 
     name: 'Sipho Nkosi', 
     displayName: 'Sipho (Asthma)', 
     walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ', 
-    icon: '👨', 
-    condition: 'Asthma' 
+    icon: UserRound,
+    condition: 'Asthma'
   },
   { 
     name: 'Lerato Khumalo', 
     displayName: 'Lerato (Allergies)', 
     walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjZ', 
-    icon: '👧', 
-    condition: 'Allergies' 
+    icon: UserRound,
+    condition: 'Allergies'
   },
   { 
     name: 'Bongani Zulu', 
     displayName: 'Bongani (Elderly)', 
     walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFZ', 
-    icon: '👴', 
-    condition: 'Cardiac/DNR' 
+    icon: UserRound,
+    condition: 'Cardiac/DNR'
   },
 ];
 
@@ -231,18 +231,21 @@ export function LoginPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2">
-                  {DEMO_PATIENTS.map((patient) => (
-                    <button
-                      key={patient.walletAddress}
-                      onClick={() => handleDemoPatientLogin(patient)}
-                      disabled={isLoading}
-                      className="p-3 border border-teal-200 rounded-xl bg-teal-50 hover:bg-teal-100 transition-all text-center disabled:opacity-50"
-                    >
-                      <span className="block text-2xl mb-1">{patient.icon}</span>
-                      <span className="block text-xs font-semibold text-gray-800 truncate">{patient.name.split(' ')[0]}</span>
-                      <span className="block text-xs text-teal-600">{patient.condition}</span>
-                    </button>
-                  ))}
+                  {DEMO_PATIENTS.map((patient) => {
+                    const Icon = patient.icon;
+                    return (
+                      <button
+                        key={patient.walletAddress}
+                        onClick={() => handleDemoPatientLogin(patient)}
+                        disabled={isLoading}
+                        className="p-3 border border-teal-200 rounded-xl bg-teal-50 hover:bg-teal-100 transition-all text-center disabled:opacity-50"
+                      >
+                        <Icon className="mx-auto mb-1 text-teal-700" size={24} aria-hidden="true" />
+                        <span className="block text-xs font-semibold text-gray-800 truncate">{patient.name.split(' ')[0]}</span>
+                        <span className="block text-xs text-teal-600">{patient.condition}</span>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 <p className="mt-3 text-xs text-center text-neutral-400">

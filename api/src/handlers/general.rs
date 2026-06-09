@@ -327,6 +327,10 @@ pub async fn register_patient(
         }],
         organ_donor: req.organ_donor,
         dnr_status: req.dnr_status,
+        // DNR starts UNVERIFIED at registration; a provider attaches proof later.
+        dnr_verified_by: None,
+        dnr_verified_at: None,
+        dnr_document_ref: None,
         languages: req.languages.clone(),
         last_updated: Utc::now(),
     };

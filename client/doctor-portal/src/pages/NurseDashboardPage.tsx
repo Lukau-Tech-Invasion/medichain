@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Thermometer,
   Clock,
+  FileText,
 } from 'lucide-react';
 import { getNurseDashboard } from '@medichain/shared';
 import {
@@ -134,7 +135,7 @@ export default function NurseDashboardPage() {
             <div className="flex items-center gap-2">
               <Pill className="text-green-600" size={24} />
               <h3 className="text-lg font-bold text-green-900">
-                💊 MEDICATIONS DUE NOW ({medicationsDue.length})
+                MEDICATIONS DUE NOW ({medicationsDue.length})
               </h3>
             </div>
             <button
@@ -206,13 +207,15 @@ export default function NurseDashboardPage() {
         {/* My Patients */}
         <PatientListPanel
           patients={patients}
-          title="👥 My Patients"
+          title="My Patients"
           loading={loading}
         />
 
         {/* Tasks Due Timeline */}
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">📋 Tasks Due</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+            <ClipboardList size={16} aria-hidden="true" /> Tasks Due
+          </h3>
           <div className="space-y-2">
             {tasksData.map((task, idx) => (
               <div key={idx} className="flex items-center gap-3 p-2 border rounded hover:bg-gray-50">
@@ -232,7 +235,9 @@ export default function NurseDashboardPage() {
 
         {/* I/O Summary */}
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">📝 I/O Summary Today</h3>
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+            <FileText size={16} aria-hidden="true" /> I/O Summary Today
+          </h3>
           {data?.io_records && data.io_records.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

@@ -26,7 +26,7 @@ impl PgPatientRepository {
 impl PatientRepository for PgPatientRepository {
     async fn create(&self, patient: PatientEntity) -> RepositoryResult<PatientEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, primary_provider_id, wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted) "
+            "INSERT INTO patients (id, health_id, national_id_hash, national_id_type, first_name_encrypted, last_name_encrypted, date_of_birth_encrypted, gender, blood_type, phone_encrypted, email_encrypted, address_encrypted, emergency_contact_name_encrypted, emergency_contact_phone_encrypted, emergency_contact_relationship, organ_donor, dnr_status, dnr_verified_by, dnr_verified_at, dnr_document_ref, primary_provider_id, wallet_address, registered_by, is_verified, is_active, profile_extras_encrypted) "
         );
 
         qb.push_values([&patient], |mut b, p| {
@@ -47,6 +47,9 @@ impl PatientRepository for PgPatientRepository {
                 .push_bind(&p.emergency_contact_relationship)
                 .push_bind(p.organ_donor)
                 .push_bind(p.dnr_status)
+                .push_bind(&p.dnr_verified_by)
+                .push_bind(p.dnr_verified_at)
+                .push_bind(&p.dnr_document_ref)
                 .push_bind(&p.primary_provider_id)
                 .push_bind(&p.wallet_address)
                 .push_bind(&p.registered_by)
@@ -150,6 +153,12 @@ impl PatientRepository for PgPatientRepository {
             .push_bind(&patient.emergency_contact_relationship);
         qb.push(", organ_donor = ").push_bind(patient.organ_donor);
         qb.push(", dnr_status = ").push_bind(patient.dnr_status);
+        qb.push(", dnr_verified_by = ")
+            .push_bind(&patient.dnr_verified_by);
+        qb.push(", dnr_verified_at = ")
+            .push_bind(patient.dnr_verified_at);
+        qb.push(", dnr_document_ref = ")
+            .push_bind(&patient.dnr_document_ref);
         qb.push(", primary_provider_id = ")
             .push_bind(&patient.primary_provider_id);
         qb.push(", wallet_address = ")

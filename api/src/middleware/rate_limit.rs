@@ -216,20 +216,16 @@ fn get_client_identifier(req: &ServiceRequest) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Determine rate limit based on user role
+/// Determine rate limit tier for a request.
+///
+/// Security: this intentionally does NOT trust any client-supplied role header
+/// (e.g. `X-User-Role`). Such a header is spoofable, so honoring it would let a
+/// caller hand itself the elevated `admin_limit`. Role-based authorization is
+/// resolved per-handler from the server-side user store (see `support::get_user`),
+/// never here. The tier is therefore derived only from whether the request
+/// carries an identity (`X-User-Id`) at all.
 fn get_rate_limit(req: &ServiceRequest, config: &RateLimitConfig) -> u32 {
-    // Check for X-User-Role header (set by auth middleware in production)
-    if let Some(role) = req.headers().get("X-User-Role") {
-        if let Ok(role_str) = role.to_str() {
-            return match role_str.to_lowercase().as_str() {
-                "admin" => config.admin_limit,
-                "doctor" | "nurse" | "labtechnician" | "pharmacist" => config.authenticated_limit,
-                _ => config.anonymous_limit,
-            };
-        }
-    }
-
-    // Check if user ID is present (basic authentication)
+    // Check if user ID is present (basic authentication / identified caller).
     if req.headers().get("X-User-Id").is_some() {
         return config.authenticated_limit;
     }

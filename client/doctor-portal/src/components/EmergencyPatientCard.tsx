@@ -1,5 +1,5 @@
 import { EmergencyInfo } from '../store';
-import { Droplets, Pill, Heart, Phone, AlertTriangle, FileHeart } from 'lucide-react';
+import { Droplets, Pill, Heart, Phone, AlertTriangle, FileHeart, CheckCircle2, XCircle } from 'lucide-react';
 
 interface EmergencyPatientCardProps {
   patient: EmergencyInfo;
@@ -119,9 +119,9 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
               {patient.allergies.map((allergy, idx) => (
                 <span
                   key={idx}
-                  className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-medium"
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-medium"
                 >
-                  ⚠️ {allergy}
+                  <AlertTriangle size={12} aria-hidden="true" /> {allergy}
                 </span>
               ))}
             </div>
@@ -188,9 +188,9 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
                   </div>
                   <a
                     href={`tel:${contact.phone}`}
-                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
                   >
-                    📞 {contact.phone}
+                    <Phone size={14} aria-hidden="true" /> {contact.phone}
                   </a>
                 </div>
               ))}
@@ -206,8 +206,16 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
             </div>
             <div>
               <p className="text-sm text-gray-500">Organ Donor Status</p>
-              <p className="font-medium">
-                {patient.organDonor ? '✅ Registered Organ Donor' : '❌ Not a Registered Donor'}
+              <p className="font-medium inline-flex items-center gap-1.5">
+                {patient.organDonor ? (
+                  <>
+                    <CheckCircle2 size={16} className="text-green-600" aria-hidden="true" /> Registered Organ Donor
+                  </>
+                ) : (
+                  <>
+                    <XCircle size={16} className="text-gray-400" aria-hidden="true" /> Not a Registered Donor
+                  </>
+                )}
               </p>
             </div>
           </div>

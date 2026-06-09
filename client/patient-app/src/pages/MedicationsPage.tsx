@@ -373,8 +373,9 @@ export function MedicationsPage() {
                 </div>
                 <div className="bg-neutral-50 rounded-lg p-3">
                   <p className="text-xs text-neutral-500">Refills Remaining</p>
-                  <p className={`text-sm font-medium ${med.refillsRemaining <= 1 ? 'text-emergency-600' : 'text-neutral-900'}`}>
-                    {med.refillsRemaining} {med.refillsRemaining <= 1 && '⚠️'}
+                  <p className={`flex items-center gap-1 text-sm font-medium ${med.refillsRemaining <= 1 ? 'text-emergency-600' : 'text-neutral-900'}`}>
+                    {med.refillsRemaining}
+                    {med.refillsRemaining <= 1 && <AlertTriangle className="w-4 h-4" aria-label="Low refills" />}
                   </p>
                 </div>
               </div>

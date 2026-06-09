@@ -16,6 +16,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  FileText,
 } from 'lucide-react';
 
 interface Appointment {
@@ -304,7 +305,9 @@ export function AppointmentsPage() {
             </div>
 
             {appointment.notes && (
-              <p className="text-sm text-neutral-500 italic">📝 {appointment.notes}</p>
+              <p className="flex items-center gap-1.5 text-sm text-neutral-500 italic">
+                <FileText className="w-4 h-4 shrink-0" aria-hidden="true" /> {appointment.notes}
+              </p>
             )}
 
             {appointment.status === 'scheduled' && (

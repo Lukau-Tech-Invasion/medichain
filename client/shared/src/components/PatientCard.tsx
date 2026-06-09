@@ -225,7 +225,9 @@ export function EmergencyInfoCard({ info, className }: EmergencyInfoCardProps) {
 
       {info.allergies.length > 0 && (
         <div className="mt-4 p-3 bg-red-100 rounded-lg">
-          <p className="text-sm font-medium text-red-800 mb-2">⚠️ ALLERGIES:</p>
+          <p className="flex items-center gap-1.5 text-sm font-medium text-red-800 mb-2">
+            <AlertTriangle className="w-4 h-4" aria-hidden="true" /> ALLERGIES:
+          </p>
           <p className="text-red-900 font-bold">{info.allergies.join(' • ')}</p>
         </div>
       )}

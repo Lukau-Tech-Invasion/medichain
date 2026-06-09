@@ -12,7 +12,8 @@ import {
   Heart,
   Siren,
   ClipboardList,
-  AlertCircle
+  AlertCircle,
+  UserPlus
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -313,7 +314,9 @@ function DashboardPage() {
         >
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold mb-1">🚨 Emergency Access</h3>
+              <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
+                <Siren size={20} aria-hidden="true" /> Emergency Access
+              </h3>
               <p className="text-emergency-100 text-sm">
                 Quick NFC tap for emergency patient records
               </p>
@@ -329,7 +332,9 @@ function DashboardPage() {
         >
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold mb-1">➕ Register Patient</h3>
+              <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
+                <UserPlus size={20} aria-hidden="true" /> Register Patient
+              </h3>
               <p className="text-primary-100 text-sm">
                 Add a new patient to the system
               </p>
@@ -345,7 +350,9 @@ function DashboardPage() {
         >
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold mb-1">🏥 Triage Assessment</h3>
+              <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
+                <ClipboardList size={20} aria-hidden="true" /> Triage Assessment
+              </h3>
               <p className="text-amber-100 text-sm">
                 ESI triage for incoming patients
               </p>

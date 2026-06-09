@@ -1,7 +1,21 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
-import { Shield, Wallet, AlertCircle, Loader2, UserCircle } from 'lucide-react';
+import {
+  Shield,
+  Wallet,
+  AlertCircle,
+  Loader2,
+  UserCircle,
+  ShieldCheck,
+  Scale,
+  Stethoscope,
+  Syringe,
+  FlaskConical,
+  Pill,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 import { FEATURES } from '@medichain/shared';
 
 /**
@@ -13,29 +27,29 @@ interface DemoUser {
   displayName: string;
   role: Role;
   walletAddress: string;
-  icon: string;
+  icon: LucideIcon;
   color: string;
 }
 
 const DEMO_USERS: DemoUser[] = [
   // Administrators
-  { username: 'admin', displayName: 'System Admin', role: 'Admin', walletAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY', icon: '🔐', color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
-  { username: 'judge', displayName: 'Hackathon Judge', role: 'Admin', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y', icon: '⚖️', color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
+  { username: 'admin', displayName: 'System Admin', role: 'Admin', walletAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY', icon: ShieldCheck, color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
+  { username: 'judge', displayName: 'Hackathon Judge', role: 'Admin', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y', icon: Scale, color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
   // Doctors
-  { username: 'dr.mbeki', displayName: 'Dr. Thandi Mbeki', role: 'Doctor', walletAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', icon: '👨‍⚕️', color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
-  { username: 'dr.nkosi', displayName: 'Dr. Sipho Nkosi', role: 'Doctor', walletAddress: '5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw', icon: '👩‍⚕️', color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
-  { username: 'dr.khumalo', displayName: 'Dr. Zama Khumalo', role: 'Doctor', walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy', icon: '🩺', color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
+  { username: 'dr.mbeki', displayName: 'Dr. Thandi Mbeki', role: 'Doctor', walletAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', icon: Stethoscope, color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
+  { username: 'dr.nkosi', displayName: 'Dr. Sipho Nkosi', role: 'Doctor', walletAddress: '5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw', icon: Stethoscope, color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
+  { username: 'dr.khumalo', displayName: 'Dr. Zama Khumalo', role: 'Doctor', walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy', icon: Stethoscope, color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
   // Nurses
-  { username: 'nurse.dlamini', displayName: 'Nurse Nomvula Dlamini', role: 'Nurse', walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL', icon: '👩‍⚕️', color: 'bg-green-100 border-green-300 hover:bg-green-200' },
-  { username: 'nurse.molefe', displayName: 'Nurse Kagiso Molefe', role: 'Nurse', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY', icon: '🏥', color: 'bg-green-100 border-green-300 hover:bg-green-200' },
+  { username: 'nurse.dlamini', displayName: 'Nurse Nomvula Dlamini', role: 'Nurse', walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL', icon: Syringe, color: 'bg-green-100 border-green-300 hover:bg-green-200' },
+  { username: 'nurse.molefe', displayName: 'Nurse Kagiso Molefe', role: 'Nurse', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY', icon: Syringe, color: 'bg-green-100 border-green-300 hover:bg-green-200' },
   // Lab Technician
-  { username: 'lab.mokoena', displayName: 'Lab Tech Lerato Mokoena', role: 'LabTechnician', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc', icon: '🔬', color: 'bg-amber-100 border-amber-300 hover:bg-amber-200' },
+  { username: 'lab.mokoena', displayName: 'Lab Tech Lerato Mokoena', role: 'LabTechnician', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc', icon: FlaskConical, color: 'bg-amber-100 border-amber-300 hover:bg-amber-200' },
   // Pharmacist
-  { username: 'pharm.sithole', displayName: 'Pharm. Bongani Sithole', role: 'Pharmacist', walletAddress: '5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW', icon: '💊', color: 'bg-pink-100 border-pink-300 hover:bg-pink-200' },
+  { username: 'pharm.sithole', displayName: 'Pharm. Bongani Sithole', role: 'Pharmacist', walletAddress: '5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW', icon: Pill, color: 'bg-pink-100 border-pink-300 hover:bg-pink-200' },
   // Patients (linked to demo patient records)
-  { username: 'patient.mokoena', displayName: 'Thabo Mokoena (Patient)', role: 'Patient', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z', icon: '🧑', color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
-  { username: 'patient.dlamini', displayName: 'Nomvula Dlamini (Patient)', role: 'Patient', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ', icon: '👩', color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
-  { username: 'patient.nkosi', displayName: 'Sipho Nkosi (Patient)', role: 'Patient', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ', icon: '👨', color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
+  { username: 'patient.mokoena', displayName: 'Thabo Mokoena (Patient)', role: 'Patient', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z', icon: UserRound, color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
+  { username: 'patient.dlamini', displayName: 'Nomvula Dlamini (Patient)', role: 'Patient', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZZ', icon: UserRound, color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
+  { username: 'patient.nkosi', displayName: 'Sipho Nkosi (Patient)', role: 'Patient', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFZ', icon: UserRound, color: 'bg-teal-100 border-teal-300 hover:bg-teal-200' },
 ];
 
 function LoginPage() {
@@ -165,18 +179,21 @@ function LoginPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
-              {DEMO_USERS.map((user) => (
-                <button
-                  key={user.username}
-                  onClick={() => handleDemoUserLogin(user)}
-                  disabled={isLoading}
-                  className={`p-2 border rounded-lg transition-all text-left disabled:opacity-50 ${user.color}`}
-                >
-                  <span className="block text-xl text-center">{user.icon}</span>
-                  <span className="block text-xs font-semibold text-gray-800 truncate text-center">{user.displayName.split(' ').slice(-1)[0]}</span>
-                  <span className="block text-xs text-gray-600 text-center">{user.role}</span>
-                </button>
-              ))}
+              {DEMO_USERS.map((user) => {
+                const Icon = user.icon;
+                return (
+                  <button
+                    key={user.username}
+                    onClick={() => handleDemoUserLogin(user)}
+                    disabled={isLoading}
+                    className={`p-2 border rounded-lg transition-all text-left disabled:opacity-50 ${user.color}`}
+                  >
+                    <Icon className="mx-auto mb-1 text-gray-700" size={22} aria-hidden="true" />
+                    <span className="block text-xs font-semibold text-gray-800 truncate text-center">{user.displayName.split(' ').slice(-1)[0]}</span>
+                    <span className="block text-xs text-gray-600 text-center">{user.role}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <p className="mt-3 text-xs text-center text-gray-400">

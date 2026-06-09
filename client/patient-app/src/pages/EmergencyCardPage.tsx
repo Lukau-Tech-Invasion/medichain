@@ -1,5 +1,14 @@
-import { useState, useCallback } from 'react';
-import { apiUrl, useOfflineCache, useTranslation } from '@medichain/shared';
+import { useState, useCallback, useEffect } from 'react';
+import QRCode from 'qrcode';
+import {
+  apiUrl,
+  useOfflineCache,
+  useTranslation,
+  useToastActions,
+  formatDate,
+  normalizePhone,
+  EmptyState,
+} from '@medichain/shared';
 import {
   AlertTriangle,
   Heart,
@@ -34,6 +43,9 @@ interface EmergencyData {
   };
   organDonor: boolean;
   dnrStatus: boolean;
+  dnrVerifiedBy: string | null;
+  dnrVerifiedAt: string | null;
+  dnrDocumentRef: string | null;
   cardHash: string;
   lastUpdated: string;
 }
@@ -47,10 +59,13 @@ interface EmergencyData {
  * © 2025 Trustware. All rights reserved.
  */
 export function EmergencyCardPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
+  const { showSuccess, showError, showWarning } = useToastActions();
   const [showMedicalInfo, setShowMedicalInfo] = useState(true);
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrError, setQrError] = useState(false);
 
   // Patient ID from stored auth (used as the cache key + request identity).
   const patientId = (() => {
@@ -96,6 +111,9 @@ export function EmergencyCardPage() {
       },
       organDonor: emergencyInfo.organ_donor || false,
       dnrStatus: emergencyInfo.dnr_status || false,
+      dnrVerifiedBy: emergencyInfo.dnr_verified_by ?? null,
+      dnrVerifiedAt: emergencyInfo.dnr_verified_at ?? null,
+      dnrDocumentRef: emergencyInfo.dnr_document_ref ?? null,
       cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
       lastUpdated: data.last_updated || new Date().toISOString(),
     };
@@ -113,39 +131,134 @@ export function EmergencyCardPage() {
     fetchEmergencyData,
   );
 
+  // DNR is only authoritative when the backend supplies verification metadata.
+  // Without a verifier + timestamp, responders must assume full resuscitation.
+  const dnrVerified = Boolean(
+    emergencyData?.dnrStatus &&
+      emergencyData.dnrVerifiedBy &&
+      emergencyData.dnrVerifiedAt,
+  );
+
+  // Compact emergency-access URL embedded in the QR code. Falls back to the
+  // current origin so the QR is still meaningful in offline/preview contexts.
+  const emergencyUrl = emergencyData
+    ? `${window.location.origin}/emergency/${encodeURIComponent(emergencyData.nationalHealthId)}`
+    : '';
+
+  // Generate a REAL scannable QR encoding the critical emergency payload.
+  // Memoized on the load-bearing fields so it only regenerates when they change;
+  // works fully offline (no network call) for the cached emergency card.
+  useEffect(() => {
+    if (!emergencyData) return;
+    let cancelled = false;
+    const payload = JSON.stringify({
+      id: emergencyData.nationalHealthId,
+      name: emergencyData.fullName,
+      bt: emergencyData.bloodType,
+      url: emergencyUrl,
+    });
+    QRCode.toDataURL(payload, { errorCorrectionLevel: 'M', margin: 1, width: 256 })
+      .then((url) => {
+        if (!cancelled) {
+          setQrDataUrl(url);
+          setQrError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setQrDataUrl(null);
+          setQrError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    emergencyData?.nationalHealthId,
+    emergencyData?.fullName,
+    emergencyData?.bloodType,
+    emergencyUrl,
+  ]);
+
   const handleRefreshQR = async () => {
     setIsRefreshing(true);
-    await refresh();
-    setIsRefreshing(false);
+    try {
+      await refresh();
+    } catch {
+      showError(t('emergency.refreshFailed'));
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Copy with a clipboard-API guard + hidden-textarea fallback for non-secure
+  // contexts (e.g. http on a clinic LAN) where navigator.clipboard is undefined.
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fall through to the legacy path.
+      }
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch {
+      return false;
+    }
   };
 
   const handleCopyId = async () => {
     if (!emergencyData) return;
-    await navigator.clipboard.writeText(emergencyData.nationalHealthId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleShare = async () => {
-    if (!emergencyData || !navigator.share) return;
-    
-    try {
-      await navigator.share({
-        title: 'MediChain Emergency Card',
-        text: `Emergency Medical Info for ${emergencyData.fullName}\nHealth ID: ${emergencyData.nationalHealthId}`,
-        url: window.location.href,
-      });
-    } catch (err) {
-      // User cancelled or share failed
+    const ok = await copyToClipboard(emergencyData.nationalHealthId);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      showSuccess(t('emergency.copySuccess'));
+    } else {
+      showError(t('emergency.copyFailed'));
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+  const handleShare = async () => {
+    if (!emergencyData) return;
+    const shareText = `Emergency Medical Info for ${emergencyData.fullName}\nHealth ID: ${emergencyData.nationalHealthId}`;
+
+    if (!navigator.share) {
+      const ok = await copyToClipboard(`${shareText}\n${emergencyUrl}`);
+      if (ok) {
+        showInfoCopiedInstead();
+      } else {
+        showError(t('emergency.shareFailed'));
+      }
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: 'MediChain Emergency Card',
+        text: shareText,
+        url: emergencyUrl || window.location.href,
+      });
+    } catch (err) {
+      // A user-cancelled share surfaces as AbortError — stay silent for that.
+      if (err instanceof Error && err.name === 'AbortError') return;
+      showError(t('emergency.shareFailed'));
+    }
+  };
+
+  const showInfoCopiedInstead = () => {
+    showWarning(t('emergency.shareUnsupportedCopied'));
   };
 
   if (isLoading || !emergencyData) {
@@ -206,33 +319,33 @@ export function EmergencyCardPage() {
         {/* QR Code */}
         <div className="py-6">
           <div className="relative mx-auto w-56 h-56">
-            {/* Simulated QR Code Pattern */}
+            {/* Real, scannable QR code generated client-side (works offline). */}
             <div className="w-full h-full bg-white border-4 border-neutral-900 rounded-2xl p-3 relative overflow-hidden">
-              <div className="w-full h-full grid grid-cols-11 grid-rows-11 gap-0.5">
-                {Array.from({ length: 121 }).map((_, i) => {
-                  // Create a QR-like pattern
-                  const row = Math.floor(i / 11);
-                  const col = i % 11;
-                  const isCorner = (row < 3 && col < 3) || (row < 3 && col > 7) || (row > 7 && col < 3);
-                  const isRandom = Math.random() > 0.5;
-                  
-                  return (
-                    <div
-                      key={i}
-                      className={`rounded-sm ${
-                        isCorner || isRandom ? 'bg-neutral-900' : 'bg-white'
-                      }`}
-                    />
-                  );
-                })}
-              </div>
-              
-              {/* Center Logo */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg">
-                  <Heart className="w-7 h-7 text-emergency-500" />
+              {qrError ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-center text-neutral-500">
+                  <AlertTriangle className="w-8 h-8 mb-2 text-warning-500" />
+                  <span className="text-xs">{t('emergency.qrError')}</span>
                 </div>
-              </div>
+              ) : qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt={t('emergency.qrAlt')}
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <RefreshCw className="w-8 h-8 text-neutral-300 animate-spin" />
+                </div>
+              )}
+
+              {/* Center Logo */}
+              {qrDataUrl && !qrError && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg">
+                    <Heart className="w-7 h-7 text-emergency-500" />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Refresh Overlay */}
@@ -268,7 +381,7 @@ export function EmergencyCardPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-neutral-900">{emergencyData.fullName}</div>
-              <div className="text-sm text-neutral-500">{t('emergency.dob')}: {formatDate(emergencyData.dateOfBirth)}</div>
+              <div className="text-sm text-neutral-500">{t('emergency.dob')}: {formatDate(emergencyData.dateOfBirth, locale)}</div>
             </div>
             <div className="flex items-center gap-2">
               <Droplet className="w-5 h-5 text-emergency-500" />
@@ -317,7 +430,7 @@ export function EmergencyCardPage() {
         {showMedicalInfo && (
           <div className="mt-4 space-y-4">
             {/* Allergies */}
-            {emergencyData.allergies.length > 0 && (
+            {emergencyData.allergies.length > 0 ? (
               <div className="p-3 bg-emergency-50 border border-emergency-200 rounded-xl">
                 <div className="flex items-center gap-2 text-emergency-700 font-medium mb-2">
                   <AlertTriangle className="w-4 h-4" />
@@ -331,10 +444,18 @@ export function EmergencyCardPage() {
                   ))}
                 </div>
               </div>
+            ) : (
+              <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl">
+                <div className="flex items-center gap-2 text-neutral-700 font-medium mb-1">
+                  <AlertTriangle className="w-4 h-4" />
+                  {t('emergency.allergies')}
+                </div>
+                <EmptyState compact title={t('emergency.noneRecorded')} />
+              </div>
             )}
 
             {/* Chronic Conditions */}
-            {emergencyData.chronicConditions.length > 0 && (
+            {emergencyData.chronicConditions.length > 0 ? (
               <div className="p-3 bg-warning-50 border border-warning-200 rounded-xl">
                 <div className="flex items-center gap-2 text-warning-700 font-medium mb-2">
                   <Heart className="w-4 h-4" />
@@ -348,10 +469,18 @@ export function EmergencyCardPage() {
                   ))}
                 </div>
               </div>
+            ) : (
+              <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl">
+                <div className="flex items-center gap-2 text-neutral-700 font-medium mb-1">
+                  <Heart className="w-4 h-4" />
+                  {t('emergency.chronicConditions')}
+                </div>
+                <EmptyState compact title={t('emergency.noneRecorded')} />
+              </div>
             )}
 
             {/* Current Medications */}
-            {emergencyData.currentMedications.length > 0 && (
+            {emergencyData.currentMedications.length > 0 ? (
               <div className="p-3 bg-info-light border border-info/20 rounded-xl">
                 <div className="flex items-center gap-2 text-info font-medium mb-2">
                   <Pill className="w-4 h-4" />
@@ -362,6 +491,14 @@ export function EmergencyCardPage() {
                     <li key={i} className="text-sm text-neutral-700">• {med}</li>
                   ))}
                 </ul>
+              </div>
+            ) : (
+              <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl">
+                <div className="flex items-center gap-2 text-neutral-700 font-medium mb-1">
+                  <Pill className="w-4 h-4" />
+                  {t('emergency.currentMedications')}
+                </div>
+                <EmptyState compact title={t('emergency.noneRecorded')} />
               </div>
             )}
 
@@ -378,13 +515,19 @@ export function EmergencyCardPage() {
                 </div>
               </div>
               <div className={`flex-1 p-3 rounded-xl text-center ${
-                emergencyData.dnrStatus 
-                  ? 'bg-emergency-100 text-emergency-700' 
+                dnrVerified
+                  ? 'bg-emergency-100 text-emergency-700'
+                  : emergencyData.dnrStatus
+                  ? 'bg-warning-100 text-warning-800'
                   : 'bg-success-100 text-success-700'
               }`}>
                 <Shield className="w-5 h-5 mx-auto mb-1" />
                 <div className="text-xs font-medium">
-                  {emergencyData.dnrStatus ? t('emergency.dnrOrder') : t('emergency.fullResuscitation')}
+                  {dnrVerified
+                    ? t('emergency.dnrOrder')
+                    : emergencyData.dnrStatus
+                    ? t('emergency.dnrUnverified')
+                    : t('emergency.fullResuscitation')}
                 </div>
               </div>
             </div>
@@ -404,20 +547,34 @@ export function EmergencyCardPage() {
             <div className="font-medium text-neutral-900">{emergencyData.emergencyContact.name}</div>
             <div className="text-sm text-neutral-500">{emergencyData.emergencyContact.relationship}</div>
           </div>
-          <a
-            href={`tel:${emergencyData.emergencyContact.phone}`}
-            className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
-          >
-            <Phone className="w-4 h-4" />
-            {t('emergency.call')}
-          </a>
+          {(() => {
+            const normalized = normalizePhone(emergencyData.emergencyContact.phone);
+            return normalized ? (
+              <a
+                href={`tel:${normalized}`}
+                className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
+              >
+                <Phone className="w-4 h-4" />
+                {t('emergency.call')}
+              </a>
+            ) : (
+              <div className="text-right">
+                <div className="text-sm font-medium text-neutral-700">
+                  {emergencyData.emergencyContact.phone}
+                </div>
+                <div className="text-xs text-warning-700">
+                  {t('emergency.unverifiedNumber')}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
       {/* Card Security Info */}
       <div className="text-center text-xs text-neutral-400 space-y-1">
         <p>{t('emergency.cardHash')}: {emergencyData.cardHash.slice(0, 16)}...</p>
-        <p>{t('emergency.lastUpdated')}: {formatDate(emergencyData.lastUpdated)}</p>
+        <p>{t('emergency.lastUpdated')}: {formatDate(emergencyData.lastUpdated, locale)}</p>
         <p className="flex items-center justify-center gap-1">
           <Shield className="w-3 h-3" />
           {t('emergency.securedBy')}

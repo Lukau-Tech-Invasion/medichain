@@ -17,7 +17,15 @@ export {
   LanguageSwitcher,
   ACTIVE_LOCALES,
 } from './i18n/react';
-export { LOCALE_CONFIGS } from './i18n';
+export {
+  LOCALE_CONFIGS,
+  DEFAULT_CURRENCY,
+  formatCurrency,
+  formatDate,
+  formatTime,
+  getDirection,
+  detectLocale,
+} from './i18n';
 export type { SupportedLocale, LocaleConfig } from './i18n';
 
 // Wallet Types and Service (Blockchain Identity)

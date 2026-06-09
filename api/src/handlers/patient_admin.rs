@@ -138,6 +138,12 @@ pub struct UpdatePatientRequest {
     pub chronic_conditions: Option<Vec<String>>,
     pub organ_donor: Option<bool>,
     pub dnr_status: Option<bool>,
+    /// Mark/clear the DNR advance directive as verified. When `Some(true)`, the
+    /// acting provider is recorded as `dnr_verified_by` with the current time as
+    /// `dnr_verified_at`. `Some(false)` clears the verification metadata.
+    pub dnr_verified: Option<bool>,
+    /// Optional reference to the advance-directive document backing the DNR.
+    pub dnr_document_ref: Option<String>,
     pub emergency_contact_name: Option<String>,
     pub emergency_contact_phone: Option<String>,
     pub emergency_contact_relationship: Option<String>,
@@ -245,6 +251,21 @@ pub async fn update_patient(
     }
     if let Some(dnr) = req.dnr_status {
         patient.emergency_info.dnr_status = dnr;
+    }
+    // DNR verification: only a provider who can edit records (gated above) may
+    // attest to the advance directive. Bind the verifier to the authenticated
+    // caller — never trust a client-supplied "verified_by".
+    if let Some(verified) = req.dnr_verified {
+        if verified {
+            patient.emergency_info.dnr_verified_by = Some(current_user_id.clone());
+            patient.emergency_info.dnr_verified_at = Some(Utc::now());
+        } else {
+            patient.emergency_info.dnr_verified_by = None;
+            patient.emergency_info.dnr_verified_at = None;
+        }
+    }
+    if let Some(doc_ref) = &req.dnr_document_ref {
+        patient.emergency_info.dnr_document_ref = Some(doc_ref.clone());
     }
 
     // Update emergency contact if any field provided

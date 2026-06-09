@@ -239,7 +239,7 @@ export default function AdminDashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
             <Server size={16} />
-            🛡️ SYSTEM STATUS
+            SYSTEM STATUS
           </h3>
           <div className="flex items-center gap-3">
             <button
@@ -266,9 +266,22 @@ export default function AdminDashboardPage() {
               <div key={system.name} className="flex items-center gap-2">
                 {getStatusIcon(system.status)}
                 <span className="text-sm text-gray-700">{system.name}:</span>
-                <span className={`text-sm font-medium ${getStatusColor(system.status)}`}>
-                  {system.status === 'online' ? '🟢 Online' : 
-                   system.status === 'degraded' ? '🟡 Degraded' : '🔴 Offline'}
+                <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${getStatusColor(system.status)}`}>
+                  <span
+                    className={`inline-block w-2 h-2 rounded-full ${
+                      system.status === 'online'
+                        ? 'bg-green-500'
+                        : system.status === 'degraded'
+                        ? 'bg-amber-500'
+                        : 'bg-red-500'
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {system.status === 'online'
+                    ? 'Online'
+                    : system.status === 'degraded'
+                    ? 'Degraded'
+                    : 'Offline'}
                 </span>
                 {system.latency_ms !== undefined && system.latency_ms !== null && (
                   <span className="text-xs text-gray-400">({system.latency_ms}ms)</span>
@@ -316,7 +329,7 @@ export default function AdminDashboardPage() {
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
           <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
             <Users size={16} />
-            👥 USERS BY ROLE
+            USERS BY ROLE
           </h3>
           <div className="space-y-3">
             {[
@@ -354,7 +367,7 @@ export default function AdminDashboardPage() {
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
           <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
             <Siren size={16} />
-            🚨 EMERGENCY EVENTS
+            EMERGENCY EVENTS
           </h3>
           <div className="grid grid-cols-2 gap-4">
             {[
@@ -383,7 +396,7 @@ export default function AdminDashboardPage() {
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
             <FileText size={16} />
-            📝 RECENT ACCESS LOGS
+            RECENT ACCESS LOGS
           </h3>
           <button
             onClick={() => navigate('/access-logs')}
@@ -419,9 +432,22 @@ export default function AdminDashboardPage() {
                     {log.patient_id?.slice(0, 12) || '-'}...
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs rounded ${getAccessTypeColor(log.access_type)}`}>
-                      {log.access_type?.includes('emergency') ? '🟠 Emer' : 
-                       log.access_type?.includes('fail') ? '🔴 Fail' : '🟢 Norm'}
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded ${getAccessTypeColor(log.access_type)}`}>
+                      <span
+                        className={`inline-block w-2 h-2 rounded-full ${
+                          log.access_type?.includes('emergency')
+                            ? 'bg-orange-500'
+                            : log.access_type?.includes('fail')
+                            ? 'bg-red-500'
+                            : 'bg-green-500'
+                        }`}
+                        aria-hidden="true"
+                      />
+                      {log.access_type?.includes('emergency')
+                        ? 'Emer'
+                        : log.access_type?.includes('fail')
+                        ? 'Fail'
+                        : 'Norm'}
                     </span>
                   </td>
                 </tr>
@@ -444,7 +470,7 @@ export default function AdminDashboardPage() {
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
           <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
             <CreditCard size={16} />
-            💳 NFC CARD STATUS
+            NFC CARD STATUS
           </h3>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div className="text-center p-3 bg-gray-50 rounded-lg">
@@ -484,7 +510,7 @@ export default function AdminDashboardPage() {
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
           <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
             <Database size={16} />
-            🧪 LAB SUBMISSION STATS
+            LAB SUBMISSION STATS
           </h3>
           <div className="grid grid-cols-3 gap-4 mb-4">
             <div className="text-center p-3 bg-gray-50 rounded-lg">

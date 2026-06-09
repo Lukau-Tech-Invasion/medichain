@@ -45,19 +45,19 @@ export function EmergencyBanner({
     access_granted: {
       bg: 'bg-red-600',
       icon: <AlertTriangle className="w-6 h-6" />,
-      title: '🚨 EMERGENCY ACCESS GRANTED',
+      title: 'EMERGENCY ACCESS GRANTED',
       subtitle: 'Time-limited access to medical records',
     },
     access_requested: {
       bg: 'bg-orange-500',
       icon: <Clock className="w-6 h-6" />,
-      title: '⏳ EMERGENCY ACCESS REQUESTED',
+      title: 'EMERGENCY ACCESS REQUESTED',
       subtitle: 'Awaiting authorization',
     },
     critical_info: {
       bg: 'bg-red-700',
       icon: <AlertTriangle className="w-6 h-6" />,
-      title: '⚠️ CRITICAL PATIENT INFORMATION',
+      title: 'CRITICAL PATIENT INFORMATION',
       subtitle: 'Review immediately',
     },
   };

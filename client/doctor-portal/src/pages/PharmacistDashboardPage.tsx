@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   FileCheck,
   Beaker,
+  BarChart3,
 } from 'lucide-react';
 import { getPharmacistDashboard } from '@medichain/shared';
 import {
@@ -200,7 +201,9 @@ export default function PharmacistDashboardPage() {
         {/* Prescription Verification Queue */}
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700">📋 Orders to Verify</h3>
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+              <FileCheck size={16} aria-hidden="true" /> Orders to Verify
+            </h3>
             <button
               onClick={() => navigate('/e-prescribe')}
               className="text-xs text-blue-600 hover:text-blue-800"
@@ -318,8 +321,8 @@ export default function PharmacistDashboardPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-gray-900">{alert.patient_name}</p>
-                      <p className="text-sm text-orange-700">
-                        ⚠️ Allergic to: <strong>{alert.allergen}</strong>
+                      <p className="flex items-center gap-1.5 text-sm text-orange-700">
+                        <AlertTriangle size={14} aria-hidden="true" /> Allergic to: <strong>{alert.allergen}</strong>
                       </p>
                       <p className="text-sm text-gray-600">
                         Ordered: {alert.medication_ordered}
@@ -343,7 +346,7 @@ export default function PharmacistDashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <QuickActionsPanel actions={quickActions} title="⚡ Quick Actions" />
+        <QuickActionsPanel actions={quickActions} title="Quick Actions" />
       </div>
 
       {/* Controlled Substance Log Section */}
@@ -389,7 +392,11 @@ export default function PharmacistDashboardPage() {
                     <span className={`px-2 py-0.5 text-xs rounded ${
                       rx.status === 'Filled' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                     }`}>
-                      {rx.status === 'Filled' ? '✅ Logged' : '⏳ Pending'}
+                      {rx.status === 'Filled' ? (
+                        <span className="inline-flex items-center gap-1"><CheckCircle size={12} aria-hidden="true" /> Logged</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1"><Clock size={12} aria-hidden="true" /> Pending</span>
+                      )}
                     </span>
                   </td>
                 </tr>
@@ -407,7 +414,9 @@ export default function PharmacistDashboardPage() {
 
       {/* Today's Metrics */}
       <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">📊 Today's Metrics</h3>
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+          <BarChart3 size={16} aria-hidden="true" /> Today's Metrics
+        </h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="text-center p-3 bg-gray-50 rounded">
             <p className="text-2xl font-bold text-gray-900">

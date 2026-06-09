@@ -17,7 +17,7 @@ import {
   Activity,
   Loader2
 } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, EmptyState } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -453,10 +453,11 @@ const BarcodePage: React.FC = () => {
       {activeTab === 'history' && (
         <div className="flex-1 bg-gray-50 p-4 space-y-3">
           {scanHistory.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <History className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-              <p>No scan history yet</p>
-            </div>
+            <EmptyState
+              icon={<History className="w-12 h-12" />}
+              title="No scan history yet"
+              description="Scanned wristbands and barcodes will appear here."
+            />
           ) : (
             scanHistory.map(scan => (
               <div key={scan.id} className={`bg-white rounded-lg shadow p-4 border-l-4 ${

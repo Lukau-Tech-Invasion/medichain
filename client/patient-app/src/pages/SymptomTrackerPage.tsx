@@ -18,6 +18,8 @@ import {
   WifiOff,
   ChevronRight,
   Trash2,
+  Zap,
+  X,
 } from 'lucide-react';
 
 interface SymptomEntry {
@@ -348,8 +350,8 @@ export function SymptomTrackerPage() {
               {entry.triggers && entry.triggers.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {entry.triggers.map((trigger, idx) => (
-                    <span key={idx} className="px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs">
-                      ⚡ {trigger}
+                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs">
+                      <Zap className="w-3 h-3" aria-hidden="true" /> {trigger}
                     </span>
                   ))}
                 </div>
@@ -418,8 +420,9 @@ export function SymptomTrackerPage() {
                     setNewEntry({ severity: 3, timestamp: new Date().toISOString() });
                   }}
                   className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-500"
+                  aria-label="Close"
                 >
-                  ✕
+                  <X className="w-5 h-5" aria-hidden="true" />
                 </button>
               </div>
             </div>

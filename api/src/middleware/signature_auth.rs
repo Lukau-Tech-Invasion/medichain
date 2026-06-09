@@ -15,6 +15,18 @@
 //! - Wallet ownership proof via sr25519 signature verification
 //! - Constant-time signature comparison
 //!
+//! # Trust invariant
+//!
+//! Handlers downstream may treat the `X-User-Id` header as the caller's identity
+//! ONLY because this middleware, **when enabled**, binds that header to a verified
+//! sr25519 signature over `<timestamp>:<wallet_address>`. A mutating request that
+//! presents `X-User-Id` without a valid `X-Signature`/`X-Timestamp` is rejected.
+//!
+//! When verification is DISABLED (demo mode), `X-User-Id` is **unauthenticated and
+//! spoofable** — it is for local/demo use only and MUST NOT be relied upon for any
+//! authorization decision in production. The server logs a loud warning at startup
+//! whenever it boots with verification disabled.
+//!
 //! © 2025-2026 Trustware. All rights reserved.
 
 use actix_web::http::StatusCode;
@@ -277,5 +289,59 @@ mod tests {
     #[test]
     fn test_bypass_routes_include_health() {
         assert!(BYPASS_ROUTES.contains(&"/api/health"));
+    }
+
+    /// SECURE-BY-DEFAULT: a mutating request that supplies `X-User-Id` but no
+    /// `X-Signature`/`X-Timestamp` MUST be rejected (401) when the middleware is
+    /// enabled — the server must never trust an unverified identity header.
+    #[actix_web::test]
+    async fn test_enabled_rejects_post_with_user_id_but_no_signature() {
+        use actix_web::{test, web, App, HttpResponse};
+
+        let app = test::init_service(
+            App::new().wrap(SignatureAuthMiddleware::enabled()).route(
+                "/api/patients/{id}",
+                web::post().to(|| async { HttpResponse::Ok().finish() }),
+            ),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/patients/PAT-001")
+            .insert_header(("X-User-Id", "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED,
+            "POST with X-User-Id but no signature must be rejected when verification is enabled"
+        );
+    }
+
+    /// Counterpart: with the middleware DISABLED (demo mode), the same request is
+    /// allowed through — documenting that disabled mode does NOT verify identity.
+    #[actix_web::test]
+    async fn test_disabled_allows_post_without_signature() {
+        use actix_web::{test, web, App, HttpResponse};
+
+        let app = test::init_service(
+            App::new().wrap(SignatureAuthMiddleware::disabled()).route(
+                "/api/patients/{id}",
+                web::post().to(|| async { HttpResponse::Ok().finish() }),
+            ),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/patients/PAT-001")
+            .insert_header(("X-User-Id", "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert!(
+            resp.status().is_success(),
+            "demo mode (disabled) must let X-User-Id through unverified"
+        );
     }
 }

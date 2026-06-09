@@ -15,6 +15,21 @@ pub fn get_current_user(data: &web::Data<AppState>, http_req: &HttpRequest) -> O
     get_user(data, &user_id)
 }
 
+/// Whether a DNR is an *authoritative* (verified) advance directive.
+///
+/// Patient-safety invariant: a DNR is only treated as authoritative when the
+/// status flag is set AND a provider has attested to the directive — i.e. both
+/// `verified_by` (who) and `verified_at` (when) are present. A recorded-but-
+/// unverified DNR returns `false`, so emergency payloads default to full
+/// resuscitation rather than withholding care on an unproven flag.
+fn dnr_is_verified(
+    dnr_status: bool,
+    verified_by: &Option<String>,
+    verified_at: &Option<chrono::DateTime<chrono::Utc>>,
+) -> bool {
+    dnr_status && verified_by.is_some() && verified_at.is_some()
+}
+
 /// Get Medical ID card data for a patient (emergency format)
 /// This is the core data shown on lock screen and emergency access
 #[get("/api/medical-id/{patient_id}")]
@@ -123,10 +138,26 @@ pub async fn get_medical_id(
     let chronic_conditions: Vec<String> = Vec::new();
     let current_medications: Vec<String> = Vec::new();
 
-    let dnr_warning: Option<&str> = if patient.dnr_status {
-        Some("DO NOT RESUSCITATE - Verify advanced directive")
-    } else {
-        None
+    // DNR is only authoritative when status is set AND a provider verified the
+    // advance directive (who + when). Unverified DNR must NOT drive a decision to
+    // withhold resuscitation: assume full resuscitation until the directive is confirmed.
+    let dnr_verified = dnr_is_verified(
+        patient.dnr_status,
+        &patient.dnr_verified_by,
+        &patient.dnr_verified_at,
+    );
+    let dnr_warning: Option<&str> = match (patient.dnr_status, dnr_verified) {
+        (true, true) => Some("DO NOT RESUSCITATE — verified advance directive on file"),
+        (true, false) => Some(
+            "DNR on file but UNVERIFIED — verify advance directive before acting; assume full resuscitation",
+        ),
+        (false, _) => None,
+    };
+    // Red only when verified; amber (recorded-but-unverified) or grey (none) otherwise.
+    let dnr_display_color = match (patient.dnr_status, dnr_verified) {
+        (true, true) => "#DC2626",
+        (true, false) => "#D97706",
+        (false, _) => "#6B7280",
     };
 
     // Build Medical ID card data (emergency format)
@@ -148,7 +179,11 @@ pub async fn get_medical_id(
         },
         "dnr_status": {
             "status": patient.dnr_status,
-            "display_color": if patient.dnr_status { "#DC2626" } else { "#6B7280" },
+            "verified": dnr_verified,
+            "verified_by": patient.dnr_verified_by,
+            "verified_at": patient.dnr_verified_at.map(|t| t.to_rfc3339()),
+            "document_ref": patient.dnr_document_ref,
+            "display_color": dnr_display_color,
             "warning": dnr_warning
         },
         "chronic_conditions": chronic_conditions,
@@ -271,6 +306,12 @@ pub async fn get_medical_id_qr(
             .map(|a| a.allergen.clone())
             .collect::<Vec<_>>(),
         "dnr": patient.dnr_status,
+        // Offline scanners must distinguish a verified directive from a recorded-but-unverified flag.
+        "dnr_verified": dnr_is_verified(
+            patient.dnr_status,
+            &patient.dnr_verified_by,
+            &patient.dnr_verified_at,
+        ),
         "organ_donor": patient.organ_donor,
         "emergency_contact": serde_json::Value::Null, // TODO: Phase 2 repository
         "api_url": format!("/api/medical-id/{}", patient_id),
@@ -338,10 +379,50 @@ pub async fn get_emergency_medical_id(
         Err(_) => Vec::new(),
     };
 
+    // DNR STATUS - LEGAL REQUIREMENT
+    // Only emit the authoritative "DO NOT RESUSCITATE" flag when the advance
+    // directive is verified (status + verified_by + verified_at). An unverified
+    // DNR yields an explicit "unverified" variant so responders default to full
+    // resuscitation rather than withholding care on an unproven flag.
+    // (Computed before the json! macro: a block expression cannot be a json! value.)
+    let dnr_verified = dnr_is_verified(
+        patient.dnr_status,
+        &patient.dnr_verified_by,
+        &patient.dnr_verified_at,
+    );
+    let dnr_status_json = match (patient.dnr_status, dnr_verified) {
+        (true, true) => serde_json::json!({
+            "status": "ACTIVE",
+            "verified": true,
+            "verified_by": patient.dnr_verified_by,
+            "verified_at": patient.dnr_verified_at.map(|t| t.to_rfc3339()),
+            "document_ref": patient.dnr_document_ref,
+            "warning": "DO NOT RESUSCITATE — verified advance directive",
+            "verify_directive": false
+        }),
+        (true, false) => serde_json::json!({
+            "status": "UNVERIFIED",
+            "verified": false,
+            "verified_by": null,
+            "verified_at": null,
+            "document_ref": patient.dnr_document_ref,
+            "warning": "DNR on file but UNVERIFIED — verify advance directive before acting; assume full resuscitation",
+            "verify_directive": true
+        }),
+        (false, _) => serde_json::json!({
+            "status": "NOT_ON_FILE",
+            "verified": false,
+            "verified_by": null,
+            "verified_at": null,
+            "document_ref": null,
+            "warning": null
+        }),
+    };
+
     // Emergency view - ONLY critical information
     let emergency_data = serde_json::json!({
         "type": "EMERGENCY_MEDICAL_ID",
-        "warning": "⚠️ EMERGENCY ACCESS - ALL ACCESS IS LOGGED",
+        "warning": "EMERGENCY ACCESS - ALL ACCESS IS LOGGED",
 
         // CRITICAL LIFE-SAVING INFO ONLY
         "patient": {
@@ -374,19 +455,8 @@ pub async fn get_emergency_medical_id(
             }))
             .collect::<Vec<_>>(),
 
-        // DNR STATUS - LEGAL REQUIREMENT
-        "dnr_status": if patient.dnr_status {
-            serde_json::json!({
-                "status": "ACTIVE",
-                "warning": "⛔ DO NOT RESUSCITATE",
-                "verify_directive": true
-            })
-        } else {
-            serde_json::json!({
-                "status": "NOT_ON_FILE",
-                "warning": null
-            })
-        },
+        // DNR STATUS - LEGAL REQUIREMENT (computed above; gated on verification)
+        "dnr_status": dnr_status_json,
 
         // ORGAN DONOR
         "organ_donor": patient.organ_donor,
@@ -466,6 +536,40 @@ pub async fn get_lockscreen_medical_id(
         Err(_) => Vec::new(),
     };
 
+    // LINE 3: DNR Warning (if applicable). Computed before the json! macro
+    // because a block expression cannot be a json! value.
+    // Authoritative "DO NOT RESUSCITATE" line is shown ONLY when the advance
+    // directive is verified. An unverified DNR shows a distinct amber caution
+    // so the lock screen never instructs withholding care on an unproven flag.
+    let dnr_verified = dnr_is_verified(
+        patient.dnr_status,
+        &patient.dnr_verified_by,
+        &patient.dnr_verified_at,
+    );
+    let dnr_line = match (patient.dnr_status, dnr_verified) {
+        (true, true) => Some(serde_json::json!({
+            "text": "DNR - DO NOT RESUSCITATE",
+            "verified": true,
+            "verified_by": patient.dnr_verified_by,
+            "verified_at": patient.dnr_verified_at.map(|t| t.to_rfc3339()),
+            "document_ref": patient.dnr_document_ref,
+            "font_size": "18px",
+            "color": "#FCA5A5",
+            "background": "#7F1D1D"
+        })),
+        (true, false) => Some(serde_json::json!({
+            "text": "DNR ON FILE — UNVERIFIED · ASSUME FULL RESUSCITATION",
+            "verified": false,
+            "verified_by": null,
+            "verified_at": null,
+            "document_ref": patient.dnr_document_ref,
+            "font_size": "16px",
+            "color": "#FDE68A",
+            "background": "#78350F"
+        })),
+        (false, _) => None,
+    };
+
     // Lock screen format - maximum simplicity, high contrast
     let lockscreen_data = serde_json::json!({
         "format": "lockscreen",
@@ -489,7 +593,7 @@ pub async fn get_lockscreen_medical_id(
         // LINE 2: Critical Allergies
         "allergies_line": {
             "text": if allergies.iter().any(|a| a.severity == "Severe" || a.severity == "LifeThreatening") {
-                format!("⚠️ ALLERGIC: {}",
+                format!("ALLERGIC: {}",
                     allergies.iter()
                         .filter(|a| a.severity == "Severe" || a.severity == "LifeThreatening")
                         .map(|a| a.allergen.to_uppercase())
@@ -507,17 +611,8 @@ pub async fn get_lockscreen_medical_id(
             }
         },
 
-        // LINE 3: DNR Warning (if applicable)
-        "dnr_line": if patient.dnr_status {
-            Some(serde_json::json!({
-                "text": "⛔ DNR - DO NOT RESUSCITATE",
-                "font_size": "18px",
-                "color": "#FCA5A5",
-                "background": "#7F1D1D"
-            }))
-        } else {
-            None
-        },
+        // LINE 3: DNR Warning (computed above; gated on verification)
+        "dnr_line": dnr_line,
 
         // LINE 4: Name
         "name": {
@@ -762,4 +857,39 @@ pub async fn trigger_emergency_notification(
         "notifications": notifications,
         "message": format!("Emergency notification queued for {} contacts", notifications.len())
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dnr_is_verified;
+    use chrono::Utc;
+
+    #[test]
+    fn dnr_unverified_when_metadata_missing() {
+        // status set, but no verifier/timestamp → NOT authoritative.
+        assert!(!dnr_is_verified(true, &None, &None));
+        // status set, only verified_by present → still NOT authoritative.
+        assert!(!dnr_is_verified(true, &Some("doc-1".to_string()), &None));
+        // status set, only verified_at present → still NOT authoritative.
+        assert!(!dnr_is_verified(true, &None, &Some(Utc::now())));
+    }
+
+    #[test]
+    fn dnr_verified_when_status_and_metadata_present() {
+        assert!(dnr_is_verified(
+            true,
+            &Some("doc-1".to_string()),
+            &Some(Utc::now())
+        ));
+    }
+
+    #[test]
+    fn dnr_not_verified_when_status_false_even_with_metadata() {
+        // Defensive: no DNR on file means it can never read as a verified directive.
+        assert!(!dnr_is_verified(
+            false,
+            &Some("doc-1".to_string()),
+            &Some(Utc::now())
+        ));
+    }
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiErrorMessage } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage, isValidPhoneNumber } from '@medichain/shared';
 import { 
   UserPlus, 
   CheckCircle, 
@@ -48,6 +48,7 @@ function RegisterPatientPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState<{ patientId: string; nfcTagId: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -59,8 +60,17 @@ function RegisterPatientPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setError(null);
+    setPhoneError(null);
+
+    // Reject malformed emergency-contact numbers before submit — a broken
+    // number is worse than none in an emergency.
+    if (!isValidPhoneNumber(formData.emergencyContactPhone)) {
+      setPhoneError('Enter a valid phone number (e.g. +234 801 234 5678).');
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
       const response = await fetch(apiUrl('/api/register'), {
@@ -338,11 +348,17 @@ function RegisterPatientPage() {
                 id="register-emergency-contact-phone"
                 name="emergencyContactPhone"
                 value={formData.emergencyContactPhone}
-                onChange={handleChange}
+                onChange={(e) => { setPhoneError(null); handleChange(e); }}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                aria-invalid={phoneError ? true : undefined}
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none ${
+                  phoneError ? 'border-red-400' : 'border-gray-200'
+                }`}
                 placeholder="+234-801-234-5678"
               />
+              {phoneError && (
+                <p className="mt-1 text-sm text-red-600">{phoneError}</p>
+              )}
             </div>
             
             <div>

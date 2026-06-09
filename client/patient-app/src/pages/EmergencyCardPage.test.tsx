@@ -1,18 +1,38 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
+import { I18nProvider, ToastProvider } from '@medichain/shared';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { EmergencyCardPage } from './EmergencyCardPage';
+
+// Generate a deterministic data URL so the QR <img> renders predictably.
+vi.mock('qrcode', () => ({
+  default: {
+    toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,QRMOCK'),
+  },
+}));
 
 // Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
+
+function renderPage() {
+  return render(
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <I18nProvider>
+        <ToastProvider>
+          <EmergencyCardPage />
+        </ToastProvider>
+      </I18nProvider>
+    </BrowserRouter>,
+  );
+}
 
 describe('EmergencyCardPage (Patient)', () => {
   const mockPatientId = 'HEALTH123';
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
+
     // Mock localStorage
     const authData = JSON.stringify({ patientId: mockPatientId });
     localStorage.getItem = vi.fn().mockReturnValue(authData);
@@ -32,7 +52,7 @@ describe('EmergencyCardPage (Patient)', () => {
             emergency_contacts: [{
               name: 'Jane Doe',
               phone: '+123456789',
-              relationship: 'Wife'
+              relationship: 'Wife',
             }],
             organ_donor: true,
             dnr_status: false,
@@ -44,14 +64,8 @@ describe('EmergencyCardPage (Patient)', () => {
   });
 
   it('renders emergency card with patient information', async () => {
-    render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <EmergencyCardPage />
-      </BrowserRouter>
-    );
+    renderPage();
 
-    expect(screen.getByText(/Emergency Card/i)).toBeInTheDocument();
-    
     await waitFor(() => {
       expect(screen.getByText(/Test Patient/i)).toBeInTheDocument();
       expect(screen.getByText(/O\+/i)).toBeInTheDocument();
@@ -60,27 +74,19 @@ describe('EmergencyCardPage (Patient)', () => {
     });
   });
 
-  it('displays QR code placeholder', async () => {
-    render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <EmergencyCardPage />
-      </BrowserRouter>
-    );
+  it('renders a real scannable QR code image', async () => {
+    renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText(/Scan for emergency medical access/i)).toBeInTheDocument();
+      const img = screen.getByRole('img', { name: /emergency medical qr code/i });
+      expect(img).toHaveAttribute('src', 'data:image/png;base64,QRMOCK');
     });
   });
 
-  it('shows medical alerts for critical conditions', async () => {
-    render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <EmergencyCardPage />
-      </BrowserRouter>
-    );
+  it('shows critical medical info including allergies', async () => {
+    renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText(/Medical Alerts/i)).toBeInTheDocument();
       expect(screen.getByText(/Peanuts/i)).toBeInTheDocument();
     });
   });

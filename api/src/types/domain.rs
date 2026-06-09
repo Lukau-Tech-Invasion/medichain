@@ -377,6 +377,17 @@ pub struct EmergencyInfo {
     pub emergency_contacts: Vec<EmergencyContact>,
     pub organ_donor: bool,
     pub dnr_status: bool,
+    /// Wallet/staff id of the provider who verified the DNR advance directive.
+    /// `None` means the DNR is recorded but UNVERIFIED — first responders must
+    /// assume full resuscitation until the directive is confirmed.
+    #[serde(default)]
+    pub dnr_verified_by: Option<String>,
+    /// When the DNR advance directive was verified (ISO 8601 on the wire).
+    #[serde(default)]
+    pub dnr_verified_at: Option<DateTime<Utc>>,
+    /// Reference to the advance-directive document backing the DNR (e.g. IPFS CID).
+    #[serde(default)]
+    pub dnr_document_ref: Option<String>,
     /// Preferred languages for communication (ISO 639-1 codes, e.g., ["en", "yo", "ha"])
     /// First language is primary. Critical for Africa's 2000+ languages.
     #[serde(default)]
@@ -479,6 +490,9 @@ pub(crate) fn patient_profile_to_entity(
         emergency_contact_relationship: primary_contact.map(|c| c.relationship.clone()),
         organ_donor: profile.emergency_info.organ_donor,
         dnr_status: profile.emergency_info.dnr_status,
+        dnr_verified_by: profile.emergency_info.dnr_verified_by.clone(),
+        dnr_verified_at: profile.emergency_info.dnr_verified_at,
+        dnr_document_ref: profile.emergency_info.dnr_document_ref.clone(),
         primary_provider_id: None,
         wallet_address: None,
         created_at: profile.created_at,

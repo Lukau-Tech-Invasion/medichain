@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import {
+  apiUrl,
+  useTranslation,
+  useToastActions,
+  formatDate,
+  normalizePhone,
+  EmptyState,
+} from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   AlertTriangle,
@@ -21,6 +28,38 @@ import {
   XCircle,
 } from 'lucide-react';
 
+interface DnrStatusObject {
+  status?: boolean;
+  verified?: boolean;
+  verified_by?: string | null;
+  verified_at?: string | null;
+  document_ref?: string | null;
+}
+
+interface ResolvedDnr {
+  /** Whether a DNR is on file at all. */
+  onFile: boolean;
+  /** Whether the DNR is verified (has a verifier + timestamp). */
+  verified: boolean;
+}
+
+/**
+ * Normalize the polymorphic `dnr_status` into a simple on-file/verified pair.
+ * A bare boolean is treated as "on file but unverified" — responders must see
+ * the unverified notice rather than an authoritative order without metadata.
+ */
+function resolveDnr(dnr: boolean | DnrStatusObject | null | undefined): ResolvedDnr {
+  if (typeof dnr === 'boolean') {
+    return { onFile: dnr, verified: false };
+  }
+  if (dnr && typeof dnr === 'object') {
+    const onFile = dnr.status ?? true;
+    const verified = Boolean(dnr.verified && dnr.verified_by && dnr.verified_at);
+    return { onFile, verified };
+  }
+  return { onFile: false, verified: false };
+}
+
 interface MedicalIdData {
   patient_id: string;
   name: string;
@@ -40,7 +79,13 @@ interface MedicalIdData {
     can_make_medical_decisions: boolean;
   }>;
   organ_donor: boolean;
-  dnr_status: boolean;
+  /**
+   * DNR may arrive as a bare boolean (legacy / emergency + lockscreen shapes)
+   * or as a verification object (full medical-id payload). Handled defensively
+   * via {@link resolveDnr} so a DNR is only treated as authoritative when the
+   * backend supplies a verifier + timestamp.
+   */
+  dnr_status: boolean | DnrStatusObject;
   languages: string[];
   insurance?: {
     provider: string;
@@ -68,6 +113,8 @@ interface MedicalIdData {
  */
 export function MedicalIdPage() {
   const navigate = useNavigate();
+  const { locale } = useTranslation();
+  const { showError, showWarning } = useToastActions();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [data, setData] = useState<MedicalIdData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -147,9 +194,36 @@ export function MedicalIdPage() {
     }
   };
 
+  // Copy with a clipboard-API guard + hidden-textarea fallback for non-secure
+  // contexts where navigator.clipboard is undefined.
+  const copyToClipboard = async (text: string): Promise<boolean> => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fall through to the legacy path.
+      }
+    }
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
   const handleShare = async () => {
-    if (!data || !navigator.share) return;
-    
+    if (!data) return;
+
     const text = `
 MEDICAL ID - ${data.name}
 Blood Type: ${data.blood_type}
@@ -158,13 +232,25 @@ Conditions: ${data.conditions.join(', ')}
 Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contacts[0]?.phone}
     `.trim();
 
+    if (!navigator.share) {
+      const ok = await copyToClipboard(text);
+      if (ok) {
+        showWarning('Sharing not supported — copied instead');
+      } else {
+        showError('Could not share the Medical ID');
+      }
+      return;
+    }
+
     try {
       await navigator.share({
         title: `Medical ID - ${data.name}`,
         text,
       });
-    } catch {
-      // User cancelled
+    } catch (err) {
+      // A user-cancelled share surfaces as AbortError — stay silent for that.
+      if (err instanceof Error && err.name === 'AbortError') return;
+      showError('Could not share the Medical ID');
     }
   };
 
@@ -180,12 +266,25 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
 
   if (!data) {
     return (
-      <div className="p-6 text-center">
-        <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-        <p>Unable to load Medical ID</p>
+      <div className="p-6">
+        <EmptyState
+          icon={<AlertTriangle className="w-12 h-12 text-amber-500" />}
+          title="Unable to load Medical ID"
+          description="We couldn't load your Medical ID. Check your connection and try again."
+          action={
+            <button
+              onClick={() => loadMedicalId()}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
+            >
+              Retry
+            </button>
+          }
+        />
       </div>
     );
   }
+
+  const dnr = resolveDnr(data.dnr_status);
 
   return (
     <div className="p-4 md:p-6 space-y-6 pb-24">
@@ -261,7 +360,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
               <h2 className="text-2xl font-bold">{data.name}</h2>
               <div className="flex items-center gap-2 text-red-100">
                 <Calendar className="w-4 h-4" />
-                <span>{new Date(data.date_of_birth).toLocaleDateString()}</span>
+                <span>{formatDate(data.date_of_birth, locale)}</span>
               </div>
             </div>
           </div>
@@ -283,13 +382,22 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           </div>
         </div>
 
-        {/* DNR Status */}
-        {data.dnr_status && (
+        {/* DNR Status — only authoritative when verified (verifier + timestamp). */}
+        {dnr.onFile && dnr.verified && (
+          <div className="bg-red-50 border-t border-b border-red-200 p-4 flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6 text-red-600" />
+            <div>
+              <p className="font-bold text-red-800">DNR - Do Not Resuscitate</p>
+              <p className="text-sm text-red-700">Verified advance directive on file</p>
+            </div>
+          </div>
+        )}
+        {dnr.onFile && !dnr.verified && (
           <div className="bg-amber-50 border-t border-b border-amber-200 p-4 flex items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-amber-600" />
             <div>
-              <p className="font-bold text-amber-800">DNR - Do Not Resuscitate</p>
-              <p className="text-sm text-amber-700">Advanced directive on file</p>
+              <p className="font-bold text-amber-800">DNR on file — unverified</p>
+              <p className="text-sm text-amber-700">Verify advance directive before acting</p>
             </div>
           </div>
         )}
@@ -315,7 +423,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
               ))}
             </div>
           ) : (
-            <p className="text-neutral-500 italic">No known allergies</p>
+            <EmptyState compact title="No known allergies" />
           )}
         </div>
 
@@ -334,7 +442,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
               ))}
             </div>
           ) : (
-            <p className="text-neutral-500 italic">None listed</p>
+            <EmptyState compact title="None listed" />
           )}
         </div>
 
@@ -354,7 +462,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
               ))}
             </ul>
           ) : (
-            <p className="text-neutral-500 italic">None listed</p>
+            <EmptyState compact title="None listed" />
           )}
         </div>
 
@@ -364,30 +472,37 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
             <Phone className="w-5 h-5 text-green-500" />
             <h3 className="font-bold text-neutral-900">Emergency Contacts</h3>
           </div>
-          {data.emergency_contacts.map((contact, i) => (
-            <div key={i} className="bg-white p-3 rounded-lg border border-neutral-200 mb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-neutral-900">{contact.name}</p>
-                  <p className="text-sm text-neutral-600">{contact.relationship}</p>
+          {data.emergency_contacts.map((contact, i) => {
+            const normalized = normalizePhone(contact.phone);
+            return (
+              <div key={i} className="bg-white p-3 rounded-lg border border-neutral-200 mb-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-neutral-900">{contact.name}</p>
+                    <p className="text-sm text-neutral-600">{contact.relationship}</p>
+                  </div>
+                  {normalized ? (
+                    <a
+                      href={`tel:${normalized}`}
+                      className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2"
+                    >
+                      <Phone className="w-4 h-4" />
+                      Call
+                    </a>
+                  ) : (
+                    <span className="text-xs text-amber-700">Unverified number</span>
+                  )}
                 </div>
-                <a
-                  href={`tel:${encodeURIComponent(contact.phone.replace(/[^0-9+\-()\s]/g, ''))}`}
-                  className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2"
-                >
-                  <Phone className="w-4 h-4" />
-                  Call
-                </a>
+                <p className="text-sm text-neutral-600 mt-2">{contact.phone}</p>
+                {contact.can_make_medical_decisions && (
+                  <div className="flex items-center gap-1 mt-2 text-green-600 text-sm">
+                    <CheckCircle className="w-4 h-4" />
+                    Legal authority to make medical decisions
+                  </div>
+                )}
               </div>
-              <p className="text-sm text-neutral-600 mt-2">{contact.phone}</p>
-              {contact.can_make_medical_decisions && (
-                <div className="flex items-center gap-1 mt-2 text-green-600 text-sm">
-                  <CheckCircle className="w-4 h-4" />
-                  Can make medical decisions
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Primary Doctor */}
@@ -405,12 +520,22 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
                   {data.primary_doctor.facility}
                 </p>
               )}
-              <a
-                href={`tel:${encodeURIComponent(data.primary_doctor.phone.replace(/[^0-9+\-()\s]/g, ''))}`}
-                className="text-blue-600 text-sm mt-1 inline-block"
-              >
-                {data.primary_doctor.phone}
-              </a>
+              {(() => {
+                const docPhone = normalizePhone(data.primary_doctor.phone);
+                return docPhone ? (
+                  <a
+                    href={`tel:${docPhone}`}
+                    className="text-blue-600 text-sm mt-1 inline-block"
+                  >
+                    {data.primary_doctor.phone}
+                  </a>
+                ) : (
+                  <p className="text-sm mt-1 text-neutral-600">
+                    {data.primary_doctor.phone}{' '}
+                    <span className="text-amber-700">(unverified number)</span>
+                  </p>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -467,7 +592,9 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
 
       {/* Emergency Numbers */}
       <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-        <h3 className="font-bold text-red-800 mb-3">🚨 Emergency Services</h3>
+        <h3 className="flex items-center gap-2 font-bold text-red-800 mb-3">
+          <AlertTriangle className="w-5 h-5" aria-hidden="true" /> Emergency Services
+        </h3>
         <div className="grid grid-cols-2 gap-3">
           <a href="tel:10177" className="bg-white p-3 rounded-lg text-center shadow-sm">
             <p className="text-2xl font-bold text-red-600">10177</p>

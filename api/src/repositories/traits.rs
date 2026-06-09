@@ -16,6 +16,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
 
+/// Default currency for monetary entities: ZAR (South African Rand).
+/// Used by `#[serde(default = ...)]` so deserialized records without an explicit
+/// currency fall back to the African denomination rather than implicit US dollars.
+pub(crate) fn default_currency_zar() -> Option<String> {
+    Some("ZAR".to_string())
+}
+
 // =============================================================================
 // ERROR TYPES
 // =============================================================================
@@ -173,6 +180,17 @@ pub struct PatientEntity {
 
     pub organ_donor: bool,
     pub dnr_status: bool,
+
+    /// DNR advance-directive verification metadata (typed columns for query/search).
+    /// The authoritative copy round-trips losslessly in `profile_extras_encrypted`;
+    /// these mirror it so a `DO NOT RESUSCITATE` directive is only treated as
+    /// verified when `dnr_verified_by` and `dnr_verified_at` are both present.
+    #[serde(default)]
+    pub dnr_verified_by: Option<String>,
+    #[serde(default)]
+    pub dnr_verified_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub dnr_document_ref: Option<String>,
 
     pub primary_provider_id: Option<String>,
     pub wallet_address: Option<String>,
@@ -4134,6 +4152,10 @@ pub struct InsuranceRecordEntity {
     pub termination_date: Option<chrono::NaiveDate>,
     pub is_active: bool,
     pub copay_amount: Option<rust_decimal::Decimal>,
+    /// ISO 4217 currency code for all monetary amounts on this record.
+    /// Defaults to ZAR (South African Rand) — amounts are NOT US dollars.
+    #[serde(default = "default_currency_zar")]
+    pub currency: Option<String>,
     pub deductible_amount: Option<rust_decimal::Decimal>,
     pub deductible_met: Option<rust_decimal::Decimal>,
     pub out_of_pocket_max: Option<rust_decimal::Decimal>,

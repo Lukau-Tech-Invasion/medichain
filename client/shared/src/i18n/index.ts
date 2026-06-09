@@ -32,28 +32,39 @@ export interface LocaleConfig {
   direction: 'ltr' | 'rtl';
   dateFormat: string;
   timeFormat: '12h' | '24h';
+  /** ISO 4217 currency code used for monetary display in this locale. */
+  currency: string;
+  /** Short currency symbol/prefix for compact display (never the bare US '$'). */
+  currencySymbol: string;
 }
 
+/**
+ * Platform default currency. MediChain targets African healthcare, so monetary
+ * values are denominated in an African currency (South African Rand) rather than
+ * US dollars. Locales override this with their own currency where appropriate.
+ */
+export const DEFAULT_CURRENCY = 'ZAR';
+
 export const LOCALE_CONFIGS: Record<SupportedLocale, LocaleConfig> = {
-  'en-US': { code: 'en-US', name: 'English (US)', nativeName: 'English', direction: 'ltr', dateFormat: 'MM/DD/YYYY', timeFormat: '12h' },
-  'en-GB': { code: 'en-GB', name: 'English (UK)', nativeName: 'English', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
-  'es-ES': { code: 'es-ES', name: 'Spanish (Spain)', nativeName: 'Español', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
-  'es-MX': { code: 'es-MX', name: 'Spanish (Mexico)', nativeName: 'Español', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '12h' },
-  'fr-FR': { code: 'fr-FR', name: 'French', nativeName: 'Français', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
-  'de-DE': { code: 'de-DE', name: 'German', nativeName: 'Deutsch', direction: 'ltr', dateFormat: 'DD.MM.YYYY', timeFormat: '24h' },
-  'it-IT': { code: 'it-IT', name: 'Italian', nativeName: 'Italiano', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
-  'pt-BR': { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
-  'zh-CN': { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: '简体中文', direction: 'ltr', dateFormat: 'YYYY-MM-DD', timeFormat: '24h' },
-  'zh-TW': { code: 'zh-TW', name: 'Chinese (Traditional)', nativeName: '繁體中文', direction: 'ltr', dateFormat: 'YYYY/MM/DD', timeFormat: '24h' },
-  'ja-JP': { code: 'ja-JP', name: 'Japanese', nativeName: '日本語', direction: 'ltr', dateFormat: 'YYYY/MM/DD', timeFormat: '24h' },
-  'ko-KR': { code: 'ko-KR', name: 'Korean', nativeName: '한국어', direction: 'ltr', dateFormat: 'YYYY.MM.DD', timeFormat: '24h' },
-  'ar-SA': { code: 'ar-SA', name: 'Arabic', nativeName: 'العربية', direction: 'rtl', dateFormat: 'DD/MM/YYYY', timeFormat: '12h' },
-  'hi-IN': { code: 'hi-IN', name: 'Hindi', nativeName: 'हिन्दी', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '12h' },
-  'ru-RU': { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', direction: 'ltr', dateFormat: 'DD.MM.YYYY', timeFormat: '24h' },
-  'vi-VN': { code: 'vi-VN', name: 'Vietnamese', nativeName: 'Tiếng Việt', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
+  'en-US': { code: 'en-US', name: 'English (US)', nativeName: 'English', direction: 'ltr', dateFormat: 'MM/DD/YYYY', timeFormat: '12h', currency: 'ZAR', currencySymbol: 'R' },
+  'en-GB': { code: 'en-GB', name: 'English (UK)', nativeName: 'English', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'ZAR', currencySymbol: 'R' },
+  'es-ES': { code: 'es-ES', name: 'Spanish (Spain)', nativeName: 'Español', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'EUR', currencySymbol: '€' },
+  'es-MX': { code: 'es-MX', name: 'Spanish (Mexico)', nativeName: 'Español', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '12h', currency: 'MXN', currencySymbol: 'Mex$' },
+  'fr-FR': { code: 'fr-FR', name: 'French', nativeName: 'Français', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'XOF', currencySymbol: 'CFA' },
+  'de-DE': { code: 'de-DE', name: 'German', nativeName: 'Deutsch', direction: 'ltr', dateFormat: 'DD.MM.YYYY', timeFormat: '24h', currency: 'EUR', currencySymbol: '€' },
+  'it-IT': { code: 'it-IT', name: 'Italian', nativeName: 'Italiano', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'EUR', currencySymbol: '€' },
+  'pt-BR': { code: 'pt-BR', name: 'Portuguese (Brazil)', nativeName: 'Português', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'BRL', currencySymbol: 'R$' },
+  'zh-CN': { code: 'zh-CN', name: 'Chinese (Simplified)', nativeName: '简体中文', direction: 'ltr', dateFormat: 'YYYY-MM-DD', timeFormat: '24h', currency: 'CNY', currencySymbol: '¥' },
+  'zh-TW': { code: 'zh-TW', name: 'Chinese (Traditional)', nativeName: '繁體中文', direction: 'ltr', dateFormat: 'YYYY/MM/DD', timeFormat: '24h', currency: 'TWD', currencySymbol: 'NT$' },
+  'ja-JP': { code: 'ja-JP', name: 'Japanese', nativeName: '日本語', direction: 'ltr', dateFormat: 'YYYY/MM/DD', timeFormat: '24h', currency: 'JPY', currencySymbol: '¥' },
+  'ko-KR': { code: 'ko-KR', name: 'Korean', nativeName: '한국어', direction: 'ltr', dateFormat: 'YYYY.MM.DD', timeFormat: '24h', currency: 'KRW', currencySymbol: '₩' },
+  'ar-SA': { code: 'ar-SA', name: 'Arabic', nativeName: 'العربية', direction: 'rtl', dateFormat: 'DD/MM/YYYY', timeFormat: '12h', currency: 'SAR', currencySymbol: 'ر.س' },
+  'hi-IN': { code: 'hi-IN', name: 'Hindi', nativeName: 'हिन्दी', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '12h', currency: 'INR', currencySymbol: '₹' },
+  'ru-RU': { code: 'ru-RU', name: 'Russian', nativeName: 'Русский', direction: 'ltr', dateFormat: 'DD.MM.YYYY', timeFormat: '24h', currency: 'RUB', currencySymbol: '₽' },
+  'vi-VN': { code: 'vi-VN', name: 'Vietnamese', nativeName: 'Tiếng Việt', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'VND', currencySymbol: '₫' },
   // African target markets (Phase 3.5)
-  'sw-KE': { code: 'sw-KE', name: 'Swahili', nativeName: 'Kiswahili', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
-  'am-ET': { code: 'am-ET', name: 'Amharic', nativeName: 'አማርኛ', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h' },
+  'sw-KE': { code: 'sw-KE', name: 'Swahili', nativeName: 'Kiswahili', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'KES', currencySymbol: 'KSh' },
+  'am-ET': { code: 'am-ET', name: 'Amharic', nativeName: 'አማርኛ', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'ETB', currencySymbol: 'Br' },
 };
 
 // Translation key-value store for each locale
@@ -152,6 +163,43 @@ export function formatTime(date: Date | string | number, locale: SupportedLocale
   }
 
   return `${String(hours).padStart(2, '0')}:${minutes}`;
+}
+
+/**
+ * Format a monetary amount according to locale + currency.
+ *
+ * MediChain is an African healthcare platform: amounts are denominated in an
+ * African currency (ZAR by default) — never bare US dollars. Pass an explicit
+ * `currency` (ISO 4217) to override the locale default. Invalid/empty amounts
+ * render as an em dash so the UI never shows "R NaN".
+ *
+ * @example formatCurrency(150, undefined, 'en-US') => 'R 150.00'
+ * @example formatCurrency(150, 'KES', 'sw-KE')     => 'KSh 150.00'
+ */
+export function formatCurrency(
+  amount: number | string | null | undefined,
+  currency?: string,
+  locale: SupportedLocale = 'en-US',
+): string {
+  const value = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '—';
+  }
+
+  const config = LOCALE_CONFIGS[locale];
+  const code = currency || config?.currency || DEFAULT_CURRENCY;
+
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: code,
+      currencyDisplay: 'narrowSymbol',
+    }).format(value);
+  } catch {
+    // Older runtimes may reject `narrowSymbol` or an unknown currency code.
+    const symbol = config?.currencySymbol ?? 'R';
+    return `${symbol} ${value.toFixed(2)}`;
+  }
 }
 
 /**

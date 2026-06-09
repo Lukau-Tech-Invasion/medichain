@@ -16,7 +16,7 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { getPatientInsuranceClaims, IS_DEMO } from '@medichain/shared';
+import { getPatientInsuranceClaims, IS_DEMO, useTranslation, formatCurrency } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -84,6 +84,7 @@ interface InsuranceClaim {
 }
 
 const InsurancePage: React.FC = () => {
+  const { locale } = useTranslation();
   const [activeTab, setActiveTab] = useState<'cards' | 'claims' | 'add'>('cards');
   const [insuranceCards, setInsuranceCards] = useState<InsuranceCard[]>([]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
@@ -598,19 +599,19 @@ const InsurancePage: React.FC = () => {
                         <h4 className="text-xs font-semibold text-gray-600 mb-2">COPAYS</h4>
                         <div className="grid grid-cols-4 gap-2 text-center text-xs">
                           <div>
-                            <div className="font-bold text-lg text-teal-600">${card.copay.primaryCare}</div>
+                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.primaryCare, undefined, locale)}</div>
                             <div className="text-gray-500">Primary</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-teal-600">${card.copay.specialist}</div>
+                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.specialist, undefined, locale)}</div>
                             <div className="text-gray-500">Specialist</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-teal-600">${card.copay.urgentCare}</div>
+                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.urgentCare, undefined, locale)}</div>
                             <div className="text-gray-500">Urgent</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-teal-600">${card.copay.emergency}</div>
+                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.emergency, undefined, locale)}</div>
                             <div className="text-gray-500">ER</div>
                           </div>
                         </div>
@@ -622,7 +623,7 @@ const InsurancePage: React.FC = () => {
                       <div className="mb-4">
                         <div className="flex justify-between text-xs mb-1">
                           <span className="text-gray-500">Deductible Progress</span>
-                          <span className="font-medium">${card.deductible.met} / ${card.deductible.individual}</span>
+                          <span className="font-medium">{formatCurrency(card.deductible.met, undefined, locale)} / {formatCurrency(card.deductible.individual, undefined, locale)}</span>
                         </div>
                         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                           <div
@@ -732,7 +733,7 @@ const InsurancePage: React.FC = () => {
                     <div className="text-sm">
                       <span className="text-gray-500">Your cost: </span>
                       <span className={`font-bold ${claim.patientResponsibility > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        ${claim.patientResponsibility.toFixed(2)}
+                        {formatCurrency(claim.patientResponsibility, undefined, locale)}
                       </span>
                     </div>
                     {claim.eobUrl && (

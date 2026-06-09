@@ -205,7 +205,9 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
             disabled={tapState === 'waiting'}
             className="w-full py-3 bg-emergency-500 text-white font-semibold rounded-lg hover:bg-emergency-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed emergency-pulse"
           >
-            {tapState === 'waiting' ? 'Scanning...' : '🚨 Simulate NFC Tap'}
+            {tapState === 'waiting' ? 'Scanning...' : (
+              <span className="inline-flex items-center justify-center gap-2"><Wifi size={18} aria-hidden="true" /> Simulate NFC Tap</span>
+            )}
           </button>
         </div>
       )}

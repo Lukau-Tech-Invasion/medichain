@@ -112,14 +112,14 @@ async fn main() -> std::io::Result<()> {
     // Fail fast if a production deployment is configured with demo/default
     // secrets; warn (but continue) in demo mode. (Phase 6.1)
     if let Err(msg) = validate_production_secrets() {
-        eprintln!("\n❌ STARTUP ABORTED: {}\n", msg);
+        eprintln!("\n[ERROR] STARTUP ABORTED: {}\n", msg);
         return Err(std::io::Error::new(std::io::ErrorKind::Other, msg));
     }
 
     // Try to connect to PostgreSQL if DATABASE_URL is set
     let db_pool = match std::env::var("DATABASE_URL") {
         Ok(database_url) => {
-            println!("  🗄️  Connecting to PostgreSQL database...");
+            println!("  [DB] Connecting to PostgreSQL database...");
 
             // Use retry logic for Docker Compose scenarios where DB might not be ready
             let max_retries = std::env::var("DB_MAX_RETRIES")
@@ -128,21 +128,21 @@ async fn main() -> std::io::Result<()> {
 
             match db::create_pool_with_retry(&database_url, max_retries, None).await {
                 Ok(pool) => {
-                    println!("  ✅ Database connection established");
+                    println!("  [OK] Database connection established");
 
                     // Run migrations
-                    println!("  📋 Running database migrations...");
+                    println!("  [DB] Running database migrations...");
                     if let Err(e) = db::run_migrations(&pool).await {
-                        eprintln!("  ⚠️  Migration warning: {}", e);
+                        eprintln!("  [WARN] Migration warning: {}", e);
                         eprintln!("       (Demo users may need manual setup)");
                     } else {
-                        println!("  ✅ Migrations completed");
+                        println!("  [OK] Migrations completed");
                     }
 
                     Some(pool)
                 }
                 Err(e) => {
-                    eprintln!("  ⚠️  Database connection failed: {}", e);
+                    eprintln!("  [WARN] Database connection failed: {}", e);
                     eprintln!("       Falling back to in-memory storage");
                     eprintln!("       (Demo users will be lost on restart)");
                     None
@@ -150,7 +150,7 @@ async fn main() -> std::io::Result<()> {
             }
         }
         Err(_) => {
-            println!("  ℹ️  No DATABASE_URL set - using in-memory storage");
+            println!("  [INFO] No DATABASE_URL set - using in-memory storage");
             println!("       Set DATABASE_URL for persistent demo users");
             None
         }
@@ -159,25 +159,25 @@ async fn main() -> std::io::Result<()> {
     // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
     let substrate_client = match crate::blockchain::SubstrateClient::from_env() {
         Some(ws_url) => {
-            println!("  ⛓️  Connecting to Substrate node at {}...", ws_url);
+            println!("  [CHAIN] Connecting to Substrate node at {}...", ws_url);
             match crate::blockchain::SubstrateClient::new(&ws_url).await {
                 Ok(client) => {
                     let connected = client.health_check().await;
                     if connected {
-                        println!("  ✅ Blockchain node connected");
+                        println!("  [OK] Blockchain node connected");
                     } else {
-                        println!("  ⚠️  Blockchain node not reachable - will retry on requests");
+                        println!("  [WARN] Blockchain node not reachable - will retry on requests");
                     }
                     Some(std::sync::Arc::new(client))
                 }
                 Err(e) => {
-                    eprintln!("  ⚠️  Blockchain client init failed: {}", e);
+                    eprintln!("  [WARN] Blockchain client init failed: {}", e);
                     None
                 }
             }
         }
         None => {
-            println!("  ℹ️  No SUBSTRATE_WS_URL set - blockchain features disabled");
+            println!("  [INFO] No SUBSTRATE_WS_URL set - blockchain features disabled");
             None
         }
     };
@@ -187,32 +187,32 @@ async fn main() -> std::io::Result<()> {
 
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
-        println!("  👥 Loading demo users from database...");
+        println!("  [INFO] Loading demo users from database...");
         match app_state.load_demo_users_from_db().await {
             Ok(count) => {
-                println!("  ✅ Loaded {} demo users", count);
+                println!("  [OK] Loaded {} demo users", count);
             }
             Err(e) => {
-                eprintln!("  ⚠️  Failed to load demo users: {}", e);
+                eprintln!("  [WARN] Failed to load demo users: {}", e);
             }
         }
 
         // Load demo patients from database into in-memory cache
-        println!("  🏥 Loading demo patients from database...");
+        println!("  [INFO] Loading demo patients from database...");
         match app_state.load_patients_from_db().await {
             Ok(count) => {
-                println!("  ✅ Loaded {} demo patients", count);
+                println!("  [OK] Loaded {} demo patients", count);
             }
             Err(e) => {
-                eprintln!("  ⚠️  Failed to load demo patients: {}", e);
+                eprintln!("  [WARN] Failed to load demo patients: {}", e);
             }
         }
 
         // Load persisted MFA enrollments + recent security alerts (Phase 11.3/11.4)
-        println!("  🔐 Loading security state (MFA + alerts) from database...");
+        println!("  [INFO] Loading security state (MFA + alerts) from database...");
         match app_state.load_security_from_db().await {
-            Ok(count) => println!("  ✅ Loaded {} MFA enrollments", count),
-            Err(e) => eprintln!("  ⚠️  Failed to load security state: {}", e),
+            Ok(count) => println!("  [OK] Loaded {} MFA enrollments", count),
+            Err(e) => eprintln!("  [WARN] Failed to load security state: {}", e),
         }
     }
 
@@ -227,11 +227,11 @@ async fn main() -> std::io::Result<()> {
                     .await;
             }
         });
-        println!("  ⏰ Medication reminder task started (checks every 60s)");
+        println!("  [INFO] Medication reminder task started (checks every 60s)");
     }
 
     println!();
-    println!("  🚀 Server ready!");
+    println!("  [OK] Server ready!");
     println!();
 
     // Start HTTP server
@@ -274,18 +274,24 @@ async fn main() -> std::io::Result<()> {
         let rate_limit = RateLimitMiddleware::default_config();
 
         // Configure signature authentication (SEC-005)
-        // Default: disabled in demo mode (IS_DEMO=true), enabled otherwise
-        // Override: REQUIRE_SIGNATURES=true/false
-        let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "true".to_string()) == "true";
+        // SECURE BY DEFAULT: verification is ENABLED unless the operator explicitly
+        // opts out via IS_DEMO=true or REQUIRE_SIGNATURES=false. IS_DEMO defaults to
+        // "false" here (matches the CORS block above) so a misconfigured/forgotten
+        // env never silently trusts the unauthenticated X-User-Id header.
+        // Precedence: REQUIRE_SIGNATURES (when set) overrides the IS_DEMO-derived default.
+        let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
         let require_signatures = match std::env::var("REQUIRE_SIGNATURES") {
             Ok(val) => val == "true",
-            Err(_) => !is_demo, // Default: on in production, off in demo
+            Err(_) => !is_demo, // Default: on in production, off only when IS_DEMO=true
         };
         let signature_auth = if require_signatures {
-            log::info!("Signature authentication ENABLED - all authenticated requests require wallet signature");
+            log::info!("Signature authentication ENABLED - all authenticated requests require a wallet signature");
             SignatureAuthMiddleware::enabled()
         } else {
-            log::info!("Signature authentication DISABLED - set REQUIRE_SIGNATURES=true to enable");
+            log::warn!(
+                "Signature verification DISABLED — X-User-Id is NOT cryptographically verified. \
+                 Do NOT use in production. (Set IS_DEMO=false and unset REQUIRE_SIGNATURES to enable.)"
+            );
             SignatureAuthMiddleware::disabled()
         };
 

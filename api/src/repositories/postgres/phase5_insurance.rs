@@ -36,7 +36,7 @@ impl InsuranceRecordRepository for PgInsuranceRecordRepository {
                 plan_name, plan_type, policy_number, group_number,
                 subscriber_id, subscriber_name, subscriber_relationship, subscriber_dob,
                 effective_date, termination_date, is_active,
-                copay_amount, deductible_amount, deductible_met,
+                copay_amount, currency, deductible_amount, deductible_met,
                 out_of_pocket_max, out_of_pocket_met, coinsurance_percent,
                 coverage_details, prior_auth_required,
                 prior_auth_phone, claims_address, claims_phone, claims_fax,
@@ -64,6 +64,7 @@ impl InsuranceRecordRepository for PgInsuranceRecordRepository {
                 .push_bind(r.termination_date)
                 .push_bind(r.is_active)
                 .push_bind(r.copay_amount)
+                .push_bind(&r.currency)
                 .push_bind(r.deductible_amount)
                 .push_bind(r.deductible_met)
                 .push_bind(r.out_of_pocket_max)
@@ -171,6 +172,7 @@ impl InsuranceRecordRepository for PgInsuranceRecordRepository {
             .push_bind(record.termination_date);
         qb.push(", is_active = ").push_bind(record.is_active);
         qb.push(", copay_amount = ").push_bind(record.copay_amount);
+        qb.push(", currency = ").push_bind(&record.currency);
         qb.push(", deductible_amount = ")
             .push_bind(record.deductible_amount);
         qb.push(", deductible_met = ")

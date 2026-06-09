@@ -337,7 +337,9 @@ export default function SepsisPage() {
                     {Math.floor(elapsedMinutes / 60)}:{(elapsedMinutes % 60).toString().padStart(2, '0')}
                   </p>
                   <p className="text-xs text-orange-100 mt-1">
-                    {elapsedMinutes > 60 ? '⚠️ Exceeds 1-hour target' : '✓ Within target'}
+                    {elapsedMinutes > 60 ? (
+                      <span className="inline-flex items-center gap-1"><AlertTriangle size={12} aria-hidden="true" /> Exceeds 1-hour target</span>
+                    ) : '✓ Within target'}
                   </p>
                 </div>
               ) : (
@@ -532,7 +534,9 @@ export default function SepsisPage() {
                     {qsofaScore}/3
                   </p>
                   {qsofaScore >= 2 && (
-                    <p className="text-xs text-red-600 mt-1">⚠️ High risk - Consider ICU</p>
+                    <p className="flex items-center gap-1 text-xs text-red-600 mt-1">
+                      <AlertTriangle size={12} aria-hidden="true" /> High risk - Consider ICU
+                    </p>
                   )}
                 </div>
               </div>

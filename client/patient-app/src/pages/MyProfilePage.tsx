@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiUrl, addEmergencyContact } from '@medichain/shared';
+import { apiUrl, addEmergencyContact, isValidPhoneNumber } from '@medichain/shared';
 import {
   User,
   Heart,
@@ -116,6 +116,12 @@ export function MyProfilePage() {
     }
 
     if (!profile) return;
+
+    // Reject malformed numbers before submit so we never save a broken contact.
+    if (!isValidPhoneNumber(newContact.phone)) {
+      setError('Enter a valid phone number (e.g. +234 801 234 5678).');
+      return;
+    }
 
     setIsSaving(true);
     setError(null);

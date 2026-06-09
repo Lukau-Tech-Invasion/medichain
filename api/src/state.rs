@@ -815,6 +815,10 @@ impl AppState {
                 }],
                 organ_donor,
                 dnr_status,
+                // DNR starts UNVERIFIED at registration; a provider attaches proof later.
+                dnr_verified_by: None,
+                dnr_verified_at: None,
+                dnr_document_ref: None,
                 languages,
                 last_updated: Utc::now(),
             };

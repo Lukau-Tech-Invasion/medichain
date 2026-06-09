@@ -926,7 +926,9 @@ export default function BurnPage() {
             </div>
 
             <div className="mt-6 p-4 bg-red-50 rounded-lg border border-red-200">
-              <h4 className="font-bold text-red-800 mb-2">⚠️ Important Notes</h4>
+              <h4 className="flex items-center gap-2 font-bold text-red-800 mb-2">
+                <AlertTriangle size={18} aria-hidden="true" /> Important Notes
+              </h4>
               <ul className="text-sm text-red-700 space-y-1 list-disc list-inside">
                 <li>Start time for the 8-hour period is from time of burn, NOT time of presentation</li>
                 <li>Use Lactated Ringer's solution (LR) as first-line crystalloid</li>

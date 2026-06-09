@@ -656,6 +656,8 @@ pub async fn create_insurance_claim(
         "success": true,
         "claim_id": claim_id,
         "total_charge": total_charge,
+        // Amounts are denominated in ZAR (African currency), not US dollars.
+        "currency": "ZAR",
         "status": "draft",
         "message": "Insurance claim created"
     }))
@@ -1040,6 +1042,9 @@ pub async fn check_insurance_eligibility(
             let coinsurance = ins
                 .coinsurance_percent
                 .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as u8);
+            // Currency code so the frontend formats amounts in the African
+            // denomination (default ZAR) rather than assuming US dollars.
+            let currency = ins.currency.clone().unwrap_or_else(|| "ZAR".to_string());
 
             serde_json::json!({
                 "success": true,
@@ -1058,6 +1063,7 @@ pub async fn check_insurance_eligibility(
                 "effective_date": ins.effective_date.to_string(),
                 "termination_date": ins.termination_date.map(|d| d.to_string()),
                 "benefits": {
+                    "currency": currency,
                     "copay": copay,
                     "deductible": deductible_total,
                     "deductible_met": deductible_met_val,

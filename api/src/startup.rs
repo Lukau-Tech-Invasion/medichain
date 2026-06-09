@@ -20,11 +20,19 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
 
 /// Validate that the running configuration is not using demo/default secrets.
 ///
+/// Secure by default: `IS_DEMO` is treated as `false` (production) when unset, so a
+/// forgotten/misconfigured environment FAILS CLOSED — the server refuses to boot
+/// with demo or missing secrets rather than silently running insecure. Only an
+/// explicit `IS_DEMO=true` (set by the dev/demo entry points: `.env.example`,
+/// base `docker-compose.yml`, `start-server.sh`, `scripts/start-dev.sh`) downgrades
+/// to warn-only demo mode. This matches the signature-auth default in `main.rs`.
+///
 /// - Always logs a warning for each demo/default secret still in effect.
-/// - In production mode (`IS_DEMO=false`) returns `Err`, so the server refuses
-///   to start with insecure credentials (defense for ePHI per HIPAA/POPIA).
+/// - In production mode (`IS_DEMO` unset or `false`) returns `Err`, so the server
+///   refuses to start with insecure credentials (defense for ePHI per HIPAA/POPIA).
 pub fn validate_production_secrets() -> Result<(), String> {
-    let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "true".to_string()) == "true";
+    // Fail closed: unset IS_DEMO ⇒ production (refuse demo/missing secrets).
+    let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
 
     let mut offenders: Vec<String> = Vec::new();
 
@@ -50,7 +58,7 @@ pub fn validate_production_secrets() -> Result<(), String> {
     }
 
     for offender in &offenders {
-        log::warn!("⚠️  Insecure default secret in use: {}", offender);
+        log::warn!("Insecure default secret in use: {}", offender);
     }
 
     if !is_demo {
@@ -82,21 +90,21 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("║   ██║ ╚═╝ ██║███████╗██████╔╝██║╚██████╗██║  ██║██║  ██║██║██║ ╚█║");
     println!("║   ╚═╝     ╚═╝╚══════╝╚═════╝ ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝ ╚╝║");
     println!("║                                                                  ║");
-    println!("║           🏥 Blockchain Health ID • Emergency Access 🚑          ║");
+    println!("║             Blockchain Health ID • Emergency Access              ║");
     println!("║                                                                  ║");
     println!("╚══════════════════════════════════════════════════════════════════╝");
     println!();
-    println!("  📡 API Server starting on http://{}", bind_addr);
-    println!("  📋 Demo endpoint: http://{}/api/demo", bind_addr);
-    println!("  ❤️  Health check: http://{}/health", bind_addr);
-    println!("  📁 IPFS health:   http://{}/api/ipfs/health", bind_addr);
+    println!("  API Server starting on http://{}", bind_addr);
+    println!("  Demo endpoint: http://{}/api/demo", bind_addr);
+    println!("  Health check:  http://{}/health", bind_addr);
+    println!("  IPFS health:   http://{}/api/ipfs/health", bind_addr);
     println!();
-    println!("  🔐 IPFS Endpoints:");
+    println!("  IPFS Endpoints:");
     println!("     POST /api/records/upload      - Upload encrypted medical record");
     println!("     POST /api/records/download    - Download decrypted record");
     println!("     GET  /api/records/{{patient}}  - List patient records");
     println!();
-    println!("  📲 NFC Simulation Endpoints:");
+    println!("  NFC Simulation Endpoints:");
     println!("     POST /api/nfc/generate        - Generate NFC card for patient");
     println!("     POST /api/nfc/tap             - Simulate NFC card tap");
     println!("     POST /api/nfc/verify-qr       - Verify QR code for emergency");
@@ -104,7 +112,7 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     POST /api/nfc/suspend         - Suspend a card (Admin)");
     println!("     GET  /api/nfc/cards           - List all cards (Admin)");
     println!();
-    println!("  🏥 Clinical Documentation Endpoints:");
+    println!("  Clinical Documentation Endpoints:");
     println!("     POST /api/clinical/triage     - Create ESI triage assessment");
     println!("     POST /api/clinical/soap       - Create SOAP note");
     println!("     POST /api/clinical/sample     - Create SAMPLE history");
@@ -112,14 +120,14 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     POST /api/clinical/vitals     - Add vital signs reading");
     println!("     GET  /api/clinical/lab-panels - View lab panel templates");
     println!();
-    println!("  🚨 Emergency Protocol Endpoints:");
+    println!("  Emergency Protocol Endpoints:");
     println!("     POST /api/clinical/code-blue  - Initiate Code Blue/Resuscitation");
     println!("     POST /api/clinical/trauma     - Create Trauma Assessment");
     println!("     POST /api/clinical/stroke     - Create Stroke Assessment (NIHSS)");
     println!("     POST /api/clinical/sepsis     - Create Sepsis Assessment (qSOFA)");
     println!("     GET  /api/clinical/patient/{{id}}/emergency - All emergency records");
     println!();
-    println!("  📊 Dashboard & Workflow Endpoints:");
+    println!("  Dashboard & Workflow Endpoints:");
     println!("     GET  /api/dashboard/patient   - Patient home dashboard");
     println!("     GET  /api/dashboard/doctor    - Doctor dashboard (patients, labs)");
     println!("     GET  /api/dashboard/nurse     - Nurse dashboard (tasks, vitals)");
@@ -132,28 +140,28 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     GET  /api/medication-reminders/{{id}} - Med reminders");
     println!("     GET  /api/tasks/nurse         - Nurse task list");
     println!();
-    println!("  💬 Patient Engagement Endpoints:");
+    println!("  Patient Engagement Endpoints:");
     println!("     POST /api/symptoms/log        - Log symptom for tracking");
     println!("     GET  /api/symptoms/{{id}}      - Get symptom history");
     println!("     POST /api/symptoms/analyze    - Analyze symptoms for conditions");
     println!("     POST /api/messages/send       - Send secure message");
     println!("     GET  /api/messages            - Get inbox messages");
     println!();
-    println!("  📝 Consent & Compliance Endpoints:");
+    println!("  Consent & Compliance Endpoints:");
     println!("     GET  /api/consent/types       - Available consent forms");
     println!("     POST /api/consent/sign        - Sign consent form");
     println!("     GET  /api/consent/patient/{{id}} - Patient's consents");
     println!();
-    println!("  📦 Barcode/Sample Tracking Endpoints:");
+    println!("  Barcode/Sample Tracking Endpoints:");
     println!("     POST /api/barcode/generate    - Generate barcode");
     println!("     POST /api/barcode/scan        - Scan barcode");
     println!("     GET  /api/barcode/track/{{bc}} - Track barcode history");
     println!();
-    println!("  📋 Note Templates Endpoints:");
+    println!("  Note Templates Endpoints:");
     println!("     GET  /api/templates/notes     - Get note templates");
     println!("     POST /api/templates/notes/use - Create note from template");
     println!();
-    println!("  🆔 Medical ID Card Endpoints:");
+    println!("  Medical ID Card Endpoints:");
     println!("     GET  /api/medical-id/{{id}}    - Full Medical ID card data");
     println!("     GET  /api/medical-id/{{id}}/qr - QR code for Medical ID");
     println!("     GET  /api/medical-id/{{id}}/emergency - Emergency access view");

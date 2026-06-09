@@ -11,6 +11,8 @@ export { Modal } from './Modal';
 export { Layout } from './Layout';
 export { LoadingSpinner, LoadingPage, Skeleton } from './Loading';
 export { EmergencyBanner } from './EmergencyBanner';
+export { EmptyState } from './EmptyState';
+export type { EmptyStateProps } from './EmptyState';
 export { PatientCard } from './PatientCard';
 export { QRCodeDisplay } from './QRCodeDisplay';
 export * from './Toast';

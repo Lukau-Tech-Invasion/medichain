@@ -651,7 +651,7 @@ export default function ShiftHandoffPage() {
                           <p className="text-sm text-gray-600">{patient.diagnosis || 'Diagnosis pending'}</p>
                           <div className="flex items-center space-x-3 mt-1 text-xs text-gray-500">
                             <span>Code: {patient.codeStatus}</span>
-                            {patient.isolation && <span className="text-orange-600">⚠ {patient.isolation}</span>}
+                            {patient.isolation && <span className="inline-flex items-center gap-1 text-orange-600"><AlertTriangle size={12} aria-hidden="true" /> {patient.isolation}</span>}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">

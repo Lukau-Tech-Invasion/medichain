@@ -221,7 +221,7 @@ export function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">
-            Hello, {patient?.firstName || patientData?.name.split(' ')[0]} 👋
+            Hello, {patient?.firstName || patientData?.name.split(' ')[0]}
           </h1>
           <p className="text-neutral-600">
             Your health, your control

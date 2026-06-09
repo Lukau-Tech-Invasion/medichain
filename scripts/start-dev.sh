@@ -150,5 +150,9 @@ echo "║  Press Ctrl+C to stop all services                               ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Run API server in foreground
-RUST_LOG=info ./target/release/medichain-api
+# Run API server in foreground.
+# Demo experience: password-less local run. The API is SECURE BY DEFAULT
+# (signature verification ON), so explicitly opt into demo mode here so the
+# dev environment stays usable without wallet signatures. Never set
+# IS_DEMO=true in production.
+RUST_LOG=info IS_DEMO=true ./target/release/medichain-api
