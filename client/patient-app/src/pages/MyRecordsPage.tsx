@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
   FileText,
@@ -52,6 +52,7 @@ interface MedicalRecord {
  * © 2025 Trustware. All rights reserved.
  */
 export function MyRecordsPage() {
+  const { t } = useTranslation();
   const { showError } = useToastActions();
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -121,7 +122,7 @@ export function MyRecordsPage() {
           id: rec.record_id,
           type: rec.record_type,
           title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-          description: rec.metadata?.description || 'Medical record',
+          description: rec.metadata?.description || t('records.defaultDescription'),
           provider: rec.created_by,
           date: new Date(rec.created_at).toISOString().split('T')[0],
           contentHash: rec.metadata?.content_hash || `rec-${rec.record_id}`,
@@ -183,6 +184,20 @@ export function MyRecordsPage() {
     return type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   };
 
+  // Localized label for a record type code, falling back to the formatted code.
+  const typeLabel = (type: string) => {
+    const map: Record<string, string> = {
+      lab_result: t('records.typeLabResult'),
+      imaging: t('records.typeImaging'),
+      prescription: t('records.typePrescription'),
+      consultation: t('records.typeConsultation'),
+      discharge_summary: t('records.typeDischarge'),
+      vaccination: t('records.typeVaccination'),
+      other: t('records.typeOther'),
+    };
+    return map[type] || formatRecordType(type);
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'short',
@@ -213,11 +228,11 @@ export function MyRecordsPage() {
         URL.revokeObjectURL(url);
       } else {
         console.error('Failed to download record');
-        showError(`Unable to download: ${record.title}`);
+        showError(t('records.downloadFailed', { title: record.title }));
       }
     } catch (error) {
       console.error('Error downloading record:', error);
-      showError(`Error downloading: ${record.title}`);
+      showError(t('records.downloadError', { title: record.title }));
     } finally {
       setIsDownloading(null);
     }
@@ -248,8 +263,8 @@ export function MyRecordsPage() {
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">My Medical Records</h1>
-        <p className="text-neutral-600">Secure, blockchain-verified health documents</p>
+        <h1 className="text-2xl font-bold text-neutral-900">{t('records.pageTitle')}</h1>
+        <p className="text-neutral-600">{t('records.subtitle')}</p>
       </div>
 
       {/* Search & Filter */}
@@ -258,7 +273,7 @@ export function MyRecordsPage() {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
           <input
             type="text"
-            placeholder="Search records..."
+            placeholder={t('records.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-12 pr-4 py-3 bg-neutral-100 border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
@@ -276,7 +291,7 @@ export function MyRecordsPage() {
                   : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
               }`}
             >
-              {type === 'all' ? 'All Records' : formatRecordType(type)}
+              {type === 'all' ? t('records.allRecords') : typeLabel(type)}
             </button>
           ))}
         </div>
@@ -285,7 +300,7 @@ export function MyRecordsPage() {
       {/* Records Count */}
       <div className="flex items-center gap-2 text-sm text-neutral-500">
         <FileText className="w-4 h-4" />
-        {filteredRecords.length} record{filteredRecords.length !== 1 ? 's' : ''} found
+        {t('records.found', { count: filteredRecords.length })}
       </div>
 
       {/* Records List */}
@@ -327,7 +342,7 @@ export function MyRecordsPage() {
         {filteredRecords.length === 0 && (
           <div className="text-center py-12">
             <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
-            <p className="text-neutral-500">No records found</p>
+            <p className="text-neutral-500">{t('records.noRecords')}</p>
           </div>
         )}
       </div>
@@ -337,7 +352,7 @@ export function MyRecordsPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
           <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
             <div className="sticky top-0 bg-white p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-neutral-900">Record Details</h2>
+              <h2 className="text-xl font-bold text-neutral-900">{t('records.recordDetails')}</h2>
               <button
                 onClick={() => setSelectedRecord(null)}
                 className="p-2 hover:bg-neutral-100 rounded-xl transition-colors"
@@ -354,7 +369,7 @@ export function MyRecordsPage() {
                 </div>
                 <div>
                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-1 ${getRecordColor(selectedRecord.type)}`}>
-                    {formatRecordType(selectedRecord.type)}
+                    {typeLabel(selectedRecord.type)}
                   </span>
                   <h3 className="font-semibold text-lg text-neutral-900">{selectedRecord.title}</h3>
                   <p className="text-neutral-600">{selectedRecord.description}</p>
@@ -366,25 +381,25 @@ export function MyRecordsPage() {
                 <div className="flex items-center gap-3">
                   <User className="w-5 h-5 text-neutral-400" />
                   <div>
-                    <p className="text-sm text-neutral-500">Provider</p>
+                    <p className="text-sm text-neutral-500">{t('records.provider')}</p>
                     <p className="font-medium text-neutral-900">{selectedRecord.provider}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Calendar className="w-5 h-5 text-neutral-400" />
                   <div>
-                    <p className="text-sm text-neutral-500">Date</p>
+                    <p className="text-sm text-neutral-500">{t('records.date')}</p>
                     <p className="font-medium text-neutral-900">{formatDate(selectedRecord.date)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Clock className="w-5 h-5 text-neutral-400" />
                   <div>
-                    <p className="text-sm text-neutral-500">Status</p>
+                    <p className="text-sm text-neutral-500">{t('records.status')}</p>
                     <div className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-warning-500'}`} />
                       <p className="font-medium text-neutral-900">
-                        {selectedRecord.verified ? 'Blockchain Verified' : 'Pending Verification'}
+                        {selectedRecord.verified ? t('records.verified') : t('records.pendingVerification')}
                       </p>
                     </div>
                   </div>
@@ -395,7 +410,7 @@ export function MyRecordsPage() {
               <div className="p-4 bg-info-light rounded-xl">
                 <p className="text-sm text-info-dark mb-1 font-medium flex items-center gap-2">
                   <Shield className="w-4 h-4" />
-                  Document Hash (IPFS)
+                  {t('records.documentHash')}
                 </p>
                 <p className="font-mono text-xs text-info break-all">{selectedRecord.contentHash}</p>
               </div>
@@ -405,19 +420,19 @@ export function MyRecordsPage() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <FlaskConical className="w-5 h-5 text-info" />
-                    <h4 className="font-semibold text-neutral-900">Test Results</h4>
+                    <h4 className="font-semibold text-neutral-900">{t('records.testResults')}</h4>
                     <span className="text-xs text-success-600 flex items-center gap-1 bg-success-50 px-2 py-0.5 rounded-full">
                       <CheckCircle className="w-3 h-3" />
-                      Doctor Approved
+                      {t('records.doctorApproved')}
                     </span>
                   </div>
                   <div className="bg-neutral-50 rounded-xl overflow-hidden">
                     <table className="w-full text-sm">
                       <thead className="bg-neutral-100">
                         <tr>
-                          <th className="text-left px-4 py-2 font-medium text-neutral-600">Parameter</th>
-                          <th className="text-right px-4 py-2 font-medium text-neutral-600">Value</th>
-                          <th className="text-right px-4 py-2 font-medium text-neutral-600">Reference</th>
+                          <th className="text-left px-4 py-2 font-medium text-neutral-600">{t('records.parameter')}</th>
+                          <th className="text-right px-4 py-2 font-medium text-neutral-600">{t('records.value')}</th>
+                          <th className="text-right px-4 py-2 font-medium text-neutral-600">{t('records.reference')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -450,7 +465,7 @@ export function MyRecordsPage() {
                   {selectedRecord.reviewedBy && (
                     <p className="text-xs text-neutral-500 flex items-center gap-1">
                       <Shield className="w-3 h-3 text-success-500" />
-                      Reviewed and approved by {selectedRecord.reviewedBy}
+                      {t('records.reviewedByName', { name: selectedRecord.reviewedBy })}
                     </p>
                   )}
                 </div>
@@ -468,11 +483,11 @@ export function MyRecordsPage() {
                   ) : (
                     <Download className="w-5 h-5" />
                   )}
-                  Download
+                  {t('records.download')}
                 </button>
                 <button className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors">
                   <Eye className="w-5 h-5" />
-                  View
+                  {t('records.view')}
                 </button>
               </div>
             </div>
