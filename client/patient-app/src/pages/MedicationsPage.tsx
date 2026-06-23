@@ -4,7 +4,8 @@ import {
   getPatientEPrescriptions,
   getPatientReminders,
   logMedicationAdherence,
-  IS_DEMO
+  IS_DEMO,
+  useTranslation
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -62,7 +63,11 @@ interface MedicationReminder {
  */
 export function MedicationsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
+  const statusLabel = (s: string) =>
+    ({ active: t('medications.statusActive'), completed: t('medications.statusCompleted'), paused: t('medications.statusPaused') }[s] ||
+      s.charAt(0).toUpperCase() + s.slice(1));
   const [medications, setMedications] = useState<Medication[]>([]);
   const [reminders, setReminders] = useState<MedicationReminder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -252,15 +257,15 @@ export function MedicationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">My Medications</h1>
-          <p className="text-neutral-500">Track and manage your prescriptions</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('medications.pageTitle')}</h1>
+          <p className="text-neutral-500">{t('medications.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadMedications}
@@ -275,7 +280,7 @@ export function MedicationsPage() {
       <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold">Today's Medications</h2>
+            <h2 className="text-lg font-semibold">{t('medications.todaysMeds')}</h2>
             <p className="text-white/80 text-sm">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
@@ -286,15 +291,15 @@ export function MedicationsPage() {
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-white/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{reminders.length}</div>
-            <div className="text-xs text-white/70">Total Doses</div>
+            <div className="text-xs text-white/70">{t('medications.totalDoses')}</div>
           </div>
           <div className="bg-white/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{completedReminders.length}</div>
-            <div className="text-xs text-white/70">Taken</div>
+            <div className="text-xs text-white/70">{t('medications.taken')}</div>
           </div>
           <div className="bg-white/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold text-yellow-300">{pendingReminders.length}</div>
-            <div className="text-xs text-white/70">Pending</div>
+            <div className="text-xs text-white/70">{t('medications.pending')}</div>
           </div>
         </div>
       </div>
@@ -311,7 +316,7 @@ export function MedicationsPage() {
                 : 'border-transparent text-neutral-500 hover:text-neutral-700'
             }`}
           >
-            {tab === 'current' ? 'Current Meds' : tab === 'reminders' ? "Today's Schedule" : 'History'}
+            {tab === 'current' ? t('medications.tabCurrent') : tab === 'reminders' ? t('medications.tabSchedule') : t('medications.tabHistory')}
           </button>
         ))}
       </div>
@@ -323,7 +328,7 @@ export function MedicationsPage() {
           {pendingReminders.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-medium text-neutral-700 flex items-center gap-2">
-                <Clock className="w-4 h-4" /> Upcoming
+                <Clock className="w-4 h-4" /> {t('medications.upcoming')}
               </h3>
               {pendingReminders.map(reminder => (
                 <div key={reminder.id} className="patient-card flex items-center justify-between">
@@ -340,7 +345,7 @@ export function MedicationsPage() {
                     onClick={() => markAsTaken(reminder.id)}
                     className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
                   >
-                    Mark Taken
+                    {t('medications.markTaken')}
                   </button>
                 </div>
               ))}
@@ -351,7 +356,7 @@ export function MedicationsPage() {
           {completedReminders.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-medium text-neutral-700 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" /> Completed
+                <CheckCircle className="w-4 h-4 text-green-500" /> {t('medications.completed')}
               </h3>
               {completedReminders.map(reminder => (
                 <div key={reminder.id} className="patient-card flex items-center justify-between opacity-75">
@@ -361,7 +366,7 @@ export function MedicationsPage() {
                     </div>
                     <div>
                       <p className="font-medium text-neutral-900 line-through">{reminder.medicationName}</p>
-                      <p className="text-sm text-neutral-500">{reminder.dosage} • Taken at {reminder.takenAt}</p>
+                      <p className="text-sm text-neutral-500">{reminder.dosage} • {t('medications.takenAt', { time: reminder.takenAt || '' })}</p>
                     </div>
                   </div>
                 </div>
@@ -372,7 +377,7 @@ export function MedicationsPage() {
           {reminders.length === 0 && (
             <div className="text-center py-12">
               <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">No medications scheduled for today</p>
+              <p className="text-neutral-500">{t('medications.noneToday')}</p>
             </div>
           )}
         </div>
@@ -395,7 +400,7 @@ export function MedicationsPage() {
                         med.status === 'active' ? 'bg-green-100 text-green-700' :
                         med.status === 'completed' ? 'bg-neutral-100 text-neutral-600' :
                         'bg-yellow-100 text-yellow-700'
-                      }`}>{med.status.charAt(0).toUpperCase() + med.status.slice(1)}</span>
+                      }`}>{statusLabel(med.status)}</span>
                     )}
                   </div>
                 </div>
@@ -404,27 +409,27 @@ export function MedicationsPage() {
 
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div className="bg-neutral-50 rounded-lg p-3">
-                  <p className="text-xs text-neutral-500">Prescribed By</p>
+                  <p className="text-xs text-neutral-500">{t('medications.prescribedBy')}</p>
                   <p className="text-sm font-medium text-neutral-900">{med.prescribedBy}</p>
                 </div>
                 <div className="bg-neutral-50 rounded-lg p-3">
-                  <p className="text-xs text-neutral-500">Refills Remaining</p>
+                  <p className="text-xs text-neutral-500">{t('medications.refillsRemaining')}</p>
                   <p className={`flex items-center gap-1 text-sm font-medium ${med.refillsRemaining <= 1 ? 'text-emergency-600' : 'text-neutral-900'}`}>
                     {med.refillsRemaining}
-                    {med.refillsRemaining <= 1 && <AlertTriangle className="w-4 h-4" aria-label="Low refills" />}
+                    {med.refillsRemaining <= 1 && <AlertTriangle className="w-4 h-4" aria-label={t('medications.lowRefills')} />}
                   </p>
                 </div>
               </div>
 
               <p className="text-sm text-neutral-600 mb-3">
-                <span className="font-medium">Instructions:</span> {med.instructions}
+                <span className="font-medium">{t('medications.instructionsLabel')}</span> {med.instructions}
               </p>
 
               {med.sideEffects.length > 0 && (
                 <div className="flex items-start gap-2 text-sm text-yellow-700 bg-yellow-50 rounded-lg p-3">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <div>
-                    <span className="font-medium">Possible side effects:</span>{' '}
+                    <span className="font-medium">{t('medications.sideEffectsLabel')}</span>{' '}
                     {med.sideEffects.join(', ')}
                   </div>
                 </div>
@@ -434,7 +439,7 @@ export function MedicationsPage() {
                 <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-lg p-3 mt-2">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <div>
-                    <span className="font-medium">Drug Interactions:</span>{' '}
+                    <span className="font-medium">{t('medications.interactionsLabel')}</span>{' '}
                     {med.interactions.join(', ')}
                   </div>
                 </div>
@@ -443,7 +448,7 @@ export function MedicationsPage() {
               {med.refillsRemaining <= 1 && (
                 <button className="mt-3 w-full py-2 border-2 border-primary-500 text-primary-600 rounded-lg font-medium hover:bg-primary-50 transition-colors flex items-center justify-center gap-2">
                   <Plus className="w-4 h-4" />
-                  Request Refill
+                  {t('medications.requestRefill')}
                 </button>
               )}
             </div>
@@ -452,7 +457,7 @@ export function MedicationsPage() {
           {medications.length === 0 && (
             <div className="text-center py-12">
               <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">No active medications</p>
+              <p className="text-neutral-500">{t('medications.noneActive')}</p>
             </div>
           )}
         </div>
@@ -463,10 +468,10 @@ export function MedicationsPage() {
           <div className="patient-card">
             <div className="flex items-center gap-3 mb-4">
               <Calendar className="w-5 h-5 text-neutral-500" />
-              <h3 className="font-medium text-neutral-900">Medication History</h3>
+              <h3 className="font-medium text-neutral-900">{t('medications.historyTitle')}</h3>
             </div>
             <p className="text-sm text-neutral-500 text-center py-8">
-              Medication history will appear here once you start tracking doses.
+              {t('medications.historyEmpty')}
             </p>
           </div>
         </div>
