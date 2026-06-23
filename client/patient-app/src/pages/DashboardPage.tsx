@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Heart,
@@ -53,6 +53,7 @@ interface RecentActivity {
  */
 export function DashboardPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated, logout } = usePatientAuthStore();
   const [patientData, setPatientData] = useState<PatientData | null>(null);
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
@@ -120,7 +121,7 @@ export function DashboardPage() {
             }) => ({
               id: log.log_id,
               type: log.action_type === 'view' ? 'access' : log.action_type === 'consent' ? 'consent' : 'update',
-              description: `${log.accessor_name} ${log.action_type === 'view' ? 'accessed your records' : log.action_type}`,
+              description: `${log.accessor_name} ${log.action_type === 'view' ? t('dashboard.accessedYourRecords') : log.action_type}`,
               timestamp: log.accessed_at,
               accessor: log.accessor_name,
             }));
@@ -221,10 +222,12 @@ export function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">
-            Hello, {patient?.firstName || patientData?.name.split(' ')[0]}
+            {t('dashboard.greeting', {
+              name: patient?.firstName || patientData?.name.split(' ')[0] || '',
+            })}
           </h1>
           <p className="text-neutral-600">
-            Your health, your control
+            {t('dashboard.tagline')}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -233,7 +236,7 @@ export function DashboardPage() {
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('dashboard.live') : t('dashboard.demo')}
           </div>
           <button className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors">
             <Bell className="w-6 h-6" />
@@ -246,7 +249,7 @@ export function DashboardPage() {
           <button 
             onClick={handleLogout}
             className="p-2 text-neutral-600 hover:bg-red-50 hover:text-red-600 rounded-xl transition-colors"
-            title="Disconnect Wallet"
+            title={t('dashboard.disconnectWallet')}
           >
             <LogOut className="w-6 h-6" />
           </button>
@@ -261,7 +264,7 @@ export function DashboardPage() {
               <Heart className="w-7 h-7" />
             </div>
             <div>
-              <h2 className="font-semibold text-lg">Health ID Active</h2>
+              <h2 className="font-semibold text-lg">{t('dashboard.healthIdActive')}</h2>
               <p className="text-white/80 text-sm">{patientData?.healthId}</p>
             </div>
           </div>
@@ -272,17 +275,17 @@ export function DashboardPage() {
           <div className="bg-white/10 rounded-xl p-3 text-center">
             <Droplets className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.bloodType}</div>
-            <div className="text-xs text-white/70">Blood Type</div>
+            <div className="text-xs text-white/70">{t('dashboard.bloodType')}</div>
           </div>
           <div className="bg-white/10 rounded-xl p-3 text-center">
             <AlertTriangle className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.allergies.length}</div>
-            <div className="text-xs text-white/70">Allergies</div>
+            <div className="text-xs text-white/70">{t('dashboard.allergies')}</div>
           </div>
           <div className="bg-white/10 rounded-xl p-3 text-center">
             <Pill className="w-5 h-5 mx-auto mb-1" />
             <div className="font-bold">{patientData?.medications.length}</div>
-            <div className="text-xs text-white/70">Medications</div>
+            <div className="text-xs text-white/70">{t('dashboard.medications')}</div>
           </div>
         </div>
       </div>
@@ -297,8 +300,8 @@ export function DashboardPage() {
             <QrCode className="w-7 h-7 text-emergency-500" />
           </div>
           <div className="text-center">
-            <div className="font-medium text-neutral-900">Emergency Card</div>
-            <div className="text-sm text-neutral-500">Show QR / NFC</div>
+            <div className="font-medium text-neutral-900">{t('dashboard.emergencyCard')}</div>
+            <div className="text-sm text-neutral-500">{t('dashboard.showQrNfc')}</div>
           </div>
         </Link>
 
@@ -310,8 +313,8 @@ export function DashboardPage() {
             <FileText className="w-7 h-7 text-primary-500" />
           </div>
           <div className="text-center">
-            <div className="font-medium text-neutral-900">My Records</div>
-            <div className="text-sm text-neutral-500">View all</div>
+            <div className="font-medium text-neutral-900">{t('dashboard.myRecords')}</div>
+            <div className="text-sm text-neutral-500">{t('dashboard.viewAll')}</div>
           </div>
         </Link>
 
@@ -323,8 +326,8 @@ export function DashboardPage() {
             <Shield className="w-7 h-7 text-success-500" />
           </div>
           <div className="text-center">
-            <div className="font-medium text-neutral-900">Access Control</div>
-            <div className="text-sm text-neutral-500">Manage consent</div>
+            <div className="font-medium text-neutral-900">{t('dashboard.accessControl')}</div>
+            <div className="text-sm text-neutral-500">{t('dashboard.manageConsent')}</div>
           </div>
         </Link>
 
@@ -336,8 +339,8 @@ export function DashboardPage() {
             <Activity className="w-7 h-7 text-info" />
           </div>
           <div className="text-center">
-            <div className="font-medium text-neutral-900">My Profile</div>
-            <div className="text-sm text-neutral-500">Health info</div>
+            <div className="font-medium text-neutral-900">{t('dashboard.myProfile')}</div>
+            <div className="text-sm text-neutral-500">{t('dashboard.healthInfo')}</div>
           </div>
         </Link>
       </div>
@@ -347,7 +350,7 @@ export function DashboardPage() {
         <div className="warning-card">
           <div className="flex items-center gap-3 mb-3">
             <AlertTriangle className="w-5 h-5 text-emergency-500" />
-            <span className="font-medium text-emergency-700">Critical Allergies</span>
+            <span className="font-medium text-emergency-700">{t('dashboard.criticalAllergies')}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {patientData.allergies.map((allergy, idx) => (
@@ -367,10 +370,10 @@ export function DashboardPage() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-neutral-900 flex items-center gap-2">
             <Clock className="w-5 h-5 text-neutral-500" />
-            Recent Activity
+            {t('dashboard.recentActivity')}
           </h3>
           <Link to="/consent" className="text-sm text-primary-500 hover:text-primary-600 font-medium">
-            View all
+            {t('dashboard.viewAll')}
           </Link>
         </div>
 
@@ -406,14 +409,14 @@ export function DashboardPage() {
       {/* Last Visit Info */}
       <div className="info-card flex items-center justify-between">
         <div>
-          <p className="text-sm text-info-dark font-medium">Last Healthcare Visit</p>
+          <p className="text-sm text-info-dark font-medium">{t('dashboard.lastVisit')}</p>
           <p className="text-info">{patientData?.lastVisit ? formatDate(patientData.lastVisit) : 'N/A'}</p>
         </div>
         <Link
           to="/records"
           className="text-sm text-info font-medium hover:underline flex items-center gap-1"
         >
-          View details <ChevronRight className="w-4 h-4" />
+          {t('dashboard.viewDetails')} <ChevronRight className="w-4 h-4" />
         </Link>
       </div>
     </div>
