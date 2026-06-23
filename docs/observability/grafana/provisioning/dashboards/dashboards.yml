@@ -1,0 +1,17 @@
+# Grafana dashboard provisioning (Phase 8.2).
+# Loads any dashboard JSON mounted at /var/lib/grafana/dashboards — the compose
+# file mounts ../grafana-dashboard.json there. The dashboard's ${datasource}
+# template variable resolves to the default Prometheus datasource above.
+apiVersion: 1
+
+providers:
+  - name: MediChain
+    orgId: 1
+    folder: MediChain
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -1,0 +1,13 @@
+# Grafana datasource provisioning (Phase 8.2).
+# Auto-registers the in-compose Prometheus as the default datasource so the
+# bundled dashboard works on first boot with no manual setup.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: medichain-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

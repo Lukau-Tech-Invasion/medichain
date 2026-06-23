@@ -487,9 +487,9 @@ app**). Docs: `mobile-setup.md`, `e2ee-policy.md`, `security-checklist.md`,
 **What's needed:**
 - [x] Add structured logging (tracing crate with JSON output) — `LOG_FORMAT=json` installs a `tracing` JSON subscriber bridging existing `log::` calls **(Round 12)**
 - [x] Add Prometheus metrics endpoint (`/api/metrics`) — `middleware/metrics.rs` (`http_requests_total`, `http_request_duration_seconds`) via `MetricsMiddleware` **(Round 12)**
-- [ ] Add Grafana dashboard for API latency, error rates, active sessions
+- [x] Add Grafana dashboard for API latency, error rates, active sessions — `docs/observability/grafana-dashboard.json` auto-provisioned via the `monitoring` compose profile (`docker-compose.prod.yml`)
 - [ ] Add health check dashboard aggregating DB, IPFS, blockchain, and API status (raw probes exist: `/api/health`, `/health/ready`)
-- [ ] Set up alerting for critical events (DB connection loss, high error rate)
+- [x] Set up alerting for critical events (DB connection loss, high error rate) — `docs/observability/prometheus-alerts.yml` loaded by the in-compose Prometheus (instance-down/5xx/latency/401-spike)
 
 ### 8.3 Mobile App :large_orange_diamond:
 **File:** `mobile-examples/expo-starter/src/`

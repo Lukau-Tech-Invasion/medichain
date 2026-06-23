@@ -33,6 +33,22 @@ Import `grafana-dashboard.json` and pick your Prometheus datasource. Panels:
 request rate by status, 5xx error ratio, p95 latency by route, and the
 emergency-access p95 against its budget.
 
+## Running it (compose)
+
+Prometheus + Grafana are wired into the production compose under an opt-in
+`monitoring` profile (so a default `up` stays lean):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile monitoring up -d
+```
+
+- **Prometheus** loads `prometheus.yml` + `prometheus-alerts.yml` from this folder
+  (mounted read-only) and scrapes `api:8080/api/metrics` on the shared network.
+- **Grafana** (host `:3001`, admin password via `GRAFANA_ADMIN_PASSWORD`) auto-provisions
+  the Prometheus datasource (`grafana/provisioning/datasources/`) and the bundled
+  dashboard (`grafana/provisioning/dashboards/` → mounts `grafana-dashboard.json`).
+  The dashboard's `${datasource}` variable resolves to the provisioned Prometheus.
+
 ## Still open
 
 - A single health dashboard aggregating DB / IPFS / blockchain probes (the raw
