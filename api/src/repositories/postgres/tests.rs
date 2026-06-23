@@ -11,24 +11,80 @@ mod tests {
         PatientEntity, PatientRepository,
     };
     use chrono::Utc;
-    use sqlx::PgPool;
+    use sqlx::{postgres::PgPoolOptions, PgPool};
     use std::env;
+    use tokio::sync::{Mutex, MutexGuard, OnceCell};
+
+    static TEST_POOL: OnceCell<PgPool> = OnceCell::const_new();
+    static POSTGRES_TEST_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
+
+    async fn postgres_test_guard() -> MutexGuard<'static, ()> {
+        POSTGRES_TEST_LOCK
+            .get_or_init(|| async { Mutex::new(()) })
+            .await
+            .lock()
+            .await
+    }
 
     async fn get_test_pool() -> PgPool {
+        TEST_POOL.get_or_init(create_test_pool).await.clone()
+    }
+
+    async fn create_test_pool() -> PgPool {
         dotenvy::dotenv().ok();
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
             "postgres://medichain:medichain_dev_2024@localhost:5432/medichain".to_string()
         });
+        let schema = format!(
+            "medichain_test_{}_{}",
+            std::process::id(),
+            Utc::now().timestamp_millis()
+        );
 
-        db::create_pool(&database_url)
+        let admin_pool = db::create_pool(&database_url)
             .await
-            .expect("Failed to create test database pool")
+            .expect("Failed to create test database pool");
+        sqlx::query(&format!("CREATE SCHEMA {}", quote_identifier(&schema)))
+            .execute(&admin_pool)
+            .await
+            .expect("Failed to create isolated test schema");
+        admin_pool.close().await;
+
+        let pool = create_schema_pool(&database_url, &schema).await;
+
+        db::run_migrations(&pool)
+            .await
+            .expect("Failed to run test database migrations");
+
+        pool
+    }
+
+    async fn create_schema_pool(database_url: &str, schema: &str) -> PgPool {
+        let search_path = format!("SET search_path TO {}, public", quote_identifier(schema));
+
+        PgPoolOptions::new()
+            .max_connections(20)
+            .min_connections(1)
+            .after_connect(move |conn, _meta| {
+                let search_path = search_path.clone();
+                Box::pin(async move {
+                    sqlx::query(&search_path).execute(conn).await?;
+                    Ok(())
+                })
+            })
+            .connect(database_url)
+            .await
+            .expect("Failed to create isolated test database pool")
+    }
+
+    fn quote_identifier(identifier: &str) -> String {
+        format!("\"{}\"", identifier.replace('"', "\"\""))
     }
 
     fn create_test_patient(id: &str) -> PatientEntity {
         PatientEntity {
             id: id.to_string(),
-            health_id: format!("HID-{}", id),
+            health_id: health_id_for(id),
             national_id_hash: format!("hash-{}", id),
             national_id_type: "FaydaID".to_string(),
             first_name_encrypted: None,
@@ -58,8 +114,14 @@ mod tests {
         }
     }
 
+    fn health_id_for(id: &str) -> String {
+        let suffix_len = id.len().min(28);
+        format!("HID-{}", &id[id.len() - suffix_len..])
+    }
+
     #[tokio::test]
     async fn test_pg_patient_repository() {
+        let _guard = postgres_test_guard().await;
         let pool = get_test_pool().await;
         let repo = PgPatientRepository::new(pool.clone());
 
@@ -78,7 +140,7 @@ mod tests {
             .get_by_id(&patient_id)
             .await
             .expect("Failed to get patient by ID");
-        assert_eq!(fetched.health_id, format!("HID-{}", patient_id));
+        assert_eq!(fetched.health_id, health_id_for(&patient_id));
 
         // Test Get by Wallet
         let fetched_wallet = repo
@@ -131,6 +193,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pg_allergy_repository() {
+        let _guard = postgres_test_guard().await;
         let pool = get_test_pool().await;
         let patient_repo = PgPatientRepository::new(pool.clone());
         let allergy_repo = PgAllergyRepository::new(pool.clone());
@@ -218,6 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pg_medical_record_repository() {
+        let _guard = postgres_test_guard().await;
         let pool = get_test_pool().await;
         let patient_repo = PgPatientRepository::new(pool.clone());
         let record_repo = PgMedicalRecordRepository::new(pool.clone());
@@ -302,6 +366,7 @@ mod tests {
     /// fields surviving the JSONB round-trip.
     #[tokio::test]
     async fn test_pg_code_blue_round_trip_survives_restart() {
+        let _guard = postgres_test_guard().await;
         use crate::repositories::postgres::PgCodeBlueRepository;
         use crate::repositories::traits::{CodeBlueEntity, CodeBlueRepository};
 

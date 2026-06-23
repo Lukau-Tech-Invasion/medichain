@@ -589,7 +589,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_sms_with_retry_suppresses_when_opted_out() {
-        let repos = RepositoryContainer::new();
+        let repos = RepositoryContainer::new_memory();
         let status = send_sms_with_retry(
             &repos,
             SmsMessage {
@@ -604,7 +604,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_sms_with_retry_logs_when_disabled() {
-        let repos = RepositoryContainer::new();
+        let repos = RepositoryContainer::new_memory();
         // With SMS disabled (default), send_sms returns Ok after logging, so a
         // opted-in recipient yields Sent without hitting the network.
         std::env::remove_var("SMS_ENABLED");

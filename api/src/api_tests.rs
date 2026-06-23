@@ -7,7 +7,7 @@ mod tests {
         get_current_user_info, get_patient_by_id, health_check, register_patient, AppState, Role,
         User,
     };
-    use actix_web::{test, web, App, HttpResponse};
+    use actix_web::{test, web, App};
     use chrono::Utc;
     use serde_json::json;
 

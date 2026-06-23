@@ -109,6 +109,9 @@ $$;
 -- ============================================================================
 -- PART 1: patients table
 -- ============================================================================
+DROP VIEW IF EXISTS v_patient_summary;
+DROP VIEW IF EXISTS v_ed_dashboard;
+
 SELECT _mc_uuid_col_to_varchar66('patients', 'registered_by');
 SELECT _mc_uuid_col_to_varchar66('patients', 'primary_provider_id');
 
@@ -118,6 +121,23 @@ SELECT _mc_add_column_if_missing(
     'blockchain_tx_hash',
     'VARCHAR(66)'
 );
+
+CREATE OR REPLACE VIEW v_patient_summary AS
+SELECT
+    p.id,
+    p.health_id,
+    p.blood_type,
+    p.gender,
+    p.organ_donor,
+    p.dnr_status,
+    p.is_verified,
+    p.created_at,
+    u.name as primary_provider_name,
+    (SELECT COUNT(*) FROM allergies a WHERE a.patient_id = p.id AND a.is_active = TRUE) as allergy_count,
+    (SELECT MAX(recorded_at) FROM vital_signs v WHERE v.patient_id = p.id) as last_vitals_at
+FROM patients p
+LEFT JOIN users u ON p.primary_provider_id = u.wallet_address
+WHERE p.is_active = TRUE;
 
 -- ============================================================================
 -- PART 2: nfc_tags table
@@ -142,6 +162,24 @@ SELECT _mc_uuid_col_to_varchar66('allergies', 'created_by');
 -- PART 5: triage_assessments table
 -- ============================================================================
 SELECT _mc_uuid_col_to_varchar66('triage_assessments', 'performed_by');
+
+CREATE OR REPLACE VIEW v_ed_dashboard AS
+SELECT
+    t.id as triage_id,
+    t.patient_id,
+    p.health_id,
+    t.esi_level,
+    t.chief_complaint,
+    t.is_critical,
+    t.assigned_bed,
+    t.triage_time,
+    t.disposition,
+    u.name as triage_nurse
+FROM triage_assessments t
+JOIN patients p ON t.patient_id = p.id
+JOIN users u ON t.performed_by = u.wallet_address
+WHERE t.triage_time > NOW() - INTERVAL '24 hours'
+ORDER BY t.esi_level ASC, t.triage_time ASC;
 
 -- ============================================================================
 -- PART 6: code_blue_records table

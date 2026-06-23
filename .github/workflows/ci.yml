@@ -87,7 +87,7 @@ jobs:
               uses: EmbarkStudios/cargo-deny-action@v2
               with:
                   command: check
-                  arguments: bans sources
+                  command-arguments: bans sources
 
             # Report-only for now: the substrate/subxt transitive tree carries
             # several upstream-flagged advisories (unmaintained crates, older
@@ -99,7 +99,7 @@ jobs:
               continue-on-error: true
               with:
                   command: check
-                  arguments: advisories licenses
+                  command-arguments: advisories licenses
 
             # Generate a CycloneDX Software Bill of Materials for compliance.
             - name: Install cargo-cyclonedx

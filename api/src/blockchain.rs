@@ -831,7 +831,7 @@ mod tests {
     fn test_from_env_absent() {
         // Use a unique variable name to avoid interference from other tests
         let var_name = "SUBSTRATE_WS_URL_TEST_ABSENT";
-        let original_val = std::env::var(var_name).ok();
+        let _original_val = std::env::var(var_name).ok();
         std::env::remove_var(var_name);
 
         // We need to modify SubstrateClient::from_env to take a var name or test it indirectly

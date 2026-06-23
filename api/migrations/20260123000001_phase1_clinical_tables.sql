@@ -625,11 +625,15 @@ DECLARE
     t text;
 BEGIN
     FOR t IN 
-        SELECT table_name 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public' 
-        AND column_name = 'updated_at'
-        AND table_name NOT IN ('users', 'user_profiles') -- Already have triggers
+        SELECT c.table_name 
+        FROM information_schema.columns c
+        JOIN information_schema.tables t
+          ON t.table_schema = c.table_schema
+         AND t.table_name = c.table_name
+        WHERE c.table_schema = current_schema()
+          AND c.column_name = 'updated_at'
+          AND t.table_type = 'BASE TABLE'
+          AND c.table_name NOT IN ('users', 'user_profiles') -- Already have triggers
     LOOP
         EXECUTE format('
             DROP TRIGGER IF EXISTS update_%I_updated_at ON %I;
