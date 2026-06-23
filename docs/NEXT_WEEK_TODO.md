@@ -44,7 +44,9 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 
 ### API & data pipeline (9.3, 9.5, 4.1-data)
 - [x] Adopt cursor pagination on the remaining list endpoints (+ "load more" UI)
-- [~] Migrate the ~1140 ad-hoc error responses to the canonical `error_envelope_json`
+- [x] Migrate the ~1140 ad-hoc error responses to the canonical `error_envelope_json`
+      (done centrally: `ErrorResponse` + `ApiError` serialize to the envelope; FHIR
+      endpoints keep `OperationOutcome` by design)
 - [ ] Import RxNorm/DrugBank open datasets to expand drug-interaction coverage **(data pipeline)**
 
 ### Mobile (8.3)

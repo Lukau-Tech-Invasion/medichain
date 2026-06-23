@@ -591,7 +591,7 @@ app**). Docs: `mobile-setup.md`, `e2ee-policy.md`, `security-checklist.md`,
 **Current state:** Error responses exist but may not follow a consistent shape across all endpoints.
 
 **What's needed:**
-- [~] Audit all error responses — canonical `error_envelope_json` helper (`{error:{code,message,details}}`) added and adopted on the 429 path; migrating the ~1140 ad-hoc sites is a tracked follow-up **(Round 8, partial)**
+- [x] Audit all error responses — canonical `error_envelope_json` helper (`{error:{code,message,details}}`) is the single source of truth; **both** error structs (`ErrorResponse`, ~734 sites, and `ApiError`, incl. the `safe_read!`/`safe_write!` paths) have hand-written `Serialize` impls that emit the envelope, so every generic error response is canonical without per-site edits. FHIR endpoints intentionally return `OperationOutcome` (the shared client's `parseErrorBody` handles both). **(Phase 9.5 complete)**
 - [x] Define stable machine-readable error codes — the `error_codes` module is the single source of truth **(Round 8)**
 - [x] Add `Retry-After` header on 429 rate limit responses **(Round 8)**
 
@@ -776,7 +776,7 @@ app**). Docs: `mobile-setup.md`, `e2ee-policy.md`, `security-checklist.md`,
 | 9.2 | Idempotency keys | :white_check_mark: Implemented (Round 13) | MEDIUM |
 | 9.3 | Cursor-based pagination | :large_orange_diamond: Util + first endpoint (Round 13); broader adoption pending | MEDIUM |
 | 9.4 | JWT auth (upgrade from X-User-Id) | :white_check_mark: Implemented (Round 10 backend + Round 11 frontend) | MEDIUM |
-| 9.5 | Consistent error envelope | :large_orange_diamond: Partial | MEDIUM |
+| 9.5 | Consistent error envelope | :white_check_mark: Canonical envelope via centralized `ErrorResponse`/`ApiError` Serialize | MEDIUM |
 | 10.1 | Split clinical_endpoints.rs | :large_orange_diamond: Partial | MEDIUM |
 | 10.2 | Split main.rs | :large_orange_diamond: Partial | MEDIUM |
 | 11.1 | TOCTOU prevention | :white_check_mark: Implemented (Round 10) | MEDIUM |
