@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Calendar,
@@ -48,7 +48,15 @@ interface Appointment {
  */
 export function AppointmentsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
+  const statusLabel = (s: string) =>
+    ({
+      scheduled: t('appointments.statusScheduled'),
+      confirmed: t('appointments.statusConfirmed'),
+      completed: t('appointments.statusCompleted'),
+      cancelled: t('appointments.statusCancelled'),
+    }[s] || s.charAt(0).toUpperCase() + s.slice(1));
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
@@ -172,15 +180,15 @@ export function AppointmentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Appointments</h1>
-          <p className="text-neutral-500">Manage your healthcare visits</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('appointments.title')}</h1>
+          <p className="text-neutral-500">{t('appointments.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('common.live') : t('common.demo')}
           </span>
         </div>
       </div>
@@ -192,8 +200,8 @@ export function AppointmentsPage() {
             <Plus className="w-6 h-6 text-primary-600" />
           </div>
           <div className="text-left">
-            <div className="font-medium text-neutral-900">Book New</div>
-            <div className="text-sm text-neutral-500">Schedule visit</div>
+            <div className="font-medium text-neutral-900">{t('appointments.bookNew')}</div>
+            <div className="text-sm text-neutral-500">{t('appointments.scheduleVisit')}</div>
           </div>
         </button>
         
@@ -202,8 +210,8 @@ export function AppointmentsPage() {
             <Video className="w-6 h-6 text-info" />
           </div>
           <div className="text-left">
-            <div className="font-medium text-neutral-900">Telehealth</div>
-            <div className="text-sm text-neutral-500">Virtual visit</div>
+            <div className="font-medium text-neutral-900">{t('appointments.telehealth')}</div>
+            <div className="text-sm text-neutral-500">{t('appointments.virtualVisit')}</div>
           </div>
         </button>
       </div>
@@ -211,7 +219,7 @@ export function AppointmentsPage() {
       {/* Upcoming Summary */}
       {upcomingAppointments.length > 0 && (
         <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
-          <h2 className="text-lg font-semibold mb-2">Next Appointment</h2>
+          <h2 className="text-lg font-semibold mb-2">{t('appointments.nextAppointment')}</h2>
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-white/20 rounded-xl flex items-center justify-center">
               {upcomingAppointments[0].type === 'telehealth' ? (
@@ -224,7 +232,7 @@ export function AppointmentsPage() {
               <p className="font-medium">{upcomingAppointments[0].provider}</p>
               <p className="text-white/80 text-sm">{upcomingAppointments[0].specialty}</p>
               <p className="text-white/80 text-sm">
-                {formatDate(upcomingAppointments[0].date)} at {upcomingAppointments[0].time}
+                {formatDate(upcomingAppointments[0].date)} {t('appointments.at')} {upcomingAppointments[0].time}
               </p>
             </div>
           </div>
@@ -241,7 +249,7 @@ export function AppointmentsPage() {
               : 'border-transparent text-neutral-500 hover:text-neutral-700'
           }`}
         >
-          Upcoming ({upcomingAppointments.length})
+          {t('appointments.upcomingCount', { count: upcomingAppointments.length })}
         </button>
         <button
           onClick={() => setActiveTab('past')}
@@ -251,7 +259,7 @@ export function AppointmentsPage() {
               : 'border-transparent text-neutral-500 hover:text-neutral-700'
           }`}
         >
-          Past ({pastAppointments.length})
+          {t('appointments.pastCount', { count: pastAppointments.length })}
         </button>
       </div>
 
@@ -277,7 +285,7 @@ export function AppointmentsPage() {
               </div>
               <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
                 {getStatusIcon(appointment.status)}
-                {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                {statusLabel(appointment.status)}
               </span>
             </div>
 
@@ -288,7 +296,7 @@ export function AppointmentsPage() {
               </div>
               <div className="flex items-center gap-2 text-sm text-neutral-600">
                 <Clock className="w-4 h-4 text-neutral-400" />
-                {appointment.time} ({appointment.duration} min)
+                {appointment.time} ({appointment.duration} {t('appointments.minShort')})
               </div>
             </div>
 
@@ -300,7 +308,7 @@ export function AppointmentsPage() {
             )}
 
             <div className="bg-neutral-50 rounded-lg p-3 mb-3">
-              <p className="text-xs text-neutral-500 mb-1">Reason for Visit</p>
+              <p className="text-xs text-neutral-500 mb-1">{t('appointments.reason')}</p>
               <p className="text-sm text-neutral-900">{appointment.reason}</p>
             </div>
 
@@ -313,10 +321,10 @@ export function AppointmentsPage() {
             {appointment.status === 'scheduled' && (
               <div className="flex gap-2 mt-4">
                 <button className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors text-sm">
-                  Confirm
+                  {t('appointments.confirm')}
                 </button>
                 <button className="flex-1 py-2 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm">
-                  Reschedule
+                  {t('appointments.reschedule')}
                 </button>
               </div>
             )}
@@ -325,7 +333,7 @@ export function AppointmentsPage() {
               <div className="flex gap-2 mt-4">
                 <button className="flex-1 py-2 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors text-sm flex items-center justify-center gap-2">
                   <Video className="w-4 h-4" />
-                  Join Video Call
+                  {t('appointments.joinVideo')}
                 </button>
                 {appointment.phoneNumber && (
                   <button className="py-2 px-4 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm flex items-center gap-2">
@@ -342,11 +350,11 @@ export function AppointmentsPage() {
           <div className="text-center py-12">
             <Calendar className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
             <p className="text-neutral-500">
-              No {activeTab} appointments
+              {activeTab === 'upcoming' ? t('appointments.noUpcoming') : t('appointments.noPast')}
             </p>
             {activeTab === 'upcoming' && (
               <button className="mt-4 px-6 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors">
-                Book an Appointment
+                {t('appointments.bookAppointment')}
               </button>
             )}
           </div>
