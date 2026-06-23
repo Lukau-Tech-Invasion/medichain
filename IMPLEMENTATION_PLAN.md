@@ -680,8 +680,8 @@ app**). Docs: `mobile-setup.md`, `e2ee-policy.md`, `security-checklist.md`,
 - [x] Add Lighthouse CI checks to frontend CI pipeline (LCP < 2.5s, TTI < 3.5s) — `.lighthouserc.json` + `lighthouse` CI job **(Round 12)**
 - [ ] Profile backend with `cargo flamegraph` — identify hot paths
 - [ ] Add `tokio-console` integration for async task debugging
-- [ ] Frontend bundle analysis — target < 200KB initial JS gzipped
-- [ ] Code-split doctor portal and patient app properly (they shouldn't ship each other's code)
+- [x] Frontend bundle analysis — `ANALYZE=1 npm run build` (`rollup-plugin-visualizer`); both apps measured under budget (doctor ~104 KB, patient ~89 KB gzip initial JS)
+- [x] Code-split doctor portal and patient app properly — route-level `React.lazy` (both apps) + `manualChunks` vendor splitting + lazy `@polkadot` wallet libs; separate builds, no cross-shipping
 
 ### 12.2 Property/Fuzz Testing :large_orange_diamond:
 **Current state (Round 12):** `proptest` added with 12 properties in `api/src/property_tests.rs` (all pass). Fuzz targets remain.

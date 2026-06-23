@@ -19,12 +19,9 @@ import type {
   ProviderAccount,
   NationalIdType,
 } from './types';
-import {
-  web3Accounts,
-  web3Enable,
-  web3FromSource
-} from '@polkadot/extension-dapp';
-import { stringToHex } from '@polkadot/util';
+// NOTE: `@polkadot/extension-dapp` + `@polkadot/util` are large and only needed
+// for real (non-demo) wallet connect/sign. They are imported dynamically inside
+// the two functions that use them so they stay out of the initial bundle.
 
 // ============================================================================
 // CONSTANTS
@@ -312,6 +309,7 @@ export async function createPatientWallet(
  * Connect wallet using real Polkadot extension
  */
 export async function connectRealWallet(): Promise<WalletAccount[]> {
+  const { web3Accounts, web3Enable } = await import('@polkadot/extension-dapp');
   const extensions = await web3Enable('MediChain');
   if (extensions.length === 0) {
     throw new Error('No Polkadot extension found. Please install Polkadot.js or Talisman.');
@@ -331,6 +329,8 @@ export async function connectRealWallet(): Promise<WalletAccount[]> {
  * Sign a message using the connected wallet
  */
 export async function signMessage(address: SubstrateAddress, message: string): Promise<string> {
+  const { web3Accounts, web3FromSource } = await import('@polkadot/extension-dapp');
+  const { stringToHex } = await import('@polkadot/util');
   const account = (await web3Accounts()).find(a => a.address === address);
   if (!account) throw new Error('Account not found in extension');
 

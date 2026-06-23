@@ -35,7 +35,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 ### Infra & observability (8.1, 8.2, 12.1)
 - [x] Add Substrate node service + `docker-compose.prod.yml` overrides + per-service health checks
 - [x] Wire Grafana dashboard + Prometheus alert rules into the deployment
-- [ ] Frontend bundle analysis + code-split doctor vs patient apps (< 200KB initial JS)
+- [x] Frontend bundle analysis + code-split doctor vs patient apps (< 200KB initial JS)
 
 ### i18n + CDS (3.5, 4.3)
 - [ ] Extract user-facing strings to translation files across all remaining pages

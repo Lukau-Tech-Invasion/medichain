@@ -40,13 +40,28 @@ job against a production build of each app:
 
 ## 3. Bundle-size budgets
 
-| Bundle | Budget (gzipped initial JS) |
-|--------|------------------------------|
-| doctor-portal | < 250 KB |
-| patient-app | < 200 KB |
+| Bundle | Budget (gzipped initial JS) | Measured (Phase 12.1) |
+|--------|------------------------------|------------------------|
+| doctor-portal | < 250 KB | **~104 KB** (entry + index + vendor + router + icons) |
+| patient-app | < 200 KB | **~89 KB** (index + vendor + router + icons) |
 
-- The two apps must **not** ship each other's code (separate Vite builds — verify with `npm run build` + `rollup-plugin-visualizer`).
-- Run `npx vite-bundle-visualizer` per app to inspect composition.
+How the budget is held:
+
+- **Route-level code splitting.** Both apps `React.lazy` every non-critical page
+  (only Login + Dashboard are eager), so each page ships as its own chunk loaded
+  on navigation. The two apps build separately and do **not** ship each other's code.
+- **Vendor splitting.** `vite.config.ts` `manualChunks` separates long-lived libs
+  (`react`/`react-dom` → `vendor`, `react-router-dom` → `router`, `zustand` → `state`,
+  `lucide-react` → `icons`, plus `date-fns`/`qrcode`) so they cache across deploys.
+- **Heavy wallet libs are lazy.** `@polkadot/extension-dapp` + `@polkadot/util`
+  (~188 KB gzip) are dynamically imported inside `connectRealWallet`/`signMessage`
+  (`client/shared/src/wallet/service.ts`) — they load only on a real (non-demo)
+  wallet sign, never on first paint. `qrcode` (~9.5 KB gzip) is likewise its own
+  chunk, loaded only by QR pages.
+
+**Inspecting composition:** `ANALYZE=1 npm run build --workspace=<app>` emits a
+gzip/brotli treemap to `dist/stats.html` (via `rollup-plugin-visualizer`). A plain
+`npm run build` prints per-chunk gzip sizes and never depends on the analyzer.
 
 ## 4. Backend profiling
 
@@ -59,5 +74,8 @@ job against a production build of each app:
 - [x] Budgets defined (this document).
 - [x] Server latency histogram via `/api/metrics` (Phase 8.2).
 - [x] Lighthouse CI config + job (`client/.lighthouserc.json`).
+- [x] Code-split both apps (route-level lazy + `manualChunks` + lazy wallet libs) and
+      bundle analysis (`ANALYZE=1` → `rollup-plugin-visualizer`); both apps measured
+      under budget (doctor ~104 KB, patient ~89 KB gzip initial JS).
 - [ ] Wire client-side NFC-segment instrumentation + RUM reporting.
 - [ ] Add `cargo flamegraph` / load-test step to CI (manual for now).

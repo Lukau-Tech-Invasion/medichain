@@ -20,7 +20,8 @@
     "test:e2e": "playwright test --config=playwright.config.ts"
   },
   "devDependencies": {
-    "@playwright/test": "^1.40.0"
+    "@playwright/test": "^1.40.0",
+    "rollup-plugin-visualizer": "^5.12.0"
   },
   "engines": {
     "node": ">=18.0.0",
