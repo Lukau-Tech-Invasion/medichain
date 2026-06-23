@@ -968,12 +968,91 @@ pub async fn patient_conditions_and_meds(
         .unwrap_or_default()
 }
 
+/// Per-facility-tunable thresholds for the automated CDS rules engine.
+///
+/// `Default` reproduces the engine's built-in cut-offs exactly, so an absent
+/// facility config is behaviour-preserving. `#[serde(default)]` lets a facility
+/// override only the fields it cares about — missing keys fall back to default.
+/// Numeric types mirror the `VitalSignsReading` fields they are compared against.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CdsThresholds {
+    pub qsofa_rr: u16,
+    pub qsofa_sbp: u16,
+    pub htn_sbp: u16,
+    pub htn_dbp: u16,
+    pub shock_sbp: u16,
+    pub shock_tachy_hr: u16,
+    pub brady_hr: u16,
+    pub tachy_hr: u16,
+    pub fever_c: f32,
+    pub high_fever_c: f32,
+    pub hypothermia_c: f32,
+    pub hypoxia_spo2: u16,
+    pub low_spo2: u16,
+    pub aki_creatinine: f64,
+    pub hyperkalemia_k: f64,
+    pub hyponatremia_na: f64,
+    pub critical_hgb: f64,
+    pub troponin: f64,
+    pub inr_supra: f64,
+    pub inr_critical: f64,
+    pub lactate_critical: f64,
+}
+
+impl Default for CdsThresholds {
+    fn default() -> Self {
+        Self {
+            qsofa_rr: 22,
+            qsofa_sbp: 100,
+            htn_sbp: 180,
+            htn_dbp: 120,
+            shock_sbp: 90,
+            shock_tachy_hr: 100,
+            brady_hr: 50,
+            tachy_hr: 130,
+            fever_c: 38.5,
+            high_fever_c: 40.0,
+            hypothermia_c: 35.0,
+            hypoxia_spo2: 90,
+            low_spo2: 94,
+            aki_creatinine: 354.0,
+            hyperkalemia_k: 6.5,
+            hyponatremia_na: 120.0,
+            critical_hgb: 70.0,
+            troponin: 0.04,
+            inr_supra: 4.0,
+            inr_critical: 9.0,
+            lactate_critical: 4.0,
+        }
+    }
+}
+
+/// Load the CDS thresholds for a facility (falls back to engine defaults when no
+/// facility is given or no config row exists / it fails to deserialize).
+pub async fn load_cds_thresholds(
+    data: &web::Data<AppState>,
+    facility_id: Option<&str>,
+) -> CdsThresholds {
+    let Some(fid) = facility_id else {
+        return CdsThresholds::default();
+    };
+    match data.repositories.cds_threshold_configs.get_by_id(fid).await {
+        Ok(Some(rec)) => serde_json::from_value(rec.data).unwrap_or_default(),
+        _ => CdsThresholds::default(),
+    }
+}
+
 /// Run the CDS rules engine for a patient and persist + broadcast any new alerts.
 ///
 /// Applies simple alert-fatigue suppression: an alert is skipped when an active
 /// alert with the same title already exists for the patient (and duplicates within
 /// a single evaluation are collapsed). Shared by every handler that triggers CDS
 /// (vital signs, lab results, medication administration, nursing assessments).
+///
+/// `facility_id` selects the facility's configured thresholds (Phase 4.3); `None`
+/// uses the engine defaults. Every fired and every suppressed alert is recorded in
+/// the CDS audit trail (which rule fired, the outcome, and the threshold snapshot).
 pub async fn run_and_persist_cds_alerts(
     data: &web::Data<AppState>,
     patient_id: &str,
@@ -981,8 +1060,17 @@ pub async fn run_and_persist_cds_alerts(
     lab_values: Option<&std::collections::HashMap<String, f64>>,
     conditions: &[String],
     medications: &[String],
+    facility_id: Option<&str>,
 ) {
-    let alerts = evaluate_cds_rules(patient_id, vitals, lab_values, conditions, medications);
+    let thresholds = load_cds_thresholds(data, facility_id).await;
+    let alerts = evaluate_cds_rules(
+        patient_id,
+        vitals,
+        lab_values,
+        conditions,
+        medications,
+        &thresholds,
+    );
     if alerts.is_empty() {
         return;
     }
@@ -996,9 +1084,19 @@ pub async fn run_and_persist_cds_alerts(
         .into_iter()
         .map(|a| a.alert_title)
         .collect();
+    let thresholds_snapshot = serde_json::to_value(&thresholds).unwrap_or_default();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for alert in &alerts {
-        if !seen.insert(alert.title.clone()) || existing.contains(&alert.title) {
+        let suppressed = !seen.insert(alert.title.clone()) || existing.contains(&alert.title);
+        record_cds_audit(
+            data,
+            alert,
+            facility_id,
+            if suppressed { "suppressed" } else { "fired" },
+            &thresholds_snapshot,
+        )
+        .await;
+        if suppressed {
             continue; // duplicate within this batch, or already an active alert
         }
         log::info!(
@@ -1019,12 +1117,45 @@ pub async fn run_and_persist_cds_alerts(
     }
 }
 
+/// Append one CDS audit-trail entry (rule fired / suppressed) for a patient.
+async fn record_cds_audit(
+    data: &web::Data<AppState>,
+    alert: &crate::clinical::CDSAlert,
+    facility_id: Option<&str>,
+    outcome: &str,
+    thresholds_snapshot: &serde_json::Value,
+) {
+    let now = chrono::Utc::now();
+    let entry = serde_json::json!({
+        "rule_id": alert.alert_id,
+        "alert_type": format!("{:?}", alert.alert_type),
+        "alert_title": alert.title,
+        "severity": format!("{:?}", alert.severity),
+        "outcome": outcome,
+        "facility_id": facility_id,
+        "patient_id": alert.patient_id,
+        "thresholds_snapshot": thresholds_snapshot,
+        "recorded_at": now.to_rfc3339(),
+    });
+    let record = crate::repositories::traits::JsonRecordEntity {
+        id: format!("CDSAUDIT-{}", uuid::Uuid::new_v4()),
+        owner_id: alert.patient_id.clone(),
+        data: entry,
+        created_at: now,
+        updated_at: now,
+    };
+    if let Err(e) = data.repositories.cds_audit_entries.create(record).await {
+        log::error!("Failed to persist CDS audit entry for {}: {}", alert.alert_id, e);
+    }
+}
+
 pub fn evaluate_cds_rules(
     patient_id: &str,
     vitals: Option<&crate::clinical::VitalSignsReading>,
     lab_values: Option<&std::collections::HashMap<String, f64>>,
     patient_conditions: &[String],
     current_medications: &[String],
+    t: &CdsThresholds,
 ) -> Vec<crate::clinical::CDSAlert> {
     let mut alerts = Vec::new();
     let now = chrono::Utc::now().timestamp();
@@ -1073,12 +1204,12 @@ pub fn evaluate_cds_rules(
         // Sepsis screening (qSOFA criteria) — using available fields
         let mut qsofa_score = 0;
         if let Some(rr) = v.respiratory_rate {
-            if rr >= 22 {
+            if rr >= t.qsofa_rr {
                 qsofa_score += 1;
             }
         }
         if let Some(sbp) = v.systolic_bp {
-            if sbp <= 100 {
+            if sbp <= t.qsofa_sbp {
                 qsofa_score += 1;
             }
         }
@@ -1088,10 +1219,12 @@ pub fn evaluate_cds_rules(
                 crate::clinical::CDSAlertType::BestPracticeAdvisory,
                 "Sepsis Alert - qSOFA \u{2265} 2",
                 &format!(
-                    "qSOFA score: {}. Criteria met: RR\u{2265}22:{}, SBP\u{2264}100:{}",
+                    "qSOFA score: {}. Criteria met: RR\u{2265}{}:{}, SBP\u{2264}{}:{}",
                     qsofa_score,
-                    v.respiratory_rate.map(|r| r >= 22).unwrap_or(false),
-                    v.systolic_bp.map(|s| s <= 100).unwrap_or(false),
+                    t.qsofa_rr,
+                    v.respiratory_rate.map(|r| r >= t.qsofa_rr).unwrap_or(false),
+                    t.qsofa_sbp,
+                    v.systolic_bp.map(|s| s <= t.qsofa_sbp).unwrap_or(false),
                 ),
                 crate::clinical::CDSSeverity::Critical,
                 "Initiate sepsis bundle: blood cultures x2, lactate, broad-spectrum antibiotics within 1 hour, 30mL/kg IV crystalloid if hypotensive",
@@ -1100,7 +1233,7 @@ pub fn evaluate_cds_rules(
 
         // Hypertensive crisis
         if let (Some(sbp), Some(dbp)) = (v.systolic_bp, v.diastolic_bp) {
-            if sbp >= 180 || dbp >= 120 {
+            if sbp >= t.htn_sbp || dbp >= t.htn_dbp {
                 alerts.push(make_alert(
                     "HTNCRISIS",
                     crate::clinical::CDSAlertType::VitalSignAbnormal,
@@ -1114,8 +1247,8 @@ pub fn evaluate_cds_rules(
 
         // Hypotensive shock
         if let Some(sbp) = v.systolic_bp {
-            if sbp < 90 {
-                let hr_tachycardia = v.heart_rate.map(|h| h > 100).unwrap_or(false);
+            if sbp < t.shock_sbp {
+                let hr_tachycardia = v.heart_rate.map(|h| h > t.shock_tachy_hr).unwrap_or(false);
                 alerts.push(make_alert(
                     "HYPOSHOCK",
                     crate::clinical::CDSAlertType::VitalSignAbnormal,
@@ -1129,7 +1262,7 @@ pub fn evaluate_cds_rules(
 
         // Bradycardia
         if let Some(hr) = v.heart_rate {
-            if hr < 50 {
+            if hr < t.brady_hr {
                 alerts.push(make_alert(
                     "BRADY",
                     crate::clinical::CDSAlertType::VitalSignAbnormal,
@@ -1140,7 +1273,7 @@ pub fn evaluate_cds_rules(
                 ));
             }
             // Tachycardia
-            if hr > 130 {
+            if hr > t.tachy_hr {
                 alerts.push(make_alert(
                     "TACHY",
                     crate::clinical::CDSAlertType::VitalSignAbnormal,
@@ -1154,8 +1287,8 @@ pub fn evaluate_cds_rules(
 
         // Fever
         if let Some(temp) = v.temperature_celsius {
-            if temp >= 38.5 {
-                let severity = if temp >= 40.0 {
+            if temp >= t.fever_c {
+                let severity = if temp >= t.high_fever_c {
                     crate::clinical::CDSSeverity::Critical
                 } else {
                     crate::clinical::CDSSeverity::High
@@ -1166,14 +1299,14 @@ pub fn evaluate_cds_rules(
                     "Fever Alert",
                     &format!("Temperature: {:.1}\u{00b0}C", temp),
                     severity,
-                    if temp >= 40.0 {
+                    if temp >= t.high_fever_c {
                         "High fever - blood cultures, CBC, CMP, consider LP if meningeal signs, aggressive antipyretics, cooling measures"
                     } else {
                         "Fever - blood cultures if bacteremia suspected, CBC, antipyretics, investigate source"
                     },
                 ));
             }
-            if temp < 35.0 {
+            if temp < t.hypothermia_c {
                 alerts.push(make_alert(
                     "HYPOTHERMIA",
                     crate::clinical::CDSAlertType::VitalSignAbnormal,
@@ -1187,7 +1320,7 @@ pub fn evaluate_cds_rules(
 
         // Hypoxia
         if let Some(spo2) = v.oxygen_saturation {
-            if spo2 < 90 {
+            if spo2 < t.hypoxia_spo2 {
                 alerts.push(make_alert(
                     "HYPOXIA",
                     crate::clinical::CDSAlertType::VitalSignAbnormal,
@@ -1196,7 +1329,7 @@ pub fn evaluate_cds_rules(
                     crate::clinical::CDSSeverity::Critical,
                     "Supplemental O2 immediately, ABG, CXR, assess for PE/pneumonia/ARDS, prepare for intubation if refractory",
                 ));
-            } else if spo2 < 94 {
+            } else if spo2 < t.low_spo2 {
                 alerts.push(make_alert(
                     "LOWSPO2",
                     crate::clinical::CDSAlertType::VitalSignAbnormal,
@@ -1213,7 +1346,7 @@ pub fn evaluate_cds_rules(
     if let Some(labs) = lab_values {
         // Acute Kidney Injury
         if let Some(&creatinine) = labs.get("creatinine") {
-            if creatinine > 354.0 {
+            if creatinine > t.aki_creatinine {
                 // >4 mg/dL in µmol/L
                 alerts.push(make_alert(
                     "AKI",
@@ -1228,7 +1361,7 @@ pub fn evaluate_cds_rules(
 
         // Hyperkalemia
         if let Some(&potassium) = labs.get("potassium") {
-            if potassium > 6.5 {
+            if potassium > t.hyperkalemia_k {
                 alerts.push(make_alert(
                     "HYPERK",
                     crate::clinical::CDSAlertType::LaboratoryAbnormal,
@@ -1242,7 +1375,7 @@ pub fn evaluate_cds_rules(
 
         // Hyponatremia
         if let Some(&sodium) = labs.get("sodium") {
-            if sodium < 120.0 {
+            if sodium < t.hyponatremia_na {
                 alerts.push(make_alert(
                     "HYPONATR",
                     crate::clinical::CDSAlertType::LaboratoryAbnormal,
@@ -1256,7 +1389,7 @@ pub fn evaluate_cds_rules(
 
         // Critical hemoglobin
         if let Some(&hgb) = labs.get("hemoglobin") {
-            if hgb < 70.0 {
+            if hgb < t.critical_hgb {
                 // < 7 g/dL in g/L
                 alerts.push(make_alert(
                     "CRITANEMIA",
@@ -1271,7 +1404,7 @@ pub fn evaluate_cds_rules(
 
         // Troponin elevation
         if let Some(&troponin) = labs.get("troponin") {
-            if troponin > 0.04 {
+            if troponin > t.troponin {
                 // ng/mL
                 alerts.push(make_alert(
                     "TROPONIN",
@@ -1286,14 +1419,14 @@ pub fn evaluate_cds_rules(
 
         // INR supratherapeutic
         if let Some(&inr) = labs.get("inr") {
-            if inr > 4.0 {
+            if inr > t.inr_supra {
                 alerts.push(make_alert(
                     "SUPRAINR",
                     crate::clinical::CDSAlertType::LaboratoryAbnormal,
                     "Supratherapeutic INR",
                     &format!("INR: {:.1}", inr),
                     crate::clinical::CDSSeverity::High,
-                    if inr > 9.0 {
+                    if inr > t.inr_critical {
                         "Hold warfarin, Vitamin K 10mg IV, consider 4-factor PCC if active bleeding"
                     } else {
                         "Hold warfarin, Vitamin K 2.5-5mg PO, repeat INR in 24h"
@@ -1304,7 +1437,7 @@ pub fn evaluate_cds_rules(
 
         // Lactic acidosis
         if let Some(&lactate) = labs.get("lactate") {
-            if lactate > 4.0 {
+            if lactate > t.lactate_critical {
                 alerts.push(make_alert(
                     "LACTATCRIT",
                     crate::clinical::CDSAlertType::LaboratoryAbnormal,
@@ -2215,4 +2348,39 @@ fn generate_sample_data_points(loinc_code: &str, now: i64) -> Vec<crate::clinica
     }
 
     points
+}
+
+#[cfg(test)]
+mod cds_threshold_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn custom_threshold_changes_firing() {
+        let mut labs = HashMap::new();
+        labs.insert("potassium".to_string(), 6.6_f64);
+
+        // Default cut-off is 6.5 -> 6.6 trips the hyperkalemia rule.
+        let def = CdsThresholds::default();
+        let fired = evaluate_cds_rules("P1", None, Some(&labs), &[], &[], &def);
+        assert!(fired.iter().any(|a| a.alert_id.contains("HYPERK")));
+
+        // Raising the facility's cut-off to 7.0 suppresses the same value.
+        let t = CdsThresholds {
+            hyperkalemia_k: 7.0,
+            ..CdsThresholds::default()
+        };
+        let not_fired = evaluate_cds_rules("P1", None, Some(&labs), &[], &[], &t);
+        assert!(!not_fired.iter().any(|a| a.alert_id.contains("HYPERK")));
+    }
+
+    #[test]
+    fn thresholds_partial_json_merges_with_defaults() {
+        // A facility may override only some fields; the rest fall back to default.
+        let partial = serde_json::json!({ "hyperkalemia_k": 7.0 });
+        let t: CdsThresholds = serde_json::from_value(partial).unwrap();
+        assert_eq!(t.hyperkalemia_k, 7.0);
+        assert_eq!(t.qsofa_rr, CdsThresholds::default().qsofa_rr);
+        assert_eq!(t.lactate_critical, CdsThresholds::default().lactate_critical);
+    }
 }

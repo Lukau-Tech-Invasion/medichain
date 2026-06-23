@@ -177,6 +177,9 @@ mod phase7;
 pub use phase7::{
     PgAutopsyReportRepository,
     PgAutopsyRequestRepository,
+    // Phase 4.3: CDS thresholds + audit
+    PgCdsAuditEntryRepository,
+    PgCdsThresholdConfigRepository,
     // Round 6: shape-mismatch domains
     PgDrugInteractionCheckRepository,
     PgEPrescriptionV2Repository,

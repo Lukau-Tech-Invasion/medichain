@@ -390,6 +390,32 @@ export async function declareBreach(
   return getApiClient().post('/api/admin/security/breach', { description, actor });
 }
 
+/** Per-facility CDS rule thresholds (numeric cut-offs keyed by rule). */
+export type CdsThresholds = Record<string, number>;
+
+/** Get a facility's effective CDS thresholds (Admin only; engine defaults if unset). */
+export async function getCdsThresholds(
+  facilityId: string
+): Promise<{ facility_id: string; thresholds: CdsThresholds }> {
+  return getApiClient().get(`/api/admin/cds/thresholds/${facilityId}`);
+}
+
+/** Upsert a facility's CDS thresholds (Admin only); partial bodies merge with defaults. */
+export async function setCdsThresholds(
+  facilityId: string,
+  thresholds: Partial<CdsThresholds>
+): Promise<{ facility_id: string; thresholds: CdsThresholds; message: string }> {
+  return getApiClient().put(`/api/admin/cds/thresholds/${facilityId}`, thresholds);
+}
+
+/** Get the CDS audit trail (Admin only); optionally filtered by patient. */
+export async function getCdsAudit(
+  patientId?: string
+): Promise<{ count: number; entries: unknown[] }> {
+  const q = patientId ? `?patient_id=${encodeURIComponent(patientId)}` : '';
+  return getApiClient().get(`/api/admin/cds/audit${q}`);
+}
+
 // ============================================================================
 // Insurance cards CRUD (Phase 13.4)
 // ============================================================================

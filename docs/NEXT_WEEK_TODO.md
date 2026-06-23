@@ -40,7 +40,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 ### i18n + CDS (3.5, 4.3)
 - [ ] Extract user-facing strings to translation files across all remaining pages
       (Login page is the reference implementation)
-- [ ] Per-facility configurable CDS thresholds + CDS audit trail (which rule fired, action taken)
+- [x] Per-facility configurable CDS thresholds + CDS audit trail (which rule fired, action taken)
 
 ### API & data pipeline (9.3, 9.5, 4.1-data)
 - [x] Adopt cursor pagination on the remaining list endpoints (+ "load more" UI)

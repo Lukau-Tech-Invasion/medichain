@@ -81,6 +81,9 @@ pub struct SubmitLabResultRequest {
     pub test_category: String,
     pub results: Vec<LabTestResult>,
     pub notes: Option<String>,
+    /// Optional facility whose CDS thresholds should apply to this submission's
+    /// rule evaluation. Absent => the engine default thresholds are used.
+    pub facility_id: Option<String>,
 }
 
 /// Response for lab result submission

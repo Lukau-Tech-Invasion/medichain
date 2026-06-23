@@ -59,6 +59,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Security alerts & breach declaration (Phase 11.4)
         .service(list_security_alerts) // GET  /api/admin/security/alerts
         .service(declare_breach) // POST /api/admin/security/breach
+        // CDS thresholds + audit trail (Phase 4.3)
+        .service(get_cds_thresholds) // GET /api/admin/cds/thresholds/{facility_id}
+        .service(set_cds_thresholds) // PUT /api/admin/cds/thresholds/{facility_id}
+        .service(get_cds_audit) // GET /api/admin/cds/audit
         // Insurance cards CRUD (Phase 13.4)
         .service(create_insurance_card) // POST   /api/insurance/cards
         .service(list_insurance_cards) // GET    /api/insurance/cards/{patient_id}

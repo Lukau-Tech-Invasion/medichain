@@ -236,6 +236,10 @@ pub struct RepositoryContainer {
 
     // Round 7: SOAP clinical notes (JSON-record backed)
     pub soap_note_records: Arc<dyn JsonRecordRepository>,
+
+    // Phase 4.3: per-facility CDS thresholds + CDS audit trail
+    pub cds_threshold_configs: Arc<dyn JsonRecordRepository>,
+    pub cds_audit_entries: Arc<dyn JsonRecordRepository>,
 }
 
 impl RepositoryContainer {
@@ -403,6 +407,10 @@ impl RepositoryContainer {
 
             // Round 7: SOAP clinical notes (memory)
             soap_note_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+
+            // Phase 4.3: CDS thresholds + audit (memory)
+            cds_threshold_configs: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            cds_audit_entries: Arc::new(memory::MemoryJsonRecordRepository::new()),
         }
     }
 
@@ -800,6 +808,12 @@ impl RepositoryContainer {
 
             // Round 7: SOAP clinical notes (PostgreSQL)
             soap_note_records: Arc::new(postgres::PgSoapNoteRecordRepository::new(pool.clone())),
+
+            // Phase 4.3: CDS thresholds + audit (PostgreSQL)
+            cds_threshold_configs: Arc::new(postgres::PgCdsThresholdConfigRepository::new(
+                pool.clone(),
+            )),
+            cds_audit_entries: Arc::new(postgres::PgCdsAuditEntryRepository::new(pool.clone())),
 
             consent_records: Arc::new(postgres::PgConsentRecordRepository::new(pool)),
         })

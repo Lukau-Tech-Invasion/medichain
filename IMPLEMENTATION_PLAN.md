@@ -350,9 +350,9 @@ the source of truth for each feature.
 
 **What's needed:**
 - [ ] Wire CDS evaluation into MORE handlers (not just vital signs) — lab results, medication administration, nursing assessments
-- [ ] Add configurable rule thresholds per facility
-- [ ] Implement alert fatigue reduction (suppression of repeated low-severity alerts)
-- [ ] Add CDS audit trail (which rules fired, what action was taken)
+- [x] Add configurable rule thresholds per facility — `CdsThresholds` (Default = engine cut-offs) loaded per facility from the `cds_threshold_configs` JSON-record domain; admin `GET/PUT /api/admin/cds/thresholds/{facility_id}` (Phase 4.3)
+- [x] Implement alert fatigue reduction (suppression of repeated low-severity alerts)
+- [x] Add CDS audit trail (which rules fired, what action was taken) — every fired/suppressed alert recorded in `cds_audit_entries` (rule id, severity, outcome, facility, threshold snapshot); admin `GET /api/admin/cds/audit` (Phase 4.3)
 
 ---
 

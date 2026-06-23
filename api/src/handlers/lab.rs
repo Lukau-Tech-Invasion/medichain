@@ -151,6 +151,7 @@ pub async fn submit_lab_results(
                 Some(&lab_values),
                 &conditions,
                 &meds,
+                req.facility_id.as_deref(),
             )
             .await;
         }

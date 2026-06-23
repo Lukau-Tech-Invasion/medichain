@@ -135,3 +135,7 @@ pg_json_repo!(PgLabResultSubmissionRepository, "lab_result_submissions");
 
 // Round 7: SOAP clinical notes (no prior repository existed).
 pg_json_repo!(PgSoapNoteRecordRepository, "soap_note_records");
+
+// Phase 4.3: per-facility CDS thresholds + CDS audit trail.
+pg_json_repo!(PgCdsThresholdConfigRepository, "cds_threshold_configs");
+pg_json_repo!(PgCdsAuditEntryRepository, "cds_audit_entries");
