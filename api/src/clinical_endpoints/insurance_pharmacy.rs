@@ -64,7 +64,7 @@ pub async fn verify_insurance(
     };
 
     match patient {
-        Some(patient) => {
+        Some(_patient) => {
             // Get insurance from repository
             let insurance_list = match data
                 .repositories
@@ -190,9 +190,8 @@ pub async fn check_eligibility(
     };
 
     match patient {
-        Some(patient) => {
+        Some(_patient) => {
             // Get insurance from repository
-            let pagination = Pagination::new(0, 1);
             let insurance_list = match data
                 .repositories
                 .insurance_records
@@ -670,10 +669,12 @@ pub async fn check_and_send_medication_reminders(data: &crate::AppState) {
                         medication: reminder.medication_name.clone(),
                     }
                     .render();
+                    let repositories = data.repositories.clone();
                     tokio::spawn(async move {
                         // This branch is gated on the reminder's SMS opt-in, so
                         // opted_in = true; retry + global kill-switch handled inside.
                         let status = crate::notifications::send_sms_with_retry(
+                            &repositories,
                             crate::notifications::SmsMessage { to: phone, body },
                             true,
                         )

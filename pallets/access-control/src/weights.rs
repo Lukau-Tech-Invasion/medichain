@@ -30,6 +30,7 @@ pub trait WeightInfo {
     fn grant_emergency_access() -> Weight;
     fn revoke_access() -> Weight;
     fn cleanup_expired_access() -> Weight;
+    fn log_access() -> Weight;
 }
 
 /// Weights for pallet_access_control using the Substrate node and target hardware.
@@ -102,6 +103,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().reads(2_u64))
             .saturating_add(T::DbWeight::get().writes(2_u64))
     }
+
+    /// Emits an immutable audit event; no storage reads/writes.
+    fn log_access() -> Weight {
+        Weight::from_parts(11_000_000, 0)
+    }
 }
 
 /// For backwards compatibility and tests
@@ -134,5 +140,9 @@ impl WeightInfo for () {
         Weight::from_parts(17_500_000, 3594)
             .saturating_add(RocksDbWeight::get().reads(2_u64))
             .saturating_add(RocksDbWeight::get().writes(2_u64))
+    }
+
+    fn log_access() -> Weight {
+        Weight::from_parts(11_000_000, 0)
     }
 }

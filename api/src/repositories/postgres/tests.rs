@@ -294,4 +294,61 @@ mod tests {
             .await
             .ok();
     }
+
+    /// C1: emergency-protocol records must persist across a restart under Postgres.
+    ///
+    /// A fresh repository instance reading the same database (simulating a process
+    /// restart) must return the previously-written record, with all unsigned-int
+    /// fields surviving the JSONB round-trip.
+    #[tokio::test]
+    async fn test_pg_code_blue_round_trip_survives_restart() {
+        use crate::repositories::postgres::PgCodeBlueRepository;
+        use crate::repositories::traits::{CodeBlueEntity, CodeBlueRepository};
+
+        let pool = get_test_pool().await;
+        let id = format!("CB-{}", Utc::now().timestamp_millis());
+        let patient_id = format!("PAT-CB-{}", Utc::now().timestamp_millis());
+
+        let record = CodeBlueEntity {
+            id: id.clone(),
+            patient_id: patient_id.clone(),
+            location: "ED Bay 3".to_string(),
+            code_called_at: 1_700_000_000,
+            team_arrived_at: Some(1_700_000_120),
+            initial_rhythm: "VF".to_string(),
+            witnessed: true,
+            outcome: "ROSC".to_string(),
+            code_leader: "DR-001".to_string(),
+            documented_by: "NURSE-007".to_string(),
+            documented_at: 1_700_000_300,
+            data: serde_json::json!({ "rounds": 3, "shocks": 2 }),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        // Write through the first repository instance.
+        let writer = PgCodeBlueRepository::new(pool.clone());
+        writer.create(record.clone()).await.expect("create failed");
+
+        // Simulate a restart: a brand-new repository instance over the same DB.
+        let reader = PgCodeBlueRepository::new(pool.clone());
+        let fetched = reader.get_by_id(&id).await.expect("record lost on restart");
+        assert_eq!(fetched.id, id);
+        assert_eq!(fetched.outcome, "ROSC");
+        assert!(fetched.witnessed);
+        assert_eq!(fetched.team_arrived_at, Some(1_700_000_120));
+        assert_eq!(fetched.data["rounds"], serde_json::json!(3));
+
+        // And it is queryable by patient.
+        let by_patient = reader
+            .get_by_patient(&patient_id, Pagination::new(0, 10))
+            .await
+            .expect("get_by_patient failed");
+        assert_eq!(by_patient.total, 1);
+        assert_eq!(by_patient.items.len(), 1);
+        assert_eq!(by_patient.items[0].id, id);
+
+        // Cleanup.
+        reader.delete(&id).await.ok();
+    }
 }

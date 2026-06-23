@@ -213,6 +213,7 @@ pub fn get_current_claims(req: &HttpRequest) -> Option<crate::security::jwt::Cla
 ///
 /// A request authenticated only by `X-User-Id` (no JWT) returns `false`, so
 /// `require_mfa`-gated endpoints reject it.
+#[allow(dead_code)]
 pub fn request_has_mfa(req: &HttpRequest) -> bool {
     get_current_claims(req).map(|c| c.mfa).unwrap_or(false)
 }
@@ -235,6 +236,7 @@ pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User
 /// Returns `None` instead of wrapping if the duration is too large to represent
 /// (rather than producing a bogus past/wrapped expiry that could silently extend
 /// or revoke access).
+#[allow(dead_code)]
 pub fn checked_consent_expiry(granted_at_secs: i64, duration_secs: u64) -> Option<i64> {
     i64::try_from(duration_secs)
         .ok()

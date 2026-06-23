@@ -39,7 +39,7 @@ impl ImmunizationRecordRepository for PgImmunizationRecordRepository {
                 series_complete, facility_id, facility_name, facility_address,
                 vfc_eligibility, funding_source, information_source,
                 documentation_type, reaction_observed, reaction_details,
-                contraindications_reviewed, patient_consent, vis_given, vis_date, notes
+                contraindications_reviewed, patient_consent, vis_given, vis_date, notes, data
             ) ",
         );
 
@@ -76,7 +76,8 @@ impl ImmunizationRecordRepository for PgImmunizationRecordRepository {
                 .push_bind(r.patient_consent)
                 .push_bind(r.vis_given)
                 .push_bind(r.vis_date)
-                .push_bind(&r.notes);
+                .push_bind(&r.notes)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -151,6 +152,7 @@ impl ImmunizationRecordRepository for PgImmunizationRecordRepository {
         qb.push(", series_complete = ")
             .push_bind(record.series_complete);
         qb.push(", notes = ").push_bind(&record.notes);
+        qb.push(", data = ").push_bind(&record.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&record.id);
         qb.push(" RETURNING *");

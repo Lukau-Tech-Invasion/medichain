@@ -6,12 +6,17 @@
 //! © 2025 Trustware. All rights reserved.
 
 use crate::clinical;
-use crate::clinical::*;
-use crate::repositories::traits::*;
-use crate::{get_current_user_id, get_user, AppState, ErrorResponse};
-use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
-use chrono::Utc;
-use serde::Deserialize;
+pub use crate::clinical::*;
+pub use crate::repositories::traits::*;
+pub use crate::types::*;
+pub use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
+pub use chrono::Utc;
+pub use serde::Deserialize;
+
+// Internal helpers accessible to submodules
+pub(crate) use crate::get_current_user_id;
+pub(crate) use crate::get_user;
+pub(crate) use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
 // Domain submodules (split from the original 21K-line monolith — Phase 10.1).
@@ -23,6 +28,7 @@ mod assessment;
 mod billing;
 mod clinical_support;
 mod emergency;
+pub(crate) mod emergency_access;
 mod engagement;
 mod fhir;
 mod insurance_pharmacy;

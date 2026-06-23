@@ -7976,7 +7976,7 @@ pub struct AvailableSlot {
 // ============================================================================
 
 /// Wearable device
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WearableDevice {
     /// Device ID
     pub device_id: String,
@@ -8009,8 +8009,10 @@ pub struct WearableDevice {
 }
 
 /// Wearable device type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum WearableDeviceType {
+    #[default]
+    Other,
     Smartwatch,
     FitnessBand,
     CGM,
@@ -8021,14 +8023,14 @@ pub enum WearableDeviceType {
     SleepTracker,
     GlucoseMeter,
     PeakFlowMeter,
-    Other,
 }
 
 /// Connection status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ConnectionStatus {
-    Connected,
+    #[default]
     Disconnected,
+    Connected,
     Syncing,
     Error,
     LowBattery,
@@ -8036,13 +8038,14 @@ pub enum ConnectionStatus {
 }
 
 /// Wearable data type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum WearableDataType {
+    #[default]
+    Steps,
     HeartRate,
     BloodPressure,
     BloodGlucose,
     SpO2,
-    Steps,
     Distance,
     Calories,
     Sleep,
@@ -8052,6 +8055,7 @@ pub enum WearableDataType {
     RespiratoryRate,
     Stress,
     HRV,
+    Other(String),
 }
 
 /// Wearable data reading
@@ -8086,11 +8090,12 @@ pub struct WearableReading {
 }
 
 /// Data quality indicator
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum DataQuality {
     High,
     Medium,
     Low,
+    #[default]
     Unknown,
     Invalid,
 }

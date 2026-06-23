@@ -26,7 +26,7 @@ impl HistoryPhysicalRepository for PgHistoryPhysicalRepository {
                 id, patient_id, chief_complaint, history_present_illness, past_medical_history,
                 family_history, social_history, medications, allergies, review_of_systems,
                 physical_exam, vital_signs, assessment, plan_content, exam_type,
-                performed_by, performed_at, facility_id
+                performed_by, performed_at, facility_id, data
             ) ",
         );
 
@@ -48,7 +48,8 @@ impl HistoryPhysicalRepository for PgHistoryPhysicalRepository {
                 .push_bind(&e.exam_type)
                 .push_bind(&e.performed_by)
                 .push_bind(e.performed_at)
-                .push_bind(&e.facility_id);
+                .push_bind(&e.facility_id)
+                .push_bind(&e.data);
         });
 
         qb.push(" RETURNING *");
@@ -129,6 +130,7 @@ impl HistoryPhysicalRepository for PgHistoryPhysicalRepository {
         qb.push(", performed_by = ").push_bind(&hp.performed_by);
         qb.push(", performed_at = ").push_bind(hp.performed_at);
         qb.push(", facility_id = ").push_bind(&hp.facility_id);
+        qb.push(", data = ").push_bind(&hp.data);
         qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
             .push_bind(&hp.id);
         qb.push(" RETURNING *");

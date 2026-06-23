@@ -35,7 +35,7 @@ impl AppointmentRepository for PgAppointmentRepository {
                 priority, recurring, recurrence_pattern, parent_appointment_id,
                 insurance_verified, copay_amount, copay_collected, reminder_sent,
                 reminder_sent_at, check_in_time, check_out_time, cancelled_at,
-                cancellation_reason, cancelled_by, notes, created_by
+                cancellation_reason, cancelled_by, notes, created_by, data
             ) ",
         );
 
@@ -66,7 +66,8 @@ impl AppointmentRepository for PgAppointmentRepository {
                 .push_bind(&a.cancellation_reason)
                 .push_bind(&a.cancelled_by)
                 .push_bind(&a.notes)
-                .push_bind(&a.created_by);
+                .push_bind(&a.created_by)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");
@@ -164,6 +165,7 @@ impl AppointmentRepository for PgAppointmentRepository {
         qb.push(", check_out_time = ")
             .push_bind(appointment.check_out_time);
         qb.push(", notes = ").push_bind(&appointment.notes);
+        qb.push(", data = ").push_bind(&appointment.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&appointment.id);
         qb.push(" RETURNING *");

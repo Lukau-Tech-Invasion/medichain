@@ -1,4 +1,7 @@
-use crate::repositories::traits::{DeviceTokenEntity, DeviceTokenRepository, RepositoryResult};
+use crate::repositories::traits::{
+    DeviceTokenEntity, DeviceTokenRepository, RepositoryResult, SmsOptOutEntity,
+    SmsOptOutRepository,
+};
 use async_trait::async_trait;
 use sqlx::{PgPool, Postgres};
 
@@ -67,6 +70,52 @@ impl DeviceTokenRepository for PgDeviceTokenRepository {
             .execute(&self.pool)
             .await?;
 
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PgSmsOptOutRepository {
+    pool: PgPool,
+}
+
+impl PgSmsOptOutRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl SmsOptOutRepository for PgSmsOptOutRepository {
+    async fn add_opt_out(&self, entity: SmsOptOutEntity) -> RepositoryResult<()> {
+        sqlx::query(
+            "INSERT INTO sms_opt_outs (phone_number, opted_out_at, source, reason)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (phone_number) DO UPDATE SET opted_out_at = NOW(), source = EXCLUDED.source, reason = EXCLUDED.reason"
+        )
+        .bind(&entity.phone_number)
+        .bind(entity.opted_out_at)
+        .bind(&entity.source)
+        .bind(&entity.reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn is_opted_out(&self, phone_number: &str) -> RepositoryResult<bool> {
+        let row: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM sms_opt_outs WHERE phone_number = $1")
+                .bind(phone_number)
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(row.0 > 0)
+    }
+
+    async fn remove_opt_out(&self, phone_number: &str) -> RepositoryResult<()> {
+        sqlx::query("DELETE FROM sms_opt_outs WHERE phone_number = $1")
+            .bind(phone_number)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

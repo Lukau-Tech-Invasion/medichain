@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, IS_DEMO } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   FlaskConical,
@@ -75,11 +75,58 @@ export function LabResultsPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setResults(data.results || data.submissions || data.lab_results || []);
-        setApiConnected(true);
+        const list = data.results || data.submissions || data.lab_results || [];
+        
+        if (list.length === 0 && IS_DEMO) {
+          // Fallback to demo data
+          const demoResults: LabResult[] = [
+            {
+              id: 'demo-lab-1',
+              test_name: 'Complete Blood Count (CBC)',
+              result_date: new Date().toISOString(),
+              result_value: '14.5',
+              unit: 'g/dL',
+              normal_range: '13.5 - 17.5',
+              status: 'normal',
+              notes: 'All values within normal range.'
+            },
+            {
+              id: 'demo-lab-2',
+              test_name: 'Glucose, Fasting',
+              result_date: new Date(Date.now() - 172800000).toISOString(),
+              result_value: '126',
+              unit: 'mg/dL',
+              normal_range: '70 - 99',
+              status: 'abnormal',
+              is_abnormal: true,
+              notes: 'Slightly elevated fasting glucose.'
+            }
+          ];
+          setResults(demoResults);
+          setApiConnected(false);
+        } else {
+          setResults(list);
+          setApiConnected(true);
+        }
       } else {
+        if (IS_DEMO) {
+           // Fallback on error if demo mode
+           const demoResults: LabResult[] = [
+            {
+              id: 'demo-lab-1',
+              test_name: 'Complete Blood Count (CBC)',
+              result_date: new Date().toISOString(),
+              result_value: '14.5',
+              unit: 'g/dL',
+              normal_range: '13.5 - 17.5',
+              status: 'normal'
+            }
+          ];
+          setResults(demoResults);
+        } else {
+          setResults([]);
+        }
         setApiConnected(false);
-        setResults([]);
       }
     } catch (err) {
       console.error('Failed to load lab results:', err);

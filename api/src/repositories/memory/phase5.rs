@@ -1353,6 +1353,38 @@ impl DeviceTokenRepository for MemoryDeviceTokenRepository {
     }
 }
 
+/// In-memory SMS opt-out repository
+#[derive(Debug, Default)]
+pub struct MemorySmsOptOutRepository {
+    opt_outs: RwLock<HashMap<String, SmsOptOutEntity>>,
+}
+
+impl MemorySmsOptOutRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl SmsOptOutRepository for MemorySmsOptOutRepository {
+    async fn add_opt_out(&self, entity: SmsOptOutEntity) -> RepositoryResult<()> {
+        let mut opt_outs = self.opt_outs.write().unwrap();
+        opt_outs.insert(entity.phone_number.clone(), entity);
+        Ok(())
+    }
+
+    async fn is_opted_out(&self, phone_number: &str) -> RepositoryResult<bool> {
+        let opt_outs = self.opt_outs.read().unwrap();
+        Ok(opt_outs.contains_key(phone_number))
+    }
+
+    async fn remove_opt_out(&self, phone_number: &str) -> RepositoryResult<()> {
+        let mut opt_outs = self.opt_outs.write().unwrap();
+        opt_outs.remove(phone_number);
+        Ok(())
+    }
+}
+
 /// In-memory billing code repository
 #[derive(Debug, Default)]
 pub struct MemoryBillingCodeRepository {

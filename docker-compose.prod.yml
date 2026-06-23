@@ -39,3 +39,14 @@ services:
     volumes:
       - ./nginx/default.prod.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
+
+  substrate-node:
+    profiles: ["blockchain", "prod"]
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "curl -H \"Content-Type: application/json\" -d '{\"id\":1, \"jsonrpc\":\"2.0\", \"method\": \"system_health\", \"params\":[]}' http://localhost:9933"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - medichain_network

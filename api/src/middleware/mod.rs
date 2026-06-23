@@ -8,6 +8,7 @@
 //!
 //! © 2025-2026 Trustware. All rights reserved.
 
+pub mod encryption_policy;
 pub mod error_handling;
 pub mod idempotency;
 pub mod metrics;

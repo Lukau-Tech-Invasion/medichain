@@ -471,9 +471,12 @@ pub async fn declare_breach(
         .await;
 
     // Automated notification dispatch to the security officer (SMS); best-effort.
-    let notified =
-        crate::notifications::dispatch_breach_notification(&alert.message, alert.notify_deadline)
-            .await;
+    let notified = crate::notifications::dispatch_breach_notification(
+        &data.repositories,
+        &alert.message,
+        alert.notify_deadline,
+    )
+    .await;
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

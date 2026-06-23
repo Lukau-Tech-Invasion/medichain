@@ -697,8 +697,6 @@ pub struct ProgressNoteEntity {
     pub facility_id: Option<String>,
     pub status: String,
     pub is_active: bool,
-    #[sqlx(skip)]
-    #[serde(default)]
     pub data: serde_json::Value,
 }
 
@@ -726,8 +724,6 @@ pub struct HistoryPhysicalEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
-    #[sqlx(skip)]
-    #[serde(default)]
     pub data: serde_json::Value,
 }
 
@@ -753,8 +749,6 @@ pub struct ConsultationNoteEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
-    #[sqlx(skip)]
-    #[serde(default)]
     pub data: serde_json::Value,
 }
 
@@ -779,8 +773,6 @@ pub struct NursingCarePlanEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
-    #[sqlx(skip)]
-    #[serde(default)]
     pub data: serde_json::Value,
 }
 
@@ -800,8 +792,6 @@ pub struct MedicationRecordEntity {
     pub updated_at: DateTime<Utc>,
     pub facility_id: Option<String>,
     pub is_active: bool,
-    #[sqlx(skip)]
-    #[serde(default)]
     pub data: serde_json::Value,
 }
 
@@ -2173,7 +2163,6 @@ pub struct MedicationReminderEntity {
     /// Extras packed by the legacy `MedicationReminder` model (reminder_times vec,
     /// frequency enum, created_by, notification_prefs). Memory backend round-trips
     /// this; Postgres backend does not persist it (no schema column).
-    #[sqlx(skip)]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -3088,7 +3077,6 @@ pub struct AppointmentEntity {
     pub created_by: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[cfg_attr(feature = "postgres", sqlx(skip))]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -4655,6 +4643,24 @@ pub trait DeviceTokenRepository: Send + Sync + fmt::Debug {
     async fn update_last_seen(&self, id: &str) -> RepositoryResult<()>;
 }
 
+/// SMS opt-out entity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct SmsOptOutEntity {
+    pub phone_number: String,
+    pub opted_out_at: DateTime<Utc>,
+    pub source: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// SMS opt-out repository trait
+#[async_trait]
+pub trait SmsOptOutRepository: Send + Sync + fmt::Debug {
+    async fn add_opt_out(&self, entity: SmsOptOutEntity) -> RepositoryResult<()>;
+    async fn is_opted_out(&self, phone_number: &str) -> RepositoryResult<bool>;
+    async fn remove_opt_out(&self, phone_number: &str) -> RepositoryResult<()>;
+}
+
 // =============================================================================
 // PHASE 11: FAMILY HISTORY & GENETICS
 // =============================================================================
@@ -4823,7 +4829,6 @@ pub struct ImmunizationRecordEntity {
     pub notes: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[cfg_attr(feature = "postgres", sqlx(skip))]
     #[serde(default)]
     pub data: serde_json::Value,
 }

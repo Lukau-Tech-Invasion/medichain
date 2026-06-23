@@ -1,13 +1,24 @@
 use super::*;
 
+use crate::pagination::{paginate_cursor, CursorQuery, Cursorable};
+
+impl Cursorable for PatientProfile {
+    fn cursor_ts(&self) -> i64 {
+        self.last_updated.timestamp_millis()
+    }
+    fn cursor_id(&self) -> String {
+        self.patient_id.clone()
+    }
+}
+
 /// Get all registered patients (paginated)
 /// Requires authentication: Only healthcare providers can list all patients
-/// Query params: ?page=1&limit=20
+/// Query params: ?limit=20&cursor=<opaque>
 #[get("/api/patients")]
 pub async fn list_patients(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    query: web::Query<PaginationQuery>,
+    query: web::Query<CursorQuery>,
 ) -> impl Responder {
     // RBAC: Require authentication
     let current_user_id = match get_current_user_id(&http_req) {
@@ -41,12 +52,12 @@ pub async fn list_patients(
         });
     }
 
-    // List patients via repository (was: in-memory data.patients HashMap).
-    // Decrypts each profile blob; capped at one page (100) like other list endpoints.
+    // List patients via repository.
+    // Decrypts each profile blob; capped at 1000 for this cursor pass.
     let entities = match data
         .repositories
         .patients
-        .list(crate::repositories::Pagination::new(0, 100))
+        .list(crate::repositories::Pagination::new(0, 1000))
         .await
     {
         Ok(result) => result.items,
@@ -59,13 +70,26 @@ pub async fn list_patients(
             });
         }
     };
-    let patient_list: Vec<PatientProfile> = entities
+
+    let mut patient_list: Vec<PatientProfile> = entities
         .iter()
         .filter_map(|e| patient_entity_to_profile(e, &data.encryption_key))
         .collect();
-    let (data, pagination) = paginate(&patient_list, query.page, query.limit);
 
-    HttpResponse::Ok().json(PaginatedResponse { data, pagination })
+    // Sort: timestamp DESC, then ID ASC (stable tiebreaker)
+    patient_list.sort_by(|a, b| {
+        b.last_updated
+            .cmp(&a.last_updated)
+            .then_with(|| a.patient_id.cmp(&b.patient_id))
+    });
+
+    let (data, next_cursor) = paginate_cursor(&patient_list, query.cursor.as_deref(), query.limit);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "data": data,
+        "next_cursor": next_cursor
+    }))
 }
 
 /// Get a single patient by ID

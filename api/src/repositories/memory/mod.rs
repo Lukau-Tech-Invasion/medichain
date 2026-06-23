@@ -145,6 +145,7 @@ pub use phase5::MemoryCdsAlertRepository;
 pub use phase5::MemoryBillingCodeRepository;
 pub use phase5::MemoryDeviceTokenRepository;
 pub use phase5::MemoryInsuranceRecordRepository;
+pub use phase5::MemorySmsOptOutRepository;
 
 // Phase 11-15 repositories
 mod phase6;

@@ -57,7 +57,7 @@ MediChain provides a **blockchain-verified national health ID** with **NFC/QR em
 
 ## 📊 Project Status
 
-> Updated 2026-06-04. MediChain has progressed well past the hackathon prototype. The
+> Updated 2026-06-23. MediChain has progressed well past the hackathon prototype. The
 > table below reflects what is **actually implemented and verified** in the codebase
 > today. Remaining work is tracked in [`docs/NEXT_WEEK_TODO.md`](docs/NEXT_WEEK_TODO.md)
 > and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).

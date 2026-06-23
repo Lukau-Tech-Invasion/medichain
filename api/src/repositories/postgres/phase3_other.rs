@@ -1410,7 +1410,7 @@ impl MedicationReminderRepository for PgMedicationReminderRepository {
                 id, patient_id, prescription_id, medication_name, dosage,
                 scheduled_time, days_of_week, reminder_type, is_active,
                 snooze_minutes, max_snoozes, escalation_contact,
-                start_date, end_date, notes
+                start_date, end_date, notes, data
             ) ",
         );
 
@@ -1429,7 +1429,8 @@ impl MedicationReminderRepository for PgMedicationReminderRepository {
                 .push_bind(&r.escalation_contact)
                 .push_bind(r.start_date)
                 .push_bind(r.end_date)
-                .push_bind(&r.notes);
+                .push_bind(&r.notes)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -1504,6 +1505,7 @@ impl MedicationReminderRepository for PgMedicationReminderRepository {
         qb.push(", max_snoozes = ").push_bind(reminder.max_snoozes);
         qb.push(", end_date = ").push_bind(reminder.end_date);
         qb.push(", notes = ").push_bind(&reminder.notes);
+        qb.push(", data = ").push_bind(&reminder.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&reminder.id);
         qb.push(" RETURNING *");

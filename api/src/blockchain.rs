@@ -30,10 +30,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
 
-use sp_core::sr25519::Pair as Sr25519Pair;
-use sp_core::Pair;
 use subxt::dynamic::Value as DynamicValue;
-use subxt::tx::Signer;
 use subxt::{OnlineClient, PolkadotConfig};
 
 // ------------------------------------------------------------------
@@ -52,6 +49,65 @@ pub fn blockchain_enabled() -> bool {
         .ok()
         .map(|v| v.trim().to_ascii_lowercase() == "true")
         .unwrap_or(false)
+}
+
+/// Classify an access-audit event as emergency (break-glass) or routine.
+///
+/// Emergency access is the only case that maps to the access-control pallet's
+/// `grant_emergency_access` extrinsic; everything else (reads, consent actions)
+/// is recorded via the dedicated `log_access` audit extrinsic. Routing routine
+/// reads through `grant_emergency_access` was the C5 audit-integrity bug.
+pub(crate) fn is_emergency_access(access_type: &str) -> bool {
+    matches!(
+        access_type.trim().to_ascii_uppercase().as_str(),
+        "EMERGENCY" | "EMERGENCY_ACCESS" | "BREAK_GLASS"
+    )
+}
+
+/// The access-control extrinsic an audit event of `access_type` must use.
+///
+/// Returns `(call_name, is_emergency)`.
+pub(crate) fn audit_call_for(access_type: &str) -> (&'static str, bool) {
+    if is_emergency_access(access_type) {
+        ("grant_emergency_access", true)
+    } else {
+        ("log_access", false)
+    }
+}
+
+/// Resolve the operator signing keypair for on-chain extrinsics.
+///
+/// Production keys come from `SUBSTRATE_SIGNING_KEY` (an sr25519 secret URI / seed
+/// phrase). The insecure well-known Alice dev key is used **only** when explicitly
+/// opted in with `SUBSTRATE_ALLOW_DEV_SIGNER=true` (local dev/test). Otherwise we
+/// fail closed rather than silently signing with — and attributing chain state to
+/// — a shared public test key (the C5 Alice-key vulnerability).
+fn operator_signer() -> Result<subxt_signer::sr25519::Keypair, BlockchainError> {
+    use core::str::FromStr;
+    if let Ok(raw) = std::env::var("SUBSTRATE_SIGNING_KEY") {
+        let uri = subxt_signer::SecretUri::from_str(raw.trim())
+            .map_err(|e| BlockchainError::Rpc(format!("invalid SUBSTRATE_SIGNING_KEY: {e}")))?;
+        return subxt_signer::sr25519::Keypair::from_uri(&uri)
+            .map_err(|e| BlockchainError::Rpc(format!("cannot derive operator keypair: {e}")));
+    }
+
+    let allow_dev = std::env::var("SUBSTRATE_ALLOW_DEV_SIGNER")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if allow_dev {
+        warn!(
+            "[blockchain] SUBSTRATE_SIGNING_KEY unset — using INSECURE Alice dev key \
+             (SUBSTRATE_ALLOW_DEV_SIGNER=true). Never enable this in production."
+        );
+        Ok(subxt_signer::sr25519::dev::alice())
+    } else {
+        Err(BlockchainError::Rpc(
+            "SUBSTRATE_SIGNING_KEY is not set; refusing to sign extrinsics with the \
+             insecure Alice dev key. Set SUBSTRATE_SIGNING_KEY (operator seed) or, for \
+             local dev only, SUBSTRATE_ALLOW_DEV_SIGNER=true."
+                .to_string(),
+        ))
+    }
 }
 
 // ------------------------------------------------------------------
@@ -364,7 +420,7 @@ impl SubstrateClient {
         patient_id: &str,
         ipfs_hash: &str,
         record_type: &str,
-        uploaded_by: &str,
+        _uploaded_by: &str,
     ) -> Result<String, BlockchainError> {
         info!(
             "[blockchain] record_ipfs_hash_on_chain: patient_id={} ipfs_hash={} record_type={}",
@@ -421,14 +477,18 @@ impl SubstrateClient {
             accessor_id, patient_id, access_type
         );
 
-        // For audit purposes in Phase 1, we map all sensitive access to on-chain
-        // emergency access grants. In a full implementation, we would have
-        // a dedicated audit pallet.
+        // Route by access type: genuine emergency (break-glass) access is an
+        // `grant_emergency_access`; everything else (routine reads, consent
+        // actions) is recorded with the dedicated `log_access` audit extrinsic.
+        // Previously ALL access was misrouted through `grant_emergency_access`,
+        // making the on-chain audit trail legally unreliable (C5/F-05).
+        let (call_name, emergency) = audit_call_for(access_type);
+
         let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
             Ok(acc) => acc,
             Err(_) => {
                 return self
-                    .pending_extrinsic("AccessControl", "grant_emergency_access", vec![])
+                    .pending_extrinsic("AccessControl", call_name, vec![])
                     .await;
             }
         };
@@ -439,7 +499,7 @@ impl SubstrateClient {
         hasher.update(Utc::now().to_rfc3339().as_bytes());
         let reason_hash: [u8; 32] = hasher.finalize().into();
 
-        let params = vec![
+        let mut params = vec![
             DynamicValue::unnamed_variant(
                 "AccountId32",
                 vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
@@ -448,8 +508,13 @@ impl SubstrateClient {
             ),
             DynamicValue::from_bytes(&reason_hash),
         ];
+        // `log_access(patient, reason_hash, emergency)` takes the extra bool flag;
+        // `grant_emergency_access(patient, reason_hash)` does not.
+        if !emergency {
+            params.push(DynamicValue::bool(emergency));
+        }
 
-        self.pending_extrinsic("AccessControl", "grant_emergency_access", params)
+        self.pending_extrinsic("AccessControl", call_name, params)
             .await
     }
 
@@ -559,31 +624,41 @@ impl SubstrateClient {
                 pallet_name, call_name, self.ws_url
             );
 
-            // In a real application, the signer would be derived from the user's
-            // credentials or a system-level key. For Phase 1 demo, we use Alice.
-            let signer = subxt_signer::sr25519::dev::alice();
+            // Sign with the operator-managed key (never the shared Alice dev key
+            // in production — see `operator_signer`). Fail closed to a placeholder
+            // rather than signing with an insecure key when none is configured.
+            match operator_signer() {
+                Ok(signer) => {
+                    let tx = subxt::dynamic::tx(pallet_name, call_name, params);
 
-            let tx = subxt::dynamic::tx(pallet_name, call_name, params);
-
-            match api
-                .tx()
-                .sign_and_submit_then_watch_default(&tx, &signer)
-                .await
-            {
-                Ok(progress) => {
-                    // Wait for the transaction to be finalized.
-                    match progress.wait_for_finalized_success().await {
-                        Ok(events) => {
-                            let tx_hash = format!("{:?}", events.extrinsic_hash());
-                            info!(
-                                "[blockchain] Extrinsic '{}.{}' included in block, tx_hash={}",
-                                pallet_name, call_name, tx_hash
-                            );
-                            return Ok(tx_hash);
+                    match api
+                        .tx()
+                        .sign_and_submit_then_watch_default(&tx, &signer)
+                        .await
+                    {
+                        Ok(progress) => {
+                            // Wait for the transaction to be finalized.
+                            match progress.wait_for_finalized_success().await {
+                                Ok(events) => {
+                                    let tx_hash = format!("{:?}", events.extrinsic_hash());
+                                    info!(
+                                        "[blockchain] Extrinsic '{}.{}' included in block, tx_hash={}",
+                                        pallet_name, call_name, tx_hash
+                                    );
+                                    return Ok(tx_hash);
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        "[blockchain] Failed to wait for block for '{}.{}': {}",
+                                        pallet_name, call_name, e
+                                    );
+                                }
+                            }
                         }
                         Err(e) => {
                             warn!(
-                                "[blockchain] Failed to wait for block for '{}.{}': {}",
+                                "[blockchain] Extrinsic submission failed for '{}.{}': {} — \
+                                 falling back to placeholder hash.",
                                 pallet_name, call_name, e
                             );
                         }
@@ -591,8 +666,8 @@ impl SubstrateClient {
                 }
                 Err(e) => {
                     warn!(
-                        "[blockchain] Extrinsic submission failed for '{}.{}': {} — \
-                         falling back to placeholder hash.",
+                        "[blockchain] No operator signer for '{}.{}': {} — \
+                         not submitting; returning placeholder hash.",
                         pallet_name, call_name, e
                     );
                 }
@@ -651,6 +726,48 @@ mod tests {
             SubstrateClient::ws_to_http("http://localhost:9944"),
             "http://localhost:9944"
         );
+    }
+
+    /// Routine access must NOT be recorded as an emergency-access grant; only
+    /// genuine break-glass access maps to `grant_emergency_access` (C5/F-05).
+    #[test]
+    fn test_audit_call_routing() {
+        assert_eq!(audit_call_for("READ"), ("log_access", false));
+        assert_eq!(audit_call_for("CONSENT_GRANT"), ("log_access", false));
+        assert_eq!(
+            audit_call_for("EMERGENCY_ACCESS"),
+            ("grant_emergency_access", true)
+        );
+        // Case-insensitive + alias.
+        assert_eq!(
+            audit_call_for("break_glass"),
+            ("grant_emergency_access", true)
+        );
+        assert!(!is_emergency_access("read"));
+        assert!(is_emergency_access("Emergency"));
+    }
+
+    /// The operator signer must fail closed when no key is configured, and never
+    /// silently fall back to the insecure Alice dev key (C5/F-04).
+    #[test]
+    fn test_operator_signer_fail_closed() {
+        // Run sequentially within one test to avoid cross-test env races.
+        std::env::remove_var("SUBSTRATE_SIGNING_KEY");
+        std::env::remove_var("SUBSTRATE_ALLOW_DEV_SIGNER");
+        assert!(
+            operator_signer().is_err(),
+            "must refuse to sign without an operator key"
+        );
+
+        // Explicit dev opt-in yields a usable (insecure) signer.
+        std::env::set_var("SUBSTRATE_ALLOW_DEV_SIGNER", "true");
+        assert!(operator_signer().is_ok(), "dev opt-in should produce a key");
+        std::env::remove_var("SUBSTRATE_ALLOW_DEV_SIGNER");
+
+        // A real operator secret URI is accepted.
+        std::env::set_var("SUBSTRATE_SIGNING_KEY", "//Operator");
+        assert!(operator_signer().is_ok(), "valid secret URI should parse");
+        std::env::remove_var("SUBSTRATE_SIGNING_KEY");
     }
 
     /// Placeholder tx hashes must be valid 0x-prefixed 64-character hex strings

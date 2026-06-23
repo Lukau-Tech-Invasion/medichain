@@ -124,6 +124,7 @@ pub mod error_codes {
     pub const INSUFFICIENT_ROLE: &str = "INSUFFICIENT_ROLE";
     pub const USER_NOT_FOUND: &str = "USER_NOT_FOUND";
     pub const PATIENT_NOT_FOUND: &str = "PATIENT_NOT_FOUND";
+    pub const ENCRYPTION_REQUIRED: &str = "ENCRYPTION_REQUIRED";
 }
 
 /// Build the project-standard error envelope as a JSON value:

@@ -352,3 +352,45 @@ fn cleanup_expired_access_works() {
         assert_eq!(AccessControl::access_count(PATIENT), 0);
     });
 }
+
+// =============================================================================
+// Audit Logging Tests (C5)
+// =============================================================================
+
+/// `log_access` records an audit event WITHOUT creating an emergency-access
+/// grant. This is the behaviour that distinguishes correct audit routing from
+/// the previous bug, where every access was recorded as `grant_emergency_access`.
+#[test]
+fn log_access_does_not_create_grant() {
+    new_test_ext_with_roles().execute_with(|| {
+        System::set_block_number(1);
+
+        assert_ok!(AccessControl::log_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [7u8; 32],
+            false,
+        ));
+
+        // Crucially: no access grant is created and no access count is bumped.
+        assert!(AccessControl::active_access(PATIENT, DOCTOR).is_none());
+        assert_eq!(AccessControl::access_count(PATIENT), 0);
+    });
+}
+
+/// Audit logging is available to any signed origin — it is a record-keeping
+/// action, not a privileged grant, so it must not be gated on provider role.
+#[test]
+fn log_access_allowed_for_any_signed_origin() {
+    new_test_ext_with_roles().execute_with(|| {
+        System::set_block_number(1);
+
+        assert_ok!(AccessControl::log_access(
+            RuntimeOrigin::signed(PATIENT),
+            PATIENT,
+            [9u8; 32],
+            true,
+        ));
+        assert!(AccessControl::active_access(PATIENT, PATIENT).is_none());
+    });
+}

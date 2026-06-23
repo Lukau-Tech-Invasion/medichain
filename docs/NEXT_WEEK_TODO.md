@@ -13,27 +13,27 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 ## Stage 1 — Finish remaining IMPLEMENTATION_PLAN items (in-scope)
 
 ### Persistence & data fidelity (2.1)
-- [ ] Replace `#[sqlx(skip)]` "extras" data-loss on PostgreSQL round-trips
+- [x] Replace `#[sqlx(skip)]` "extras" data-loss on PostgreSQL round-trips
       (appointments, medication_reminders, immunization) with a JSONB column or typed columns
-- [ ] Verify all 70+ tables have matching repository CRUD; close any gaps
-- [ ] Confirm `MEDICHAIN_STORAGE=postgres` activates PostgreSQL for **every** endpoint
+- [x] Verify all 70+ tables have matching repository CRUD; close any gaps
+- [x] Confirm `MEDICHAIN_STORAGE=postgres` activates PostgreSQL for **every** endpoint
 
 ### Frontend completeness (3.1, 3.2, 4.1-UI, 13.2)
-- [ ] `DeathCertificatePage` — add certifier state + working "Sign & Submit" handler
-- [ ] `PediatricsPage` — full vertical (backend route + shared API fn + page wiring)
-- [ ] Finish thin patient-app pages (Vital Signs, Medications integration polish)
-- [ ] Surface drug-interaction warnings in the prescription UI
-- [ ] Gate all demo-data fallbacks behind `IS_DEMO` (Insurance/LabTrends/Wearables/MAR)
+- [x] `DeathCertificatePage` — add certifier state + working "Sign & Submit" handler
+- [x] `PediatricsPage` — full vertical (backend route + shared API fn + page wiring)
+- [x] Finish thin patient-app pages (Vital Signs, Medications integration polish)
+- [x] Surface drug-interaction warnings in the prescription UI
+- [x] Gate all demo-data fallbacks behind `IS_DEMO` (Insurance/LabTrends/Wearables/MAR)
 
 ### Notifications & security (5.2, 5.3, 6.1, 6.3, 11.4)
-- [ ] FCM push: HTTP v1 client + `device_tokens` table + registration endpoint **(needs Firebase project — scaffold + document)**
-- [ ] Persistent per-patient SMS opt-out table
-- [ ] Secrets-rotation documentation + key-management guidance
-- [ ] Encryption-required policy at the API middleware layer + key-rotation support
-- [ ] SMTP dispatch for regulator/data-subject breach notifications **(needs SMTP provider — scaffold + document)**
+- [x] FCM push: HTTP v1 client + `device_tokens` table + registration endpoint
+- [x] Persistent per-patient SMS opt-out table
+- [x] Secrets-rotation documentation + key-management guidance
+- [x] Encryption-required policy at the API middleware layer + key-rotation support
+- [x] SMTP dispatch for regulator/data-subject breach notifications **(needs SMTP provider — scaffold + document)**
 
 ### Infra & observability (8.1, 8.2, 12.1)
-- [ ] Add Substrate node service + `docker-compose.prod.yml` overrides + per-service health checks
+- [x] Add Substrate node service + `docker-compose.prod.yml` overrides + per-service health checks
 - [ ] Wire Grafana dashboard + Prometheus alert rules into the deployment
 - [ ] Frontend bundle analysis + code-split doctor vs patient apps (< 200KB initial JS)
 
@@ -43,8 +43,8 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 - [ ] Per-facility configurable CDS thresholds + CDS audit trail (which rule fired, action taken)
 
 ### API & data pipeline (9.3, 9.5, 4.1-data)
-- [ ] Adopt cursor pagination on the remaining list endpoints (+ "load more" UI)
-- [ ] Migrate the ~1140 ad-hoc error responses to the canonical `error_envelope_json`
+- [x] Adopt cursor pagination on the remaining list endpoints (+ "load more" UI)
+- [~] Migrate the ~1140 ad-hoc error responses to the canonical `error_envelope_json`
 - [ ] Import RxNorm/DrugBank open datasets to expand drug-interaction coverage **(data pipeline)**
 
 ### Mobile (8.3)

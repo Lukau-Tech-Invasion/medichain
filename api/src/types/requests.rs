@@ -103,6 +103,7 @@ pub struct RegisterPatientResponse {
     pub message: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct EmergencyAccessRequest {
     pub nfc_tag_id: String,
@@ -141,6 +142,7 @@ pub struct HealthCheckResponse {
     pub blockchain_connected: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 pub struct AccessLogsResponse {
     pub patient_id: String,

@@ -23,7 +23,7 @@ impl PgNursingCarePlanRepository {
 impl NursingCarePlanRepository for PgNursingCarePlanRepository {
     async fn create(&self, plan: NursingCarePlanEntity) -> RepositoryResult<NursingCarePlanEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO nursing_care_plans (id, patient_id, plan_name, care_level, nursing_diagnoses, goals, interventions, evaluation_notes, status, start_date, target_end_date, actual_end_date, created_by, updated_by, facility_id) "
+            "INSERT INTO nursing_care_plans (id, patient_id, plan_name, care_level, nursing_diagnoses, goals, interventions, evaluation_notes, status, start_date, target_end_date, actual_end_date, created_by, updated_by, facility_id, data) "
         );
 
         qb.push_values([&plan], |mut b, p| {
@@ -41,7 +41,8 @@ impl NursingCarePlanRepository for PgNursingCarePlanRepository {
                 .push_bind(p.actual_end_date)
                 .push_bind(&p.created_by)
                 .push_bind(&p.updated_by)
-                .push_bind(&p.facility_id);
+                .push_bind(&p.facility_id)
+                .push_bind(&p.data);
         });
 
         qb.push(" RETURNING *");
@@ -133,6 +134,7 @@ impl NursingCarePlanRepository for PgNursingCarePlanRepository {
         qb.push(", actual_end_date = ")
             .push_bind(plan.actual_end_date);
         qb.push(", updated_by = ").push_bind(&plan.updated_by);
+        qb.push(", data = ").push_bind(&plan.data);
         qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
             .push_bind(&plan.id);
         qb.push(" AND is_active = true RETURNING *");

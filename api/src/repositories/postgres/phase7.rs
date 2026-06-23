@@ -14,11 +14,13 @@ use crate::repositories::traits::{JsonRecordEntity, JsonRecordRepository, Reposi
 macro_rules! pg_json_repo {
     ($name:ident, $table:literal) => {
         /// PostgreSQL-backed JSON-record repository (one Phase-7 domain table).
+        #[allow(dead_code)]
         #[derive(Debug, Clone)]
         pub struct $name {
             pool: PgPool,
         }
 
+        #[allow(dead_code)]
         impl $name {
             pub fn new(pool: PgPool) -> Self {
                 Self { pool }
@@ -107,6 +109,7 @@ pg_json_repo!(PgInsuranceClaimRepository, "insurance_claims");
 pg_json_repo!(PgInsuranceCardRepository, "insurance_cards");
 pg_json_repo!(PgAutopsyRequestRepository, "autopsy_requests");
 pg_json_repo!(PgAutopsyReportRepository, "autopsy_reports");
+pg_json_repo!(PgDeathCertificateRepository, "death_certificates");
 pg_json_repo!(PgSyncQueueItemRepository, "sync_queue_items");
 
 // Round 5: wearables + telehealth legacy shapes (repos existed but entity shapes

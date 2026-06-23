@@ -341,18 +341,29 @@ pub async fn get_emergency_medical_id(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    // Emergency access can be granted with a token or NFC hash
-    let emergency_token = query.get("token");
-    let nfc_hash = query.get("nfc_hash");
+    // Emergency access is granted only on a *verifiable* proof, never on the mere
+    // presence of a query parameter (C2):
+    //   - a time-limited, server-signed emergency token bound to THIS patient, or
+    //   - an NFC card hash matching one of the patient's active registered tags.
+    let token_ok = query
+        .get("token")
+        .map(|t| super::emergency_access::verify_emergency_token(t, &patient_id))
+        .unwrap_or(false);
 
-    // Validate emergency access (simplified for demo)
-    let is_valid_emergency = emergency_token.is_some() || nfc_hash.is_some();
+    let nfc_ok = match query.get("nfc_hash").filter(|h| !h.is_empty()) {
+        Some(h) => match data.repositories.nfc_tags.get_by_patient(&patient_id).await {
+            Ok(tags) => super::emergency_access::nfc_hash_matches(h, &tags),
+            Err(_) => false,
+        },
+        None => false,
+    };
 
-    if !is_valid_emergency {
+    if !token_ok && !nfc_ok {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             success: false,
-            error: "Emergency access requires valid token or NFC hash".to_string(),
-            code: "EMERGENCY_ACCESS_REQUIRED".to_string(),
+            error: "Emergency access requires a valid signed token or a matching NFC card hash"
+                .to_string(),
+            code: "EMERGENCY_ACCESS_DENIED".to_string(),
         });
     }
 
@@ -506,11 +517,13 @@ pub async fn get_lockscreen_medical_id(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
+    query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    // For lock screen, we allow patient's own ID to be accessed
-    // In production, this would be tied to device authentication
+    // Lock-screen PHI is gated by a bound identity (C3): either an authenticated
+    // caller (X-User-Id / session) or a device-bound NFC card hash matching one
+    // of the patient's active tags. An unbound request never sees PHI.
     let current_user_id = get_current_user_id(&http_req);
 
     // Get patient from repository
@@ -524,6 +537,23 @@ pub async fn get_lockscreen_medical_id(
             })
         }
     };
+
+    let nfc_ok = match query.get("nfc_hash").filter(|h| !h.is_empty()) {
+        Some(h) => match data.repositories.nfc_tags.get_by_patient(&patient_id).await {
+            Ok(tags) => super::emergency_access::nfc_hash_matches(h, &tags),
+            Err(_) => false,
+        },
+        None => false,
+    };
+
+    if current_user_id.is_none() && !nfc_ok {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Lock-screen access requires an authenticated identity or a matching NFC card"
+                .to_string(),
+            code: "IDENTITY_BINDING_REQUIRED".to_string(),
+        });
+    }
 
     // Get allergies from repository
     let allergies = match data
@@ -799,7 +829,7 @@ pub async fn trigger_emergency_notification(
     }
 
     // Get patient from repository
-    let patient = match data.repositories.patients.get_by_id(&patient_id).await {
+    let _patient = match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(p) => p,
         Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
@@ -821,8 +851,8 @@ pub async fn trigger_emergency_notification(
         });
     }
 
-    let location = body.get("location").and_then(|l| l.as_str());
-    let custom_message = body.get("message").and_then(|m| m.as_str());
+    let _location = body.get("location").and_then(|l| l.as_str());
+    let _custom_message = body.get("message").and_then(|m| m.as_str());
     let emergency_type = body
         .get("emergency_type")
         .and_then(|e| e.as_str())

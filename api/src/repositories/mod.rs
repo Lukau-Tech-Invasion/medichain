@@ -159,6 +159,7 @@ pub struct RepositoryContainer {
     pub incident_reports: Arc<dyn IncidentReportRepository>,
     pub shift_handoffs: Arc<dyn ShiftHandoffRepository>,
     pub device_tokens: Arc<dyn DeviceTokenRepository>,
+    pub sms_opt_outs: Arc<dyn SmsOptOutRepository>,
 
     // Phase 6: EMS & External repositories
     pub ems_handoffs: Arc<dyn EmsHandoffRepository>,
@@ -321,6 +322,7 @@ impl RepositoryContainer {
             incident_reports: Arc::new(memory::MemoryIncidentReportRepository::new()),
             shift_handoffs: Arc::new(memory::MemoryShiftHandoffRepository::new()),
             device_tokens: Arc::new(memory::MemoryDeviceTokenRepository::new()),
+            sms_opt_outs: Arc::new(memory::MemorySmsOptOutRepository::new()),
 
             // Phase 6: EMS & External repositories (memory)
             ems_handoffs: Arc::new(memory::MemoryEmsHandoffRepository::new()),
@@ -584,12 +586,18 @@ impl RepositoryContainer {
             triage_assessments: Arc::new(postgres::PgTriageAssessmentRepository::new(pool.clone())),
             access_logs: Arc::new(postgres::PgAccessLogRepository::new(pool.clone())),
 
-            // Emergency Protocol repositories (memory fallback until Pg implemented)
-            code_blue: Arc::new(memory::MemoryCodeBlueRepository::new()),
-            trauma_assessments_repo: Arc::new(memory::MemoryTraumaAssessmentRepository::new()),
-            stroke_assessments_repo: Arc::new(memory::MemoryStrokeAssessmentRepository::new()),
-            cardiac_events_repo: Arc::new(memory::MemoryCardiacEventRepository::new()),
-            sepsis_assessments_repo: Arc::new(memory::MemorySepsisAssessmentRepository::new()),
+            // Emergency Protocol repositories (PostgreSQL — JSONB-persisted, C1)
+            code_blue: Arc::new(postgres::PgCodeBlueRepository::new(pool.clone())),
+            trauma_assessments_repo: Arc::new(postgres::PgTraumaAssessmentRepository::new(
+                pool.clone(),
+            )),
+            stroke_assessments_repo: Arc::new(postgres::PgStrokeAssessmentRepository::new(
+                pool.clone(),
+            )),
+            cardiac_events_repo: Arc::new(postgres::PgCardiacEventRepository::new(pool.clone())),
+            sepsis_assessments_repo: Arc::new(postgres::PgSepsisAssessmentRepository::new(
+                pool.clone(),
+            )),
 
             // Phase 2: Clinical Documentation repositories (PostgreSQL)
             sample_history: Arc::new(postgres::PgSampleHistoryRepository::new(pool.clone())),
@@ -678,6 +686,7 @@ impl RepositoryContainer {
             incident_reports: Arc::new(postgres::PgIncidentReportRepository::new(pool.clone())),
             shift_handoffs: Arc::new(postgres::PgShiftHandoffRepository::new(pool.clone())),
             device_tokens: Arc::new(postgres::PgDeviceTokenRepository::new(pool.clone())),
+            sms_opt_outs: Arc::new(postgres::PgSmsOptOutRepository::new(pool.clone())),
 
             // Phase 6: EMS & External repositories (PostgreSQL)
             ems_handoffs: Arc::new(postgres::PgEmsHandoffRepository::new(pool.clone())),

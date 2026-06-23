@@ -17,6 +17,7 @@
 use async_trait::async_trait;
 
 /// Errors raised by a transcription provider.
+#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub enum TranscriptionError {
     #[error("transcription provider error: {0}")]
@@ -24,6 +25,7 @@ pub enum TranscriptionError {
 }
 
 /// A request to transcribe a completed recording.
+#[allow(dead_code)]
 pub struct TranscriptionRequest {
     pub session_id: String,
     /// URL/handle of the recording artifact, when the deployment captures one.
@@ -34,6 +36,7 @@ pub struct TranscriptionRequest {
 }
 
 /// Speech-to-text backend for telehealth recordings.
+#[allow(dead_code)]
 #[async_trait]
 pub trait Transcriber: Send + Sync {
     /// Transcribe a recording. Returns `Ok(None)` when transcription is not

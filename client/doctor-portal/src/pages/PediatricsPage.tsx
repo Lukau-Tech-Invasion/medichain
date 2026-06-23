@@ -9,8 +9,10 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle,
-  Heart
+  Heart,
+  FileSignature
 } from 'lucide-react';
+import { createPeds } from '../../../shared/src/api/endpoints';
 
 /**
  * PediatricsPage
@@ -51,6 +53,19 @@ const PediatricsPage: React.FC = () => {
   const [patients, setPatients] = useState<PediatricPatient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PediatricPatient | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [assessmentForm, setAssessmentForm] = useState({
+    patientId: '',
+    weightKg: '',
+    heightCm: '',
+    heartRate: '',
+    respiratoryRate: '',
+    temperature: '',
+    patAppearance: 'normal',
+    patWorkOfBreathing: 'normal',
+    patCirculation: 'normal',
+    developmentalStatus: 'on-track',
+    notes: ''
+  });
 
   useEffect(() => {
     const now = new Date();
@@ -153,6 +168,75 @@ const PediatricsPage: React.FC = () => {
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     p.mrn.includes(searchQuery)
   );
+
+  const handleSubmitAssessment = async () => {
+    if (!assessmentForm.patientId || !assessmentForm.weightKg || !assessmentForm.heartRate) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    try {
+      // Mapping to the backend PediatricAssessment structure
+      const assessmentData = {
+        assessment_id: `PEDS-${Date.now()}`,
+        patient_id: selectedPatient?.id || assessmentForm.patientId,
+        age: {
+          years: Math.floor((selectedPatient?.ageMonths || 0) / 12),
+          months: (selectedPatient?.ageMonths || 0) % 12,
+          category: (selectedPatient?.ageGroup || 'infant').charAt(0).toUpperCase() + (selectedPatient?.ageGroup || 'infant').slice(1)
+        },
+        weight_kg: parseFloat(assessmentForm.weightKg) || 0,
+        weight_method: 'Measured',
+        vital_signs: {
+          heart_rate: parseInt(assessmentForm.heartRate) || 0,
+          hr_interpretation: 'Normal',
+          respiratory_rate: parseInt(assessmentForm.respiratoryRate) || 0,
+          rr_interpretation: 'Normal',
+          temperature_celsius: parseFloat(assessmentForm.temperature) || 37.0,
+          temp_interpretation: 'Normal'
+        },
+        pat: {
+          appearance: assessmentForm.patAppearance === 'normal' ? 'Normal' : 'Abnormal',
+          work_of_breathing: assessmentForm.patWorkOfBreathing === 'normal' ? 'Normal' : 'Abnormal',
+          circulation: assessmentForm.patCirculation === 'normal' ? 'Normal' : 'Abnormal'
+        },
+        pain: {
+          score: 0,
+          scale_used: 'FLACC'
+        },
+        development: assessmentForm.developmentalStatus,
+        history: {
+          symptoms: '',
+          allergies: '',
+          medications: '',
+          past_history: '',
+          last_meal: '',
+          events: ''
+        },
+        immunizations: 'Up to date',
+        abuse_screening: {
+          concerns: false,
+          notes: ''
+        },
+        guardian_present: true,
+        assessed_by: 'Current Doctor',
+        assessed_at: Date.now()
+      };
+
+      await createPeds(assessmentData);
+      alert('Pediatric assessment successfully submitted.');
+      setActiveTab('patients');
+      // Reset form
+      setAssessmentForm({
+        patientId: '', weightKg: '', heightCm: '', heartRate: '', respiratoryRate: '', temperature: '',
+        patAppearance: 'normal', patWorkOfBreathing: 'normal', patCirculation: 'normal',
+        developmentalStatus: 'on-track', notes: ''
+      });
+    } catch (error) {
+      console.error('Failed to submit pediatric assessment:', error);
+      alert('Failed to submit assessment. Please try again.');
+    }
+  };
 
   const developmentalMilestones: Record<AgeGroup, string[]> = {
     'newborn': ['Startles to loud sounds', 'Focuses on faces', 'Moves arms and legs equally'],
@@ -293,7 +377,12 @@ const PediatricsPage: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label htmlFor="peds-patient" className="block text-sm font-medium mb-1">Patient *</label>
-                <select id="peds-patient" className="w-full border rounded-lg px-3 py-2">
+                <select
+                  id="peds-patient"
+                  value={assessmentForm.patientId}
+                  onChange={(e) => setAssessmentForm({ ...assessmentForm, patientId: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2"
+                >
                   <option value="">Select patient...</option>
                   {patients.map(p => (
                     <option key={p.id} value={p.id}>{p.name} - {getAgeDisplay(p.ageMonths)}</option>
@@ -304,48 +393,150 @@ const PediatricsPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="peds-weight" className="block text-sm font-medium mb-1">Weight (kg) *</label>
-                  <input id="peds-weight" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
+                  <input
+                    id="peds-weight"
+                    type="number"
+                    step="0.1"
+                    value={assessmentForm.weightKg}
+                    onChange={(e) => setAssessmentForm({ ...assessmentForm, weightKg: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="0.0"
+                  />
                 </div>
                 <div>
                   <label htmlFor="peds-height" className="block text-sm font-medium mb-1">Height (cm) *</label>
-                  <input id="peds-height" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="0.0" />
+                  <input
+                    id="peds-height"
+                    type="number"
+                    step="0.1"
+                    value={assessmentForm.heightCm}
+                    onChange={(e) => setAssessmentForm({ ...assessmentForm, heightCm: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="0.0"
+                  />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="peds-head-circumference" className="block text-sm font-medium mb-1">Head Circumference (cm)</label>
-                  <input id="peds-head-circumference" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="Optional" />
+                  <label htmlFor="peds-hr" className="block text-sm font-medium mb-1">Heart Rate *</label>
+                  <input
+                    id="peds-hr"
+                    type="number"
+                    value={assessmentForm.heartRate}
+                    onChange={(e) => setAssessmentForm({ ...assessmentForm, heartRate: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="BPM"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="peds-rr" className="block text-sm font-medium mb-1">Resp Rate</label>
+                  <input
+                    id="peds-rr"
+                    type="number"
+                    value={assessmentForm.respiratoryRate}
+                    onChange={(e) => setAssessmentForm({ ...assessmentForm, respiratoryRate: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="Breaths/min"
+                  />
                 </div>
                 <div>
                   <label htmlFor="peds-temperature" className="block text-sm font-medium mb-1">Temperature (°C)</label>
-                  <input id="peds-temperature" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="36.5" />
+                  <input
+                    id="peds-temperature"
+                    type="number"
+                    step="0.1"
+                    value={assessmentForm.temperature}
+                    onChange={(e) => setAssessmentForm({ ...assessmentForm, temperature: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2"
+                    placeholder="36.5"
+                  />
                 </div>
               </div>
 
-              <div>
-                <span id="peds-milestones-label" className="block text-sm font-medium mb-2">Developmental Milestones</span>
-                <div className="bg-sky-50 border border-sky-200 rounded-lg p-4" role="group" aria-labelledby="peds-milestones-label">
-                  <p className="text-sm text-sky-700 mb-2">Select achieved milestones:</p>
-                  <div className="space-y-2">
-                    {developmentalMilestones['infant'].map((milestone, idx) => (
-                      <label key={idx} htmlFor={`peds-milestone-${idx}`} className="flex items-center gap-2">
-                        <input id={`peds-milestone-${idx}`} type="checkbox" className="w-4 h-4" />
-                        <span className="text-sm">{milestone}</span>
-                      </label>
-                    ))}
+              <div className="border-t pt-4">
+                <h3 className="text-sm font-semibold mb-3">Pediatric Assessment Triangle (PAT)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Appearance</label>
+                    <select
+                      value={assessmentForm.patAppearance}
+                      onChange={(e) => setAssessmentForm({ ...assessmentForm, patAppearance: e.target.value })}
+                      className="w-full border rounded-lg px-2 py-1 text-sm"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="abnormal">Abnormal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Work of Breathing</label>
+                    <select
+                      value={assessmentForm.patWorkOfBreathing}
+                      onChange={(e) => setAssessmentForm({ ...assessmentForm, patWorkOfBreathing: e.target.value })}
+                      className="w-full border rounded-lg px-2 py-1 text-sm"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="abnormal">Abnormal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Circulation</label>
+                    <select
+                      value={assessmentForm.patCirculation}
+                      onChange={(e) => setAssessmentForm({ ...assessmentForm, patCirculation: e.target.value })}
+                      className="w-full border rounded-lg px-2 py-1 text-sm"
+                    >
+                      <option value="normal">Normal</option>
+                      <option value="abnormal">Abnormal</option>
+                    </select>
                   </div>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="peds-notes" className="block text-sm font-medium mb-1">Notes</label>
-                <textarea id="peds-notes" className="w-full border rounded-lg px-3 py-2" rows={3} placeholder="Assessment notes..." />
+                <label className="block text-sm font-medium mb-1">Developmental Status</label>
+                <div className="flex gap-4">
+                  {(['on-track', 'monitor', 'concern'] as const).map(status => (
+                    <label key={status} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="dev-status"
+                        checked={assessmentForm.developmentalStatus === status}
+                        onChange={() => setAssessmentForm({ ...assessmentForm, developmentalStatus: status })}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm capitalize">{status.replace('-', ' ')}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
-              <button className="w-full py-3 bg-sky-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
-                <Plus className="w-5 h-5" /> Save Assessment
-              </button>
+              <div>
+                <label htmlFor="peds-notes" className="block text-sm font-medium mb-1">Notes</label>
+                <textarea
+                  id="peds-notes"
+                  className="w-full border rounded-lg px-3 py-2"
+                  rows={3}
+                  value={assessmentForm.notes}
+                  onChange={(e) => setAssessmentForm({ ...assessmentForm, notes: e.target.value })}
+                  placeholder="Assessment notes..."
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setActiveTab('patients')}
+                  className="flex-1 py-3 border border-gray-300 rounded-lg font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmitAssessment}
+                  className="flex-[2] py-3 bg-slate-800 text-white rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-slate-900"
+                >
+                  <FileSignature className="w-5 h-5" /> Sign & Submit Assessment
+                </button>
+              </div>
             </div>
           </div>
         </div>

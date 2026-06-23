@@ -246,6 +246,7 @@ pub async fn upload_insurance_card_image(
         patient_id: existing.owner_id.clone(),
         uploaded_by: uploader,
         record_type: "insurance_card".to_string(),
+        key_version: "1.0".to_string(),
     };
 
     let result = match data

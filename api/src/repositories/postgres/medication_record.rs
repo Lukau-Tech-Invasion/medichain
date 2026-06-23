@@ -28,7 +28,7 @@ impl MedicationRecordRepository for PgMedicationRecordRepository {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO medication_records (
                 id, patient_id, record_date, scheduled_medications, prn_medications,
-                infusions, completion_status, completion_percentage, primary_nurse, facility_id
+                infusions, completion_status, completion_percentage, primary_nurse, facility_id, data
             ) ",
         );
 
@@ -42,7 +42,8 @@ impl MedicationRecordRepository for PgMedicationRecordRepository {
                 .push_bind(&e.completion_status)
                 .push_bind(e.completion_percentage)
                 .push_bind(&e.primary_nurse)
-                .push_bind(&e.facility_id);
+                .push_bind(&e.facility_id)
+                .push_bind(&e.data);
         });
 
         qb.push(" RETURNING *");
@@ -136,6 +137,7 @@ impl MedicationRecordRepository for PgMedicationRecordRepository {
             .push_bind(record.completion_percentage);
         qb.push(", primary_nurse = ")
             .push_bind(&record.primary_nurse);
+        qb.push(", data = ").push_bind(&record.data);
         qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
             .push_bind(&record.id);
         qb.push(" AND is_active = true RETURNING *");

@@ -1201,11 +1201,11 @@ export async function getAvailableSlots(providerId: string, date: string): Promi
 // ============================================================================
 
 export async function createDeathCertificate(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/death-certificate', data);
+  return getApiClient().post('/api/surgical/death-certificate', data);
 }
 
 export async function getDeathCertificate(certificateId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/death-certificate/${certificateId}`);
+  return getApiClient().get(`/api/surgical/death-certificate/${certificateId}`);
 }
 
 export async function createAutopsyRequest(data: unknown): Promise<unknown> {

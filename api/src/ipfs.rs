@@ -65,6 +65,8 @@ pub struct EncryptedMetadata {
     pub uploaded_by: String,
     /// Record type (e.g., "lab_result", "imaging", "prescription")
     pub record_type: String,
+    /// Version of the encryption key used (Phase 6.3)
+    pub key_version: String,
 }
 
 /// Result of an IPFS upload operation
@@ -458,6 +460,7 @@ mod tests {
             patient_id: "MCHI-1234-5678".to_string(),
             uploaded_by: "dr-alice".to_string(),
             record_type: "lab_result".to_string(),
+            key_version: "1".to_string(),
         };
 
         let json = serde_json::to_string(&metadata).unwrap();

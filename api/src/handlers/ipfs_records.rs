@@ -111,6 +111,7 @@ pub async fn upload_medical_record(
         patient_id: req.patient_id.clone(),
         uploaded_by: current_user_id.clone(),
         record_type: req.record_type.clone(),
+        key_version: "1.0".to_string(),
     };
 
     // Calculate content checksum (convert to hex string)

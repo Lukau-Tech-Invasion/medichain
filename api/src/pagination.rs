@@ -38,6 +38,7 @@ pub fn encode_cursor_ms(ts_ms: i64, id: &str) -> String {
 }
 
 /// Encode an opaque cursor from a `DateTime` + id.
+#[allow(dead_code)]
 pub fn encode_cursor(created_at: DateTime<Utc>, id: &str) -> String {
     encode_cursor_ms(created_at.timestamp_millis(), id)
 }

@@ -177,6 +177,17 @@ pub mod pallet {
             patient: T::AccountId,
             accessor: T::AccountId,
         },
+        /// A record-access event was logged for audit [patient, accessor, emergency]
+        ///
+        /// Emitted by `log_access` to record ordinary (non-grant) audit events —
+        /// e.g. reads and consent actions — distinctly from an emergency-access
+        /// grant. The block history is the immutable audit trail.
+        AccessLogged {
+            patient: T::AccountId,
+            accessor: T::AccountId,
+            reason_hash: [u8; 32],
+            emergency: bool,
+        },
     }
 
     #[pallet::error]
@@ -447,6 +458,43 @@ pub mod pallet {
             AccessCount::<T>::mutate(&patient, |count| *count = count.saturating_sub(1));
 
             Self::deposit_event(Event::ExpiredAccessCleaned { patient, accessor });
+
+            Ok(())
+        }
+
+        // ====================================================================
+        // AUDIT LOGGING EXTRINSIC
+        // ====================================================================
+
+        /// Record an immutable record-access audit event.
+        ///
+        /// This is the correct call for ordinary access auditing (reads, consent
+        /// actions, and similar). Unlike `grant_emergency_access`, it does not
+        /// create or modify an access grant — it only deposits an `AccessLogged`
+        /// event into block history, which serves as the tamper-evident audit
+        /// trail. The `emergency` flag distinguishes break-glass reads from
+        /// routine ones without misrepresenting either as an access *grant*.
+        ///
+        /// # Arguments
+        /// * `patient`     - Patient whose record was accessed.
+        /// * `reason_hash` - Hash of the (encrypted) access reason.
+        /// * `emergency`   - Whether this was emergency/break-glass access.
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::WeightInfo::log_access())]
+        pub fn log_access(
+            origin: OriginFor<T>,
+            patient: T::AccountId,
+            reason_hash: [u8; 32],
+            emergency: bool,
+        ) -> DispatchResult {
+            let accessor = ensure_signed(origin)?;
+
+            Self::deposit_event(Event::AccessLogged {
+                patient,
+                accessor,
+                reason_hash,
+                emergency,
+            });
 
             Ok(())
         }

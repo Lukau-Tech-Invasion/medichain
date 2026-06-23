@@ -298,17 +298,18 @@ mod tests {
     async fn test_enabled_rejects_post_with_user_id_but_no_signature() {
         use actix_web::{test, web, App, HttpResponse};
 
-        let app = test::init_service(
-            App::new().wrap(SignatureAuthMiddleware::enabled()).route(
-                "/api/patients/{id}",
-                web::post().to(|| async { HttpResponse::Ok().finish() }),
-            ),
-        )
+        let app = test::init_service(App::new().wrap(SignatureAuthMiddleware::enabled()).route(
+            "/api/patients/{id}",
+            web::post().to(|| async { HttpResponse::Ok().finish() }),
+        ))
         .await;
 
         let req = test::TestRequest::post()
             .uri("/api/patients/PAT-001")
-            .insert_header(("X-User-Id", "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"))
+            .insert_header((
+                "X-User-Id",
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            ))
             .to_request();
         let resp = test::call_service(&app, req).await;
 
@@ -325,17 +326,18 @@ mod tests {
     async fn test_disabled_allows_post_without_signature() {
         use actix_web::{test, web, App, HttpResponse};
 
-        let app = test::init_service(
-            App::new().wrap(SignatureAuthMiddleware::disabled()).route(
-                "/api/patients/{id}",
-                web::post().to(|| async { HttpResponse::Ok().finish() }),
-            ),
-        )
+        let app = test::init_service(App::new().wrap(SignatureAuthMiddleware::disabled()).route(
+            "/api/patients/{id}",
+            web::post().to(|| async { HttpResponse::Ok().finish() }),
+        ))
         .await;
 
         let req = test::TestRequest::post()
             .uri("/api/patients/PAT-001")
-            .insert_header(("X-User-Id", "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"))
+            .insert_header((
+                "X-User-Id",
+                "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+            ))
             .to_request();
         let resp = test::call_service(&app, req).await;
 

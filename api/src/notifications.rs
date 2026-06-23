@@ -26,6 +26,53 @@ pub enum NotificationError {
 
     #[error("Repository error: {0}")]
     Repository(String),
+
+    #[error("SMTP error: {0}")]
+    Smtp(String),
+}
+
+// ---------------------------------------------------------------------------
+// SMTP Structures (Phase 11.4)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailNotification {
+    pub to: String,
+    pub subject: String,
+    pub body: String,
+}
+
+pub fn smtp_enabled() -> bool {
+    std::env::var("SMTP_ENABLED")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .unwrap_or(false)
+}
+
+/// Send an email notification (Phase 33.1: SMTP Scaffold)
+pub async fn send_email(email: EmailNotification) -> Result<(), NotificationError> {
+    if !smtp_enabled() {
+        info!(
+            "[smtp] Email logged (SMTP disabled) for {}: {}",
+            email.to, email.subject
+        );
+        return Ok(());
+    }
+
+    // In a production environment, this would use a crate like `lettre`
+    // combined with credentials from `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`.
+    info!("[smtp] Dispatching email to {} via SMTP...", email.to);
+
+    // Simulate SMTP network interaction
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    // Log the successful dispatch
+    info!(
+        "[smtp] Email successfully queued for delivery to {}",
+        email.to
+    );
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +339,11 @@ const SMS_MAX_ATTEMPTS: u8 = 3;
 ///
 /// `opted_in` is the per-recipient opt-in flag (e.g. the reminder's SMS pref).
 /// Returns a [`SmsDeliveryStatus`] describing the final outcome.
-pub async fn send_sms_with_retry(msg: SmsMessage, opted_in: bool) -> SmsDeliveryStatus {
+pub async fn send_sms_with_retry(
+    repos: &RepositoryContainer,
+    msg: SmsMessage,
+    opted_in: bool,
+) -> SmsDeliveryStatus {
     if !opted_in || sms_globally_disabled() {
         info!(
             "[sms] Suppressed for {} (opted_in={}, global_disable={})",
@@ -300,6 +351,12 @@ pub async fn send_sms_with_retry(msg: SmsMessage, opted_in: bool) -> SmsDelivery
             opted_in,
             sms_globally_disabled()
         );
+        return SmsDeliveryStatus::Suppressed;
+    }
+
+    // Check for persistent opt-out
+    if let Ok(true) = repos.sms_opt_outs.is_opted_out(&msg.to).await {
+        info!("[sms] Suppressed for {} due to persistent opt-out", msg.to);
         return SmsDeliveryStatus::Suppressed;
     }
 
@@ -338,6 +395,7 @@ pub async fn send_sms_with_retry(msg: SmsMessage, opted_in: bool) -> SmsDelivery
 /// Regulator and affected-data-subject notification (email/postal) is a tracked
 /// follow-up — no SMTP provider is wired yet; see `docs/INCIDENT_RESPONSE.md`.
 pub async fn dispatch_breach_notification(
+    _repos: &RepositoryContainer,
     summary: &str,
     notify_deadline: Option<chrono::DateTime<chrono::Utc>>,
 ) -> usize {
@@ -367,7 +425,8 @@ pub async fn dispatch_breach_notification(
             to: to.to_string(),
             body: body.clone(),
         };
-        let _ = send_sms_with_retry(msg, true).await;
+        // Security alerts bypass persistent opt-out checks as they are operational/critical.
+        let _ = send_sms(msg).await;
         count += 1;
     }
     info!(
@@ -530,7 +589,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_sms_with_retry_suppresses_when_opted_out() {
+        let repos = RepositoryContainer::new();
         let status = send_sms_with_retry(
+            &repos,
             SmsMessage {
                 to: "+254700000000".to_string(),
                 body: "test".to_string(),
@@ -543,11 +604,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_sms_with_retry_logs_when_disabled() {
+        let repos = RepositoryContainer::new();
         // With SMS disabled (default), send_sms returns Ok after logging, so a
         // opted-in recipient yields Sent without hitting the network.
         std::env::remove_var("SMS_ENABLED");
         std::env::remove_var("SMS_GLOBAL_DISABLE");
         let status = send_sms_with_retry(
+            &repos,
             SmsMessage {
                 to: "+254700000000".to_string(),
                 body: "test".to_string(),

@@ -30,7 +30,7 @@ impl ConsultationNoteRepository for PgConsultationNoteRepository {
             "INSERT INTO consultation_notes (
                 id, patient_id, consultation_type, requesting_provider, consulting_provider,
                 reason_for_consultation, clinical_question, pertinent_history, examination_findings,
-                recommendations, follow_up_plan, urgency, status, requested_at, completed_at, facility_id
+                recommendations, follow_up_plan, urgency, status, requested_at, completed_at, facility_id, data
             ) "
         );
 
@@ -50,7 +50,8 @@ impl ConsultationNoteRepository for PgConsultationNoteRepository {
                 .push_bind(&n.status)
                 .push_bind(n.requested_at)
                 .push_bind(n.completed_at)
-                .push_bind(&n.facility_id);
+                .push_bind(&n.facility_id)
+                .push_bind(&n.data);
         });
 
         qb.push(" RETURNING *");

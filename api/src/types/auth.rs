@@ -34,6 +34,7 @@ pub struct WalletLoginRequest {
 }
 
 /// Request body for POST /api/auth/session
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct SessionCreateRequest {
     /// SS58 encoded wallet address

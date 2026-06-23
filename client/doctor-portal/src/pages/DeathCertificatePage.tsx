@@ -12,6 +12,7 @@ import {
   FileSignature,
   Heart
 } from 'lucide-react';
+import { createDeathCertificate } from '../../../shared/src/api/endpoints';
 
 /**
  * DeathCertificatePage
@@ -96,6 +97,17 @@ const DeathCertificatePage: React.FC = () => {
     injuryTime: '',
     injuryPlace: '',
     injuryDescription: ''
+  });
+
+  const [certifierInfo, setCertifierInfo] = useState({
+    certifierType: 'physician' as 'physician' | 'coroner' | 'medical_examiner',
+    certifierName: '',
+    licenseNumber: '',
+    certifierTitle: '',
+    certifierAddress: '',
+    dateSigned: '',
+    timeSigned: '',
+    signature: ''
   });
 
   useEffect(() => {
@@ -201,6 +213,66 @@ const DeathCertificatePage: React.FC = () => {
         ...causeInfo,
         underlyingCauses: [...causeInfo.underlyingCauses, { cause: '', duration: '' }]
       });
+    }
+  };
+
+  const handleSignAndSubmit = async () => {
+    // Basic validation
+    if (!deceasedInfo.lastName || !deathInfo.dateOfDeath || !causeInfo.immediateCause || !certifierInfo.certifierName || !certifierInfo.licenseNumber) {
+      alert('Please fill in all required fields marked with *');
+      return;
+    }
+
+    try {
+      const payload = {
+        id: `DC-${Date.now()}`,
+        patient_id: "DEMO_PATIENT", // In real app, get from context
+        deceased_name: `${deceasedInfo.firstName} ${deceasedInfo.lastName}`,
+        date_of_birth: deceasedInfo.dateOfBirth,
+        date_of_death: deathInfo.dateOfDeath,
+        time_of_death: deathInfo.timeOfDeath,
+        place_of_death: deathInfo.placeOfDeath,
+        manner_of_death: causeInfo.mannerOfDeath,
+        cause_of_death: causeInfo.immediateCause,
+        other_conditions: causeInfo.underlyingCauses.map(c => c.cause).filter(Boolean),
+        certifier_name: certifierInfo.certifierName,
+        certifier_license: certifierInfo.licenseNumber,
+        certifier_type: certifierInfo.certifierType,
+        signature: certifierInfo.signature,
+        status: 'filed'
+      };
+
+      await createDeathCertificate(payload);
+      
+      alert('Death certificate successfully signed and submitted to the national registry.');
+      setActiveTab('certificates');
+      setCurrentStep(1);
+      
+      // Reset form
+      setDeceasedInfo({
+        firstName: '', middleName: '', lastName: '', ssn: '', dateOfBirth: '',
+        sex: 'male', race: '', maritalStatus: '', occupation: '', birthplace: '', residence: ''
+      });
+      setDeathInfo({
+        dateOfDeath: '', timeOfDeath: '', placeOfDeath: '', facilityName: '',
+        countyOfDeath: '', cityOfDeath: '', stateOfDeath: '',
+        pronouncedBy: '', pronouncedDate: '', pronouncedTime: ''
+      });
+      setCauseInfo({
+        immediateCause: '', immediateDuration: '',
+        underlyingCauses: [{ cause: '', duration: '' }],
+        mannerOfDeath: 'natural', autopsy: false, autopsyUsed: false,
+        tobaccoContributed: 'unknown', pregnancyStatus: 'not-pregnant',
+        injuryDate: '', injuryTime: '', injuryPlace: '', injuryDescription: ''
+      });
+      setCertifierInfo({
+        certifierType: 'physician', certifierName: '', licenseNumber: '',
+        certifierTitle: '', certifierAddress: '', dateSigned: '', timeSigned: '', signature: ''
+      });
+
+    } catch (error) {
+      console.error('Failed to submit death certificate:', error);
+      alert('Failed to submit death certificate. Please try again.');
     }
   };
 
@@ -858,10 +930,15 @@ const DeathCertificatePage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label htmlFor="death-certifier-type" className="block text-sm font-medium text-gray-700 mb-1">Certifier Type *</label>
-                  <select id="death-certifier-type" className="w-full border rounded-lg px-3 py-2">
-                    <option value="attending">Attending Physician</option>
-                    <option value="pronouncing">Pronouncing Physician</option>
-                    <option value="medical-examiner">Medical Examiner/Coroner</option>
+                  <select
+                    id="death-certifier-type"
+                    value={certifierInfo.certifierType}
+                    onChange={(e) => setCertifierInfo({ ...certifierInfo, certifierType: e.target.value as any })}
+                    className="w-full border rounded-lg px-3 py-2"
+                  >
+                    <option value="physician">Attending Physician</option>
+                    <option value="medical_examiner">Medical Examiner</option>
+                    <option value="coroner">Coroner</option>
                   </select>
                 </div>
                 <div>
@@ -869,6 +946,8 @@ const DeathCertificatePage: React.FC = () => {
                   <input
                     id="death-license-number"
                     type="text"
+                    value={certifierInfo.licenseNumber}
+                    onChange={(e) => setCertifierInfo({ ...certifierInfo, licenseNumber: e.target.value })}
                     className="w-full border rounded-lg px-3 py-2"
                     placeholder="MD-XXXXXX"
                   />
@@ -878,18 +957,41 @@ const DeathCertificatePage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
                   <label htmlFor="death-certifier-name" className="block text-sm font-medium text-gray-700 mb-1">Certifier Name *</label>
-                  <input id="death-certifier-name" type="text" className="w-full border rounded-lg px-3 py-2" />
+                  <input
+                    id="death-certifier-name"
+                    type="text"
+                    value={certifierInfo.certifierName}
+                    onChange={(e) => setCertifierInfo({ ...certifierInfo, certifierName: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2"
+                  />
                 </div>
                 <div>
                   <label htmlFor="death-date-signed" className="block text-sm font-medium text-gray-700 mb-1">Date Signed *</label>
-                  <input id="death-date-signed" type="date" className="w-full border rounded-lg px-3 py-2" />
+                  <input
+                    id="death-date-signed"
+                    type="date"
+                    value={certifierInfo.dateSigned}
+                    onChange={(e) => setCertifierInfo({ ...certifierInfo, dateSigned: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2"
+                  />
                 </div>
               </div>
 
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-6">
-                <PenTool className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-500">Click to add digital signature</p>
-                <p className="text-xs text-gray-400 mt-1">Or draw signature using mouse/touch</p>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-6 cursor-pointer hover:bg-gray-50 transition-colors"
+                   onClick={() => setCertifierInfo({ ...certifierInfo, signature: 'DIGITAL_SIG_' + Date.now() })}>
+                {certifierInfo.signature ? (
+                  <div className="flex flex-col items-center">
+                    <CheckCircle className="w-8 h-8 text-green-500 mb-2" />
+                    <p className="text-green-600 font-medium">Signed Digitally</p>
+                    <p className="text-xs text-gray-400 mt-1">{certifierInfo.signature}</p>
+                  </div>
+                ) : (
+                  <>
+                    <PenTool className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-gray-500">Click to add digital signature</p>
+                    <p className="text-xs text-gray-400 mt-1">Or draw signature using mouse/touch</p>
+                  </>
+                )}
               </div>
 
               <div className="flex justify-between">
@@ -903,7 +1005,15 @@ const DeathCertificatePage: React.FC = () => {
                   <button className="px-6 py-2 border border-gray-300 rounded-lg font-medium">
                     Save as Draft
                   </button>
-                  <button className="px-6 py-2 bg-slate-800 text-white rounded-lg font-medium flex items-center gap-2">
+                  <button
+                    onClick={handleSignAndSubmit}
+                    disabled={!certifierInfo.signature}
+                    className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 ${
+                      certifierInfo.signature 
+                        ? 'bg-slate-800 text-white hover:bg-slate-900' 
+                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
                     <FileSignature className="w-4 h-4" />
                     Sign & Submit
                   </button>

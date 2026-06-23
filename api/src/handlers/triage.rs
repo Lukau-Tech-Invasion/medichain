@@ -162,19 +162,6 @@ pub async fn create_triage_assessment(
     // Check for critical vitals
     let has_critical_vitals = req.vital_signs.has_critical_values();
 
-    // Create triage assessment
-    let assessment = TriageAssessment {
-        assessment_id: assessment_id.clone(),
-        patient_id: req.patient_id.clone(),
-        esi_level,
-        chief_complaint: req.chief_complaint.clone(),
-        vital_signs: req.vital_signs.clone(),
-        pain_scale: req.pain_scale,
-        notes: req.notes.clone(),
-        performed_by: current_user_id.clone(),
-        performed_at: Utc::now().timestamp(),
-    };
-
     // Store assessment
     let entity = TriageAssessmentEntity {
         id: assessment_id.clone(),

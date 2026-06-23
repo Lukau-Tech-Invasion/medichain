@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPatientVitals } from '@medichain/shared';
+import { getPatientVitals, IS_DEMO } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -71,12 +71,44 @@ export function VitalsPage() {
     try {
       const data = await getPatientVitals(patient.healthId);
       const list: VitalReading[] = (data as { readings?: VitalReading[]; vitals?: VitalReading[] }).readings || (data as { readings?: VitalReading[]; vitals?: VitalReading[] }).vitals || (Array.isArray(data) ? data : []);
-      setReadings(list);
-      setApiConnected(true);
       
-      if (list.length > 0) {
-        setLatest(list[0]);
-        setPrevious(list[1] || null);
+      if (list.length === 0 && IS_DEMO) {
+        // Fallback to demo data only if IS_DEMO is true and API returned empty
+        const demoData: VitalReading[] = [
+          {
+            id: 'demo-1',
+            recorded_at: new Date().toISOString(),
+            heart_rate: 72,
+            systolic_bp: 120,
+            diastolic_bp: 80,
+            temperature_celsius: 36.6,
+            oxygen_saturation: 98,
+            respiratory_rate: 16,
+            weight_kg: 70
+          },
+          {
+            id: 'demo-2',
+            recorded_at: new Date(Date.now() - 86400000).toISOString(),
+            heart_rate: 75,
+            systolic_bp: 125,
+            diastolic_bp: 82,
+            temperature_celsius: 36.8,
+            oxygen_saturation: 97,
+            respiratory_rate: 18,
+            weight_kg: 70.5
+          }
+        ];
+        setReadings(demoData);
+        setLatest(demoData[0]);
+        setPrevious(demoData[1]);
+        setApiConnected(false);
+      } else {
+        setReadings(list);
+        setApiConnected(true);
+        if (list.length > 0) {
+          setLatest(list[0]);
+          setPrevious(list[1] || null);
+        }
       }
     } catch (err) {
       console.error('Failed to load vitals:', err);

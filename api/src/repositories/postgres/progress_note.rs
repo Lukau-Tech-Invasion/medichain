@@ -23,7 +23,7 @@ impl PgProgressNoteRepository {
 impl ProgressNoteRepository for PgProgressNoteRepository {
     async fn create(&self, note: ProgressNoteEntity) -> RepositoryResult<ProgressNoteEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO progress_notes (id, patient_id, note_type, subjective, objective, assessment, plan_content, addendum, cosigned_by, cosigned_at, visit_type, encounter_id, created_by, status, facility_id) "
+            "INSERT INTO progress_notes (id, patient_id, note_type, subjective, objective, assessment, plan_content, addendum, cosigned_by, cosigned_at, visit_type, encounter_id, created_by, status, facility_id, data) "
         );
 
         qb.push_values([&note], |mut b, n| {
@@ -41,7 +41,8 @@ impl ProgressNoteRepository for PgProgressNoteRepository {
                 .push_bind(&n.encounter_id)
                 .push_bind(&n.created_by)
                 .push_bind(&n.status)
-                .push_bind(&n.facility_id);
+                .push_bind(&n.facility_id)
+                .push_bind(&n.data);
         });
 
         qb.push(" RETURNING *");
@@ -149,6 +150,7 @@ impl ProgressNoteRepository for PgProgressNoteRepository {
         qb.push(", encounter_id = ").push_bind(&note.encounter_id);
         qb.push(", status = ").push_bind(&note.status);
         qb.push(", facility_id = ").push_bind(&note.facility_id);
+        qb.push(", data = ").push_bind(&note.data);
         qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
             .push_bind(&note.id);
         qb.push(" RETURNING *");

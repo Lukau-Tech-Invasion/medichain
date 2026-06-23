@@ -157,6 +157,22 @@ Every sensitive operation is logged with:
 
 ---
 
+## Secrets Management & Key Rotation
+
+### Key Rotation Policy
+- **Database Credentials**: Rotated every 90 days.
+- **API Secrets**: JWT and session secrets are rotated every 30 days via environment variable updates and service restart.
+- **HSM Keys**: Root encryption keys (ChaCha20-Poly1305) are managed via external Key Management Service (KMS) or HSM.
+- **TLS Certificates**: Automated rotation via Let's Encrypt (Caddy/Nginx).
+
+### Rotation Procedure
+1. Provision new secret in the environment.
+2. Update `docker-compose.prod.yml` or secret manager (Vault/K8s Secrets).
+3. Perform a rolling restart of API services.
+4. Legacy session tokens remain valid until expiry (max 1h) or immediate invalidation if the secret is hard-changed.
+
+---
+
 ## Future Security Enhancements
 
 - [ ] Multi-signature for Admin operations

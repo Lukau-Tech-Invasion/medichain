@@ -11,6 +11,7 @@
 
 mod access_log;
 mod allergy;
+mod emergency;
 mod medical_record;
 mod nfc_tag;
 mod patient;
@@ -59,6 +60,10 @@ mod phase6_sync;
 
 pub use access_log::PgAccessLogRepository;
 pub use allergy::PgAllergyRepository;
+pub use emergency::{
+    PgCardiacEventRepository, PgCodeBlueRepository, PgSepsisAssessmentRepository,
+    PgStrokeAssessmentRepository, PgTraumaAssessmentRepository,
+};
 pub use medical_record::PgMedicalRecordRepository;
 pub use nfc_tag::PgNfcTagRepository;
 pub use patient::PgPatientRepository;
@@ -140,7 +145,7 @@ pub use phase5_telehealth::{
 // Phase 9 exports: Clinical Decision Support
 pub use phase5_cds::PgCdsAlertRepository;
 
-pub use phase5_communication::PgDeviceTokenRepository;
+pub use phase5_communication::{PgDeviceTokenRepository, PgSmsOptOutRepository};
 
 // Phase 10 exports: Insurance & Billing
 pub use phase5_insurance::{PgBillingCodeRepository, PgInsuranceRecordRepository};

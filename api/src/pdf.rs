@@ -60,10 +60,10 @@ pub fn render_document(
     y -= 10.0;
 
     // Helper to start a new page when we run out of vertical space.
-    let mut new_page_if_needed = |doc: &printpdf::PdfDocumentReference,
-                                  layer: &mut printpdf::PdfLayerReference,
-                                  y: &mut f32,
-                                  needed: f32| {
+    let new_page_if_needed = |doc: &printpdf::PdfDocumentReference,
+                              layer: &mut printpdf::PdfLayerReference,
+                              y: &mut f32,
+                              needed: f32| {
         if *y - needed < BOTTOM {
             let (p, l) = doc.add_page(Mm(PAGE_W), Mm(PAGE_H), "Layer");
             *layer = doc.get_page(p).get_layer(l);

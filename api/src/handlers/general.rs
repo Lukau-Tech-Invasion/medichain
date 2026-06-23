@@ -170,6 +170,28 @@ pub async fn detailed_health_check(data: web::Data<AppState>) -> impl Responder 
         },
     });
 
+    // Check Blockchain health (Substrate node)
+    let bc_start = Instant::now();
+    let bc_connected = match &data.substrate_client {
+        Some(client) => client.health_check().await,
+        None => false,
+    };
+    let bc_latency = bc_start.elapsed().as_millis() as u64;
+    services.push(ServiceHealth {
+        name: "Blockchain (Substrate)".to_string(),
+        status: if bc_connected {
+            "online".to_string()
+        } else {
+            "offline".to_string()
+        },
+        latency_ms: Some(bc_latency),
+        message: if bc_connected {
+            Some("Substrate node connected".to_string())
+        } else {
+            Some("Substrate node connection failed".to_string())
+        },
+    });
+
     // Determine overall status
     let overall_status = if services.iter().all(|s| s.status == "online") {
         "healthy".to_string()

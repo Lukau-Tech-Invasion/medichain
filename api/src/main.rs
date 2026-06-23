@@ -19,6 +19,7 @@
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
 
+use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
 use crate::middleware::idempotency::IdempotencyMiddleware;
 use crate::middleware::metrics::MetricsMiddleware;
 use crate::middleware::rate_limit::RateLimitMiddleware;
@@ -50,7 +51,7 @@ mod websocket;
 mod handlers;
 mod routes;
 mod startup;
-mod state;
+pub mod state;
 mod support;
 mod types;
 
@@ -295,6 +296,13 @@ async fn main() -> std::io::Result<()> {
             SignatureAuthMiddleware::disabled()
         };
 
+        // Configure encryption policy
+        let encryption_policy = if !is_demo {
+            EncryptionPolicyMiddleware::enabled()
+        } else {
+            EncryptionPolicyMiddleware::new(false)
+        };
+
         App::new()
             .wrap(cors)
             // Security/HSTS headers on every response (Phase 6.2).
@@ -303,6 +311,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(ApiVersionMiddleware)
             .wrap(rate_limit)
             .wrap(signature_auth)
+            .wrap(encryption_policy)
             .wrap(MetricsMiddleware)
             // Innermost: captures handler responses for idempotent replay (Phase 9.2).
             .wrap(IdempotencyMiddleware)

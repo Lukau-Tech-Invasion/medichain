@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
   getPatientEPrescriptions,
   getPatientReminders,
-  logMedicationAdherence
+  logMedicationAdherence,
+  IS_DEMO
 } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
@@ -111,22 +112,57 @@ export function MedicationsPage() {
         status: m.status || 'active',
       }));
 
-      setMedications(meds);
-      
-      const apiReminders: MedicationReminder[] = ((remindersData as { reminders?: unknown[] }).reminders || []).map((r: any) => ({
-        id: r.reminder_id || r.id || `reminder-${Date.now()}`,
-        medicationId: r.medication_id,
-        medicationName: r.medication_name,
-        dosage: r.dosage,
-        scheduledTime: r.scheduled_time,
-        taken: r.taken || false,
-        takenAt: r.taken_at,
-      }));
-
-      if (apiReminders.length > 0) {
-        setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
+      if (meds.length === 0 && IS_DEMO) {
+        // Fallback to demo medications
+        const demoMeds: Medication[] = [
+          {
+            id: 'demo-med-1',
+            name: 'Amoxicillin',
+            dosage: '500mg',
+            frequency: 'Three times daily',
+            prescribedBy: 'Dr. Smith',
+            startDate: '2025-06-01',
+            refillsRemaining: 2,
+            instructions: 'Take with food',
+            sideEffects: ['Nausea', 'Rash'],
+            interactions: ['Warfarin'],
+            status: 'active'
+          },
+          {
+            id: 'demo-med-2',
+            name: 'Lisinopril',
+            dosage: '10mg',
+            frequency: 'Once daily',
+            prescribedBy: 'Dr. Jones',
+            startDate: '2025-05-15',
+            refillsRemaining: 0,
+            instructions: 'Take in the morning',
+            sideEffects: ['Cough', 'Dizziness'],
+            interactions: ['Spironolactone'],
+            status: 'active'
+          }
+        ];
+        setMedications(demoMeds);
+        generateReminders(demoMeds);
+        setApiConnected(false);
       } else {
-        generateReminders(meds);
+        setMedications(meds);
+        
+        const apiReminders: MedicationReminder[] = ((remindersData as { reminders?: unknown[] }).reminders || []).map((r: any) => ({
+          id: r.reminder_id || r.id || `reminder-${Date.now()}`,
+          medicationId: r.medication_id,
+          medicationName: r.medication_name,
+          dosage: r.dosage,
+          scheduledTime: r.scheduled_time,
+          taken: r.taken || false,
+          takenAt: r.taken_at,
+        }));
+
+        if (apiReminders.length > 0) {
+          setReminders(apiReminders.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)));
+        } else {
+          generateReminders(meds);
+        }
       }
     } catch (error) {
       console.error('Error loading medications:', error);
@@ -390,6 +426,16 @@ export function MedicationsPage() {
                   <div>
                     <span className="font-medium">Possible side effects:</span>{' '}
                     {med.sideEffects.join(', ')}
+                  </div>
+                </div>
+              )}
+
+              {med.interactions.length > 0 && (
+                <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-lg p-3 mt-2">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <span className="font-medium">Drug Interactions:</span>{' '}
+                    {med.interactions.join(', ')}
                   </div>
                 </div>
               )}
