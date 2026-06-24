@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import {
   Settings,
   User,
@@ -52,6 +52,7 @@ interface AppSettings {
  * © 2025 Trustware. All rights reserved.
  */
 export function SettingsPage() {
+  const { t } = useTranslation();
   // Note: activeSection and isSaving are set but UI sections not yet implemented
   // Prefixed with _ to indicate intentionally unused pending full implementation
   const [_activeSection, setActiveSection] = useState<string | null>(null);
@@ -177,43 +178,43 @@ export function SettingsPage() {
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">Settings</h1>
-        <p className="text-neutral-600">Manage your account and preferences</p>
+        <h1 className="text-2xl font-bold text-neutral-900">{t('settings.title')}</h1>
+        <p className="text-neutral-600">{t('settings.subtitle')}</p>
       </div>
 
       {/* Account Section */}
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
           <User className="w-5 h-5 text-primary-600" />
-          Account
+          {t('settings.account')}
         </h2>
 
         <div className="divide-y divide-neutral-100">
           <SettingRow
             icon={User}
-            label="Personal Information"
-            description="Update your name, email, phone"
+            label={t('settings.personalInfo')}
+            description={t('settings.personalInfoDesc')}
             onClick={() => window.location.href = '/profile'}
           />
-          
+
           <SettingRow
             icon={Lock}
-            label="Change Password"
-            description="Update your account password"
+            label={t('settings.changePassword')}
+            description={t('settings.changePasswordDesc')}
             onClick={() => setActiveSection('password')}
           />
-          
+
           <SettingRow
             icon={Key}
-            label="Two-Factor Authentication"
-            description="Add extra security to your account"
+            label={t('settings.twoFactor')}
+            description={t('settings.twoFactorDesc')}
             onClick={() => setActiveSection('2fa')}
           />
-          
+
           <SettingRow
             icon={Smartphone}
-            label="Biometric Login"
-            description="Use fingerprint or face ID"
+            label={t('settings.biometricLogin')}
+            description={t('settings.biometricDesc')}
           >
             <ToggleSwitch
               enabled={appSettings.biometricLogin}
@@ -227,14 +228,14 @@ export function SettingsPage() {
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
           <Bell className="w-5 h-5 text-primary-600" />
-          Notifications
+          {t('settings.notifications')}
         </h2>
 
         <div className="divide-y divide-neutral-100">
           <SettingRow
             icon={Mail}
-            label="Email Notifications"
-            description="Receive updates via email"
+            label={t('settings.emailNotif')}
+            description={t('settings.emailNotifDesc')}
           >
             <ToggleSwitch
               enabled={notifications.emailNotifications}
@@ -244,8 +245,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={MessageSquare}
-            label="SMS Notifications"
-            description="Receive text messages"
+            label={t('settings.smsNotif')}
+            description={t('settings.smsNotifDesc')}
           >
             <ToggleSwitch
               enabled={notifications.smsNotifications}
@@ -255,8 +256,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={Smartphone}
-            label="Push Notifications"
-            description="Receive app notifications"
+            label={t('settings.pushNotif')}
+            description={t('settings.pushNotifDesc')}
           >
             <ToggleSwitch
               enabled={notifications.pushNotifications}
@@ -266,8 +267,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={Shield}
-            label="Access Alerts"
-            description="When someone views your records"
+            label={t('settings.accessAlerts')}
+            description={t('settings.accessAlertsDesc')}
           >
             <ToggleSwitch
               enabled={notifications.accessAlerts}
@@ -277,8 +278,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={Bell}
-            label="Appointment Reminders"
-            description="Upcoming appointment alerts"
+            label={t('settings.apptReminders')}
+            description={t('settings.apptRemindersDesc')}
           >
             <ToggleSwitch
               enabled={notifications.appointmentReminders}
@@ -288,8 +289,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={AlertTriangle}
-            label="Emergency Alerts"
-            description="Critical health notifications"
+            label={t('settings.emergencyAlerts')}
+            description={t('settings.emergencyAlertsDesc')}
           >
             <ToggleSwitch
               enabled={notifications.emergencyAlerts}
@@ -303,14 +304,14 @@ export function SettingsPage() {
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
           <Shield className="w-5 h-5 text-primary-600" />
-          Privacy
+          {t('settings.privacy')}
         </h2>
 
         <div className="divide-y divide-neutral-100">
           <SettingRow
             icon={Shield}
-            label="Emergency Access"
-            description="Allow first responders to access your data"
+            label={t('settings.emergencyAccess')}
+            description={t('settings.emergencyAccessDesc')}
           >
             <ToggleSwitch
               enabled={privacy.allowEmergencyAccess}
@@ -323,8 +324,7 @@ export function SettingsPage() {
               <div className="flex items-start gap-2 text-warning-700 text-sm">
                 <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>
-                  Disabling emergency access may delay critical care in emergencies. 
-                  First responders won't be able to view your allergies or medications.
+                  {t('settings.emergencyAccessWarning')}
                 </span>
               </div>
             </div>
@@ -332,8 +332,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={User}
-            label="Profile Visibility"
-            description="Show your profile to healthcare providers"
+            label={t('settings.profileVisibility')}
+            description={t('settings.profileVisibilityDesc')}
           >
             <ToggleSwitch
               enabled={privacy.showProfileToProviders}
@@ -343,8 +343,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={Info}
-            label="Anonymous Analytics"
-            description="Help improve MediChain with usage data"
+            label={t('settings.anonAnalytics')}
+            description={t('settings.anonAnalyticsDesc')}
           >
             <ToggleSwitch
               enabled={privacy.anonymousAnalytics}
@@ -354,8 +354,8 @@ export function SettingsPage() {
 
           <SettingRow
             icon={FileText}
-            label="Research Participation"
-            description="Share anonymized data with researchers"
+            label={t('settings.research')}
+            description={t('settings.researchDesc')}
           >
             <ToggleSwitch
               enabled={privacy.shareWithResearchers}
@@ -369,14 +369,14 @@ export function SettingsPage() {
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
           <Settings className="w-5 h-5 text-primary-600" />
-          App Preferences
+          {t('settings.appPreferences')}
         </h2>
 
         <div className="divide-y divide-neutral-100">
           <SettingRow
             icon={Moon}
-            label="Dark Mode"
-            description="Use dark color scheme"
+            label={t('settings.darkMode')}
+            description={t('settings.darkModeDesc')}
           >
             <ToggleSwitch
               enabled={appSettings.darkMode}
@@ -390,8 +390,8 @@ export function SettingsPage() {
                 <Globe className="w-5 h-5 text-neutral-600" />
               </div>
               <div>
-                <div className="font-medium text-neutral-900">Language</div>
-                <div className="text-sm text-neutral-500">Choose your preferred language</div>
+                <div className="font-medium text-neutral-900">{t('settings.language')}</div>
+                <div className="text-sm text-neutral-500">{t('settings.languageDesc')}</div>
               </div>
             </div>
             <select
@@ -413,8 +413,8 @@ export function SettingsPage() {
                 <span className="text-neutral-600 font-bold">Aa</span>
               </div>
               <div>
-                <div className="font-medium text-neutral-900">Font Size</div>
-                <div className="text-sm text-neutral-500">Adjust text size</div>
+                <div className="font-medium text-neutral-900">{t('settings.fontSize')}</div>
+                <div className="text-sm text-neutral-500">{t('settings.fontSizeDesc')}</div>
               </div>
             </div>
             <div className="flex gap-2">
@@ -428,7 +428,7 @@ export function SettingsPage() {
                       : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
                   }`}
                 >
-                  {size.charAt(0).toUpperCase() + size.slice(1)}
+                  {t(`settings.size${size.charAt(0).toUpperCase() + size.slice(1)}`)}
                 </button>
               ))}
             </div>
@@ -440,33 +440,33 @@ export function SettingsPage() {
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
           <HelpCircle className="w-5 h-5 text-primary-600" />
-          Support
+          {t('settings.support')}
         </h2>
 
         <div className="divide-y divide-neutral-100">
           <SettingRow
             icon={HelpCircle}
-            label="Help Center"
-            description="FAQs and guides"
+            label={t('settings.helpCenter')}
+            description={t('settings.helpCenterDesc')}
             onClick={() => {}}
           />
-          
+
           <SettingRow
             icon={MessageSquare}
-            label="Contact Support"
-            description="Get help from our team"
+            label={t('settings.contactSupport')}
+            description={t('settings.contactSupportDesc')}
             onClick={() => {}}
           />
-          
+
           <SettingRow
             icon={FileText}
-            label="Terms of Service"
+            label={t('settings.termsOfService')}
             onClick={() => {}}
           />
-          
+
           <SettingRow
             icon={Shield}
-            label="Privacy Policy"
+            label={t('settings.privacyPolicy')}
             onClick={() => {}}
           />
         </div>
@@ -478,7 +478,7 @@ export function SettingsPage() {
         className="w-full flex items-center justify-center gap-2 py-4 text-emergency-600 hover:bg-emergency-50 rounded-xl transition-colors"
       >
         <LogOut className="w-5 h-5" />
-        <span className="font-medium">Sign Out</span>
+        <span className="font-medium">{t('settings.signOut')}</span>
       </button>
 
       {/* App Version */}
@@ -496,10 +496,10 @@ export function SettingsPage() {
                 <LogOut className="w-8 h-8 text-emergency-600" />
               </div>
               <h3 className="text-xl font-semibold text-neutral-900 mb-2">
-                Sign Out?
+                {t('settings.signOutConfirm')}
               </h3>
               <p className="text-neutral-600">
-                Are you sure you want to sign out of your account?
+                {t('settings.signOutConfirmBody')}
               </p>
             </div>
 
@@ -508,13 +508,13 @@ export function SettingsPage() {
                 onClick={() => setShowLogoutConfirm(false)}
                 className="flex-1 py-3 border border-neutral-200 rounded-xl font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
               >
-                Cancel
+                {t('common.cancel')}
               </button>
               <button
                 onClick={handleLogout}
                 className="flex-1 py-3 bg-emergency-500 text-white rounded-xl font-medium hover:bg-emergency-600 transition-colors"
               >
-                Sign Out
+                {t('settings.signOut')}
               </button>
             </div>
           </div>
