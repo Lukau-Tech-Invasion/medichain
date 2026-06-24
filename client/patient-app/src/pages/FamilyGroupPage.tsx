@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getMyFamilyGroups, createFamilyGroup, addFamilyMember } from '@medichain/shared';
+import { getMyFamilyGroups, createFamilyGroup, addFamilyMember, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import { Users, Plus, UserPlus, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
@@ -22,6 +22,7 @@ interface FamilyGroup {
  * © 2025 Trustware. All rights reserved.
  */
 export function FamilyGroupPage() {
+  const { t } = useTranslation();
   const { patient } = usePatientAuthStore();
   const { showSuccess, showError } = useToastActions();
   const [groups, setGroups] = useState<FamilyGroup[]>([]);
@@ -55,11 +56,11 @@ export function FamilyGroupPage() {
         primary_contact_id: patient.healthId,
       });
       setNewGroupName('');
-      showSuccess('Group created successfully');
+      showSuccess(t('family.groupCreated'));
       loadGroups();
     } catch (err) {
       console.error(err);
-      showError('Failed to create group');
+      showError(t('family.createFailed'));
     } finally {
       setIsCreating(false);
     }
@@ -77,11 +78,11 @@ export function FamilyGroupPage() {
       setNewMemberHealthId('');
       setNewMemberRelationship('');
       setAddMemberGroupId(null);
-      showSuccess('Member added successfully');
+      showSuccess(t('family.memberAdded'));
       loadGroups();
     } catch (err) {
       console.error(err);
-      showError('Failed to add member');
+      showError(t('family.addFailed'));
     } finally {
       setIsAddingMember(false);
     }
@@ -99,23 +100,23 @@ export function FamilyGroupPage() {
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">Family Groups</h1>
-        <p className="text-neutral-500">Manage family health coordination</p>
+        <h1 className="text-2xl font-bold text-neutral-900">{t('family.familyGroups')}</h1>
+        <p className="text-neutral-500">{t('family.subtitle')}</p>
       </div>
 
       {/* Create Group Form */}
       <div className="patient-card">
         <h2 className="font-semibold text-neutral-800 mb-3 flex items-center gap-2">
           <Plus className="w-4 h-4 text-primary-500" />
-          Create New Group
+          {t('family.createNewGroup')}
         </h2>
         <form onSubmit={handleCreateGroup} className="flex gap-2">
-          <label htmlFor="family-group-name" className="sr-only">Group Name</label>
+          <label htmlFor="family-group-name" className="sr-only">{t('family.groupName')}</label>
           <input
             id="family-group-name"
             value={newGroupName}
             onChange={e => setNewGroupName(e.target.value)}
-            placeholder="Group name (e.g. Smith Family)"
+            placeholder={t('family.groupNamePlaceholder')}
             className="flex-1 border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             required
           />
@@ -125,7 +126,7 @@ export function FamilyGroupPage() {
             className="bg-primary-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-600 disabled:opacity-50 flex items-center gap-1"
           >
             {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Create
+            {t('family.create')}
           </button>
         </form>
       </div>
@@ -135,7 +136,7 @@ export function FamilyGroupPage() {
         {groups.length === 0 ? (
           <div className="text-center py-12">
             <Users className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-            <p className="text-neutral-500">No family groups found</p>
+            <p className="text-neutral-500">{t('family.noGroups')}</p>
           </div>
         ) : (
           groups.map(group => (
@@ -151,7 +152,7 @@ export function FamilyGroupPage() {
                   <div>
                     <h3 className="font-semibold text-neutral-900">{group.group_name}</h3>
                     <p className="text-sm text-neutral-500">
-                      {group.members?.length || 0} member{(group.members?.length || 0) !== 1 ? 's' : ''}
+                      {t('family.memberCount', { count: group.members?.length || 0 })}
                     </p>
                   </div>
                 </div>
@@ -167,7 +168,7 @@ export function FamilyGroupPage() {
                   {/* Members List */}
                   {group.members && group.members.length > 0 && (
                     <div>
-                      <p className="text-xs font-medium text-neutral-500 uppercase mb-2">Members</p>
+                      <p className="text-xs font-medium text-neutral-500 uppercase mb-2">{t('family.membersShort')}</p>
                       <div className="space-y-1">
                         {group.members.map((m, idx) => (
                           <div key={m.patient_id || idx} className="flex items-center gap-2 text-sm text-neutral-700 py-1">
@@ -191,26 +192,26 @@ export function FamilyGroupPage() {
                       className="w-full py-2 border-2 border-dashed border-neutral-200 rounded-lg text-sm text-neutral-500 hover:border-primary-300 hover:text-primary-600 transition-colors flex items-center justify-center gap-2"
                     >
                       <UserPlus className="w-4 h-4" />
-                      Add Member
+                      {t('family.addMember')}
                     </button>
                   ) : (
                     <form onSubmit={handleAddMember} className="space-y-2 bg-neutral-50 rounded-lg p-3">
-                      <p className="text-sm font-medium text-neutral-700">Add Member to {group.group_name}</p>
-                      <label htmlFor={`member-id-${group.group_id}`} className="sr-only">Health ID</label>
+                      <p className="text-sm font-medium text-neutral-700">{t('family.addMemberTo', { group: group.group_name })}</p>
+                      <label htmlFor={`member-id-${group.group_id}`} className="sr-only">{t('family.healthId')}</label>
                       <input
                         id={`member-id-${group.group_id}`}
                         value={newMemberHealthId}
                         onChange={e => setNewMemberHealthId(e.target.value)}
-                        placeholder="Member Health ID (MCHI-...)"
+                        placeholder={t('family.memberIdPlaceholder')}
                         className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
                         required
                       />
-                      <label htmlFor={`member-rel-${group.group_id}`} className="sr-only">Relationship</label>
+                      <label htmlFor={`member-rel-${group.group_id}`} className="sr-only">{t('family.relationship')}</label>
                       <input
                         id={`member-rel-${group.group_id}`}
                         value={newMemberRelationship}
                         onChange={e => setNewMemberRelationship(e.target.value)}
-                        placeholder="Relationship (e.g. Spouse, Child)"
+                        placeholder={t('family.relationshipPlaceholder')}
                         className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
                       />
                       <div className="flex gap-2">
@@ -220,14 +221,14 @@ export function FamilyGroupPage() {
                           className="flex-1 bg-primary-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-primary-600 disabled:opacity-50 flex items-center justify-center gap-1"
                         >
                           {isAddingMember ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                          Add
+                          {t('common.add')}
                         </button>
                         <button
                           type="button"
                           onClick={() => { setAddMemberGroupId(null); setNewMemberHealthId(''); setNewMemberRelationship(''); }}
                           className="flex-1 border border-neutral-200 py-2 rounded-lg text-sm text-neutral-600 hover:bg-neutral-50"
                         >
-                          Cancel
+                          {t('common.cancel')}
                         </button>
                       </div>
                     </form>
