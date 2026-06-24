@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPatientVitals, IS_DEMO } from '@medichain/shared';
+import { getPatientVitals, IS_DEMO, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Activity,
@@ -46,6 +46,7 @@ interface VitalReading {
  */
 export function VitalsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [readings, setReadings] = useState<VitalReading[]>([]);
   const [latest, setLatest] = useState<VitalReading | null>(null);
@@ -158,15 +159,15 @@ export function VitalsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Vital Signs</h1>
-          <p className="text-neutral-500">Your health metrics and trends</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('vitals.title')}</h1>
+          <p className="text-neutral-500">{t('vitals.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadVitals}
@@ -180,7 +181,7 @@ export function VitalsPage() {
       {/* Latest Vitals */}
       {latest ? (
         <div className="bg-gradient-to-r from-primary-500 to-primary-600 rounded-2xl p-6 text-white">
-          <h2 className="text-lg font-semibold mb-1">Latest Reading</h2>
+          <h2 className="text-lg font-semibold mb-1">{t('vitals.latestReading')}</h2>
           <p className="text-white/70 text-sm mb-4">
             {formatDate(latest.recorded_at || latest.created_at)}
           </p>
@@ -192,7 +193,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('systolic_bp')} />
                 </div>
                 <p className="text-xl font-bold">{latest.systolic_bp}/{latest.diastolic_bp}</p>
-                <p className="text-xs text-white/70">Blood Pressure (mmHg)</p>
+                <p className="text-xs text-white/70">{t('vitals.bloodPressure')}</p>
               </div>
             )}
             {latest.heart_rate != null && (
@@ -202,7 +203,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('heart_rate')} />
                 </div>
                 <p className="text-xl font-bold">{latest.heart_rate}</p>
-                <p className="text-xs text-white/70">Heart Rate (bpm)</p>
+                <p className="text-xs text-white/70">{t('vitals.heartRate')}</p>
               </div>
             )}
             {latest.temperature_celsius != null && (
@@ -212,7 +213,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('temperature_celsius')} />
                 </div>
                 <p className="text-xl font-bold">{latest.temperature_celsius.toFixed(1)}°C</p>
-                <p className="text-xs text-white/70">Temperature</p>
+                <p className="text-xs text-white/70">{t('vitals.temperature')}</p>
               </div>
             )}
             {latest.oxygen_saturation != null && (
@@ -222,7 +223,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('oxygen_saturation')} />
                 </div>
                 <p className="text-xl font-bold">{latest.oxygen_saturation}%</p>
-                <p className="text-xs text-white/70">SpO2</p>
+                <p className="text-xs text-white/70">{t('vitals.spo2')}</p>
               </div>
             )}
             {latest.respiratory_rate != null && (
@@ -232,7 +233,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('respiratory_rate')} />
                 </div>
                 <p className="text-xl font-bold">{latest.respiratory_rate}</p>
-                <p className="text-xs text-white/70">Resp. Rate (/min)</p>
+                <p className="text-xs text-white/70">{t('vitals.respRate')}</p>
               </div>
             )}
             {latest.weight_kg != null && (
@@ -242,7 +243,7 @@ export function VitalsPage() {
                   <TrendIcon direction={trend('weight_kg')} />
                 </div>
                 <p className="text-xl font-bold">{latest.weight_kg} kg</p>
-                <p className="text-xs text-white/70">Weight</p>
+                <p className="text-xs text-white/70">{t('vitals.weight')}</p>
               </div>
             )}
           </div>
@@ -250,15 +251,15 @@ export function VitalsPage() {
       ) : (
         <div className="patient-card text-center py-8">
           <Activity className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-          <p className="text-neutral-500">No vitals recorded yet</p>
+          <p className="text-neutral-500">{t('vitals.noneRecorded')}</p>
         </div>
       )}
 
       {/* Vitals History */}
       <div>
-        <h2 className="text-lg font-semibold text-neutral-900 mb-3">History</h2>
+        <h2 className="text-lg font-semibold text-neutral-900 mb-3">{t('vitals.history')}</h2>
         {readings.length === 0 ? (
-          <p className="text-neutral-500 text-sm">No vitals history available.</p>
+          <p className="text-neutral-500 text-sm">{t('vitals.noHistory')}</p>
         ) : (
           <div className="space-y-3">
             {readings.map((r, idx) => (

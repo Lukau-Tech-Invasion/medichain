@@ -323,6 +323,22 @@ const en_US: TranslationRecord = {
     noConversations: 'No conversations found',
   },
 
+  // Vital signs
+  vitals: {
+    title: 'Vital Signs',
+    subtitle: 'Your health metrics and trends',
+    latestReading: 'Latest Reading',
+    bloodPressure: 'Blood Pressure (mmHg)',
+    heartRate: 'Heart Rate (bpm)',
+    temperature: 'Temperature',
+    spo2: 'SpO2',
+    respRate: 'Resp. Rate (/min)',
+    weight: 'Weight',
+    noneRecorded: 'No vitals recorded yet',
+    history: 'History',
+    noHistory: 'No vitals history available.',
+  },
+
   // Notifications
   notifications: {
     title: 'Notifications',
