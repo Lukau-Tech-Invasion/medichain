@@ -1145,7 +1145,11 @@ async fn record_cds_audit(
         updated_at: now,
     };
     if let Err(e) = data.repositories.cds_audit_entries.create(record).await {
-        log::error!("Failed to persist CDS audit entry for {}: {}", alert.alert_id, e);
+        log::error!(
+            "Failed to persist CDS audit entry for {}: {}",
+            alert.alert_id,
+            e
+        );
     }
 }
 
@@ -2381,6 +2385,9 @@ mod cds_threshold_tests {
         let t: CdsThresholds = serde_json::from_value(partial).unwrap();
         assert_eq!(t.hyperkalemia_k, 7.0);
         assert_eq!(t.qsofa_rr, CdsThresholds::default().qsofa_rr);
-        assert_eq!(t.lactate_critical, CdsThresholds::default().lactate_critical);
+        assert_eq!(
+            t.lactate_critical,
+            CdsThresholds::default().lactate_critical
+        );
     }
 }

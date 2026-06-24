@@ -13,21 +13,12 @@ mod tests {
     use chrono::Utc;
     use sqlx::{postgres::PgPoolOptions, PgPool};
     use std::env;
-    use tokio::sync::{Mutex, MutexGuard, OnceCell};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    static TEST_POOL: OnceCell<PgPool> = OnceCell::const_new();
-    static POSTGRES_TEST_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
-
-    async fn postgres_test_guard() -> MutexGuard<'static, ()> {
-        POSTGRES_TEST_LOCK
-            .get_or_init(|| async { Mutex::new(()) })
-            .await
-            .lock()
-            .await
-    }
+    static NEXT_SCHEMA_ID: AtomicU64 = AtomicU64::new(0);
 
     async fn get_test_pool() -> PgPool {
-        TEST_POOL.get_or_init(create_test_pool).await.clone()
+        create_test_pool().await
     }
 
     async fn create_test_pool() -> PgPool {
@@ -36,14 +27,13 @@ mod tests {
             "postgres://medichain:medichain_dev_2024@localhost:5432/medichain".to_string()
         });
         let schema = format!(
-            "medichain_test_{}_{}",
+            "medichain_test_{}_{}_{}",
             std::process::id(),
-            Utc::now().timestamp_millis()
+            Utc::now().timestamp_millis(),
+            NEXT_SCHEMA_ID.fetch_add(1, Ordering::Relaxed)
         );
 
-        let admin_pool = db::create_pool(&database_url)
-            .await
-            .expect("Failed to create test database pool");
+        let admin_pool = create_admin_pool(&database_url).await;
         sqlx::query(&format!("CREATE SCHEMA {}", quote_identifier(&schema)))
             .execute(&admin_pool)
             .await
@@ -59,12 +49,21 @@ mod tests {
         pool
     }
 
+    async fn create_admin_pool(database_url: &str) -> PgPool {
+        PgPoolOptions::new()
+            .max_connections(1)
+            .min_connections(0)
+            .connect(database_url)
+            .await
+            .expect("Failed to create admin test database pool")
+    }
+
     async fn create_schema_pool(database_url: &str, schema: &str) -> PgPool {
         let search_path = format!("SET search_path TO {}, public", quote_identifier(schema));
 
         PgPoolOptions::new()
-            .max_connections(20)
-            .min_connections(1)
+            .max_connections(4)
+            .min_connections(0)
             .after_connect(move |conn, _meta| {
                 let search_path = search_path.clone();
                 Box::pin(async move {
@@ -121,7 +120,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pg_patient_repository() {
-        let _guard = postgres_test_guard().await;
         let pool = get_test_pool().await;
         let repo = PgPatientRepository::new(pool.clone());
 
@@ -189,11 +187,11 @@ mod tests {
             .execute(&pool)
             .await
             .expect("Failed to cleanup test patient");
+        pool.close().await;
     }
 
     #[tokio::test]
     async fn test_pg_allergy_repository() {
-        let _guard = postgres_test_guard().await;
         let pool = get_test_pool().await;
         let patient_repo = PgPatientRepository::new(pool.clone());
         let allergy_repo = PgAllergyRepository::new(pool.clone());
@@ -272,6 +270,7 @@ mod tests {
             .execute(&pool)
             .await
             .ok();
+        pool.close().await;
         sqlx::query("DELETE FROM patients WHERE id = $1")
             .bind(&patient_id)
             .execute(&pool)
@@ -281,7 +280,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_pg_medical_record_repository() {
-        let _guard = postgres_test_guard().await;
         let pool = get_test_pool().await;
         let patient_repo = PgPatientRepository::new(pool.clone());
         let record_repo = PgMedicalRecordRepository::new(pool.clone());
@@ -352,6 +350,7 @@ mod tests {
             .execute(&pool)
             .await
             .ok();
+        pool.close().await;
         sqlx::query("DELETE FROM patients WHERE id = $1")
             .bind(&patient_id)
             .execute(&pool)
@@ -366,7 +365,6 @@ mod tests {
     /// fields surviving the JSONB round-trip.
     #[tokio::test]
     async fn test_pg_code_blue_round_trip_survives_restart() {
-        let _guard = postgres_test_guard().await;
         use crate::repositories::postgres::PgCodeBlueRepository;
         use crate::repositories::traits::{CodeBlueEntity, CodeBlueRepository};
 
@@ -415,5 +413,6 @@ mod tests {
 
         // Cleanup.
         reader.delete(&id).await.ok();
+        pool.close().await;
     }
 }
