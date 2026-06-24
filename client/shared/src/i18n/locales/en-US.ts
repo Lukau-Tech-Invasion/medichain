@@ -323,6 +323,25 @@ const en_US: TranslationRecord = {
     noConversations: 'No conversations found',
   },
 
+  // Notifications
+  notifications: {
+    title: 'Notifications',
+    unread: '{{count}} unread',
+    allCaughtUp: 'All caught up',
+    highPriorityCount: '{{count}} high-priority alerts',
+    highBannerTitle: '{{count}} High Priority Clinical Alerts',
+    highBannerBody: 'Please review your clinical alerts and contact your provider if needed.',
+    tabNotifications: 'Notifications ({{count}})',
+    tabAlerts: 'Clinical Alerts ({{count}})',
+    noNotifications: 'No notifications',
+    noAlerts: 'No clinical alerts',
+    sevHigh: 'High',
+    sevMedium: 'Medium',
+    sevLow: 'Low',
+    minsAgoShort: '{{count}}m ago',
+    hoursAgoShort: '{{count}}h ago',
+  },
+
   // Consent
   consent: {
     title: 'Consent Management',

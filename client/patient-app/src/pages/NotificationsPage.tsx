@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Bell,
@@ -50,6 +50,7 @@ interface CdsAlert {
  */
 export function NotificationsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [alerts, setAlerts] = useState<CdsAlert[]>([]);
@@ -105,9 +106,9 @@ export function NotificationsPage() {
     const date = new Date(dateStr);
     const diff = Date.now() - date.getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m ago`;
+    if (mins < 60) return t('notifications.minsAgoShort', { count: mins });
     const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
+    if (hours < 24) return t('notifications.hoursAgoShort', { count: hours });
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
@@ -117,21 +118,21 @@ export function NotificationsPage() {
         return (
           <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
             <AlertTriangle className="w-3 h-3" />
-            High
+            {t('notifications.sevHigh')}
           </span>
         );
       case 'medium':
         return (
           <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
             <AlertTriangle className="w-3 h-3" />
-            Medium
+            {t('notifications.sevMedium')}
           </span>
         );
       case 'low':
         return (
           <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
             <Info className="w-3 h-3" />
-            Low
+            {t('notifications.sevLow')}
           </span>
         );
       default:
@@ -155,10 +156,10 @@ export function NotificationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Notifications</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('notifications.title')}</h1>
           <p className="text-neutral-500">
-            {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
-            {highAlerts > 0 ? ` • ${highAlerts} high-priority alert${highAlerts > 1 ? 's' : ''}` : ''}
+            {unreadCount > 0 ? t('notifications.unread', { count: unreadCount }) : t('notifications.allCaughtUp')}
+            {highAlerts > 0 ? ` • ${t('notifications.highPriorityCount', { count: highAlerts })}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -166,7 +167,7 @@ export function NotificationsPage() {
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadAll}
@@ -183,10 +184,10 @@ export function NotificationsPage() {
           <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
           <div>
             <p className="font-semibold text-red-800">
-              {highAlerts} High Priority Clinical Alert{highAlerts > 1 ? 's' : ''}
+              {t('notifications.highBannerTitle', { count: highAlerts })}
             </p>
             <p className="text-sm text-red-700">
-              Please review your clinical alerts and contact your provider if needed.
+              {t('notifications.highBannerBody')}
             </p>
           </div>
         </div>
@@ -202,7 +203,7 @@ export function NotificationsPage() {
               : 'border-transparent text-neutral-500 hover:text-neutral-700'
           }`}
         >
-          Notifications ({notifications.length})
+          {t('notifications.tabNotifications', { count: notifications.length })}
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
               {unreadCount}
@@ -217,7 +218,7 @@ export function NotificationsPage() {
               : 'border-transparent text-neutral-500 hover:text-neutral-700'
           }`}
         >
-          Clinical Alerts ({alerts.length})
+          {t('notifications.tabAlerts', { count: alerts.length })}
           {highAlerts > 0 && (
             <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
               {highAlerts}
@@ -232,7 +233,7 @@ export function NotificationsPage() {
           {notifications.length === 0 ? (
             <div className="text-center py-12">
               <Bell className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">No notifications</p>
+              <p className="text-neutral-500">{t('notifications.noNotifications')}</p>
             </div>
           ) : (
             notifications.map((n, idx) => (
@@ -274,7 +275,7 @@ export function NotificationsPage() {
           {alerts.length === 0 ? (
             <div className="text-center py-12">
               <CheckCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">No clinical alerts</p>
+              <p className="text-neutral-500">{t('notifications.noAlerts')}</p>
             </div>
           ) : (
             alerts.map((alert, idx) => (
