@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, IS_DEMO } from '@medichain/shared';
+import { apiUrl, IS_DEMO, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   FlaskConical,
@@ -45,6 +45,7 @@ interface LabResult {
  */
 export function LabResultsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [results, setResults] = useState<LabResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,7 +150,7 @@ export function LabResultsPage() {
       return (
         <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
           <AlertTriangle className="w-3 h-3" />
-          Critical
+          {t('labResults.statusCritical')}
         </span>
       );
     }
@@ -157,7 +158,7 @@ export function LabResultsPage() {
       return (
         <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
           <AlertTriangle className="w-3 h-3" />
-          Abnormal
+          {t('labResults.statusAbnormal')}
         </span>
       );
     }
@@ -165,14 +166,14 @@ export function LabResultsPage() {
       return (
         <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
           <CheckCircle className="w-3 h-3" />
-          Normal
+          {t('labResults.statusNormal')}
         </span>
       );
     }
     return (
       <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600">
         <Clock className="w-3 h-3" />
-        Pending
+        {t('labResults.statusPending')}
       </span>
     );
   };
@@ -205,15 +206,15 @@ export function LabResultsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Lab Results</h1>
-          <p className="text-neutral-500">Your test results and reports</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('labResults.title')}</h1>
+          <p className="text-neutral-500">{t('labResults.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadResults}
@@ -229,9 +230,9 @@ export function LabResultsPage() {
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-semibold text-red-800">Critical Values Detected</p>
+            <p className="font-semibold text-red-800">{t('labResults.criticalTitle')}</p>
             <p className="text-sm text-red-700">
-              You have critical lab values. Please contact your healthcare provider immediately.
+              {t('labResults.criticalBody')}
             </p>
           </div>
         </div>
@@ -241,7 +242,7 @@ export function LabResultsPage() {
       {results.length === 0 ? (
         <div className="text-center py-12">
           <FlaskConical className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-          <p className="text-neutral-500">No lab results found</p>
+          <p className="text-neutral-500">{t('labResults.noResults')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -265,13 +266,13 @@ export function LabResultsPage() {
                       {r.ordered_date && (
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          Ordered: {formatDate(r.ordered_date)}
+                          {t('labResults.orderedOn', { date: formatDate(r.ordered_date) })}
                         </span>
                       )}
                       {(r.result_date || r.resulted_at) && (
                         <span className="flex items-center gap-1">
                           <CheckCircle className="w-3 h-3" />
-                          Resulted: {formatDate(r.result_date || r.resulted_at)}
+                          {t('labResults.resultedOn', { date: formatDate(r.result_date || r.resulted_at) })}
                         </span>
                       )}
                     </div>
@@ -282,14 +283,14 @@ export function LabResultsPage() {
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="bg-neutral-50 rounded-lg p-2">
-                  <p className="text-xs text-neutral-400">Result</p>
+                  <p className="text-xs text-neutral-400">{t('labResults.result')}</p>
                   <p className={`font-semibold ${isCritical(r) ? 'text-red-700' : 'text-neutral-900'}`}>
                     {displayValue(r)}
                   </p>
                 </div>
                 {(r.reference_range || r.normal_range) && (
                   <div className="bg-neutral-50 rounded-lg p-2">
-                    <p className="text-xs text-neutral-400">Reference Range</p>
+                    <p className="text-xs text-neutral-400">{t('labResults.referenceRange')}</p>
                     <p className="font-medium text-neutral-700">{r.reference_range || r.normal_range}</p>
                   </div>
                 )}

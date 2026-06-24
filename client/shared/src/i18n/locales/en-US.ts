@@ -323,6 +323,23 @@ const en_US: TranslationRecord = {
     noConversations: 'No conversations found',
   },
 
+  // Lab results (patient view)
+  labResults: {
+    title: 'Lab Results',
+    subtitle: 'Your test results and reports',
+    statusCritical: 'Critical',
+    statusAbnormal: 'Abnormal',
+    statusNormal: 'Normal',
+    statusPending: 'Pending',
+    criticalTitle: 'Critical Values Detected',
+    criticalBody: 'You have critical lab values. Please contact your healthcare provider immediately.',
+    noResults: 'No lab results found',
+    orderedOn: 'Ordered: {{date}}',
+    resultedOn: 'Resulted: {{date}}',
+    result: 'Result',
+    referenceRange: 'Reference Range',
+  },
+
   // Vital signs
   vitals: {
     title: 'Vital Signs',
