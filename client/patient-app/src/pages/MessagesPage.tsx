@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   MessageCircle,
@@ -53,6 +53,7 @@ interface Conversation {
  */
 export function MessagesPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -231,7 +232,7 @@ export function MessagesPage() {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Type a message..."
+              placeholder={t('messages.typePlaceholder')}
               className="flex-1 px-4 py-2 border border-neutral-200 rounded-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             />
             <button
@@ -253,9 +254,9 @@ export function MessagesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Messages</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('messages.title')}</h1>
           <p className="text-neutral-500">
-            {totalUnread > 0 ? `${totalUnread} unread message${totalUnread > 1 ? 's' : ''}` : 'All caught up!'}
+            {totalUnread > 0 ? t('messages.unreadCount', { count: totalUnread }) : t('messages.allCaughtUp')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -263,7 +264,7 @@ export function MessagesPage() {
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('common.live') : t('common.demo')}
           </span>
         </div>
       </div>
@@ -275,7 +276,7 @@ export function MessagesPage() {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search conversations..."
+          placeholder={t('messages.searchPlaceholder')}
           className="w-full pl-12 pr-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
         />
       </div>
@@ -286,8 +287,8 @@ export function MessagesPage() {
           <Plus className="w-6 h-6 text-primary-600" />
         </div>
         <div className="text-left">
-          <div className="font-medium text-neutral-900">Start New Conversation</div>
-          <div className="text-sm text-neutral-500">Message a healthcare provider</div>
+          <div className="font-medium text-neutral-900">{t('messages.startNew')}</div>
+          <div className="text-sm text-neutral-500">{t('messages.startNewDesc')}</div>
         </div>
       </button>
 
@@ -331,7 +332,7 @@ export function MessagesPage() {
         {filteredConversations.length === 0 && (
           <div className="text-center py-12">
             <MessageCircle className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-            <p className="text-neutral-500">No conversations found</p>
+            <p className="text-neutral-500">{t('messages.noConversations')}</p>
           </div>
         )}
       </div>

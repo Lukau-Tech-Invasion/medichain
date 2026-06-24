@@ -311,6 +311,18 @@ const en_US: TranslationRecord = {
     bookAppointment: 'Book an Appointment',
   },
 
+  // Messages
+  messages: {
+    title: 'Messages',
+    unreadCount: '{{count}} unread messages',
+    allCaughtUp: 'All caught up!',
+    searchPlaceholder: 'Search conversations...',
+    typePlaceholder: 'Type a message...',
+    startNew: 'Start New Conversation',
+    startNewDesc: 'Message a healthcare provider',
+    noConversations: 'No conversations found',
+  },
+
   // Consent
   consent: {
     title: 'Consent Management',
