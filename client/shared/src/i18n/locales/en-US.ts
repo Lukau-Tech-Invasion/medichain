@@ -268,6 +268,11 @@ const en_US: TranslationRecord = {
     noneActive: 'No active medications',
     historyTitle: 'Medication History',
     historyEmpty: 'Medication history will appear here once you start tracking doses.',
+    loadingReminders: 'Loading reminders...',
+    remindersTitle: 'Medication Reminders',
+    noReminders: 'No active reminders.',
+    dosageColon: 'Dosage: {{dosage}}',
+    addReminder: '+ Add Reminder',
   },
 
   // Appointments
