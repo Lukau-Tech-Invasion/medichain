@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Syringe,
@@ -63,6 +63,7 @@ type Tab = 'immunizations' | 'family-history' | 'documents';
  */
 export function MedicalHistoryPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [activeTab, setActiveTab] = useState<Tab>('immunizations');
   const [immunizations, setImmunizations] = useState<Immunization[]>([]);
@@ -137,9 +138,9 @@ export function MedicalHistoryPage() {
   };
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'immunizations', label: 'Immunizations', icon: <Syringe className="w-4 h-4" /> },
-    { id: 'family-history', label: 'Family History', icon: <Users className="w-4 h-4" /> },
-    { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" /> },
+    { id: 'immunizations', label: t('medicalHistory.tabImmunizations'), icon: <Syringe className="w-4 h-4" /> },
+    { id: 'family-history', label: t('medicalHistory.tabFamily'), icon: <Users className="w-4 h-4" /> },
+    { id: 'documents', label: t('medicalHistory.tabDocuments'), icon: <FileText className="w-4 h-4" /> },
   ];
 
   if (loading) {
@@ -155,15 +156,15 @@ export function MedicalHistoryPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Medical History</h1>
-          <p className="text-neutral-500">Immunizations, family history, and records</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('medicalHistory.title')}</h1>
+          <p className="text-neutral-500">{t('medicalHistory.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {apiConnected ? 'Live' : 'Demo'}
+            {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadAll}
@@ -198,7 +199,7 @@ export function MedicalHistoryPage() {
           {immunizations.length === 0 ? (
             <div className="text-center py-12">
               <Syringe className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">No immunization records found</p>
+              <p className="text-neutral-500">{t('medicalHistory.noImmunizations')}</p>
             </div>
           ) : (
             immunizations.map((imm, idx) => (
@@ -209,7 +210,7 @@ export function MedicalHistoryPage() {
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-neutral-900">
-                      {imm.vaccine_name || imm.vaccine || 'Vaccine'}
+                      {imm.vaccine_name || imm.vaccine || t('medicalHistory.vaccine')}
                     </h3>
                     <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1">
                       {(imm.date_administered || imm.administered_date) && (
@@ -219,10 +220,10 @@ export function MedicalHistoryPage() {
                         </span>
                       )}
                       {imm.administered_by && (
-                        <span>by {imm.administered_by}</span>
+                        <span>{t('medicalHistory.administeredBy', { name: imm.administered_by })}</span>
                       )}
                       {imm.lot_number && (
-                        <span>Lot: {imm.lot_number}</span>
+                        <span>{t('medicalHistory.lot', { lot: imm.lot_number })}</span>
                       )}
                     </div>
                     {imm.notes && (
@@ -242,7 +243,7 @@ export function MedicalHistoryPage() {
           {familyHistory.length === 0 ? (
             <div className="text-center py-12">
               <Users className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">No family history recorded</p>
+              <p className="text-neutral-500">{t('medicalHistory.noFamily')}</p>
             </div>
           ) : (
             familyHistory.map((entry, idx) => (
@@ -255,13 +256,13 @@ export function MedicalHistoryPage() {
                     <div className="flex items-center justify-between">
                       <h3 className="font-semibold text-neutral-900">{entry.condition}</h3>
                       {entry.deceased && (
-                        <span className="text-xs text-neutral-400">Deceased</span>
+                        <span className="text-xs text-neutral-400">{t('medicalHistory.deceased')}</span>
                       )}
                     </div>
                     <p className="text-sm text-neutral-600 mt-0.5">{entry.relationship}</p>
                     {entry.age_of_onset != null && (
                       <p className="text-xs text-neutral-400 mt-0.5">
-                        Age of onset: {entry.age_of_onset}
+                        {t('medicalHistory.ageOfOnset', { age: entry.age_of_onset })}
                       </p>
                     )}
                     {entry.notes && (
@@ -281,7 +282,7 @@ export function MedicalHistoryPage() {
           {documents.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">No documents uploaded</p>
+              <p className="text-neutral-500">{t('medicalHistory.noDocuments')}</p>
             </div>
           ) : (
             documents.map((doc, idx) => (
@@ -292,7 +293,7 @@ export function MedicalHistoryPage() {
                   </div>
                   <div>
                     <h3 className="font-medium text-neutral-900">
-                      {doc.file_name || doc.title || 'Document'}
+                      {doc.file_name || doc.title || t('medicalHistory.document')}
                     </h3>
                     <div className="flex items-center gap-2 text-xs text-neutral-400 mt-0.5">
                       {doc.record_type && (
@@ -310,7 +311,7 @@ export function MedicalHistoryPage() {
                 {doc.ipfs_hash && (
                   <button
                     className="p-2 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-                    title="Download"
+                    title={t('medicalHistory.download')}
                   >
                     <Download className="w-4 h-4" />
                   </button>

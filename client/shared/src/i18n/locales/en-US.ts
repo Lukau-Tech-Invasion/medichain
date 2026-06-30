@@ -323,6 +323,25 @@ const en_US: TranslationRecord = {
     noConversations: 'No conversations found',
   },
 
+  // Medical history (immunizations, family history, documents)
+  medicalHistory: {
+    title: 'Medical History',
+    subtitle: 'Immunizations, family history, and records',
+    tabImmunizations: 'Immunizations',
+    tabFamily: 'Family History',
+    tabDocuments: 'Documents',
+    noImmunizations: 'No immunization records found',
+    vaccine: 'Vaccine',
+    administeredBy: 'by {{name}}',
+    lot: 'Lot: {{lot}}',
+    noFamily: 'No family history recorded',
+    deceased: 'Deceased',
+    ageOfOnset: 'Age of onset: {{age}}',
+    noDocuments: 'No documents uploaded',
+    document: 'Document',
+    download: 'Download',
+  },
+
   // Lab results (patient view)
   labResults: {
     title: 'Lab Results',
