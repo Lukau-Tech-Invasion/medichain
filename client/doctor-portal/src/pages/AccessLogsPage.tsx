@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { 
   FileText, 
   Search, 
@@ -28,6 +28,7 @@ interface AccessLog {
 }
 
 function AccessLogsPage() {
+  const { t } = useTranslation();
   // Note: user is available for future API calls requiring authentication
   const { user: _user } = useAuthStore();
   const [logs, setLogs] = useState<AccessLog[]>([]);
@@ -94,12 +95,12 @@ function AccessLogsPage() {
 
   const getAccessTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      nfc_tap: 'NFC Card Tap',
-      qr_verification: 'QR Code Scan',
-      list_records: 'View Records',
-      download_record: 'Download Record',
-      upload_record: 'Upload Record',
-      emergency: 'Emergency Access',
+      nfc_tap: t('docAccessLogs.typeNfcTap'),
+      qr_verification: t('docAccessLogs.typeQr'),
+      list_records: t('docAccessLogs.typeListRecords'),
+      download_record: t('docAccessLogs.typeDownload'),
+      upload_record: t('docAccessLogs.typeUpload'),
+      emergency: t('docAccessLogs.typeEmergency'),
     };
     return labels[type] || type;
   };
@@ -169,19 +170,19 @@ function AccessLogsPage() {
             <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
               <FileText className="text-primary-600" size={24} />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Access Logs</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{t('docAccessLogs.title')}</h1>
           </div>
           <p className="text-gray-500">
-            Blockchain-verified audit trail of all medical record accesses
+            {t('docAccessLogs.subtitle')}
           </p>
         </div>
-        
+
         <button
           onClick={handleExport}
           className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
         >
           <Download size={18} />
-          Export CSV
+          {t('docAccessLogs.exportCsv')}
         </button>
       </div>
 
@@ -190,7 +191,7 @@ function AccessLogsPage() {
         <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Accesses</p>
+              <p className="text-sm text-gray-500">{t('docAccessLogs.totalAccesses')}</p>
               <p className="text-2xl font-bold text-gray-900">{logs.length}</p>
             </div>
             <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
@@ -202,7 +203,7 @@ function AccessLogsPage() {
         <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Emergency Accesses</p>
+              <p className="text-sm text-gray-500">{t('docAccessLogs.emergencyAccesses')}</p>
               <p className="text-2xl font-bold text-emergency-600">
                 {logs.filter(l => l.emergency).length}
               </p>
@@ -216,7 +217,7 @@ function AccessLogsPage() {
         <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Unique Patients</p>
+              <p className="text-sm text-gray-500">{t('docAccessLogs.uniquePatients')}</p>
               <p className="text-2xl font-bold text-gray-900">
                 {new Set(logs.map(l => l.patient_id)).size}
               </p>
@@ -230,7 +231,7 @@ function AccessLogsPage() {
         <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Today's Accesses</p>
+              <p className="text-sm text-gray-500">{t('docAccessLogs.todaysAccesses')}</p>
               <p className="text-2xl font-bold text-gray-900">
                 {logs.filter(l => {
                   const today = new Date().toDateString();
@@ -254,7 +255,7 @@ function AccessLogsPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by patient ID, accessor, or access type..."
+              placeholder={t('docAccessLogs.searchPlaceholder')}
               className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             />
           </div>
@@ -266,9 +267,9 @@ function AccessLogsPage() {
               onChange={(e) => setFilterType(e.target.value as typeof filterType)}
               className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             >
-              <option value="all">All Accesses</option>
-              <option value="emergency">Emergency Only</option>
-              <option value="regular">Regular Only</option>
+              <option value="all">{t('docAccessLogs.filterAll')}</option>
+              <option value="emergency">{t('docAccessLogs.filterEmergency')}</option>
+              <option value="regular">{t('docAccessLogs.filterRegular')}</option>
             </select>
           </div>
         </div>
@@ -283,7 +284,7 @@ function AccessLogsPage() {
         ) : paginatedLogs.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="mx-auto mb-4 text-gray-300" size={48} />
-            <p className="text-gray-500">No access logs found</p>
+            <p className="text-gray-500">{t('docAccessLogs.noneFound')}</p>
           </div>
         ) : (
           <>
@@ -292,22 +293,22 @@ function AccessLogsPage() {
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Access Type
+                      {t('docAccessLogs.colAccessType')}
                     </th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Patient
+                      {t('docAccessLogs.colPatient')}
                     </th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Accessor
+                      {t('docAccessLogs.colAccessor')}
                     </th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Location
+                      {t('docAccessLogs.colLocation')}
                     </th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Timestamp
+                      {t('docAccessLogs.colTimestamp')}
                     </th>
                     <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
+                      {t('docAccessLogs.colStatus')}
                     </th>
                   </tr>
                 </thead>
@@ -348,12 +349,12 @@ function AccessLogsPage() {
                           {log.emergency ? (
                             <span className="inline-flex items-center gap-1 px-2 py-1 bg-emergency-100 text-emergency-700 text-xs font-medium rounded-full">
                               <AlertTriangle size={12} />
-                              Emergency
+                              {t('docAccessLogs.statusEmergency')}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-1 bg-success-100 text-success-700 text-xs font-medium rounded-full">
                               <Shield size={12} />
-                              Verified
+                              {t('docAccessLogs.statusVerified')}
                             </span>
                           )}
                         </td>
@@ -368,9 +369,11 @@ function AccessLogsPage() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
                 <p className="text-sm text-gray-500">
-                  Showing {(currentPage - 1) * logsPerPage + 1} to{' '}
-                  {Math.min(currentPage * logsPerPage, filteredLogs.length)} of{' '}
-                  {filteredLogs.length} results
+                  {t('docAccessLogs.showingResults', {
+                    from: (currentPage - 1) * logsPerPage + 1,
+                    to: Math.min(currentPage * logsPerPage, filteredLogs.length),
+                    total: filteredLogs.length,
+                  })}
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -381,7 +384,7 @@ function AccessLogsPage() {
                     <ChevronLeft size={20} />
                   </button>
                   <span className="text-sm text-gray-700">
-                    Page {currentPage} of {totalPages}
+                    {t('docAccessLogs.pageOf', { current: currentPage, total: totalPages })}
                   </span>
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
@@ -402,11 +405,9 @@ function AccessLogsPage() {
         <div className="flex items-start gap-3">
           <Shield className="text-primary-600 mt-0.5" size={20} />
           <div>
-            <h4 className="font-medium text-primary-900">Blockchain Verified</h4>
+            <h4 className="font-medium text-primary-900">{t('docAccessLogs.blockchainVerified')}</h4>
             <p className="text-sm text-primary-700 mt-1">
-              All access logs are immutably recorded on the MediChain blockchain. 
-              Each entry is cryptographically signed and cannot be altered or deleted, 
-              ensuring complete HIPAA and GDPR compliance.
+              {t('docAccessLogs.blockchainBody')}
             </p>
           </div>
         </div>
