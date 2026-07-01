@@ -23,7 +23,7 @@ import {
   Zap,
   Loader2
 } from 'lucide-react';
-import { getWearableDevices, getWearableReadings, registerWearableDevice, IS_DEMO } from '@medichain/shared';
+import { getWearableDevices, getWearableReadings, registerWearableDevice, IS_DEMO, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -69,6 +69,7 @@ interface ActivityRing {
 }
 
 const WearablesPage: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'devices' | 'settings'>('dashboard');
   const [devices, setDevices] = useState<Device[]>([]);
   const [metrics, setMetrics] = useState<HealthMetric[]>([]);
@@ -279,13 +280,65 @@ const WearablesPage: React.FC = () => {
   };
 
   const formatLastSync = (date: Date | null) => {
-    if (!date) return 'Never';
+    if (!date) return t('wearables.never');
     const diff = Date.now() - date.getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins} min ago`;
+    if (mins < 60) return t('wearables.minAgo', { mins });
     const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    if (hours < 24) return t(hours > 1 ? 'wearables.hoursAgo' : 'wearables.hourAgo', { hours });
     return date.toLocaleDateString();
+  };
+
+  // Localized labels for enum/data values that also drive display logic.
+  const tabLabel = (tab: 'dashboard' | 'devices' | 'settings'): string =>
+    tab === 'dashboard' ? t('wearables.tabDashboard')
+      : tab === 'devices' ? t('wearables.tabDevices')
+        : t('wearables.tabSettings');
+
+  const metricName = (m: HealthMetric): string => {
+    switch (m.type) {
+      case 'heart-rate': return t('wearables.metricHeartRate');
+      case 'steps': return t('wearables.metricSteps');
+      case 'calories': return t('wearables.metricCalories');
+      case 'sleep': return t('wearables.metricSleep');
+      case 'spo2': return t('wearables.metricSpo2');
+      case 'hrv': return t('wearables.metricHrv');
+      default: return m.name;
+    }
+  };
+
+  const metricUnit = (m: HealthMetric): string => {
+    switch (m.type) {
+      case 'heart-rate': return t('wearables.uHeartRate');
+      case 'steps': return t('wearables.uSteps');
+      case 'calories': return t('wearables.uCalories');
+      case 'sleep': return t('wearables.uSleep');
+      case 'spo2': return t('wearables.uSpo2');
+      case 'hrv': return t('wearables.uHrv');
+      default: return m.unit;
+    }
+  };
+
+  const ringLabel = (name: string): string => {
+    switch (name) {
+      case 'Move': return t('wearables.ringMove');
+      case 'Exercise': return t('wearables.ringExercise');
+      case 'Stand': return t('wearables.ringStand');
+      default: return name;
+    }
+  };
+
+  const dayLabel = (d: string): string => {
+    const days: Record<string, string> = {
+      Mon: t('wearables.dayMon'),
+      Tue: t('wearables.dayTue'),
+      Wed: t('wearables.dayWed'),
+      Thu: t('wearables.dayThu'),
+      Fri: t('wearables.dayFri'),
+      Sat: t('wearables.daySat'),
+      Sun: t('wearables.daySun'),
+    };
+    return days[d] || d;
   };
 
   const getTrendIcon = (trend: TrendDirection) => {
@@ -336,7 +389,7 @@ const WearablesPage: React.FC = () => {
         <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
-            <span className="text-gray-600">Loading wearable data...</span>
+            <span className="text-gray-600">{t('wearables.loading')}</span>
           </div>
         </div>
       )}
@@ -346,7 +399,7 @@ const WearablesPage: React.FC = () => {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <Watch className="w-8 h-8" />
-            <h1 className="text-2xl font-bold">My Wearables</h1>
+            <h1 className="text-2xl font-bold">{t('wearables.title')}</h1>
           </div>
           <button
             onClick={handleSync}
@@ -356,7 +409,7 @@ const WearablesPage: React.FC = () => {
             <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
         </div>
-        <p className="text-teal-100">{devices.filter(d => d.status === 'connected').length} device(s) connected</p>
+        <p className="text-teal-100">{t('wearables.devicesConnected', { count: devices.filter(d => d.status === 'connected').length })}</p>
       </div>
 
       {/* Tabs */}
@@ -366,13 +419,13 @@ const WearablesPage: React.FC = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
+              className={`flex-1 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? 'text-teal-600 border-b-2 border-teal-600'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tab}
+              {tabLabel(tab)}
             </button>
           ))}
         </div>
@@ -384,7 +437,7 @@ const WearablesPage: React.FC = () => {
           <div className="space-y-4">
             {/* Activity Rings */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold text-gray-900 mb-4">Today's Activity</h3>
+              <h3 className="font-semibold text-gray-900 mb-4">{t('wearables.todaysActivity')}</h3>
               <div className="flex items-center justify-center gap-4">
                 <div className="relative">
                   {activityRings.map((ring, idx) => (
@@ -409,8 +462,8 @@ const WearablesPage: React.FC = () => {
                         style={{ backgroundColor: ring.color }}
                       />
                       <span className="text-sm text-gray-600">
-                        {ring.name}: {ring.current}/{ring.goal}
-                        {ring.name === 'Move' ? ' kcal' : ring.name === 'Exercise' ? ' min' : ' hrs'}
+                        {ringLabel(ring.name)}: {ring.current}/{ring.goal}
+                        {ring.name === 'Move' ? ` ${t('wearables.unitKcal')}` : ring.name === 'Exercise' ? ` ${t('wearables.unitMin')}` : ` ${t('wearables.unitHrs')}`}
                       </span>
                     </div>
                   ))}
@@ -433,8 +486,8 @@ const WearablesPage: React.FC = () => {
                   <p className="text-2xl font-bold text-gray-900">
                     {metric.type === 'sleep' ? metric.value.toFixed(1) : metric.value.toLocaleString()}
                   </p>
-                  <p className="text-xs text-gray-500">{metric.unit}</p>
-                  <p className="text-sm text-gray-600 mt-1">{metric.name}</p>
+                  <p className="text-xs text-gray-500">{metricUnit(metric)}</p>
+                  <p className="text-sm text-gray-600 mt-1">{metricName(metric)}</p>
                   {metric.goal && (
                     <div className="mt-2">
                       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -455,7 +508,7 @@ const WearablesPage: React.FC = () => {
             {selectedMetric && (
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-gray-900">{selectedMetric.name} - 7 Day Trend</h3>
+                  <h3 className="font-semibold text-gray-900">{t('wearables.trend7Day', { name: metricName(selectedMetric) })}</h3>
                   <button onClick={() => setSelectedMetric(null)} className="text-gray-400">
                     ×
                   </button>
@@ -470,7 +523,7 @@ const WearablesPage: React.FC = () => {
                           className="w-full bg-teal-500 rounded-t transition-all"
                           style={{ height: `${height}%` }}
                         />
-                        <span className="text-xs text-gray-500 mt-1">{h.date}</span>
+                        <span className="text-xs text-gray-500 mt-1">{dayLabel(h.date)}</span>
                       </div>
                     );
                   })}
@@ -486,7 +539,7 @@ const WearablesPage: React.FC = () => {
             {/* Connected Devices */}
             <div className="bg-white rounded-lg shadow divide-y">
               <div className="p-4">
-                <h3 className="font-semibold text-gray-900">Connected Devices</h3>
+                <h3 className="font-semibold text-gray-900">{t('wearables.connectedDevices')}</h3>
               </div>
               {devices.map(device => (
                 <div key={device.id} className="p-4">
@@ -527,7 +580,7 @@ const WearablesPage: React.FC = () => {
 
             {/* Add Device */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold text-gray-900 mb-4">Add Device</h3>
+              <h3 className="font-semibold text-gray-900 mb-4">{t('wearables.addDevice')}</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { name: 'Apple Health', icon: <Heart className="w-6 h-6" />, color: 'bg-red-100 text-red-600', type: 'apple-watch' },
@@ -565,7 +618,7 @@ const WearablesPage: React.FC = () => {
             {/* Bluetooth Scan */}
             <button className="w-full bg-white rounded-lg shadow p-4 flex items-center justify-center gap-2 text-teal-600 font-medium hover:bg-teal-50">
               <Bluetooth className="w-5 h-5" />
-              Scan for Bluetooth Devices
+              {t('wearables.scanBluetooth')}
             </button>
           </div>
         )}
@@ -576,15 +629,15 @@ const WearablesPage: React.FC = () => {
             {/* Sync Settings */}
             <div className="bg-white rounded-lg shadow divide-y">
               <div className="p-4">
-                <h3 className="font-semibold text-gray-900">Sync Settings</h3>
+                <h3 className="font-semibold text-gray-900">{t('wearables.syncSettings')}</h3>
               </div>
               {[
-                { label: 'Auto-sync when connected', enabled: true },
-                { label: 'Background sync', enabled: true },
-                { label: 'Sync over cellular data', enabled: false },
-                { label: 'Sync sleep data', enabled: true },
-                { label: 'Sync workout data', enabled: true },
-                { label: 'Sync heart rate data', enabled: true }
+                { label: t('wearables.syncAuto'), enabled: true },
+                { label: t('wearables.syncBackground'), enabled: true },
+                { label: t('wearables.syncCellular'), enabled: false },
+                { label: t('wearables.syncSleep'), enabled: true },
+                { label: t('wearables.syncWorkout'), enabled: true },
+                { label: t('wearables.syncHeartRate'), enabled: true }
               ].map((setting, idx) => (
                 <div key={idx} className="p-4 flex items-center justify-between">
                   <span className="text-gray-700">{setting.label}</span>
@@ -606,28 +659,28 @@ const WearablesPage: React.FC = () => {
             {/* Data Sharing */}
             <div className="bg-white rounded-lg shadow divide-y">
               <div className="p-4">
-                <h3 className="font-semibold text-gray-900">Data Sharing</h3>
+                <h3 className="font-semibold text-gray-900">{t('wearables.dataSharing')}</h3>
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-700">Share with Healthcare Provider</span>
+                  <span className="text-gray-700">{t('wearables.shareProvider')}</span>
                   <button className="w-12 h-6 rounded-full bg-teal-500">
                     <div className="w-5 h-5 bg-white rounded-full shadow translate-x-6" />
                   </button>
                 </div>
                 <p className="text-sm text-gray-500">
-                  Allow your doctor to view your wearable health data during appointments.
+                  {t('wearables.shareProviderDesc')}
                 </p>
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-700">Emergency Access</span>
+                  <span className="text-gray-700">{t('wearables.emergencyAccess')}</span>
                   <button className="w-12 h-6 rounded-full bg-teal-500">
                     <div className="w-5 h-5 bg-white rounded-full shadow translate-x-6" />
                   </button>
                 </div>
                 <p className="text-sm text-gray-500">
-                  Share vital signs with emergency responders in case of emergency.
+                  {t('wearables.emergencyAccessDesc')}
                 </p>
               </div>
             </div>
@@ -636,7 +689,7 @@ const WearablesPage: React.FC = () => {
             <div className="bg-white rounded-lg shadow p-4">
               <button className="w-full flex items-center justify-center gap-2 text-red-600 font-medium">
                 <Unlink className="w-5 h-5" />
-                Disconnect All Devices
+                {t('wearables.disconnectAll')}
               </button>
             </div>
           </div>
