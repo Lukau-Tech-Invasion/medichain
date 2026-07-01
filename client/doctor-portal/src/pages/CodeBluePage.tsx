@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createCodeBlue, getPatients, apiUrl } from '@medichain/shared';
+import { createCodeBlue, getPatients, apiUrl, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
@@ -29,6 +29,7 @@ interface EmergencyRecord {
 }
 
 export default function CodeBluePage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
@@ -131,7 +132,7 @@ export default function CodeBluePage() {
       navigate('/dashboard');
     } catch (error) {
       console.error('Failed to save code blue record', error);
-      showError('Failed to save record. Please try again.');
+      showError(t('docCodeBlue.saveFailed'));
     }
   };
 
@@ -140,10 +141,10 @@ export default function CodeBluePage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center">
           <AlertTriangle className="h-8 w-8 text-red-600 mr-3" />
-          Code Blue Management
+          {t('docCodeBlue.title')}
         </h1>
         <p className="mt-2 text-gray-600">
-          Real-time resuscitation documentation and event logging.
+          {t('docCodeBlue.subtitle')}
         </p>
       </div>
 
@@ -152,28 +153,28 @@ export default function CodeBluePage() {
         <div className="bg-white shadow rounded-lg p-6 mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <History className="h-5 w-5 text-red-500" />
-            Past Emergency Events
+            {t('docCodeBlue.pastEvents')}
           </h2>
           {historyLoading ? (
-            <p className="text-gray-500 text-sm">Loading history...</p>
+            <p className="text-gray-500 text-sm">{t('docCodeBlue.loadingHistory')}</p>
           ) : emergencyHistory.length === 0 ? (
-            <p className="text-gray-400 text-sm italic">No prior emergency events recorded for this patient.</p>
+            <p className="text-gray-400 text-sm italic">{t('docCodeBlue.noEvents')}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Event ID</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Outcome</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colEventId')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colType')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colTime')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colOutcome')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {emergencyHistory.map((ev) => (
                     <tr key={ev.event_id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
-                      <td className="px-4 py-2">{ev.event_type || 'Code Blue'}</td>
+                      <td className="px-4 py-2">{ev.event_type || t('docCodeBlue.codeBlue')}</td>
                       <td className="px-4 py-2">
                         {ev.code_called_at ? new Date(ev.code_called_at * 1000).toLocaleString() :
                          ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
@@ -184,7 +185,7 @@ export default function CodeBluePage() {
                           ev.outcome === 'expired' ? 'bg-red-100 text-red-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
-                          {ev.outcome || 'Unknown'}
+                          {ev.outcome || t('docCodeBlue.unknown')}
                         </span>
                       </td>
                     </tr>
@@ -202,7 +203,7 @@ export default function CodeBluePage() {
           {/* Patient Selection */}
           <div className="bg-white shadow rounded-lg p-6">
             <label htmlFor="code-blue-patient" className="block text-sm font-medium text-gray-700 mb-2">
-              Select Patient
+              {t('docCodeBlue.selectPatient')}
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -215,7 +216,7 @@ export default function CodeBluePage() {
                 onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
                 disabled={isActive}
               >
-                <option value="">Select a patient...</option>
+                <option value="">{t('docCodeBlue.selectPatientPlaceholder')}</option>
                 {patients.map(patient => (
                   <option key={patient.patient_id} value={patient.patient_id}>
                     {patient.full_name} ({patient.national_id})
@@ -241,7 +242,7 @@ export default function CodeBluePage() {
                   }`}
                 >
                   <Play className="h-5 w-5 mr-2" />
-                  Start Code
+                  {t('docCodeBlue.startCode')}
                 </button>
               ) : (
                 <button
@@ -249,7 +250,7 @@ export default function CodeBluePage() {
                   className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
                 >
                   <Square className="h-5 w-5 mr-2" />
-                  Stop Code
+                  {t('docCodeBlue.stopCode')}
                 </button>
               )}
             </div>
@@ -257,7 +258,7 @@ export default function CodeBluePage() {
 
           {/* Quick Actions */}
           <div className="bg-white shadow rounded-lg p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">{t('docCodeBlue.quickActions')}</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <button
                 onClick={() => logEvent('CPR Cycle Started')}
@@ -265,7 +266,7 @@ export default function CodeBluePage() {
                 className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-blue-50 disabled:opacity-50"
               >
                 <Activity className="h-8 w-8 text-blue-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">CPR Cycle</span>
+                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.cprCycle')}</span>
               </button>
               
               <button
@@ -274,7 +275,7 @@ export default function CodeBluePage() {
                 className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-yellow-50 disabled:opacity-50"
               >
                 <Zap className="h-8 w-8 text-yellow-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">Shock</span>
+                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.shock')}</span>
               </button>
 
               <button
@@ -283,7 +284,7 @@ export default function CodeBluePage() {
                 className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-purple-50 disabled:opacity-50"
               >
                 <Syringe className="h-8 w-8 text-purple-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">Epi 1mg</span>
+                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.epi')}</span>
               </button>
 
               <button
@@ -292,28 +293,28 @@ export default function CodeBluePage() {
                 className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-green-50 disabled:opacity-50"
               >
                 <Heart className="h-8 w-8 text-green-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">ROSC</span>
+                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.rosc')}</span>
               </button>
             </div>
           </div>
 
           {/* Documentation */}
           <div className="bg-white shadow rounded-lg p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Documentation</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">{t('docCodeBlue.documentation')}</h3>
             <div className="space-y-4">
               <div>
-                <label htmlFor="code-blue-team" className="block text-sm font-medium text-gray-700">Team Members</label>
+                <label htmlFor="code-blue-team" className="block text-sm font-medium text-gray-700">{t('docCodeBlue.teamMembers')}</label>
                 <input
                   id="code-blue-team"
                   type="text"
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  placeholder="Dr. X, Nurse Y, RT Z..."
+                  placeholder={t('docCodeBlue.teamPlaceholder')}
                   value={teamMembers}
                   onChange={(e) => setTeamMembers(e.target.value)}
                 />
               </div>
               <div>
-                <label htmlFor="code-blue-narrative" className="block text-sm font-medium text-gray-700">Narrative Note</label>
+                <label htmlFor="code-blue-narrative" className="block text-sm font-medium text-gray-700">{t('docCodeBlue.narrativeNote')}</label>
                 <textarea
                   id="code-blue-narrative"
                   rows={4}
@@ -323,17 +324,17 @@ export default function CodeBluePage() {
                 />
               </div>
               <div>
-                <label htmlFor="code-blue-outcome" className="block text-sm font-medium text-gray-700">Outcome</label>
+                <label htmlFor="code-blue-outcome" className="block text-sm font-medium text-gray-700">{t('docCodeBlue.outcome')}</label>
                 <select
                   id="code-blue-outcome"
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   value={outcome}
                   onChange={(e) => setOutcome(e.target.value)}
                 >
-                  <option value="ongoing">Ongoing</option>
-                  <option value="rosc">ROSC (Return of Spontaneous Circulation)</option>
-                  <option value="expired">Expired</option>
-                  <option value="transferred">Transferred</option>
+                  <option value="ongoing">{t('docCodeBlue.outcomeOngoing')}</option>
+                  <option value="rosc">{t('docCodeBlue.outcomeRosc')}</option>
+                  <option value="expired">{t('docCodeBlue.outcomeExpired')}</option>
+                  <option value="transferred">{t('docCodeBlue.outcomeTransferred')}</option>
                 </select>
               </div>
             </div>
@@ -344,11 +345,11 @@ export default function CodeBluePage() {
         <div className="bg-white shadow rounded-lg p-6 h-full flex flex-col">
           <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
             <Clock className="h-5 w-5 mr-2 text-gray-500" />
-            Event Log
+            {t('docCodeBlue.eventLog')}
           </h3>
           <div className="flex-1 overflow-y-auto bg-gray-50 rounded-md p-4 space-y-2 max-h-[600px]">
             {events.length === 0 ? (
-              <p className="text-gray-500 text-center italic">No events recorded</p>
+              <p className="text-gray-500 text-center italic">{t('docCodeBlue.noEventsRecorded')}</p>
             ) : (
               events.map((event, idx) => (
                 <div key={idx} className="text-sm text-gray-700 border-b border-gray-200 pb-2 last:border-0">
@@ -365,7 +366,7 @@ export default function CodeBluePage() {
               className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4 mr-2" />
-              Finalize Record
+              {t('docCodeBlue.finalizeRecord')}
             </button>
           </div>
         </div>
