@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, getApiErrorMessage } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { MessageSquare, Send, Loader2, RefreshCw, User } from 'lucide-react';
 
 interface Message {
@@ -15,6 +15,7 @@ interface Message {
 }
 
 export default function MessagesPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,11 +49,11 @@ export default function MessagesPage() {
         const data = await res.json();
         setMessages(data.messages || data || []);
       } else {
-        setError('Failed to load messages');
+        setError(t('docMessages.failLoad'));
       }
     } catch (e) {
       console.error(e);
-      setError('Unable to connect to server');
+      setError(t('docMessages.cannotConnect'));
     } finally {
       setLoading(false);
     }
@@ -83,7 +84,7 @@ export default function MessagesPage() {
       });
 
       if (res.ok) {
-        setSuccess('Message sent!');
+        setSuccess(t('docMessages.sent'));
         setSendForm({ recipient_id: '', subject: '', body: '' });
         setShowReply(false);
         setSelectedMessage(null);
@@ -91,10 +92,10 @@ export default function MessagesPage() {
         setTimeout(() => setSuccess(''), 3000);
       } else {
         const data = await res.json();
-        setError(getApiErrorMessage(data, 'Failed to send message'));
+        setError(getApiErrorMessage(data, t('docMessages.failSend')));
       }
     } catch (e) {
-      setError('Failed to send message');
+      setError(t('docMessages.failSend'));
     } finally {
       setSendLoading(false);
     }
@@ -108,14 +109,14 @@ export default function MessagesPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <MessageSquare className="text-blue-500" size={24} />
-            Messages
+            {t('docMessages.title')}
             {unreadCount > 0 && (
               <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full ml-1">
                 {unreadCount}
               </span>
             )}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Secure provider messaging</p>
+          <p className="text-gray-500 text-sm mt-1">{t('docMessages.subtitle')}</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -123,14 +124,14 @@ export default function MessagesPage() {
             className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
           >
             <RefreshCw size={14} />
-            Refresh
+            {t('docMessages.refresh')}
           </button>
           <button
             onClick={() => { setShowReply(true); setSelectedMessage(null); setSendForm({ recipient_id: '', subject: '', body: '' }); }}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
           >
             <Send size={14} />
-            Compose
+            {t('docMessages.compose')}
           </button>
         </div>
       </div>
@@ -146,17 +147,17 @@ export default function MessagesPage() {
         {/* Inbox */}
         <div className="lg:col-span-2 bg-white rounded-xl shadow">
           <div className="p-4 border-b">
-            <h2 className="font-semibold text-gray-900">Inbox</h2>
+            <h2 className="font-semibold text-gray-900">{t('docMessages.inbox')}</h2>
           </div>
           {loading ? (
             <div className="p-8 text-center">
               <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} />
-              <p className="text-gray-500">Loading messages...</p>
+              <p className="text-gray-500">{t('docMessages.loading')}</p>
             </div>
           ) : messages.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
               <MessageSquare className="mx-auto mb-2 text-gray-300" size={40} />
-              <p>No messages</p>
+              <p>{t('docMessages.none')}</p>
             </div>
           ) : (
             <div className="divide-y">
@@ -173,11 +174,11 @@ export default function MessagesPage() {
                       )}
                       <div className="min-w-0">
                         <p className={`font-medium text-gray-900 truncate ${!msg.read ? 'font-semibold' : ''}`}>
-                          {msg.subject || 'No subject'}
+                          {msg.subject || t('docMessages.noSubject')}
                         </p>
                         <p className="text-sm text-gray-500 flex items-center gap-1">
                           <User size={12} />
-                          From: {msg.sender_id === user?.walletAddress ? 'You' : msg.sender_id}
+                          {t('docMessages.fromLabel')} {msg.sender_id === user?.walletAddress ? t('docMessages.you') : msg.sender_id}
                         </p>
                         <p className="text-xs text-gray-400 truncate mt-0.5">{msg.body}</p>
                       </div>
@@ -197,10 +198,10 @@ export default function MessagesPage() {
           {selectedMessage && !showReply ? (
             <div className="p-4">
               <div className="border-b pb-3 mb-3">
-                <h3 className="font-semibold text-gray-900">{selectedMessage.subject || 'No subject'}</h3>
+                <h3 className="font-semibold text-gray-900">{selectedMessage.subject || t('docMessages.noSubject')}</h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  From: {selectedMessage.sender_id}<br />
-                  To: {selectedMessage.recipient_id}<br />
+                  {t('docMessages.fromLabel')} {selectedMessage.sender_id}<br />
+                  {t('docMessages.toLabel')} {selectedMessage.recipient_id}<br />
                   {new Date(selectedMessage.sent_at * 1000).toLocaleString()}
                 </p>
               </div>
@@ -210,24 +211,24 @@ export default function MessagesPage() {
                   setShowReply(true);
                   setSendForm({
                     recipient_id: selectedMessage.sender_id === user?.walletAddress ? selectedMessage.recipient_id : selectedMessage.sender_id,
-                    subject: selectedMessage.subject ? `Re: ${selectedMessage.subject}` : 'Re:',
+                    subject: selectedMessage.subject ? `${t('docMessages.rePrefix')} ${selectedMessage.subject}` : t('docMessages.rePrefix'),
                     body: '',
                   });
                 }}
                 className="mt-4 w-full flex items-center justify-center gap-2 border rounded-lg px-3 py-2 text-sm hover:bg-gray-50"
               >
                 <Send size={14} />
-                Reply
+                {t('docMessages.reply')}
               </button>
             </div>
           ) : showReply ? (
             <div className="p-4">
               <h3 className="font-semibold text-gray-900 mb-4">
-                {selectedMessage ? 'Reply' : 'New Message'}
+                {selectedMessage ? t('docMessages.reply') : t('docMessages.newMessage')}
               </h3>
               <form onSubmit={handleSend} className="space-y-3">
                 <div>
-                  <label htmlFor="msg-recipient" className="block text-xs font-medium text-gray-700 mb-1">To (User ID)</label>
+                  <label htmlFor="msg-recipient" className="block text-xs font-medium text-gray-700 mb-1">{t('docMessages.toUserId')}</label>
                   <input
                     id="msg-recipient"
                     type="text"
@@ -235,22 +236,22 @@ export default function MessagesPage() {
                     onChange={e => setSendForm({ ...sendForm, recipient_id: e.target.value })}
                     className="w-full border rounded px-3 py-2 text-sm"
                     required
-                    placeholder="Recipient ID..."
+                    placeholder={t('docMessages.recipientPlaceholder')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="msg-subject" className="block text-xs font-medium text-gray-700 mb-1">Subject</label>
+                  <label htmlFor="msg-subject" className="block text-xs font-medium text-gray-700 mb-1">{t('docMessages.subject')}</label>
                   <input
                     id="msg-subject"
                     type="text"
                     value={sendForm.subject}
                     onChange={e => setSendForm({ ...sendForm, subject: e.target.value })}
                     className="w-full border rounded px-3 py-2 text-sm"
-                    placeholder="Subject..."
+                    placeholder={t('docMessages.subjectPlaceholder')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="msg-body" className="block text-xs font-medium text-gray-700 mb-1">Message</label>
+                  <label htmlFor="msg-body" className="block text-xs font-medium text-gray-700 mb-1">{t('docMessages.message')}</label>
                   <textarea
                     id="msg-body"
                     value={sendForm.body}
@@ -258,7 +259,7 @@ export default function MessagesPage() {
                     className="w-full border rounded px-3 py-2 text-sm"
                     rows={6}
                     required
-                    placeholder="Type your message..."
+                    placeholder={t('docMessages.messagePlaceholder')}
                   />
                 </div>
                 <div className="flex gap-2">
@@ -268,14 +269,14 @@ export default function MessagesPage() {
                     className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
                   >
                     {sendLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                    Send
+                    {t('docMessages.send')}
                   </button>
                   <button
                     type="button"
                     onClick={() => { setShowReply(false); setSendForm({ recipient_id: '', subject: '', body: '' }); }}
                     className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
                   >
-                    Cancel
+                    {t('docMessages.cancel')}
                   </button>
                 </div>
               </form>
@@ -283,7 +284,7 @@ export default function MessagesPage() {
           ) : (
             <div className="p-8 text-center text-gray-400">
               <MessageSquare size={40} className="mx-auto mb-2 text-gray-200" />
-              <p className="text-sm">Select a message to read<br />or compose a new one</p>
+              <p className="text-sm">{t('docMessages.emptyLine1')}<br />{t('docMessages.emptyLine2')}</p>
             </div>
           )}
         </div>
