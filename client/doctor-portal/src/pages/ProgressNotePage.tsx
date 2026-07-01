@@ -8,7 +8,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -42,6 +42,7 @@ interface ProgressNote {
 }
 
 const ProgressNotePage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<'notes' | 'new' | 'timeline'>('notes');
   const [notes, setNotes] = useState<ProgressNote[]>([]);
@@ -73,7 +74,7 @@ const ProgressNotePage: React.FC = () => {
           const transformedNotes: ProgressNote[] = (data.notes || []).map((note: Record<string, unknown>) => ({
             id: note.note_id || note.id,
             patientId: note.patient_id,
-            patientName: note.patient_name || 'Unknown Patient',
+            patientName: note.patient_name || t('docProgressNote.unknownPatient'),
             mrn: note.mrn || '',
             noteType: (note.note_type || 'daily') as NoteType,
             status: (note.status || 'draft') as NoteStatus,
@@ -90,17 +91,17 @@ const ProgressNotePage: React.FC = () => {
           }));
           setNotes(transformedNotes);
         } else {
-          setError('Failed to fetch progress notes');
+          setError(t('docProgressNote.failFetch'));
         }
       } catch (err) {
-        setError('Cannot connect to API. Make sure the backend is running.');
+        setError(t('docProgressNote.cannotConnect'));
       } finally {
         setLoading(false);
       }
     };
 
     fetchNotes();
-  }, [user]);
+  }, [user, t]);
 
   const getNoteTypeColor = (type: NoteType): string => {
     const colors: Record<NoteType, string> = {
@@ -114,6 +115,17 @@ const ProgressNotePage: React.FC = () => {
     return colors[type];
   };
 
+  const noteTypeLabel = (type: NoteType): string => {
+    switch (type) {
+      case 'daily': return t('docProgressNote.ntDaily');
+      case 'admission': return t('docProgressNote.ntAdmission');
+      case 'discharge': return t('docProgressNote.ntDischarge');
+      case 'procedure': return t('docProgressNote.ntProcedure');
+      case 'consultation': return t('docProgressNote.ntConsultation');
+      case 'transfer': return t('docProgressNote.ntTransfer');
+    }
+  };
+
   const getStatusBadge = (status: NoteStatus) => {
     const styles: Record<NoteStatus, { bg: string; text: string }> = {
       'draft': { bg: 'bg-yellow-100', text: 'text-yellow-700' },
@@ -121,10 +133,16 @@ const ProgressNotePage: React.FC = () => {
       'cosigned': { bg: 'bg-blue-100', text: 'text-blue-700' },
       'addendum': { bg: 'bg-purple-100', text: 'text-purple-700' }
     };
+    const labels: Record<NoteStatus, string> = {
+      'draft': t('docProgressNote.stDraft'),
+      'signed': t('docProgressNote.stSigned'),
+      'cosigned': t('docProgressNote.stCosigned'),
+      'addendum': t('docProgressNote.stAddendum'),
+    };
     const s = styles[status];
     return (
       <span className={`px-2 py-0.5 rounded text-xs font-medium ${s.bg} ${s.text}`}>
-        {status}
+        {labels[status]}
       </span>
     );
   };
@@ -142,16 +160,16 @@ const ProgressNotePage: React.FC = () => {
       <div className="bg-gradient-to-r from-indigo-600 to-violet-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FileText className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Progress Notes</h1>
+          <h1 className="text-2xl font-bold">{t('docProgressNote.title')}</h1>
         </div>
-        <p className="text-indigo-100">Clinical documentation and patient timeline</p>
+        <p className="text-indigo-100">{t('docProgressNote.subtitle')}</p>
       </div>
 
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
-          <p className="text-gray-500">Loading progress notes...</p>
+          <p className="text-gray-500">{t('docProgressNote.loading')}</p>
         </div>
       )}
 
@@ -161,7 +179,7 @@ const ProgressNotePage: React.FC = () => {
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
             <p className="text-sm text-red-700">{error}</p>
-            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+            <p className="text-xs text-red-500 mt-1">{t('docProgressNote.apiHint')}</p>
           </div>
         </div>
       )}
@@ -173,15 +191,15 @@ const ProgressNotePage: React.FC = () => {
           <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
             <div className="bg-white rounded-lg shadow p-4 text-center">
               <p className="text-2xl font-bold text-gray-800">{notes.length}</p>
-              <p className="text-xs text-gray-500">Total Notes</p>
+              <p className="text-xs text-gray-500">{t('docProgressNote.totalNotes')}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4 text-center">
               <p className="text-2xl font-bold text-yellow-600">{notes.filter(n => n.status === 'draft').length}</p>
-              <p className="text-xs text-gray-500">Drafts</p>
+              <p className="text-xs text-gray-500">{t('docProgressNote.drafts')}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4 text-center">
               <p className="text-2xl font-bold text-green-600">{notes.filter(n => n.status === 'signed' || n.status === 'cosigned').length}</p>
-              <p className="text-xs text-gray-500">Signed</p>
+              <p className="text-xs text-gray-500">{t('docProgressNote.signed')}</p>
             </div>
           </div>
 
@@ -192,11 +210,11 @@ const ProgressNotePage: React.FC = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize ${
+              className={`flex-1 py-4 text-sm font-medium ${
                 activeTab === tab ? 'text-indigo-700 border-b-2 border-indigo-700' : 'text-gray-500'
               }`}
             >
-              {tab === 'notes' ? 'All Notes' : tab === 'new' ? 'New Note' : 'Timeline'}
+              {tab === 'notes' ? t('docProgressNote.tabNotes') : tab === 'new' ? t('docProgressNote.tabNew') : t('docProgressNote.tabTimeline')}
             </button>
           ))}
         </div>
@@ -212,7 +230,7 @@ const ProgressNotePage: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search patient..."
+                placeholder={t('docProgressNote.searchPlaceholder')}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg"
               />
             </div>
@@ -221,12 +239,12 @@ const ProgressNotePage: React.FC = () => {
               onChange={(e) => setFilterType(e.target.value as NoteType | 'all')}
               className="border rounded-lg px-3 py-2"
             >
-              <option value="all">All Types</option>
-              <option value="daily">Daily</option>
-              <option value="admission">Admission</option>
-              <option value="discharge">Discharge</option>
-              <option value="procedure">Procedure</option>
-              <option value="consultation">Consultation</option>
+              <option value="all">{t('docProgressNote.allTypes')}</option>
+              <option value="daily">{t('docProgressNote.filterDaily')}</option>
+              <option value="admission">{t('docProgressNote.filterAdmission')}</option>
+              <option value="discharge">{t('docProgressNote.filterDischarge')}</option>
+              <option value="procedure">{t('docProgressNote.filterProcedure')}</option>
+              <option value="consultation">{t('docProgressNote.filterConsultation')}</option>
             </select>
           </div>
 
@@ -244,10 +262,10 @@ const ProgressNotePage: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold">{note.patientName}</h3>
                       <span className={`px-2 py-0.5 rounded text-xs ${getNoteTypeColor(note.noteType)}`}>
-                        {note.noteType}
+                        {noteTypeLabel(note.noteType)}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500">MRN: {note.mrn}</p>
+                    <p className="text-sm text-gray-500">{t('docProgressNote.mrn', { mrn: note.mrn })}</p>
                   </div>
                   {getStatusBadge(note.status)}
                 </div>
@@ -274,78 +292,78 @@ const ProgressNotePage: React.FC = () => {
       {activeTab === 'new' && (
         <div className="p-4">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">New Progress Note</h2>
+            <h2 className="text-lg font-semibold mb-4">{t('docProgressNote.newNote')}</h2>
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="progress-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                  <label htmlFor="progress-patient" className="block text-sm font-medium mb-1">{t('docProgressNote.patientRequired')}</label>
                   <select id="progress-patient" className="w-full border rounded-lg px-3 py-2">
-                    <option value="">Select patient...</option>
+                    <option value="">{t('docProgressNote.selectPatient')}</option>
                     {notes.map(n => (
                       <option key={n.patientId} value={n.patientId}>{n.patientName}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="progress-note-type" className="block text-sm font-medium mb-1">Note Type *</label>
+                  <label htmlFor="progress-note-type" className="block text-sm font-medium mb-1">{t('docProgressNote.noteTypeRequired')}</label>
                   <select id="progress-note-type" className="w-full border rounded-lg px-3 py-2">
-                    <option value="daily">Daily Progress</option>
-                    <option value="admission">Admission</option>
-                    <option value="discharge">Discharge</option>
-                    <option value="procedure">Procedure</option>
-                    <option value="consultation">Consultation</option>
-                    <option value="transfer">Transfer</option>
+                    <option value="daily">{t('docProgressNote.typeDailyProgress')}</option>
+                    <option value="admission">{t('docProgressNote.typeAdmission')}</option>
+                    <option value="discharge">{t('docProgressNote.typeDischarge')}</option>
+                    <option value="procedure">{t('docProgressNote.typeProcedure')}</option>
+                    <option value="consultation">{t('docProgressNote.typeConsultation')}</option>
+                    <option value="transfer">{t('docProgressNote.typeTransfer')}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="progress-subjective" className="block text-sm font-medium mb-1">Subjective *</label>
+                <label htmlFor="progress-subjective" className="block text-sm font-medium mb-1">{t('docProgressNote.subjectiveRequired')}</label>
                 <textarea
                   id="progress-subjective"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
-                  placeholder="Patient's complaints, symptoms, history..."
+                  placeholder={t('docProgressNote.subjectivePlaceholder')}
                 />
               </div>
 
               <div>
-                <label htmlFor="progress-objective" className="block text-sm font-medium mb-1">Objective *</label>
+                <label htmlFor="progress-objective" className="block text-sm font-medium mb-1">{t('docProgressNote.objectiveRequired')}</label>
                 <textarea
                   id="progress-objective"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
-                  placeholder="Vital signs, physical exam findings, lab results..."
+                  placeholder={t('docProgressNote.objectivePlaceholder')}
                 />
               </div>
 
               <div>
-                <label htmlFor="progress-assessment" className="block text-sm font-medium mb-1">Assessment *</label>
+                <label htmlFor="progress-assessment" className="block text-sm font-medium mb-1">{t('docProgressNote.assessmentRequired')}</label>
                 <textarea
                   id="progress-assessment"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={2}
-                  placeholder="Diagnoses, clinical impression..."
+                  placeholder={t('docProgressNote.assessmentPlaceholder')}
                 />
               </div>
 
               <div>
-                <label htmlFor="progress-plan" className="block text-sm font-medium mb-1">Plan *</label>
+                <label htmlFor="progress-plan" className="block text-sm font-medium mb-1">{t('docProgressNote.planRequired')}</label>
                 <textarea
                   id="progress-plan"
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
-                  placeholder="Treatment plan, orders, follow-up..."
+                  placeholder={t('docProgressNote.planPlaceholder')}
                 />
               </div>
 
               <div className="flex gap-2">
                 <button className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium">
-                  Save as Draft
+                  {t('docProgressNote.saveDraft')}
                 </button>
                 <button className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
-                  <Edit className="w-5 h-5" /> Sign Note
+                  <Edit className="w-5 h-5" /> {t('docProgressNote.signNote')}
                 </button>
               </div>
             </div>
@@ -357,7 +375,7 @@ const ProgressNotePage: React.FC = () => {
       {activeTab === 'timeline' && (
         <div className="p-4">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">Patient Timeline</h2>
+            <h2 className="text-lg font-semibold mb-4">{t('docProgressNote.timelineTitle')}</h2>
             <div className="relative">
               <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
               <div className="space-y-6">
@@ -367,13 +385,13 @@ const ProgressNotePage: React.FC = () => {
                     <div className="bg-gray-50 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <span className={`px-2 py-0.5 rounded text-xs ${getNoteTypeColor(note.noteType)}`}>
-                          {note.noteType}
+                          {noteTypeLabel(note.noteType)}
                         </span>
                         <span className="text-xs text-gray-500">{note.createdAt.toLocaleString()}</span>
                       </div>
                       <h4 className="font-medium">{note.patientName}</h4>
                       <p className="text-sm text-gray-600 mt-1">{note.assessment.split('\n')[0]}</p>
-                      <p className="text-xs text-gray-500 mt-2">By {note.author}</p>
+                      <p className="text-xs text-gray-500 mt-2">{t('docProgressNote.by', { author: note.author })}</p>
                     </div>
                   </div>
                 ))}
@@ -395,44 +413,44 @@ const ProgressNotePage: React.FC = () => {
                   <h2 className="text-xl font-semibold">{selectedNote.patientName}</h2>
                   {getStatusBadge(selectedNote.status)}
                 </div>
-                <p className="text-sm text-gray-500">{selectedNote.noteType} note • {selectedNote.createdAt.toLocaleString()}</p>
+                <p className="text-sm text-gray-500">{t('docProgressNote.noteSuffix', { type: noteTypeLabel(selectedNote.noteType), date: selectedNote.createdAt.toLocaleString() })}</p>
               </div>
               <button onClick={() => setSelectedNote(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">SUBJECTIVE</h3>
+                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secSubjective')}</h3>
                 <p className="text-gray-700">{selectedNote.subjective}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">OBJECTIVE</h3>
+                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secObjective')}</h3>
                 <p className="text-gray-700">{selectedNote.objective}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">ASSESSMENT</h3>
+                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secAssessment')}</h3>
                 <p className="text-gray-700 whitespace-pre-line">{selectedNote.assessment}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">PLAN</h3>
+                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secPlan')}</h3>
                 <p className="text-gray-700 whitespace-pre-line">{selectedNote.plan}</p>
               </div>
 
               <div className="pt-4 border-t">
                 <p className="text-sm text-gray-500">
-                  <strong>Author:</strong> {selectedNote.author} ({selectedNote.authorRole})
+                  <strong>{t('docProgressNote.authorLabel')}</strong> {selectedNote.author} ({selectedNote.authorRole})
                 </p>
                 {selectedNote.signedAt && (
                   <p className="text-sm text-gray-500">
-                    <strong>Signed:</strong> {selectedNote.signedAt.toLocaleString()}
+                    <strong>{t('docProgressNote.signedLabel')}</strong> {selectedNote.signedAt.toLocaleString()}
                   </p>
                 )}
                 {selectedNote.cosigner && (
                   <p className="text-sm text-gray-500">
-                    <strong>Co-signed by:</strong> {selectedNote.cosigner}
+                    <strong>{t('docProgressNote.cosignedLabel')}</strong> {selectedNote.cosigner}
                   </p>
                 )}
               </div>
