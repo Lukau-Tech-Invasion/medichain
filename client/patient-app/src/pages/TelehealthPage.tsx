@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiUrl, joinTelehealthSession, getApiErrorMessage, JitsiMeetComponent } from '@medichain/shared';
+import { apiUrl, joinTelehealthSession, getApiErrorMessage, JitsiMeetComponent, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
 import {
@@ -51,6 +51,7 @@ interface JoinResponse {
  * © 2025 Trustware. All rights reserved.
  */
 export function TelehealthPage() {
+  const { t } = useTranslation();
   const { patient } = usePatientAuthStore();
   const { showError } = useToastActions();
   const [sessions, setSessions] = useState<TelehealthSession[]>([]);
@@ -129,13 +130,13 @@ export function TelehealthPage() {
       } else if (resp.video_room_url || fallbackUrl) {
         setActiveCallUrl(resp.video_room_url || fallbackUrl!);
       } else {
-        showError('Video room not available yet');
+        showError(t('telehealth.errorNoRoom'));
       }
     } catch (e) {
       if (fallbackUrl) {
         setActiveCallUrl(fallbackUrl);
       } else {
-        showError(getApiErrorMessage(e, 'Failed to join the video call'));
+        showError(getApiErrorMessage(e, t('telehealth.errorJoinFailed')));
       }
     }
   };
@@ -162,12 +163,25 @@ export function TelehealthPage() {
     });
 
   const formatDuration = (session: TelehealthSession) => {
-    if (session.duration_minutes) return `${session.duration_minutes} min`;
+    if (session.duration_minutes) return t('telehealth.minutes', { mins: session.duration_minutes });
     if (session.scheduled_end) {
       const mins = Math.round((session.scheduled_end - session.scheduled_start) / 60);
-      return `${mins} min`;
+      return t('telehealth.minutes', { mins });
     }
     return '';
+  };
+
+  const statusLabel = (status: string): string => {
+    switch (status) {
+      case 'scheduled': return t('telehealth.statusScheduled');
+      case 'in_progress': return t('telehealth.statusInProgress');
+      case 'completed': return t('telehealth.statusCompleted');
+      case 'cancelled': return t('telehealth.statusCancelled');
+      default: {
+        const s = status.replace('_', ' ');
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      }
+    }
   };
 
   if (loading) {
@@ -183,14 +197,14 @@ export function TelehealthPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Telehealth Visits</h1>
-          <p className="text-neutral-500">Virtual care appointments</p>
+          <h1 className="text-2xl font-bold text-neutral-900">{t('telehealth.title')}</h1>
+          <p className="text-neutral-500">{t('telehealth.subtitle')}</p>
         </div>
         <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
           apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
         }`}>
           {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-          {apiConnected ? 'Live' : 'Demo'}
+          {apiConnected ? t('common.live') : t('common.demo')}
         </span>
       </div>
 
@@ -204,7 +218,7 @@ export function TelehealthPage() {
               : 'border-transparent text-neutral-500 hover:text-neutral-700'
           }`}
         >
-          Upcoming ({upcomingSessions.length})
+          {t('telehealth.tabUpcoming', { count: upcomingSessions.length })}
         </button>
         <button
           onClick={() => setActiveTab('past')}
@@ -214,7 +228,7 @@ export function TelehealthPage() {
               : 'border-transparent text-neutral-500 hover:text-neutral-700'
           }`}
         >
-          Past ({pastSessions.length})
+          {t('telehealth.tabPast', { count: pastSessions.length })}
         </button>
       </div>
 
@@ -229,7 +243,9 @@ export function TelehealthPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-neutral-900">
-                    {session.provider_name ? `Dr. ${session.provider_name}` : `Provider ${session.provider_id}`}
+                    {session.provider_name
+                      ? t('telehealth.providerPrefix', { name: session.provider_name })
+                      : t('telehealth.providerFallback', { id: session.provider_id })}
                   </h3>
                   <p className="text-sm text-neutral-500 flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
@@ -245,7 +261,7 @@ export function TelehealthPage() {
                   'bg-red-100 text-red-700'
                 }`}>
                   {session.status === 'completed' ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                  {session.status.replace('_', ' ').charAt(0).toUpperCase() + session.status.replace('_', ' ').slice(1)}
+                  {statusLabel(session.status)}
                 </span>
               )}
             </div>
@@ -253,7 +269,7 @@ export function TelehealthPage() {
             {formatDuration(session) && (
               <div className="flex items-center gap-2 text-sm text-neutral-600 mb-3">
                 <Clock className="w-4 h-4 text-neutral-400" />
-                Duration: {formatDuration(session)}
+                {t('telehealth.duration', { value: formatDuration(session) })}
               </div>
             )}
 
@@ -263,14 +279,14 @@ export function TelehealthPage() {
                 className="w-full py-2.5 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
               >
                 <Video className="w-4 h-4" />
-                Join Video Call
+                {t('telehealth.joinCall')}
               </button>
             )}
 
             {activeTab === 'past' && session.status === 'completed' && (
               <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 rounded-lg p-2">
                 <CheckCircle className="w-4 h-4" />
-                Session completed
+                {t('telehealth.sessionCompleted')}
               </div>
             )}
           </div>
@@ -280,7 +296,7 @@ export function TelehealthPage() {
           (activeTab === 'past' && pastSessions.length === 0)) && (
           <div className="text-center py-12">
             <User className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-            <p className="text-neutral-500">No {activeTab} telehealth sessions</p>
+            <p className="text-neutral-500">{activeTab === 'upcoming' ? t('telehealth.noUpcoming') : t('telehealth.noPast')}</p>
           </div>
         )}
       </div>
@@ -292,7 +308,7 @@ export function TelehealthPage() {
           domain={activeCall.domain}
           room={activeCall.room}
           jwt={activeCall.jwt ?? undefined}
-          displayName={patient ? `Patient ${patient.healthId}` : 'Patient'}
+          displayName={patient ? t('telehealth.patientName', { id: patient.healthId }) : t('telehealth.patient')}
           subject={activeSubject}
           onClose={() => setActiveCall(null)}
         />
@@ -303,7 +319,7 @@ export function TelehealthPage() {
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-3 bg-neutral-900 text-white">
             <span className="flex items-center gap-2 font-medium">
-              <Video className="w-5 h-5" /> Telehealth Video Call
+              <Video className="w-5 h-5" /> {t('telehealth.videoCallTitle')}
             </span>
             <div className="flex items-center gap-2">
               <a
@@ -312,18 +328,18 @@ export function TelehealthPage() {
                 rel="noopener noreferrer"
                 className="px-3 py-1.5 text-sm rounded-lg bg-neutral-700 hover:bg-neutral-600 flex items-center gap-1"
               >
-                <ExternalLink className="w-4 h-4" /> Open in new tab
+                <ExternalLink className="w-4 h-4" /> {t('telehealth.openNewTab')}
               </a>
               <button
                 onClick={() => setActiveCallUrl(null)}
                 className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700"
               >
-                Leave call
+                {t('telehealth.leaveCall')}
               </button>
             </div>
           </div>
           <iframe
-            title="Telehealth video call"
+            title={t('telehealth.videoCallTitle')}
             src={activeCallUrl}
             className="flex-1 w-full border-0"
             allow="camera; microphone; fullscreen; display-capture; autoplay"

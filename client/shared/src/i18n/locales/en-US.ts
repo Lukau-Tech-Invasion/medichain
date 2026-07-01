@@ -487,6 +487,33 @@ const en_US: TranslationRecord = {
     sympSleep: 'Difficulty sleeping',
   },
 
+  // Telehealth
+  telehealth: {
+    title: 'Telehealth Visits',
+    subtitle: 'Virtual care appointments',
+    tabUpcoming: 'Upcoming ({{count}})',
+    tabPast: 'Past ({{count}})',
+    providerPrefix: 'Dr. {{name}}',
+    providerFallback: 'Provider {{id}}',
+    duration: 'Duration: {{value}}',
+    minutes: '{{mins}} min',
+    joinCall: 'Join Video Call',
+    sessionCompleted: 'Session completed',
+    noUpcoming: 'No upcoming telehealth sessions',
+    noPast: 'No past telehealth sessions',
+    videoCallTitle: 'Telehealth Video Call',
+    openNewTab: 'Open in new tab',
+    leaveCall: 'Leave call',
+    patientName: 'Patient {{id}}',
+    patient: 'Patient',
+    statusScheduled: 'Scheduled',
+    statusInProgress: 'In progress',
+    statusCompleted: 'Completed',
+    statusCancelled: 'Cancelled',
+    errorNoRoom: 'Video room not available yet',
+    errorJoinFailed: 'Failed to join the video call',
+  },
+
   // Offline sync
   offlineSync: {
     loading: 'Loading offline data...',
