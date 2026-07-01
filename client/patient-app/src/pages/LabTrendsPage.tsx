@@ -16,7 +16,7 @@ import {
   LineChart as LineChartIcon,
   Loader2
 } from 'lucide-react';
-import { getLabTrends, IS_DEMO } from '@medichain/shared';
+import { getLabTrends, IS_DEMO, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 /**
@@ -62,6 +62,7 @@ interface LabTrend {
 }
 
 const LabTrendsPage: React.FC = () => {
+  const { t } = useTranslation();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedTest, setSelectedTest] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<'3m' | '6m' | '1y' | '2y' | 'all'>('1y');
@@ -71,6 +72,26 @@ const LabTrendsPage: React.FC = () => {
   const { patient } = usePatientAuthStore();
 
   const categories = ['Metabolic Panel', 'Lipid Panel', 'CBC', 'Thyroid', 'Liver', 'Kidney'];
+
+  // Map stored (English) category names to localized labels; fall back to the raw value.
+  const catLabel: Record<string, string> = {
+    'Metabolic Panel': t('labTrends.catMetabolic'),
+    'Lipid Panel': t('labTrends.catLipid'),
+    CBC: t('labTrends.catCbc'),
+    Thyroid: t('labTrends.catThyroid'),
+    Liver: t('labTrends.catLiver'),
+    Kidney: t('labTrends.catKidney'),
+  };
+
+  const statusLabel = (s: ResultStatus): string => {
+    switch (s) {
+      case 'normal': return t('labTrends.statusNormal');
+      case 'low': return t('labTrends.statusLow');
+      case 'high': return t('labTrends.statusHigh');
+      case 'critical-low': return t('labTrends.statusCriticalLow');
+      case 'critical-high': return t('labTrends.statusCriticalHigh');
+    }
+  };
 
   useEffect(() => {
     loadLabTrends();
@@ -276,8 +297,8 @@ const LabTrendsPage: React.FC = () => {
       : <TrendingDown className="w-4 h-4 text-orange-500" />;
   };
 
-  const filteredTrends = labTrends.filter(t => 
-    selectedCategory === 'all' || t.test.category === selectedCategory
+  const filteredTrends = labTrends.filter(lt =>
+    selectedCategory === 'all' || lt.test.category === selectedCategory
   );
 
   const selectedTrend = selectedTest ? labTrends.find(t => t.test.id === selectedTest) : null;
@@ -338,7 +359,7 @@ const LabTrendsPage: React.FC = () => {
           style={{ bottom: `${normalMaxY}%` }}
         >
           <span className="absolute -top-5 right-0 text-xs text-green-600">
-            Max: {trend.test.normalMax}
+            {t('labTrends.max', { value: trend.test.normalMax })}
           </span>
         </div>
         <div
@@ -346,7 +367,7 @@ const LabTrendsPage: React.FC = () => {
           style={{ bottom: `${normalMinY}%` }}
         >
           <span className="absolute -bottom-4 right-0 text-xs text-green-600">
-            Min: {trend.test.normalMin}
+            {t('labTrends.min', { value: trend.test.normalMin })}
           </span>
         </div>
 
@@ -387,7 +408,7 @@ const LabTrendsPage: React.FC = () => {
         <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
-            <span className="text-gray-600">Loading lab trends...</span>
+            <span className="text-gray-600">{t('labTrends.loading')}</span>
           </div>
         </div>
       )}
@@ -396,20 +417,20 @@ const LabTrendsPage: React.FC = () => {
       <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Activity className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Lab Trends</h1>
+          <h1 className="text-2xl font-bold">{t('labTrends.title')}</h1>
         </div>
-        <p className="text-emerald-100">Track your lab results over time</p>
+        <p className="text-emerald-100">{t('labTrends.subtitle')}</p>
       </div>
 
       {/* Time Range Selector */}
       <div className="p-4 -mt-4">
         <div className="bg-white rounded-lg shadow p-2 flex gap-2">
           {[
-            { value: '3m', label: '3 Months' },
-            { value: '6m', label: '6 Months' },
-            { value: '1y', label: '1 Year' },
-            { value: '2y', label: '2 Years' },
-            { value: 'all', label: 'All' }
+            { value: '3m', label: t('labTrends.range3m') },
+            { value: '6m', label: t('labTrends.range6m') },
+            { value: '1y', label: t('labTrends.range1y') },
+            { value: '2y', label: t('labTrends.range2y') },
+            { value: 'all', label: t('labTrends.rangeAll') }
           ].map(option => (
             <button
               key={option.value}
@@ -437,7 +458,7 @@ const LabTrendsPage: React.FC = () => {
                 : 'bg-white text-gray-600 border border-gray-200'
             }`}
           >
-            All Tests
+            {t('labTrends.allTests')}
           </button>
           {categories.map(cat => (
             <button
@@ -449,7 +470,7 @@ const LabTrendsPage: React.FC = () => {
                   : 'bg-white text-gray-600 border border-gray-200'
               }`}
             >
-              {cat}
+              {catLabel[cat] || cat}
             </button>
           ))}
         </div>
@@ -460,21 +481,21 @@ const LabTrendsPage: React.FC = () => {
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-lg shadow p-3 text-center">
             <div className="text-2xl font-bold text-green-600">
-              {labTrends.filter(t => t.latestStatus === 'normal').length}
+              {labTrends.filter(lt => lt.latestStatus === 'normal').length}
             </div>
-            <div className="text-xs text-gray-500">Normal</div>
+            <div className="text-xs text-gray-500">{t('labTrends.summaryNormal')}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-3 text-center">
             <div className="text-2xl font-bold text-yellow-600">
-              {labTrends.filter(t => t.latestStatus === 'low' || t.latestStatus === 'high').length}
+              {labTrends.filter(lt => lt.latestStatus === 'low' || lt.latestStatus === 'high').length}
             </div>
-            <div className="text-xs text-gray-500">Out of Range</div>
+            <div className="text-xs text-gray-500">{t('labTrends.summaryOutOfRange')}</div>
           </div>
           <div className="bg-white rounded-lg shadow p-3 text-center">
             <div className="text-2xl font-bold text-red-600">
-              {labTrends.filter(t => t.latestStatus.includes('critical')).length}
+              {labTrends.filter(lt => lt.latestStatus.includes('critical')).length}
             </div>
-            <div className="text-xs text-gray-500">Critical</div>
+            <div className="text-xs text-gray-500">{t('labTrends.summaryCritical')}</div>
           </div>
         </div>
       </div>
@@ -486,13 +507,13 @@ const LabTrendsPage: React.FC = () => {
             <div className="bg-emerald-50 p-4 flex justify-between items-start">
               <div>
                 <h3 className="font-semibold text-emerald-900">{selectedTrend.test.name}</h3>
-                <p className="text-sm text-emerald-700">{selectedTrend.test.category}</p>
+                <p className="text-sm text-emerald-700">{catLabel[selectedTrend.test.category] || selectedTrend.test.category}</p>
               </div>
               <button
                 onClick={() => setSelectedTest(null)}
                 className="text-emerald-600 text-sm"
               >
-                Close
+                {t('labTrends.close')}
               </button>
             </div>
             
@@ -503,8 +524,8 @@ const LabTrendsPage: React.FC = () => {
                   <span className="text-3xl font-bold text-gray-900">{selectedTrend.latestValue}</span>
                   <span className="text-lg text-gray-500 ml-1">{selectedTrend.test.unit}</span>
                 </div>
-                <div className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusBg(selectedTrend.latestStatus)} ${getStatusColor(selectedTrend.latestStatus)}`}>
-                  {selectedTrend.latestStatus.replace('-', ' ').toUpperCase()}
+                <div className={`px-3 py-1 rounded-full text-sm font-medium uppercase ${getStatusBg(selectedTrend.latestStatus)} ${getStatusColor(selectedTrend.latestStatus)}`}>
+                  {statusLabel(selectedTrend.latestStatus)}
                 </div>
               </div>
 
@@ -513,15 +534,15 @@ const LabTrendsPage: React.FC = () => {
 
               {/* Reference Range */}
               <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Reference Range</h4>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">{t('labTrends.referenceRange')}</h4>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Normal: {selectedTrend.test.normalMin} - {selectedTrend.test.normalMax} {selectedTrend.test.unit}</span>
+                  <span className="text-gray-500">{t('labTrends.normalRange', { min: selectedTrend.test.normalMin, max: selectedTrend.test.normalMax, unit: selectedTrend.test.unit })}</span>
                 </div>
               </div>
 
               {/* History Table */}
               <div className="mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-2">History</h4>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">{t('labTrends.history')}</h4>
                 <div className="space-y-2">
                   {selectedTrend.results.slice(0, 5).map(r => (
                     <div key={r.id} className="flex justify-between items-center py-2 border-b border-gray-100">
@@ -551,13 +572,13 @@ const LabTrendsPage: React.FC = () => {
             <div className="flex justify-between items-start mb-3">
               <div>
                 <h3 className="font-medium text-gray-900">{trend.test.name}</h3>
-                <p className="text-xs text-gray-500">{trend.test.category}</p>
+                <p className="text-xs text-gray-500">{catLabel[trend.test.category] || trend.test.category}</p>
               </div>
               <div className={`px-2 py-1 rounded text-xs font-medium ${getStatusBg(trend.latestStatus)} ${getStatusColor(trend.latestStatus)}`}>
                 {trend.latestStatus === 'normal' ? (
-                  <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Normal</span>
+                  <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3" /> {statusLabel(trend.latestStatus)}</span>
                 ) : (
-                  <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {trend.latestStatus.replace('-', ' ')}</span>
+                  <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {statusLabel(trend.latestStatus)}</span>
                 )}
               </div>
             </div>
