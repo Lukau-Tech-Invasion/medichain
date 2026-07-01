@@ -3,7 +3,7 @@ import { createAppointment } from '../../../shared/src/api/endpoints';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { Calendar, Clock, CheckCircle, XCircle, Plus, Loader2 } from 'lucide-react';
 
 interface Appointment {
@@ -20,6 +20,7 @@ interface Appointment {
 }
 
 export default function AppointmentSchedulerPage() {
+  const { t } = useTranslation();
   const { showSuccess, showError } = useToastActions();
   const { user } = useAuthStore();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -63,13 +64,13 @@ export default function AppointmentSchedulerPage() {
     e.preventDefault();
     try {
       await createAppointment(formData);
-      showSuccess('Appointment booked!');
+      showSuccess(t('docAppointments.booked'));
       setShowForm(false);
       setFormData({ patient_id: '', provider_id: '', appointment_type: 'consultation', preferred_date: '', preferred_time: '', reason: '' });
       fetchAppointments();
     } catch (err) {
       console.error(err);
-      showError('Error booking appointment');
+      showError(t('docAppointments.errorBooking'));
     }
   };
 
@@ -82,13 +83,13 @@ export default function AppointmentSchedulerPage() {
         headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
       });
       if (res.ok) {
-        showSuccess('Appointment cancelled');
+        showSuccess(t('docAppointments.cancelled'));
         fetchAppointments();
       } else {
-        showError('Failed to cancel appointment');
+        showError(t('docAppointments.failCancel'));
       }
     } catch (e) {
-      showError('Error cancelling appointment');
+      showError(t('docAppointments.errorCancel'));
     } finally {
       setActionLoading(null);
     }
@@ -103,13 +104,13 @@ export default function AppointmentSchedulerPage() {
         headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
       });
       if (res.ok) {
-        showSuccess('Patient checked in');
+        showSuccess(t('docAppointments.checkedIn'));
         fetchAppointments();
       } else {
-        showError('Failed to check in');
+        showError(t('docAppointments.failCheckIn'));
       }
     } catch (e) {
-      showError('Error checking in');
+      showError(t('docAppointments.errorCheckIn'));
     } finally {
       setActionLoading(null);
     }
@@ -125,16 +126,26 @@ export default function AppointmentSchedulerPage() {
     }
   };
 
+  const statusLabel = (status: string): string => {
+    switch (status?.toLowerCase()) {
+      case 'scheduled': return t('docAppointments.statusScheduled');
+      case 'completed': return t('docAppointments.statusCompleted');
+      case 'cancelled': return t('docAppointments.statusCancelled');
+      case 'checked_in': return t('docAppointments.statusCheckedIn');
+      default: return status;
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold dark:text-white">Appointments</h1>
+        <h1 className="text-2xl font-bold dark:text-white">{t('docAppointments.title')}</h1>
         <button
           onClick={() => setShowForm(!showForm)}
           className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
           <Plus size={16} />
-          {showForm ? 'Hide Form' : 'New Appointment'}
+          {showForm ? t('docAppointments.hideForm') : t('docAppointments.newAppointment')}
         </button>
       </div>
 
@@ -143,18 +154,18 @@ export default function AppointmentSchedulerPage() {
         <div className="p-4 border-b">
           <h2 className="font-semibold text-gray-900 flex items-center gap-2">
             <Calendar size={18} />
-            Provider Appointments
+            {t('docAppointments.providerAppointments')}
           </h2>
         </div>
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} />
-            <p className="text-gray-500">Loading appointments...</p>
+            <p className="text-gray-500">{t('docAppointments.loading')}</p>
           </div>
         ) : appointments.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             <Calendar className="mx-auto mb-2 text-gray-300" size={40} />
-            <p>No appointments found</p>
+            <p>{t('docAppointments.noneFound')}</p>
           </div>
         ) : (
           <div className="divide-y">
@@ -166,7 +177,7 @@ export default function AppointmentSchedulerPage() {
                       {appt.patient_name || appt.patient_id}
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(appt.status)}`}>
-                      {appt.status}
+                      {statusLabel(appt.status)}
                     </span>
                   </div>
                   <div className="flex items-center gap-3 text-sm text-gray-500">
@@ -185,7 +196,7 @@ export default function AppointmentSchedulerPage() {
                         className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
                       >
                         <CheckCircle size={14} />
-                        Check In
+                        {t('docAppointments.checkIn')}
                       </button>
                       <button
                         onClick={() => handleCancel(appt.appointment_id)}
@@ -193,7 +204,7 @@ export default function AppointmentSchedulerPage() {
                         className="flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200 disabled:opacity-50"
                       >
                         <XCircle size={14} />
-                        Cancel
+                        {t('docAppointments.cancel')}
                       </button>
                     </>
                   )}
@@ -207,17 +218,17 @@ export default function AppointmentSchedulerPage() {
       {/* Create Form */}
       {showForm && (
         <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Schedule New Appointment</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">{t('docAppointments.scheduleNew')}</h2>
           <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
             <PatientSelect
               id="patient_id"
-              label="Patient"
+              label={t('docAppointments.patient')}
               value={formData.patient_id}
               onChange={(patientId) => setFormData({...formData, patient_id: patientId})}
               required
             />
             <div>
-              <label htmlFor="provider_id" className="block text-sm font-medium">Provider ID</label>
+              <label htmlFor="provider_id" className="block text-sm font-medium">{t('docAppointments.providerId')}</label>
               <input
                 id="provider_id"
                 type="text"
@@ -229,7 +240,7 @@ export default function AppointmentSchedulerPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="preferred_date" className="block text-sm font-medium">Date</label>
+                <label htmlFor="preferred_date" className="block text-sm font-medium">{t('docAppointments.date')}</label>
                 <input
                   id="preferred_date"
                   type="date"
@@ -240,7 +251,7 @@ export default function AppointmentSchedulerPage() {
                 />
               </div>
               <div>
-                <label htmlFor="preferred_time" className="block text-sm font-medium">Time</label>
+                <label htmlFor="preferred_time" className="block text-sm font-medium">{t('docAppointments.time')}</label>
                 <input
                   id="preferred_time"
                   type="time"
@@ -252,7 +263,7 @@ export default function AppointmentSchedulerPage() {
               </div>
             </div>
             <div>
-              <label htmlFor="reason" className="block text-sm font-medium">Reason</label>
+              <label htmlFor="reason" className="block text-sm font-medium">{t('docAppointments.reason')}</label>
               <textarea
                 id="reason"
                 value={formData.reason}
@@ -264,10 +275,10 @@ export default function AppointmentSchedulerPage() {
             </div>
             <div className="flex gap-3">
               <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                Book Appointment
+                {t('docAppointments.book')}
               </button>
               <button type="button" onClick={() => setShowForm(false)} className="border px-4 py-2 rounded hover:bg-gray-50">
-                Cancel
+                {t('docAppointments.cancel')}
               </button>
             </div>
           </form>
