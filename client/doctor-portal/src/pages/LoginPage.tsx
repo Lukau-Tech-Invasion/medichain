@@ -16,7 +16,7 @@ import {
   UserRound,
   type LucideIcon,
 } from 'lucide-react';
-import { FEATURES } from '@medichain/shared';
+import { FEATURES, useTranslation } from '@medichain/shared';
 
 /**
  * Demo users with actual wallet addresses from the database
@@ -53,6 +53,7 @@ const DEMO_USERS: DemoUser[] = [
 ];
 
 function LoginPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { login, loginWithExtension, isLoading, error, clearError } = useAuthStore();
   const [walletAddress, setWalletAddress] = useState('');
@@ -103,7 +104,7 @@ function LoginPage() {
             <Shield className="text-white" size={40} />
           </div>
           <h1 className="text-2xl font-bold text-white">MediChain</h1>
-          <p className="text-primary-100 mt-1">Doctor Portal</p>
+          <p className="text-primary-100 mt-1">{t('docLogin.portal')}</p>
         </div>
 
         {/* Wallet Login Form */}
@@ -111,19 +112,19 @@ function LoginPage() {
           <div className="mb-6">
             <label htmlFor="walletAddress" className="block text-sm font-medium text-gray-700 mb-2">
               <Wallet size={16} className="inline mr-2" />
-              Wallet Address
+              {t('docLogin.walletAddress')}
             </label>
             <input
               id="walletAddress"
               type="text"
               value={walletAddress}
               onChange={(e) => setWalletAddress(e.target.value)}
-              placeholder="Enter your Substrate wallet address"
+              placeholder={t('docLogin.walletPlaceholder')}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm"
               disabled={isLoading}
             />
             <p className="mt-1 text-xs text-gray-500">
-              SS58 format (starts with 5...)
+              {t('docLogin.ss58Hint')}
             </p>
           </div>
 
@@ -142,12 +143,12 @@ function LoginPage() {
             {isLoading ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                Connecting...
+                {t('docLogin.connecting')}
               </>
             ) : (
               <>
                 <Wallet size={18} />
-                Connect Wallet
+                {t('docLogin.connectWallet')}
               </>
             )}
           </button>
@@ -159,7 +160,7 @@ function LoginPage() {
             className="w-full py-3 bg-white border-2 border-primary-600 text-primary-600 font-semibold rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <Shield size={18} />
-            Login with Polkadot Extension
+            {t('docLogin.loginExtension')}
           </button>
         </form>
 
@@ -173,7 +174,7 @@ function LoginPage() {
               <div className="relative flex justify-center text-sm">
                 <span className="px-2 bg-white text-gray-500 flex items-center gap-1">
                   <UserCircle size={14} />
-                  Quick Login - Demo Users
+                  {t('docLogin.quickLogin')}
                 </span>
               </div>
             </div>
@@ -190,14 +191,14 @@ function LoginPage() {
                   >
                     <Icon className="mx-auto mb-1 text-gray-700" size={22} aria-hidden="true" />
                     <span className="block text-xs font-semibold text-gray-800 truncate text-center">{user.displayName.split(' ').slice(-1)[0]}</span>
-                    <span className="block text-xs text-gray-600 text-center">{user.role}</span>
+                    <span className="block text-xs text-gray-600 text-center">{t(`docRoles.${user.role}`)}</span>
                   </button>
                 );
               })}
             </div>
 
             <p className="mt-3 text-xs text-center text-gray-400">
-              Click any user to instantly login with their wallet
+              {t('docLogin.clickToLogin')}
             </p>
           </div>
         )}

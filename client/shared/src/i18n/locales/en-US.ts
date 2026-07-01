@@ -1092,6 +1092,28 @@ const en_US: TranslationRecord = {
     noteLabel: 'Note:',
     noteBody: "Enter the patient's wallet address or registered patient ID to access their records. Emergency access is logged and audited for compliance.",
   },
+
+  // Shared role labels (doctor portal)
+  docRoles: {
+    Admin: 'Admin',
+    Doctor: 'Doctor',
+    Nurse: 'Nurse',
+    LabTechnician: 'Lab Technician',
+    Pharmacist: 'Pharmacist',
+    Patient: 'Patient',
+  },
+
+  docLogin: {
+    portal: 'Doctor Portal',
+    walletAddress: 'Wallet Address',
+    walletPlaceholder: 'Enter your Substrate wallet address',
+    ss58Hint: 'SS58 format (starts with 5...)',
+    connecting: 'Connecting...',
+    connectWallet: 'Connect Wallet',
+    loginExtension: 'Login with Polkadot Extension',
+    quickLogin: 'Quick Login - Demo Users',
+    clickToLogin: 'Click any user to instantly login with their wallet',
+  },
 };
 
 export default en_US;
