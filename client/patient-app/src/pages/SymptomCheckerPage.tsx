@@ -22,8 +22,7 @@ import {
   Ear,
   Loader2
 } from 'lucide-react';
-import { analyzeSymptoms as analyzeSymptomAPI } from '@medichain/shared';
-import { usePatientAuthStore } from '../store/authStore';
+import { analyzeSymptoms as analyzeSymptomAPI, useTranslation } from '@medichain/shared';
 
 /**
  * SymptomCheckerPage
@@ -61,6 +60,7 @@ interface TriageResult {
 }
 
 const SymptomCheckerPage: React.FC = () => {
+  const { t } = useTranslation();
   const [step, setStep] = useState<'intro' | 'chat' | 'result'>('intro');
   const [selectedSymptoms, setSelectedSymptoms] = useState<Symptom[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -71,6 +71,7 @@ const SymptomCheckerPage: React.FC = () => {
   const [gender, setGender] = useState<'male' | 'female' | 'other' | ''>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Canonical English names are kept for API calls / detection logic; UI shows localized labels.
   const commonSymptoms: Symptom[] = [
     { id: 's1', name: 'Headache', bodyPart: 'head' },
     { id: 's2', name: 'Fever', bodyPart: 'general' },
@@ -88,6 +89,27 @@ const SymptomCheckerPage: React.FC = () => {
     { id: 's14', name: 'Congestion', bodyPart: 'head' },
     { id: 's15', name: 'Difficulty sleeping', bodyPart: 'general' }
   ];
+
+  const symptomLabels: Record<string, string> = {
+    s1: t('symptomChecker.sympHeadache'),
+    s2: t('symptomChecker.sympFever'),
+    s3: t('symptomChecker.sympCough'),
+    s4: t('symptomChecker.sympSoreThroat'),
+    s5: t('symptomChecker.sympFatigue'),
+    s6: t('symptomChecker.sympNausea'),
+    s7: t('symptomChecker.sympChestPain'),
+    s8: t('symptomChecker.sympShortBreath'),
+    s9: t('symptomChecker.sympDizziness'),
+    s10: t('symptomChecker.sympBackPain'),
+    s11: t('symptomChecker.sympJointPain'),
+    s12: t('symptomChecker.sympAbdominalPain'),
+    s13: t('symptomChecker.sympSkinRash'),
+    s14: t('symptomChecker.sympCongestion'),
+    s15: t('symptomChecker.sympSleep'),
+  };
+
+  // Localized display label for a symptom (falls back to its canonical name).
+  const symptomLabel = (s: Symptom): string => symptomLabels[s.id] || s.name;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -117,11 +139,11 @@ const SymptomCheckerPage: React.FC = () => {
       {
         id: 'welcome',
         type: 'bot',
-        content: "Hello! I'm your symptom checker assistant. I'll help you understand your symptoms and recommend next steps. This is not a diagnosis - always consult a healthcare provider for medical advice.",
+        content: t('symptomChecker.welcome'),
         timestamp: new Date()
       }
     ]);
-    addBotMessage("Let's start by selecting your symptoms. You can tap on common symptoms below or type to describe how you're feeling.", undefined, 1500);
+    addBotMessage(t('symptomChecker.startPrompt'), undefined, 1500);
   };
 
   const handleSymptomSelect = (symptom: Symptom) => {
@@ -129,18 +151,19 @@ const SymptomCheckerPage: React.FC = () => {
       setSelectedSymptoms(prev => prev.filter(s => s.id !== symptom.id));
     } else {
       setSelectedSymptoms(prev => [...prev, symptom]);
+      const label = symptomLabel(symptom);
       setMessages(prev => [...prev, {
         id: `user-${Date.now()}`,
         type: 'user',
-        content: `Added symptom: ${symptom.name}`,
+        content: t('symptomChecker.addedSymptom', { name: label }),
         timestamp: new Date()
       }]);
-      
+
       // Bot response
       const responses = [
-        `I've noted ${symptom.name}. How long have you been experiencing this?`,
-        `Understood, ${symptom.name}. Are there any other symptoms you're experiencing?`,
-        `Got it. Is the ${symptom.name.toLowerCase()} constant or does it come and go?`
+        t('symptomChecker.botNoted', { name: label }),
+        t('symptomChecker.botUnderstood', { name: label }),
+        t('symptomChecker.botConstant', { name: label.toLowerCase() })
       ];
       addBotMessage(responses[Math.floor(Math.random() * responses.length)]);
     }
@@ -173,7 +196,7 @@ const SymptomCheckerPage: React.FC = () => {
         handleSymptomSelect({ id: 's2', name: 'Fever', bodyPart: 'general' });
       }
     } else {
-      addBotMessage("Thank you for that information. Can you tell me more about your symptoms? Try selecting from the common symptoms below or describe what you're feeling.");
+      addBotMessage(t('symptomChecker.botThanks'));
     }
   };
 
@@ -194,11 +217,11 @@ const SymptomCheckerPage: React.FC = () => {
     // Helper to get title from triage level
     const getTriageTitle = (triage: string): string => {
       switch (triage) {
-        case 'emergency': return 'Seek Emergency Care Immediately';
-        case 'urgent_care': return 'Seek Medical Attention';
-        case 'schedule_appointment': return 'Schedule an Appointment';
-        case 'self_care': return 'Self-Care May Be Appropriate';
-        default: return 'Consider Medical Consultation';
+        case 'emergency': return t('symptomChecker.triageEmergency');
+        case 'urgent_care': return t('symptomChecker.triageUrgent');
+        case 'schedule_appointment': return t('symptomChecker.triageSchedule');
+        case 'self_care': return t('symptomChecker.triageSelfCare');
+        default: return t('symptomChecker.triageConsult');
       }
     };
 
@@ -238,54 +261,72 @@ const SymptomCheckerPage: React.FC = () => {
       if (hasChestPain || hasBreathing) {
         result = {
           severity: 'urgent',
-          title: 'Seek Medical Attention',
-          description: 'Your symptoms may require prompt medical evaluation.',
+          title: t('symptomChecker.triageUrgent'),
+          description: t('symptomChecker.fbUrgentDesc'),
           recommendations: [
-            'Visit an urgent care or emergency room today',
-            'Do not drive yourself if symptoms worsen',
-            'Call 911 if you experience severe chest pain or difficulty breathing'
+            t('symptomChecker.fbUrgentRec1'),
+            t('symptomChecker.fbUrgentRec2'),
+            t('symptomChecker.fbUrgentRec3')
           ],
-          possibleConditions: ['Respiratory infection', 'Anxiety', 'Cardiac issues', 'Asthma exacerbation']
+          possibleConditions: [
+            t('symptomChecker.fbUrgentCond1'),
+            t('symptomChecker.fbUrgentCond2'),
+            t('symptomChecker.fbUrgentCond3'),
+            t('symptomChecker.fbUrgentCond4')
+          ]
         };
       } else if (hasFever && hasCough) {
         result = {
           severity: 'moderate',
-          title: 'Schedule an Appointment',
-          description: 'Your symptoms suggest you may benefit from seeing a healthcare provider.',
+          title: t('symptomChecker.triageSchedule'),
+          description: t('symptomChecker.fbFeverDesc'),
           recommendations: [
-            'Schedule an appointment within 24-48 hours',
-            'Rest and stay hydrated',
-            'Monitor your temperature',
-            'Take over-the-counter fever reducers as directed'
+            t('symptomChecker.fbFeverRec1'),
+            t('symptomChecker.fbFeverRec2'),
+            t('symptomChecker.fbFeverRec3'),
+            t('symptomChecker.fbFeverRec4')
           ],
-          possibleConditions: ['Common cold', 'Flu', 'COVID-19', 'Bronchitis']
+          possibleConditions: [
+            t('symptomChecker.fbFeverCond1'),
+            t('symptomChecker.fbFeverCond2'),
+            t('symptomChecker.fbFeverCond3'),
+            t('symptomChecker.fbFeverCond4')
+          ]
         };
       } else if (selectedSymptoms.length >= 3) {
         result = {
           severity: 'moderate',
-          title: 'Consider Medical Consultation',
-          description: 'Multiple symptoms present. A healthcare provider can help determine the cause.',
+          title: t('symptomChecker.triageConsult'),
+          description: t('symptomChecker.fbMultiDesc'),
           recommendations: [
-            'Schedule an appointment this week',
-            'Keep track of your symptoms',
-            'Note any triggers or patterns',
-            'Rest and maintain good hydration'
+            t('symptomChecker.fbMultiRec1'),
+            t('symptomChecker.fbMultiRec2'),
+            t('symptomChecker.fbMultiRec3'),
+            t('symptomChecker.fbMultiRec4')
           ],
-          possibleConditions: ['Viral illness', 'Seasonal allergies', 'Stress-related symptoms']
+          possibleConditions: [
+            t('symptomChecker.fbMultiCond1'),
+            t('symptomChecker.fbMultiCond2'),
+            t('symptomChecker.fbMultiCond3')
+          ]
         };
       } else {
         result = {
           severity: 'self-care',
-          title: 'Self-Care May Be Appropriate',
-          description: 'Your symptoms appear mild and may improve with self-care measures.',
+          title: t('symptomChecker.triageSelfCare'),
+          description: t('symptomChecker.fbSelfDesc'),
           recommendations: [
-            'Get plenty of rest',
-            'Stay hydrated',
-            'Use over-the-counter medications as needed',
-            'Monitor for worsening symptoms',
-            'Seek care if symptoms persist beyond 7 days'
+            t('symptomChecker.fbSelfRec1'),
+            t('symptomChecker.fbSelfRec2'),
+            t('symptomChecker.fbSelfRec3'),
+            t('symptomChecker.fbSelfRec4'),
+            t('symptomChecker.fbSelfRec5')
           ],
-          possibleConditions: ['Minor viral illness', 'Mild tension headache', 'General fatigue']
+          possibleConditions: [
+            t('symptomChecker.fbSelfCond1'),
+            t('symptomChecker.fbSelfCond2'),
+            t('symptomChecker.fbSelfCond3')
+          ]
         };
       }
 
@@ -324,9 +365,9 @@ const SymptomCheckerPage: React.FC = () => {
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Stethoscope className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Symptom Checker</h1>
+          <h1 className="text-2xl font-bold">{t('symptomChecker.title')}</h1>
         </div>
-        <p className="text-purple-100">AI-assisted symptom assessment</p>
+        <p className="text-purple-100">{t('symptomChecker.subtitle')}</p>
       </div>
 
       {/* Intro Screen */}
@@ -337,39 +378,39 @@ const SymptomCheckerPage: React.FC = () => {
               <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Bot className="w-10 h-10 text-purple-600" />
               </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">How are you feeling?</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">{t('symptomChecker.introHeading')}</h2>
               <p className="text-gray-600">
-                Describe your symptoms and I'll help you understand what might be happening and suggest next steps.
+                {t('symptomChecker.introDescription')}
               </p>
             </div>
 
             {/* Basic Info */}
             <div className="space-y-4 mb-6">
               <div>
-                <label htmlFor="symptom-checker-age" className="block text-sm font-medium text-gray-700 mb-1">Your Age</label>
+                <label htmlFor="symptom-checker-age" className="block text-sm font-medium text-gray-700 mb-1">{t('symptomChecker.ageLabel')}</label>
                 <input
                   type="number"
                   id="symptom-checker-age"
                   value={age}
                   onChange={(e) => setAge(e.target.value)}
-                  placeholder="Enter your age"
+                  placeholder={t('symptomChecker.agePlaceholder')}
                   className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 />
               </div>
               <div>
-                <label id="symptom-checker-gender-label" className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                <label id="symptom-checker-gender-label" className="block text-sm font-medium text-gray-700 mb-1">{t('symptomChecker.genderLabel')}</label>
                 <div className="flex gap-3" role="group" aria-labelledby="symptom-checker-gender-label">
                   {(['male', 'female', 'other'] as const).map(g => (
                     <button
                       key={g}
                       onClick={() => setGender(g)}
-                      className={`flex-1 py-2 px-4 rounded-lg border-2 capitalize transition-all ${
+                      className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
                         gender === g
                           ? 'border-purple-500 bg-purple-50 text-purple-700'
                           : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
-                      {g}
+                      {g === 'male' ? t('symptomChecker.genderMale') : g === 'female' ? t('symptomChecker.genderFemale') : t('symptomChecker.genderOther')}
                     </button>
                   ))}
                 </div>
@@ -385,7 +426,7 @@ const SymptomCheckerPage: React.FC = () => {
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
             >
-              Start Assessment
+              {t('symptomChecker.start')}
               <ChevronRight className="w-5 h-5" />
             </button>
           </div>
@@ -394,9 +435,9 @@ const SymptomCheckerPage: React.FC = () => {
             <div className="flex items-start gap-3">
               <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
               <div>
-                <h4 className="font-medium text-yellow-900">Important Disclaimer</h4>
+                <h4 className="font-medium text-yellow-900">{t('symptomChecker.disclaimerTitle')}</h4>
                 <p className="text-sm text-yellow-700 mt-1">
-                  This tool provides general information only and is not a substitute for professional medical advice, diagnosis, or treatment. In case of emergency, call 911 immediately.
+                  {t('symptomChecker.disclaimerBody')}
                 </p>
               </div>
             </div>
@@ -411,13 +452,13 @@ const SymptomCheckerPage: React.FC = () => {
           {selectedSymptoms.length > 0 && (
             <div className="bg-white border-b px-4 py-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-gray-500">Selected:</span>
+                <span className="text-xs text-gray-500">{t('symptomChecker.selected')}</span>
                 {selectedSymptoms.map(s => (
                   <span
                     key={s.id}
                     className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full"
                   >
-                    {s.name}
+                    {symptomLabel(s)}
                     <button onClick={() => handleSymptomSelect(s)}>
                       <X className="w-3 h-3" />
                     </button>
@@ -476,7 +517,7 @@ const SymptomCheckerPage: React.FC = () => {
 
           {/* Common Symptoms */}
           <div className="bg-white border-t px-4 py-3">
-            <p className="text-xs text-gray-500 mb-2">Common symptoms:</p>
+            <p className="text-xs text-gray-500 mb-2">{t('symptomChecker.commonSymptoms')}</p>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {commonSymptoms.slice(0, 8).map(symptom => (
                 <button
@@ -489,7 +530,7 @@ const SymptomCheckerPage: React.FC = () => {
                   }`}
                 >
                   {getBodyPartIcon(symptom.bodyPart)}
-                  {symptom.name}
+                  {symptomLabel(symptom)}
                 </button>
               ))}
             </div>
@@ -503,7 +544,7 @@ const SymptomCheckerPage: React.FC = () => {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="Describe your symptoms..."
+                placeholder={t('symptomChecker.inputPlaceholder')}
                 className="flex-1 border border-gray-300 rounded-full px-4 py-2 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
               />
               <button
@@ -518,7 +559,7 @@ const SymptomCheckerPage: React.FC = () => {
                 onClick={analyzeSymptoms}
                 className="w-full mt-3 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
               >
-                Analyze My Symptoms ({selectedSymptoms.length})
+                {t('symptomChecker.analyze', { count: selectedSymptoms.length })}
               </button>
             )}
           </div>
@@ -547,11 +588,11 @@ const SymptomCheckerPage: React.FC = () => {
 
           {/* Selected Symptoms Summary */}
           <div className="bg-white rounded-lg shadow p-4 mb-4">
-            <h3 className="font-semibold text-gray-900 mb-3">Your Reported Symptoms</h3>
+            <h3 className="font-semibold text-gray-900 mb-3">{t('symptomChecker.reportedSymptoms')}</h3>
             <div className="flex flex-wrap gap-2">
               {selectedSymptoms.map(s => (
                 <span key={s.id} className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
-                  {s.name}
+                  {symptomLabel(s)}
                 </span>
               ))}
             </div>
@@ -559,7 +600,7 @@ const SymptomCheckerPage: React.FC = () => {
 
           {/* Recommendations */}
           <div className="bg-white rounded-lg shadow p-4 mb-4">
-            <h3 className="font-semibold text-gray-900 mb-3">Recommendations</h3>
+            <h3 className="font-semibold text-gray-900 mb-3">{t('symptomChecker.recommendations')}</h3>
             <ul className="space-y-2">
               {triageResult.recommendations.map((rec, idx) => (
                 <li key={idx} className="flex items-start gap-2">
@@ -572,8 +613,8 @@ const SymptomCheckerPage: React.FC = () => {
 
           {/* Possible Conditions */}
           <div className="bg-white rounded-lg shadow p-4 mb-4">
-            <h3 className="font-semibold text-gray-900 mb-3">Possible Conditions</h3>
-            <p className="text-sm text-gray-500 mb-2">These are possibilities, not diagnoses:</p>
+            <h3 className="font-semibold text-gray-900 mb-3">{t('symptomChecker.possibleConditions')}</h3>
+            <p className="text-sm text-gray-500 mb-2">{t('symptomChecker.conditionsDisclaimer')}</p>
             <ul className="space-y-1">
               {triageResult.possibleConditions.map((cond, idx) => (
                 <li key={idx} className="text-gray-700 flex items-center gap-2">
@@ -592,16 +633,16 @@ const SymptomCheckerPage: React.FC = () => {
                 className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2"
               >
                 <Phone className="w-5 h-5" />
-                Call 911
+                {t('symptomChecker.call911')}
               </a>
             )}
             <button className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2">
               <Clock className="w-5 h-5" />
-              Schedule Appointment
+              {t('symptomChecker.schedule')}
             </button>
             <button className="w-full py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold flex items-center justify-center gap-2">
               <MapPin className="w-5 h-5" />
-              Find Nearby Care
+              {t('symptomChecker.findCare')}
             </button>
             <button
               onClick={() => {
@@ -612,7 +653,7 @@ const SymptomCheckerPage: React.FC = () => {
               }}
               className="w-full py-3 text-purple-600 font-semibold"
             >
-              Start New Assessment
+              {t('symptomChecker.startNew')}
             </button>
           </div>
         </div>
