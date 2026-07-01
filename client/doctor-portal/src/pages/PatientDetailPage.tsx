@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { apiUrl, getApiErrorMessage } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store';
 import { 
   ArrowLeft, 
@@ -36,6 +36,7 @@ interface PatientDetails {
 }
 
 function PatientDetailPage() {
+  const { t } = useTranslation();
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
@@ -72,7 +73,7 @@ function PatientDetailPage() {
             setPatient(null);
           } else {
             const errorData = await response.json().catch(() => ({}));
-            setError(getApiErrorMessage(errorData, `Error: ${response.status}`));
+            setError(getApiErrorMessage(errorData, t('docPatientDetail.errorStatus', { status: response.status })));
           }
           setLoading(false);
           return;
@@ -86,7 +87,7 @@ function PatientDetailPage() {
           fullName: data.full_name,
           dateOfBirth: data.date_of_birth,
           nationalHealthId: data.national_id || data.patient_id,
-          bloodType: data.emergency_info?.blood_type || 'Unknown',
+          bloodType: data.emergency_info?.blood_type || t('docPatientDetail.unknown'),
           allergies: data.emergency_info?.allergies?.map((a: { name: string }) => a.name) || [],
           currentMedications: data.emergency_info?.current_medications || [],
           chronicConditions: data.emergency_info?.chronic_conditions || [],
@@ -94,11 +95,11 @@ function PatientDetailPage() {
           organDonor: data.emergency_info?.organ_donor || false,
           dnrStatus: data.emergency_info?.dnr_status || false,
           lastUpdated: data.last_updated || new Date().toISOString(),
-          registeredBy: data.primary_doctor?.provider_id || 'Unknown',
+          registeredBy: data.primary_doctor?.provider_id || t('docPatientDetail.unknown'),
         });
       } catch (err) {
         console.error('Failed to fetch patient:', err);
-        setError('Failed to connect to the API server');
+        setError(t('docPatientDetail.failConnect'));
       }
       setLoading(false);
     };
@@ -119,10 +120,10 @@ function PatientDetailPage() {
       <div className="p-8">
         <div className="text-center py-12">
           <AlertTriangle className="mx-auto mb-4 text-red-400" size={64} />
-          <h2 className="text-xl font-semibold text-gray-700">Error Loading Patient</h2>
+          <h2 className="text-xl font-semibold text-gray-700">{t('docPatientDetail.errorLoading')}</h2>
           <p className="text-gray-500 mt-2">{error}</p>
           <Link to="/patients" className="mt-4 inline-block text-primary-600 hover:underline">
-            ← Back to Patient Search
+            {t('docPatientDetail.backToSearch')}
           </Link>
         </div>
       </div>
@@ -134,10 +135,10 @@ function PatientDetailPage() {
       <div className="p-8">
         <div className="text-center py-12">
           <User className="mx-auto mb-4 text-gray-300" size={64} />
-          <h2 className="text-xl font-semibold text-gray-700">Patient Not Found</h2>
-          <p className="text-gray-500 mt-2">The patient ID "{patientId}" doesn't exist.</p>
+          <h2 className="text-xl font-semibold text-gray-700">{t('docPatientDetail.notFound')}</h2>
+          <p className="text-gray-500 mt-2">{t('docPatientDetail.notExist', { id: patientId ?? '' })}</p>
           <Link to="/patients" className="mt-4 inline-block text-primary-600 hover:underline">
-            ← Back to Patient Search
+            {t('docPatientDetail.backToSearch')}
           </Link>
         </div>
       </div>
@@ -149,7 +150,7 @@ function PatientDetailPage() {
       {/* Back Button */}
       <Link to="/patients" className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-6">
         <ArrowLeft size={20} />
-        Back to Patients
+        {t('docPatientDetail.backToPatients')}
       </Link>
 
       {/* Patient Header */}
@@ -166,19 +167,19 @@ function PatientDetailPage() {
               <p className="text-gray-500">{patient.nationalHealthId}</p>
               <div className="flex items-center gap-4 mt-2">
                 <span className="text-sm bg-gray-100 px-2 py-1 rounded">
-                  DOB: {patient.dateOfBirth}
+                  {t('docPatientDetail.dob', { date: patient.dateOfBirth })}
                 </span>
                 <span className="text-sm bg-emergency-100 text-emergency-700 px-2 py-1 rounded font-medium">
-                  Blood: {patient.bloodType}
+                  {t('docPatientDetail.blood', { type: patient.bloodType })}
                 </span>
                 {patient.dnrStatus && (
                   <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded font-medium">
-                    DNR
+                    {t('docPatientDetail.dnr')}
                   </span>
                 )}
                 {patient.organDonor && (
                   <span className="text-sm bg-green-100 text-green-700 px-2 py-1 rounded">
-                    Organ Donor
+                    {t('docPatientDetail.organDonor')}
                   </span>
                 )}
               </div>
@@ -188,11 +189,11 @@ function PatientDetailPage() {
           <div className="flex gap-2">
             <button className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center gap-2">
               <Download size={18} />
-              Export
+              {t('docPatientDetail.export')}
             </button>
             <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2">
               <Edit size={18} />
-              Edit
+              {t('docPatientDetail.edit')}
             </button>
           </div>
         </div>
@@ -204,13 +205,13 @@ function PatientDetailPage() {
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-md capitalize transition-colors ${
+            className={`px-4 py-2 rounded-md transition-colors ${
               activeTab === tab
                 ? 'bg-white shadow text-gray-900'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {tab === 'access' ? 'Access Logs' : tab}
+            {tab === 'access' ? t('docPatientDetail.tabAccess') : tab === 'records' ? t('docPatientDetail.tabRecords') : t('docPatientDetail.tabOverview')}
           </button>
         ))}
       </div>
@@ -222,7 +223,7 @@ function PatientDetailPage() {
           <div className="bg-white rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <AlertTriangle className="text-emergency-600" size={20} />
-              <h3 className="font-semibold text-gray-900">Allergies</h3>
+              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.allergies')}</h3>
             </div>
             {patient.allergies.length > 0 ? (
               <div className="flex flex-wrap gap-2">
@@ -233,7 +234,7 @@ function PatientDetailPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">No known allergies</p>
+              <p className="text-gray-500">{t('docPatientDetail.noAllergies')}</p>
             )}
           </div>
 
@@ -241,7 +242,7 @@ function PatientDetailPage() {
           <div className="bg-white rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <Pill className="text-primary-600" size={20} />
-              <h3 className="font-semibold text-gray-900">Current Medications</h3>
+              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.currentMeds')}</h3>
             </div>
             {patient.currentMedications.length > 0 ? (
               <ul className="space-y-2">
@@ -253,7 +254,7 @@ function PatientDetailPage() {
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-500">No current medications</p>
+              <p className="text-gray-500">{t('docPatientDetail.noMeds')}</p>
             )}
           </div>
 
@@ -261,7 +262,7 @@ function PatientDetailPage() {
           <div className="bg-white rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <Heart className="text-red-500" size={20} />
-              <h3 className="font-semibold text-gray-900">Chronic Conditions</h3>
+              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.chronicConditions')}</h3>
             </div>
             {patient.chronicConditions.length > 0 ? (
               <div className="flex flex-wrap gap-2">
@@ -272,7 +273,7 @@ function PatientDetailPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">No chronic conditions</p>
+              <p className="text-gray-500">{t('docPatientDetail.noConditions')}</p>
             )}
           </div>
 
@@ -280,7 +281,7 @@ function PatientDetailPage() {
           <div className="bg-white rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <Phone className="text-success-600" size={20} />
-              <h3 className="font-semibold text-gray-900">Emergency Contacts</h3>
+              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.emergencyContacts')}</h3>
             </div>
             {patient.emergencyContacts.map((contact, i) => (
               <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -301,11 +302,11 @@ function PatientDetailPage() {
         <div className="bg-white rounded-xl shadow p-6">
           <div className="flex items-center gap-2 mb-4">
             <FileText className="text-gray-400" size={20} />
-            <h3 className="font-semibold text-gray-900">Medical Records</h3>
+            <h3 className="font-semibold text-gray-900">{t('docPatientDetail.medicalRecords')}</h3>
           </div>
           <p className="text-gray-500 text-center py-8">
-            Medical records are stored encrypted on IPFS.<br />
-            Connect to IPFS to view and manage documents.
+            {t('docPatientDetail.recordsLine1')}<br />
+            {t('docPatientDetail.recordsLine2')}
           </p>
         </div>
       )}
@@ -314,11 +315,11 @@ function PatientDetailPage() {
         <div className="bg-white rounded-xl shadow p-6">
           <div className="flex items-center gap-2 mb-4">
             <Clock className="text-gray-400" size={20} />
-            <h3 className="font-semibold text-gray-900">Access History</h3>
+            <h3 className="font-semibold text-gray-900">{t('docPatientDetail.accessHistory')}</h3>
           </div>
           <p className="text-gray-500 text-center py-8">
-            All access logs are stored immutably on the blockchain.<br />
-            View complete audit trail of who accessed this patient's records.
+            {t('docPatientDetail.accessLine1')}<br />
+            {t('docPatientDetail.accessLine2')}
           </p>
         </div>
       )}
