@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePatientStore, useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { Search, Users, Filter, ChevronRight, Loader2, AlertCircle, Droplet, Pill, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -57,6 +57,7 @@ function formatBloodType(bloodType: string | undefined): string {
  * PatientSearchPage - Search and browse patients
  */
 function PatientSearchPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -91,7 +92,7 @@ function PatientSearchPage() {
         });
 
         if (!response.ok) {
-          throw new Error('Failed to fetch patients');
+          throw new Error(t('docPatientSearch.failFetch'));
         }
 
         const data = await response.json();
@@ -118,7 +119,7 @@ function PatientSearchPage() {
         setPatients(transformedPatients);
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch patients');
+        setError(err instanceof Error ? err.message : t('docPatientSearch.failFetch'));
         setApiConnected(false);
       } finally {
         setLoading(false);
@@ -126,7 +127,7 @@ function PatientSearchPage() {
     };
 
     fetchPatients();
-  }, [user]);
+  }, [user, t]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -199,9 +200,9 @@ function PatientSearchPage() {
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Patient Search</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('docPatientSearch.title')}</h1>
           <p className="text-gray-500 mt-1">
-            Search for patients by name, ID, or National Health ID
+            {t('docPatientSearch.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -209,7 +210,7 @@ function PatientSearchPage() {
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
           }`}>
             <span className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-            {apiConnected ? 'API Connected' : 'API Disconnected'}
+            {apiConnected ? t('docPatientSearch.apiConnected') : t('docPatientSearch.apiDisconnected')}
           </span>
         </div>
       </div>
@@ -223,7 +224,7 @@ function PatientSearchPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, patient ID, Health ID, or National ID..."
+              placeholder={t('docPatientSearch.searchPlaceholder')}
               className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
             />
           </div>
@@ -235,14 +236,14 @@ function PatientSearchPage() {
             }`}
           >
             <Filter size={20} />
-            Filters
+            {t('docPatientSearch.filters')}
           </button>
           <button
             type="submit"
             disabled={isSearching}
             className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
           >
-            {isSearching ? 'Searching...' : 'Search'}
+            {isSearching ? t('docPatientSearch.searching') : t('docPatientSearch.search')}
           </button>
         </div>
       </form>
@@ -252,13 +253,13 @@ function PatientSearchPage() {
         <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
           <div className="flex flex-wrap gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Blood Type</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('docPatientSearch.bloodType')}</label>
               <select
                 value={filterBloodType}
                 onChange={(e) => setFilterBloodType(e.target.value)}
                 className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
               >
-                <option value="all">All Blood Types</option>
+                <option value="all">{t('docPatientSearch.allBloodTypes')}</option>
                 <option value="A+">A+</option>
                 <option value="A-">A-</option>
                 <option value="B+">B+</option>
@@ -270,15 +271,15 @@ function PatientSearchPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t('docPatientSearch.gender')}</label>
               <select
                 value={filterGender}
                 onChange={(e) => setFilterGender(e.target.value)}
                 className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
               >
-                <option value="all">All Genders</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
+                <option value="all">{t('docPatientSearch.allGenders')}</option>
+                <option value="male">{t('docPatientSearch.male')}</option>
+                <option value="female">{t('docPatientSearch.female')}</option>
               </select>
             </div>
             <div className="flex items-end">
@@ -290,7 +291,7 @@ function PatientSearchPage() {
                 }}
                 className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800"
               >
-                Clear Filters
+                {t('docPatientSearch.clearFilters')}
               </button>
             </div>
           </div>
@@ -303,14 +304,14 @@ function PatientSearchPage() {
           <div className="flex items-center gap-2">
             <Users className="text-gray-400" size={20} />
             <span className="font-medium text-gray-700">
-              {displayPatients.length} patient{displayPatients.length !== 1 ? 's' : ''}
+              {displayPatients.length} {displayPatients.length !== 1 ? t('docPatientSearch.patients') : t('docPatientSearch.patient')}
               {(filterBloodType !== 'all' || filterGender !== 'all') && (
-                <span className="text-gray-400 ml-1">(filtered)</span>
+                <span className="text-gray-400 ml-1">{t('docPatientSearch.filtered')}</span>
               )}
             </span>
           </div>
           <span className="text-sm text-gray-400">
-            Total in system: {patients.length}
+            {t('docPatientSearch.totalInSystem', { count: patients.length })}
           </span>
         </div>
 
@@ -333,10 +334,10 @@ function PatientSearchPage() {
                     <div className="min-w-0">
                       <p className="font-medium text-gray-900">{patient.fullName}</p>
                       <p className="text-sm text-gray-500">
-                        {patient.patientId} • {patient.gender} • DOB: {patient.dateOfBirth}
+                        {t('docPatientSearch.patientMeta', { id: patient.patientId, gender: patient.gender, dob: patient.dateOfBirth })}
                       </p>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        Health ID: {patient.healthId}
+                        {t('docPatientSearch.healthId', { id: patient.healthId })}
                       </p>
                       
                       {/* Medical Info Tags */}
@@ -344,19 +345,19 @@ function PatientSearchPage() {
                         {patient.allergies.length > 0 && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full">
                             <AlertCircle size={12} />
-                            {patient.allergies.length} Allergie{patient.allergies.length !== 1 ? 's' : ''}
+                            {patient.allergies.length} {patient.allergies.length !== 1 ? t('docPatientSearch.allergies') : t('docPatientSearch.allergy')}
                           </span>
                         )}
                         {patient.medications.length > 0 && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">
                             <Pill size={12} />
-                            {patient.medications.length} Medication{patient.medications.length !== 1 ? 's' : ''}
+                            {patient.medications.length} {patient.medications.length !== 1 ? t('docPatientSearch.medications') : t('docPatientSearch.medication')}
                           </span>
                         )}
                         {patient.conditions.length > 0 && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full">
                             <Heart size={12} />
-                            {patient.conditions.length} Condition{patient.conditions.length !== 1 ? 's' : ''}
+                            {patient.conditions.length} {patient.conditions.length !== 1 ? t('docPatientSearch.conditions') : t('docPatientSearch.condition')}
                           </span>
                         )}
                       </div>
@@ -370,7 +371,7 @@ function PatientSearchPage() {
                         <span className="text-sm font-medium text-red-600">{patient.bloodType}</span>
                       </div>
                       <p className="text-xs text-gray-400 mt-1">
-                        Last visit: {patient.lastVisit}
+                        {t('docPatientSearch.lastVisit', { date: patient.lastVisit ?? '' })}
                       </p>
                     </div>
                     <ChevronRight className="text-gray-300" size={20} />
@@ -384,7 +385,7 @@ function PatientSearchPage() {
         {loading && (
           <div className="p-12 text-center">
             <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-            <p className="text-gray-500">Loading patients from API...</p>
+            <p className="text-gray-500">{t('docPatientSearch.loading')}</p>
           </div>
         )}
 
@@ -393,7 +394,7 @@ function PatientSearchPage() {
             <Users className="mx-auto mb-3 text-red-300" size={48} />
             <p className="text-red-500">{error}</p>
             <p className="text-sm text-gray-400 mt-1">
-              Check that the API server is running on port 8080
+              {t('docPatientSearch.apiHint')}
             </p>
           </div>
         )}
@@ -401,9 +402,9 @@ function PatientSearchPage() {
         {!loading && !error && displayPatients.length === 0 && (
           <div className="p-12 text-center">
             <Users className="mx-auto mb-3 text-gray-300" size={48} />
-            <p className="text-gray-500">No patients found</p>
+            <p className="text-gray-500">{t('docPatientSearch.noneFound')}</p>
             <p className="text-sm text-gray-400 mt-1">
-              Try a different search term
+              {t('docPatientSearch.tryDifferent')}
             </p>
           </div>
         )}
