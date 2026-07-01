@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from '@medichain/shared';
 import {
   Star,
   ThumbsUp,
@@ -43,6 +44,7 @@ interface SurveyResponse {
 }
 
 const SatisfactionSurveyPage: React.FC = () => {
+  const { t } = useTranslation();
   const [step, setStep] = useState<SurveyStep>('intro');
   const [responses, setResponses] = useState<SurveyResponse[]>([]);
   const [overallRating, setOverallRating] = useState<RatingType>(0);
@@ -52,24 +54,24 @@ const SatisfactionSurveyPage: React.FC = () => {
   const [hoveredStar, setHoveredStar] = useState<number>(0);
 
   const visitQuestions: SurveyQuestion[] = [
-    { id: 'v1', category: 'visit', question: 'How would you rate your overall visit experience?', type: 'stars', required: true },
-    { id: 'v2', category: 'visit', question: 'Was your appointment on time?', type: 'yesno', required: true },
-    { id: 'v3', category: 'visit', question: 'Was the purpose of your visit fully addressed?', type: 'yesno', required: true },
-    { id: 'v4', category: 'visit', question: 'How clear was the information provided about your treatment?', type: 'stars', required: true }
+    { id: 'v1', category: 'visit', question: t('survey.qV1'), type: 'stars', required: true },
+    { id: 'v2', category: 'visit', question: t('survey.qV2'), type: 'yesno', required: true },
+    { id: 'v3', category: 'visit', question: t('survey.qV3'), type: 'yesno', required: true },
+    { id: 'v4', category: 'visit', question: t('survey.qV4'), type: 'stars', required: true }
   ];
 
   const staffQuestions: SurveyQuestion[] = [
-    { id: 's1', category: 'staff', question: 'How would you rate the courtesy of the staff?', type: 'stars', required: true },
-    { id: 's2', category: 'staff', question: 'Did your doctor listen carefully to your concerns?', type: 'yesno', required: true },
-    { id: 's3', category: 'staff', question: 'How would you rate the professionalism of your care team?', type: 'stars', required: true },
-    { id: 's4', category: 'staff', question: 'Did staff explain things in a way you could understand?', type: 'yesno', required: true }
+    { id: 's1', category: 'staff', question: t('survey.qS1'), type: 'stars', required: true },
+    { id: 's2', category: 'staff', question: t('survey.qS2'), type: 'yesno', required: true },
+    { id: 's3', category: 'staff', question: t('survey.qS3'), type: 'stars', required: true },
+    { id: 's4', category: 'staff', question: t('survey.qS4'), type: 'yesno', required: true }
   ];
 
   const facilityQuestions: SurveyQuestion[] = [
-    { id: 'f1', category: 'facility', question: 'How would you rate the cleanliness of the facility?', type: 'stars', required: true },
-    { id: 'f2', category: 'facility', question: 'Was it easy to find your way around?', type: 'yesno', required: false },
-    { id: 'f3', category: 'facility', question: 'How comfortable was the waiting area?', type: 'stars', required: false },
-    { id: 'f4', category: 'facility', question: 'Were you satisfied with the available parking?', type: 'yesno', required: false }
+    { id: 'f1', category: 'facility', question: t('survey.qF1'), type: 'stars', required: true },
+    { id: 'f2', category: 'facility', question: t('survey.qF2'), type: 'yesno', required: false },
+    { id: 'f3', category: 'facility', question: t('survey.qF3'), type: 'stars', required: false },
+    { id: 'f4', category: 'facility', question: t('survey.qF4'), type: 'yesno', required: false }
   ];
 
   const getResponse = (questionId: string): SurveyResponse | undefined => {
@@ -176,7 +178,7 @@ const SatisfactionSurveyPage: React.FC = () => {
           }`}
         >
           <ThumbsUp className={`w-5 h-5 ${currentValue === true ? 'text-green-500' : 'text-gray-400'}`} />
-          <span className="font-medium">Yes</span>
+          <span className="font-medium">{t('common.yes')}</span>
         </button>
         <button
           onClick={() => setResponse(questionId, { yesNo: false })}
@@ -187,7 +189,7 @@ const SatisfactionSurveyPage: React.FC = () => {
           }`}
         >
           <ThumbsDown className={`w-5 h-5 ${currentValue === false ? 'text-red-500' : 'text-gray-400'}`} />
-          <span className="font-medium">No</span>
+          <span className="font-medium">{t('common.no')}</span>
         </button>
       </div>
     );
@@ -232,9 +234,9 @@ const SatisfactionSurveyPage: React.FC = () => {
       <div className="bg-gradient-to-r from-pink-500 to-rose-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <ClipboardList className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Patient Feedback</h1>
+          <h1 className="text-2xl font-bold">{t('survey.title')}</h1>
         </div>
-        <p className="text-pink-100">Help us improve your care experience</p>
+        <p className="text-pink-100">{t('survey.subtitle')}</p>
       </div>
 
       {/* Progress Bar */}
@@ -249,7 +251,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 }`}
               >
                 {getStepIcon(s as SurveyStep)}
-                <span className="hidden sm:inline capitalize">{s}</span>
+                <span className="hidden sm:inline">{t(`survey.step${s.charAt(0).toUpperCase()}${s.slice(1)}`)}</span>
               </div>
             ))}
           </div>
@@ -268,13 +270,13 @@ const SatisfactionSurveyPage: React.FC = () => {
           <div className="space-y-6">
             <div className="bg-white rounded-lg shadow p-6 text-center">
               <Heart className="w-16 h-16 text-pink-500 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-gray-900 mb-2">We Value Your Feedback</h2>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">{t('survey.valueTitle')}</h2>
               <p className="text-gray-600 mb-6">
-                Your opinions help us provide better care. This survey takes about 3 minutes to complete.
+                {t('survey.valueBody')}
               </p>
-              
+
               <div className="bg-pink-50 rounded-lg p-4 mb-6">
-                <h3 className="font-medium text-pink-900 mb-2">Recent Visit</h3>
+                <h3 className="font-medium text-pink-900 mb-2">{t('survey.recentVisit')}</h3>
                 <div className="text-sm text-pink-700">
                   <p>Dr. Sarah Chen - Primary Care</p>
                   <p className="flex items-center justify-center gap-1 mt-1">
@@ -288,7 +290,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 onClick={() => setStep('visit')}
                 className="w-full py-3 bg-pink-500 text-white rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
               >
-                Start Survey
+                {t('survey.startSurvey')}
                 <ChevronRight className="w-5 h-5" />
               </button>
             </div>
@@ -297,9 +299,9 @@ const SatisfactionSurveyPage: React.FC = () => {
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
                 <div>
-                  <h4 className="font-medium text-blue-900">Anonymous Feedback</h4>
+                  <h4 className="font-medium text-blue-900">{t('survey.anonTitle')}</h4>
                   <p className="text-sm text-blue-700 mt-1">
-                    Your responses are confidential and will be used to improve our services.
+                    {t('survey.anonBody')}
                   </p>
                 </div>
               </div>
@@ -312,7 +314,7 @@ const SatisfactionSurveyPage: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <Stethoscope className="w-6 h-6 text-pink-500" />
-              <h2 className="text-lg font-bold text-gray-900">Your Visit Experience</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('survey.visitHeader')}</h2>
             </div>
             {renderQuestionSet(visitQuestions)}
             <button
@@ -324,7 +326,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
             >
-              Continue
+              {t('survey.continue')}
               <ChevronRight className="w-5 h-5" />
             </button>
           </div>
@@ -335,7 +337,7 @@ const SatisfactionSurveyPage: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <Users className="w-6 h-6 text-pink-500" />
-              <h2 className="text-lg font-bold text-gray-900">Our Staff</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('survey.staffHeader')}</h2>
             </div>
             {renderQuestionSet(staffQuestions)}
             <div className="flex gap-3">
@@ -343,7 +345,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 onClick={() => setStep('visit')}
                 className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50"
               >
-                Back
+                {t('common.back')}
               </button>
               <button
                 onClick={() => setStep('facility')}
@@ -354,7 +356,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                     : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 }`}
               >
-                Continue
+                {t('survey.continue')}
                 <ChevronRight className="w-5 h-5" />
               </button>
             </div>
@@ -366,7 +368,7 @@ const SatisfactionSurveyPage: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <Building className="w-6 h-6 text-pink-500" />
-              <h2 className="text-lg font-bold text-gray-900">Our Facility</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('survey.facilityHeader')}</h2>
             </div>
             {renderQuestionSet(facilityQuestions)}
             <div className="flex gap-3">
@@ -374,13 +376,13 @@ const SatisfactionSurveyPage: React.FC = () => {
                 onClick={() => setStep('staff')}
                 className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50"
               >
-                Back
+                {t('common.back')}
               </button>
               <button
                 onClick={() => setStep('feedback')}
                 className="flex-1 py-3 bg-pink-500 text-white rounded-lg font-semibold hover:bg-pink-600 flex items-center justify-center gap-2"
               >
-                Continue
+                {t('survey.continue')}
                 <ChevronRight className="w-5 h-5" />
               </button>
             </div>
@@ -392,13 +394,13 @@ const SatisfactionSurveyPage: React.FC = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <MessageSquare className="w-6 h-6 text-pink-500" />
-              <h2 className="text-lg font-bold text-gray-900">Final Thoughts</h2>
+              <h2 className="text-lg font-bold text-gray-900">{t('survey.feedbackHeader')}</h2>
             </div>
 
             {/* Overall Rating */}
             <div className="bg-white rounded-lg shadow p-4">
               <p className="font-medium text-gray-900 mb-3">
-                Overall, how would you rate your experience? <span className="text-red-500">*</span>
+                {t('survey.overallQuestion')} <span className="text-red-500">*</span>
               </p>
               <div className="flex justify-center gap-2">
                 {[1, 2, 3, 4, 5].map(star => (
@@ -419,7 +421,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               </div>
               {overallRating > 0 && (
                 <p className="text-center text-sm text-gray-500 mt-2">
-                  {overallRating === 5 ? 'Excellent!' : overallRating === 4 ? 'Very Good' : overallRating === 3 ? 'Good' : overallRating === 2 ? 'Fair' : 'Poor'}
+                  {overallRating === 5 ? t('survey.rate5') : overallRating === 4 ? t('survey.rate4') : overallRating === 3 ? t('survey.rate3') : overallRating === 2 ? t('survey.rate2') : t('survey.rate1')}
                 </p>
               )}
             </div>
@@ -427,7 +429,7 @@ const SatisfactionSurveyPage: React.FC = () => {
             {/* Would Recommend */}
             <div className="bg-white rounded-lg shadow p-4">
               <p className="font-medium text-gray-900 mb-3">
-                Would you recommend us to friends and family? <span className="text-red-500">*</span>
+                {t('survey.recommendQuestion')} <span className="text-red-500">*</span>
               </p>
               <div className="flex gap-4 justify-center">
                 <button
@@ -439,7 +441,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                   }`}
                 >
                   <ThumbsUp className={`w-6 h-6 ${wouldRecommend === true ? 'text-green-500' : 'text-gray-400'}`} />
-                  <span className="font-medium">Yes</span>
+                  <span className="font-medium">{t('common.yes')}</span>
                 </button>
                 <button
                   onClick={() => setWouldRecommend(false)}
@@ -450,7 +452,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                   }`}
                 >
                   <ThumbsDown className={`w-6 h-6 ${wouldRecommend === false ? 'text-red-500' : 'text-gray-400'}`} />
-                  <span className="font-medium">No</span>
+                  <span className="font-medium">{t('common.no')}</span>
                 </button>
               </div>
             </div>
@@ -458,13 +460,13 @@ const SatisfactionSurveyPage: React.FC = () => {
             {/* Additional Comments */}
             <div className="bg-white rounded-lg shadow p-4">
               <label htmlFor="survey-additional-comments" className="block font-medium text-gray-900 mb-3">
-                Any additional comments or suggestions?
+                {t('survey.commentsLabel')}
               </label>
               <textarea
                 id="survey-additional-comments"
                 value={additionalComments}
                 onChange={(e) => setAdditionalComments(e.target.value)}
-                placeholder="Share your thoughts with us..."
+                placeholder={t('survey.commentsPlaceholder')}
                 rows={4}
                 className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
               />
@@ -475,7 +477,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 onClick={() => setStep('facility')}
                 className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50"
               >
-                Back
+                {t('common.back')}
               </button>
               <button
                 onClick={handleSubmit}
@@ -487,11 +489,11 @@ const SatisfactionSurveyPage: React.FC = () => {
                 }`}
               >
                 {isSubmitting ? (
-                  <>Submitting...</>
+                  <>{t('survey.submitting')}</>
                 ) : (
                   <>
                     <Send className="w-5 h-5" />
-                    Submit Feedback
+                    {t('survey.submit')}
                   </>
                 )}
               </button>
@@ -505,9 +507,9 @@ const SatisfactionSurveyPage: React.FC = () => {
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle className="w-10 h-10 text-green-500" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Thank You!</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('survey.thankYou')}</h2>
             <p className="text-gray-600 mb-8">
-              Your feedback has been submitted successfully. We appreciate you taking the time to help us improve.
+              {t('survey.thankYouBody')}
             </p>
             <button
               onClick={() => {
@@ -519,7 +521,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               }}
               className="px-6 py-3 bg-pink-500 text-white rounded-lg font-semibold hover:bg-pink-600"
             >
-              Submit Another Response
+              {t('survey.submitAnother')}
             </button>
           </div>
         )}
