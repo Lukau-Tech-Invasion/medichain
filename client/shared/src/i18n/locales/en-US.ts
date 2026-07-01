@@ -1068,6 +1068,30 @@ const en_US: TranslationRecord = {
     required: 'This field is required',
     invalid: 'Invalid input',
   },
+
+  // ===========================================================================
+  // Doctor portal pages (namespaced `doc*` to avoid collision with patient app)
+  // ===========================================================================
+
+  docEmergencyAccess: {
+    title: 'Emergency Access',
+    subtitle: 'Quickly access critical patient information in emergency situations. All accesses are logged and auditable.',
+    securityTitle: 'Security Notice',
+    securityBody: 'Emergency access is time-limited to 15 minutes and creates an immutable audit log on the blockchain. Misuse may result in disciplinary action.',
+    expired: 'Expired',
+    timeRemaining: 'Access Time Remaining',
+    endAccess: 'End Access',
+    viewRecords: 'View Full Records',
+    howToTitle: 'How to Access Emergency Records',
+    step1Title: 'NFC Tap (Fastest)',
+    step1Body: "Tap the patient's MediChain NFC card on your device",
+    step2Title: 'QR Code Scan',
+    step2Body: "Scan the QR code on patient's card or wristband",
+    step3Title: 'Manual Entry',
+    step3Body: "Enter the patient's National Health ID manually",
+    noteLabel: 'Note:',
+    noteBody: "Enter the patient's wallet address or registered patient ID to access their records. Emergency access is logged and audited for compliance.",
+  },
 };
 
 export default en_US;

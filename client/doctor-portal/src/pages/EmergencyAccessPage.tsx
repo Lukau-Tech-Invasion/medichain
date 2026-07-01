@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from '@medichain/shared';
 import { NFCTapSimulator, EmergencyPatientCard } from '../components';
 import { usePatientStore } from '../store';
 import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
@@ -10,6 +11,7 @@ import { AlertTriangle, Shield, Clock, FileText } from 'lucide-react';
  * via NFC tap, QR code scan, or manual ID entry.
  */
 function EmergencyAccessPage() {
+  const { t } = useTranslation();
   const { currentEmergency, clearEmergencyAccess } = usePatientStore();
   const [accessGrantedAt, setAccessGrantedAt] = useState<Date | null>(null);
 
@@ -29,7 +31,7 @@ function EmergencyAccessPage() {
     if (!accessGrantedAt) return null;
     const elapsed = Date.now() - accessGrantedAt.getTime();
     const remaining = 15 * 60 * 1000 - elapsed; // 15 minutes
-    if (remaining <= 0) return 'Expired';
+    if (remaining <= 0) return t('docEmergencyAccess.expired');
     const minutes = Math.floor(remaining / 60000);
     const seconds = Math.floor((remaining % 60000) / 1000);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -43,11 +45,10 @@ function EmergencyAccessPage() {
           <div className="w-10 h-10 bg-emergency-100 rounded-lg flex items-center justify-center">
             <AlertTriangle className="text-emergency-600" size={24} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Emergency Access</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('docEmergencyAccess.title')}</h1>
         </div>
         <p className="text-gray-500">
-          Quickly access critical patient information in emergency situations.
-          All accesses are logged and auditable.
+          {t('docEmergencyAccess.subtitle')}
         </p>
       </div>
 
@@ -56,10 +57,9 @@ function EmergencyAccessPage() {
         <div className="flex items-start gap-3">
           <Shield className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
           <div>
-            <p className="font-medium text-amber-800">Security Notice</p>
+            <p className="font-medium text-amber-800">{t('docEmergencyAccess.securityTitle')}</p>
             <p className="text-sm text-amber-700 mt-1">
-              Emergency access is time-limited to 15 minutes and creates an immutable audit log 
-              on the blockchain. Misuse may result in disciplinary action.
+              {t('docEmergencyAccess.securityBody')}
             </p>
           </div>
         </div>
@@ -80,7 +80,7 @@ function EmergencyAccessPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="text-primary-600" size={20} />
-                    <span className="font-medium text-gray-700">Access Time Remaining</span>
+                    <span className="font-medium text-gray-700">{t('docEmergencyAccess.timeRemaining')}</span>
                   </div>
                   <span className="text-2xl font-mono font-bold text-primary-600">
                     {getTimeRemaining()}
@@ -100,13 +100,13 @@ function EmergencyAccessPage() {
                   onClick={handleClearAccess}
                   className="flex-1 py-3 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
                 >
-                  End Access
+                  {t('docEmergencyAccess.endAccess')}
                 </button>
                 <button
                   className="flex-1 py-3 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium flex items-center justify-center gap-2"
                 >
                   <FileText size={18} />
-                  View Full Records
+                  {t('docEmergencyAccess.viewRecords')}
                 </button>
               </div>
             </div>
@@ -114,7 +114,7 @@ function EmergencyAccessPage() {
             /* Instructions when no patient loaded */
             <div className="bg-white rounded-xl shadow p-8">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                How to Access Emergency Records
+                {t('docEmergencyAccess.howToTitle')}
               </h3>
               
               <div className="space-y-4">
@@ -123,9 +123,9 @@ function EmergencyAccessPage() {
                     <span className="font-bold text-primary-600">1</span>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">NFC Tap (Fastest)</p>
+                    <p className="font-medium text-gray-900">{t('docEmergencyAccess.step1Title')}</p>
                     <p className="text-sm text-gray-500">
-                      Tap the patient's MediChain NFC card on your device
+                      {t('docEmergencyAccess.step1Body')}
                     </p>
                   </div>
                 </div>
@@ -135,9 +135,9 @@ function EmergencyAccessPage() {
                     <span className="font-bold text-primary-600">2</span>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">QR Code Scan</p>
+                    <p className="font-medium text-gray-900">{t('docEmergencyAccess.step2Title')}</p>
                     <p className="text-sm text-gray-500">
-                      Scan the QR code on patient's card or wristband
+                      {t('docEmergencyAccess.step2Body')}
                     </p>
                   </div>
                 </div>
@@ -147,9 +147,9 @@ function EmergencyAccessPage() {
                     <span className="font-bold text-primary-600">3</span>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">Manual Entry</p>
+                    <p className="font-medium text-gray-900">{t('docEmergencyAccess.step3Title')}</p>
                     <p className="text-sm text-gray-500">
-                      Enter the patient's National Health ID manually
+                      {t('docEmergencyAccess.step3Body')}
                     </p>
                   </div>
                 </div>
@@ -157,8 +157,7 @@ function EmergencyAccessPage() {
 
               <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                 <p className="text-sm text-gray-600">
-                  <strong>Note:</strong> Enter the patient's wallet address or registered patient ID to access their records. 
-                  Emergency access is logged and audited for compliance.
+                  <strong>{t('docEmergencyAccess.noteLabel')}</strong> {t('docEmergencyAccess.noteBody')}
                 </p>
               </div>
             </div>
