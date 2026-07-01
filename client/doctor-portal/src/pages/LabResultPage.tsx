@@ -15,7 +15,7 @@ import {
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
-import { getAllLabSubmissions } from '@medichain/shared';
+import { getAllLabSubmissions, useTranslation } from '@medichain/shared';
 
 /**
  * LabResultPage
@@ -53,6 +53,7 @@ interface LabResult {
 }
 
 const LabResultPage: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'results' | 'pending' | 'critical'>('results');
   const [results, setResults] = useState<LabResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,12 +72,12 @@ const LabResultPage: React.FC = () => {
       const mappedResults: LabResult[] = ((submissions as unknown) as unknown[]).map((s: any) => ({
         id: s.id || s.submission_id || '',
         patientId: s.patient_id || s.patientId || '',
-        patientName: s.patient_name || s.patientName || 'Unknown Patient',
+        patientName: s.patient_name || s.patientName || t('docLabResult.unknownPatient'),
         mrn: s.mrn || '',
         orderDate: new Date(s.order_date || s.orderDate || Date.now()),
         collectionDate: s.collection_date || s.collectionDate ? new Date(s.collection_date || s.collectionDate!) : undefined,
         resultDate: s.result_date || s.resultDate ? new Date(s.result_date || s.resultDate!) : undefined,
-        panelName: s.panel_name || s.panelName || 'Unknown Panel',
+        panelName: s.panel_name || s.panelName || t('docLabResult.unknownPanel'),
         status: (s.status as ResultStatus) || 'pending',
         orderedBy: s.ordered_by || s.orderedBy || '',
         tests: s.tests || [],
@@ -86,11 +87,11 @@ const LabResultPage: React.FC = () => {
       setResults(mappedResults);
     } catch (err) {
       console.error('Failed to fetch lab results:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load lab results');
+      setError(err instanceof Error ? err.message : t('docLabResult.failLoad'));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchLabResults();
@@ -104,9 +105,15 @@ const LabResultPage: React.FC = () => {
       'cancelled': { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> }
     };
     const s = styles[status];
+    const labels: Record<ResultStatus, string> = {
+      'pending': t('docLabResult.statusPending'),
+      'in-progress': t('docLabResult.statusInProgress'),
+      'completed': t('docLabResult.statusCompleted'),
+      'cancelled': t('docLabResult.statusCancelled'),
+    };
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
-        {s.icon} {status.replace('-', ' ')}
+        {s.icon} {labels[status]}
       </span>
     );
   };
@@ -127,7 +134,7 @@ const LabResultPage: React.FC = () => {
     );
   };
 
-  const hasCritical = (result: LabResult) => result.tests.some(t => t.flag.includes('critical'));
+  const hasCritical = (result: LabResult) => result.tests.some(tt => tt.flag.includes('critical'));
 
   const filteredResults = results.filter(r => {
     const matchesSearch = r.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -149,24 +156,24 @@ const LabResultPage: React.FC = () => {
       <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FlaskConical className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Lab Results</h1>
+          <h1 className="text-2xl font-bold">{t('docLabResult.title')}</h1>
         </div>
-        <p className="text-emerald-100">View and manage laboratory results</p>
+        <p className="text-emerald-100">{t('docLabResult.subtitle')}</p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
         <div className="bg-white rounded-lg shadow p-4 text-center">
           <p className="text-2xl font-bold text-gray-800">{results.length}</p>
-          <p className="text-xs text-gray-500">Total Results</p>
+          <p className="text-xs text-gray-500">{t('docLabResult.totalResults')}</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4 text-center">
           <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-          <p className="text-xs text-gray-500">Pending/In-Progress</p>
+          <p className="text-xs text-gray-500">{t('docLabResult.pendingInProgress')}</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4 text-center">
           <p className="text-2xl font-bold text-red-600">{criticalCount}</p>
-          <p className="text-xs text-gray-500">Critical Values</p>
+          <p className="text-xs text-gray-500">{t('docLabResult.criticalValues')}</p>
         </div>
       </div>
 
@@ -177,11 +184,11 @@ const LabResultPage: React.FC = () => {
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-4 text-sm font-medium capitalize ${
+              className={`flex-1 py-4 text-sm font-medium ${
                 activeTab === tab ? 'text-emerald-700 border-b-2 border-emerald-700' : 'text-gray-500'
               }`}
             >
-              {tab === 'results' ? 'All Results' : tab === 'pending' ? `Pending (${pendingCount})` : `Critical (${criticalCount})`}
+              {tab === 'results' ? t('docLabResult.tabAll') : tab === 'pending' ? t('docLabResult.tabPending', { count: pendingCount }) : t('docLabResult.tabCritical', { count: criticalCount })}
             </button>
           ))}
         </div>
@@ -190,28 +197,28 @@ const LabResultPage: React.FC = () => {
       {/* Search & Filter */}
       <div className="p-4 flex gap-2">
         <div className="relative flex-1">
-          <label htmlFor="labresult-search" className="sr-only">Search by patient, MRN, or panel</label>
+          <label htmlFor="labresult-search" className="sr-only">{t('docLabResult.searchLabel')}</label>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
           <input
             id="labresult-search"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by patient, MRN, or panel..."
+            placeholder={t('docLabResult.searchPlaceholder')}
             className="w-full pl-10 pr-4 py-2 border rounded-lg"
           />
         </div>
-        <label htmlFor="labresult-status-filter" className="sr-only">Filter by status</label>
+        <label htmlFor="labresult-status-filter" className="sr-only">{t('docLabResult.filterLabel')}</label>
         <select
           id="labresult-status-filter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
           className="border rounded-lg px-3 py-2"
         >
-          <option value="all">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="in-progress">In Progress</option>
-          <option value="completed">Completed</option>
+          <option value="all">{t('docLabResult.statusAll')}</option>
+          <option value="pending">{t('docLabResult.statusPending')}</option>
+          <option value="in-progress">{t('docLabResult.statusInProgress')}</option>
+          <option value="completed">{t('docLabResult.statusCompleted')}</option>
         </select>
       </div>
 
@@ -228,7 +235,7 @@ const LabResultPage: React.FC = () => {
             <div className="flex items-start justify-between mb-2">
               <div>
                 <h3 className="font-semibold">{result.panelName}</h3>
-                <p className="text-sm text-gray-500">{result.patientName} • MRN: {result.mrn}</p>
+                <p className="text-sm text-gray-500">{result.patientName} • {t('docLabResult.mrn', { mrn: result.mrn })}</p>
               </div>
               {getStatusBadge(result.status)}
             </div>
@@ -246,15 +253,15 @@ const LabResultPage: React.FC = () => {
 
             {result.status === 'completed' && result.tests.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
-                {result.tests.filter(t => t.flag !== 'normal').slice(0, 3).map(test => (
+                {result.tests.filter(tt => tt.flag !== 'normal').slice(0, 3).map(test => (
                   <span key={test.testCode} className={`text-xs px-2 py-1 rounded ${
                     test.flag.includes('critical') ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
                   }`}>
                     {test.testCode}: {test.result} {test.unit}
                   </span>
                 ))}
-                {result.tests.filter(t => t.flag !== 'normal').length > 3 && (
-                  <span className="text-xs text-gray-500">+{result.tests.filter(t => t.flag !== 'normal').length - 3} more</span>
+                {result.tests.filter(tt => tt.flag !== 'normal').length > 3 && (
+                  <span className="text-xs text-gray-500">{t('docLabResult.more', { count: result.tests.filter(tt => tt.flag !== 'normal').length - 3 })}</span>
                 )}
               </div>
             )}
@@ -269,7 +276,7 @@ const LabResultPage: React.FC = () => {
             <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{selectedResult.panelName}</h2>
-                <p className="text-sm text-gray-500">{selectedResult.patientName} • MRN: {selectedResult.mrn}</p>
+                <p className="text-sm text-gray-500">{selectedResult.patientName} • {t('docLabResult.mrn', { mrn: selectedResult.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button className="p-2 hover:bg-gray-100 rounded"><Download className="w-5 h-5" /></button>
@@ -281,19 +288,19 @@ const LabResultPage: React.FC = () => {
             <div className="p-6">
               <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                 <div>
-                  <p className="text-gray-500">Order Date</p>
+                  <p className="text-gray-500">{t('docLabResult.orderDate')}</p>
                   <p className="font-medium">{selectedResult.orderDate.toLocaleString()}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Collection Date</p>
-                  <p className="font-medium">{selectedResult.collectionDate?.toLocaleString() || 'Pending'}</p>
+                  <p className="text-gray-500">{t('docLabResult.collectionDate')}</p>
+                  <p className="font-medium">{selectedResult.collectionDate?.toLocaleString() || t('docLabResult.pending')}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Result Date</p>
-                  <p className="font-medium">{selectedResult.resultDate?.toLocaleString() || 'Pending'}</p>
+                  <p className="text-gray-500">{t('docLabResult.resultDate')}</p>
+                  <p className="font-medium">{selectedResult.resultDate?.toLocaleString() || t('docLabResult.pending')}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Specimen</p>
+                  <p className="text-gray-500">{t('docLabResult.specimen')}</p>
                   <p className="font-medium">{selectedResult.specimen}</p>
                 </div>
               </div>
@@ -303,10 +310,10 @@ const LabResultPage: React.FC = () => {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="text-left p-3">Test</th>
-                        <th className="text-right p-3">Result</th>
-                        <th className="text-center p-3">Flag</th>
-                        <th className="text-left p-3">Reference Range</th>
+                        <th className="text-left p-3">{t('docLabResult.colTest')}</th>
+                        <th className="text-right p-3">{t('docLabResult.colResult')}</th>
+                        <th className="text-center p-3">{t('docLabResult.colFlag')}</th>
+                        <th className="text-left p-3">{t('docLabResult.colReferenceRange')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -327,13 +334,13 @@ const LabResultPage: React.FC = () => {
               ) : (
                 <div className="text-center py-8 text-gray-500">
                   <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin" />
-                  <p>Results pending...</p>
+                  <p>{t('docLabResult.resultsPending')}</p>
                 </div>
               )}
 
               {selectedResult.notes && (
                 <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm text-yellow-800"><strong>Note:</strong> {selectedResult.notes}</p>
+                  <p className="text-sm text-yellow-800"><strong>{t('docLabResult.noteLabel')}</strong> {selectedResult.notes}</p>
                 </div>
               )}
             </div>
