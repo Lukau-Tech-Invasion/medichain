@@ -364,6 +364,42 @@ const en_US: TranslationRecord = {
     referenceRange: 'Reference Range',
   },
 
+  // Language & region settings
+  languageSettings: {
+    title: 'Language & Region',
+    subtitle: 'Customize your language and regional preferences',
+    active: 'Active',
+    searchLabel: 'Search languages',
+    searchPlaceholder: 'Search languages...',
+    regionAmericas: 'Americas',
+    regionEurope: 'Europe',
+    regionAsia: 'Asia',
+    regionMiddleEast: 'Middle East',
+    comingSoon: 'Coming Soon',
+    regionalSettings: 'Regional Format Settings',
+    dateFormat: 'Date Format',
+    formatExample: '{{label}} (e.g., {{example}})',
+    timeFormat: 'Time Format',
+    time12: '12-hour (2:30 PM)',
+    time24: '24-hour (14:30)',
+    firstDayOfWeek: 'First Day of Week',
+    sunday: 'Sunday',
+    monday: 'Monday',
+    saturday: 'Saturday',
+    temperatureUnit: 'Temperature Unit',
+    fahrenheit: '°F Fahrenheit',
+    celsius: '°C Celsius',
+    measurementSystem: 'Measurement System',
+    imperial: 'Imperial (lb, ft, in)',
+    metric: 'Metric (kg, m, cm)',
+    medicalTermTitle: 'Medical Terminology',
+    medicalTermBody:
+      'Medical terms and diagnoses are displayed in both your selected language and English for accuracy. Critical alerts and emergency information will always be shown in multiple languages for safety.',
+    saved: 'Settings Saved!',
+    saving: 'Saving...',
+    saveButton: 'Save Language Settings',
+  },
+
   // Symptom tracker
   symptomTracker: {
     title: 'Symptom Tracker',
