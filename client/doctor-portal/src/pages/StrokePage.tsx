@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createStroke, getPatients, apiUrl } from '@medichain/shared';
+import { createStroke, getPatients, apiUrl, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import {
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 export default function StrokePage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const { showError } = useToastActions();
@@ -99,7 +100,7 @@ export default function StrokePage() {
       navigate('/dashboard');
     } catch (error) {
       console.error('Failed to save stroke assessment', error);
-      showError('Failed to save assessment. Please try again.');
+      showError(t('docStroke.saveFailed'));
     }
   };
 
@@ -108,10 +109,10 @@ export default function StrokePage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 flex items-center">
           <Brain className="h-8 w-8 text-purple-600 mr-3" />
-          Stroke Code Management
+          {t('docStroke.title')}
         </h1>
         <p className="mt-2 text-gray-600">
-          Acute stroke assessment, NIHSS scoring, and thrombolytic eligibility.
+          {t('docStroke.subtitle')}
         </p>
       </div>
 
@@ -119,7 +120,7 @@ export default function StrokePage() {
         {/* Patient Selection */}
         <div className="bg-white shadow rounded-lg p-6">
           <label htmlFor="stroke-patient" className="block text-sm font-medium text-gray-700 mb-2">
-            Select Patient
+            {t('docStroke.selectPatient')}
           </label>
           <div className="relative max-w-md">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -132,7 +133,7 @@ export default function StrokePage() {
               onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
               required
             >
-              <option value="">Select a patient...</option>
+              <option value="">{t('docStroke.selectPatientPlaceholder')}</option>
               {patients.map(patient => (
                 <option key={patient.patient_id} value={patient.patient_id}>
                   {patient.full_name} ({patient.national_id})
@@ -147,35 +148,35 @@ export default function StrokePage() {
           <div className="bg-white shadow rounded-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <History className="h-5 w-5 text-purple-500" />
-              Past Emergency Events
+              {t('docStroke.pastEvents')}
             </h3>
             {historyLoading ? (
-              <p className="text-gray-500 text-sm">Loading history...</p>
+              <p className="text-gray-500 text-sm">{t('docStroke.loadingHistory')}</p>
             ) : emergencyHistory.length === 0 ? (
-              <p className="text-gray-400 text-sm italic">No prior emergency events for this patient.</p>
+              <p className="text-gray-400 text-sm italic">{t('docStroke.noEvents')}</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Event ID</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Time</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Outcome</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docStroke.colEventId')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docStroke.colType')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docStroke.colTime')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docStroke.colOutcome')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {emergencyHistory.map((ev) => (
                       <tr key={ev.event_id} className="hover:bg-gray-50">
                         <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
-                        <td className="px-4 py-2">{ev.event_type || 'Stroke'}</td>
+                        <td className="px-4 py-2">{ev.event_type || t('docStroke.stroke')}</td>
                         <td className="px-4 py-2">
                           {ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleString() :
                            ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
                         </td>
                         <td className="px-4 py-2">
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
-                            {ev.outcome || 'N/A'}
+                            {ev.outcome || t('docStroke.na')}
                           </span>
                         </td>
                       </tr>
@@ -192,11 +193,11 @@ export default function StrokePage() {
           <div className="bg-white shadow rounded-lg p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
               <Clock className="h-5 w-5 mr-2 text-gray-500" />
-              Critical Timing
+              {t('docStroke.criticalTiming')}
             </h3>
             <div className="space-y-4">
               <div>
-                <label htmlFor="stroke-last-known-well" className="block text-sm font-medium text-gray-700">Last Known Well</label>
+                <label htmlFor="stroke-last-known-well" className="block text-sm font-medium text-gray-700">{t('docStroke.lastKnownWell')}</label>
                 <input
                   id="stroke-last-known-well"
                   type="datetime-local"
@@ -207,7 +208,7 @@ export default function StrokePage() {
                 />
               </div>
               <div>
-                <label htmlFor="stroke-symptom-onset" className="block text-sm font-medium text-gray-700">Symptom Discovery</label>
+                <label htmlFor="stroke-symptom-onset" className="block text-sm font-medium text-gray-700">{t('docStroke.symptomDiscovery')}</label>
                 <input
                   id="stroke-symptom-onset"
                   type="datetime-local"
@@ -223,37 +224,37 @@ export default function StrokePage() {
           <div className="bg-white shadow rounded-lg p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
               <Activity className="h-5 w-5 mr-2 text-gray-500" />
-              FAST Assessment
+              {t('docStroke.fastAssessment')}
             </h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Face Drooping</span>
+                <span className="text-sm font-medium text-gray-700">{t('docStroke.faceDrooping')}</span>
                 <button
                   type="button"
                   onClick={() => setFaceDroop(!faceDroop)}
                   className={`px-4 py-2 rounded-md text-sm font-medium ${faceDroop ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}
                 >
-                  {faceDroop ? 'Present' : 'Absent'}
+                  {faceDroop ? t('docStroke.present') : t('docStroke.absent')}
                 </button>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Arm Weakness</span>
+                <span className="text-sm font-medium text-gray-700">{t('docStroke.armWeakness')}</span>
                 <button
                   type="button"
                   onClick={() => setArmDrift(!armDrift)}
                   className={`px-4 py-2 rounded-md text-sm font-medium ${armDrift ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}
                 >
-                  {armDrift ? 'Present' : 'Absent'}
+                  {armDrift ? t('docStroke.present') : t('docStroke.absent')}
                 </button>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700">Speech Difficulty</span>
+                <span className="text-sm font-medium text-gray-700">{t('docStroke.speechDifficulty')}</span>
                 <button
                   type="button"
                   onClick={() => setSpeechDifficulty(!speechDifficulty)}
                   className={`px-4 py-2 rounded-md text-sm font-medium ${speechDifficulty ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}
                 >
-                  {speechDifficulty ? 'Present' : 'Absent'}
+                  {speechDifficulty ? t('docStroke.present') : t('docStroke.absent')}
                 </button>
               </div>
             </div>
@@ -264,11 +265,11 @@ export default function StrokePage() {
         <div className="bg-white shadow rounded-lg p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
             <CheckCircle className="h-5 w-5 mr-2 text-gray-500" />
-            Clinical Data & Eligibility
+            {t('docStroke.clinicalData')}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label htmlFor="stroke-nihss-score" className="block text-sm font-medium text-gray-700">NIHSS Score (0-42)</label>
+              <label htmlFor="stroke-nihss-score" className="block text-sm font-medium text-gray-700">{t('docStroke.nihssScore')}</label>
               <input
                 id="stroke-nihss-score"
                 type="number"
@@ -280,7 +281,7 @@ export default function StrokePage() {
               />
             </div>
             <div>
-              <label htmlFor="stroke-blood-glucose" className="block text-sm font-medium text-gray-700">Blood Glucose (mg/dL)</label>
+              <label htmlFor="stroke-blood-glucose" className="block text-sm font-medium text-gray-700">{t('docStroke.bloodGlucose')}</label>
               <input
                 id="stroke-blood-glucose"
                 type="number"
@@ -290,32 +291,32 @@ export default function StrokePage() {
               />
             </div>
             <div>
-              <label htmlFor="stroke-ct-head-result" className="block text-sm font-medium text-gray-700">CT Head Result</label>
+              <label htmlFor="stroke-ct-head-result" className="block text-sm font-medium text-gray-700">{t('docStroke.ctHeadResult')}</label>
               <select
                 id="stroke-ct-head-result"
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={ctHeadResult}
                 onChange={(e) => setCtHeadResult(e.target.value)}
               >
-                <option value="pending">Pending</option>
-                <option value="negative">Negative for Hemorrhage</option>
-                <option value="hemorrhage">Intracranial Hemorrhage</option>
-                <option value="infarct">Established Infarct</option>
-                <option value="tumor">Mass/Tumor</option>
+                <option value="pending">{t('docStroke.ctPending')}</option>
+                <option value="negative">{t('docStroke.ctNegative')}</option>
+                <option value="hemorrhage">{t('docStroke.ctHemorrhage')}</option>
+                <option value="infarct">{t('docStroke.ctInfarct')}</option>
+                <option value="tumor">{t('docStroke.ctTumor')}</option>
               </select>
             </div>
             <div>
-              <label htmlFor="stroke-tpa-eligibility" className="block text-sm font-medium text-gray-700">tPA Eligibility</label>
+              <label htmlFor="stroke-tpa-eligibility" className="block text-sm font-medium text-gray-700">{t('docStroke.tpaEligibility')}</label>
               <select
                 id="stroke-tpa-eligibility"
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={tpaCandidate}
                 onChange={(e) => setTpaCandidate(e.target.value)}
               >
-                <option value="evaluating">Evaluating</option>
-                <option value="eligible">Eligible</option>
-                <option value="contraindicated">Contraindicated</option>
-                <option value="refused">Patient/Family Refused</option>
+                <option value="evaluating">{t('docStroke.tpaEvaluating')}</option>
+                <option value="eligible">{t('docStroke.tpaEligible')}</option>
+                <option value="contraindicated">{t('docStroke.tpaContraindicated')}</option>
+                <option value="refused">{t('docStroke.tpaRefused')}</option>
               </select>
             </div>
           </div>
@@ -323,7 +324,7 @@ export default function StrokePage() {
 
         {/* Notes */}
         <div className="bg-white shadow rounded-lg p-6">
-          <label htmlFor="stroke-notes" className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+          <label htmlFor="stroke-notes" className="block text-sm font-medium text-gray-700 mb-2">{t('docStroke.additionalNotes')}</label>
           <textarea
             id="stroke-notes"
             rows={4}
@@ -340,7 +341,7 @@ export default function StrokePage() {
             className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
           >
             <Save className="h-5 w-5 mr-2" />
-            Save Assessment
+            {t('docStroke.saveAssessment')}
           </button>
         </div>
       </form>
