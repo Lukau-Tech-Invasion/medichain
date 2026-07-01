@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiErrorMessage, isValidPhoneNumber } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage, isValidPhoneNumber, useTranslation } from '@medichain/shared';
 import { 
   UserPlus, 
   CheckCircle, 
@@ -42,6 +42,7 @@ const initialFormData: FormData = {
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 function RegisterPatientPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuthStore();
   const [formData, setFormData] = useState<FormData>(initialFormData);
@@ -66,7 +67,7 @@ function RegisterPatientPage() {
     // Reject malformed emergency-contact numbers before submit — a broken
     // number is worse than none in an emergency.
     if (!isValidPhoneNumber(formData.emergencyContactPhone)) {
-      setPhoneError('Enter a valid phone number (e.g. +234 801 234 5678).');
+      setPhoneError(t('docRegisterPatient.invalidPhone'));
       return;
     }
 
@@ -98,7 +99,7 @@ function RegisterPatientPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(getApiErrorMessage(data, 'Registration failed'));
+        throw new Error(getApiErrorMessage(data, t('docRegisterPatient.regFailed')));
       }
 
       setSuccess({
@@ -106,7 +107,7 @@ function RegisterPatientPage() {
         nfcTagId: data.nfc_tag_id,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+      setError(err instanceof Error ? err.message : t('docRegisterPatient.regFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -119,19 +120,19 @@ function RegisterPatientPage() {
           <div className="w-16 h-16 bg-success-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="text-success-600" size={32} />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Patient Registered!</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('docRegisterPatient.registered')}</h2>
           <p className="text-gray-500 mb-6">
-            The patient has been successfully added to MediChain.
+            {t('docRegisterPatient.registeredBody')}
           </p>
           
           <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-500">Patient ID</p>
+                <p className="text-sm text-gray-500">{t('docRegisterPatient.patientId')}</p>
                 <p className="font-mono font-medium">{success.patientId}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">NFC Tag ID</p>
+                <p className="text-sm text-gray-500">{t('docRegisterPatient.nfcTagId')}</p>
                 <p className="font-mono font-medium">{success.nfcTagId}</p>
               </div>
             </div>
@@ -145,13 +146,13 @@ function RegisterPatientPage() {
               }}
               className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
             >
-              Register Another
+              {t('docRegisterPatient.registerAnother')}
             </button>
             <button
               onClick={() => navigate(`/patients/${success.patientId}`)}
               className="flex-1 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
             >
-              View Patient
+              {t('docRegisterPatient.viewPatient')}
             </button>
           </div>
         </div>
@@ -167,10 +168,10 @@ function RegisterPatientPage() {
           <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
             <UserPlus className="text-primary-600" size={24} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Register New Patient</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t('docRegisterPatient.title')}</h1>
         </div>
         <p className="text-gray-500">
-          Add a new patient to the MediChain network. An NFC card will be provisioned automatically.
+          {t('docRegisterPatient.subtitle')}
         </p>
       </div>
 
@@ -183,11 +184,11 @@ function RegisterPatientPage() {
 
       <form onSubmit={handleSubmit} className="max-w-3xl">
         <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Personal Information</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">{t('docRegisterPatient.personalInfo')}</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="register-full-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+              <label htmlFor="register-full-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.fullName')}</label>
               <input
                 type="text"
                 id="register-full-name"
@@ -196,12 +197,12 @@ function RegisterPatientPage() {
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                placeholder="John Doe"
+                placeholder={t('docRegisterPatient.fullNamePlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-date-of-birth" className="block text-sm font-medium text-gray-700 mb-1">Date of Birth *</label>
+              <label htmlFor="register-date-of-birth" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.dob')}</label>
               <input
                 type="date"
                 id="register-date-of-birth"
@@ -214,7 +215,7 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label htmlFor="register-national-id" className="block text-sm font-medium text-gray-700 mb-1">National ID *</label>
+              <label htmlFor="register-national-id" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.nationalId')}</label>
               <input
                 type="text"
                 id="register-national-id"
@@ -223,12 +224,12 @@ function RegisterPatientPage() {
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                placeholder="NIN-12345678901"
+                placeholder={t('docRegisterPatient.nationalIdPlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-blood-type" className="block text-sm font-medium text-gray-700 mb-1">Blood Type *</label>
+              <label htmlFor="register-blood-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.bloodType')}</label>
               <select
                 id="register-blood-type"
                 name="bloodType"
@@ -237,7 +238,7 @@ function RegisterPatientPage() {
                 required
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
               >
-                <option value="">Select blood type</option>
+                <option value="">{t('docRegisterPatient.selectBloodType')}</option>
                 {bloodTypes.map(bt => (
                   <option key={bt} value={bt}>{bt}</option>
                 ))}
@@ -247,12 +248,12 @@ function RegisterPatientPage() {
         </div>
 
         <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Medical Information</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">{t('docRegisterPatient.medicalInfo')}</h3>
           
           <div className="space-y-4">
             <div>
               <label htmlFor="register-allergies" className="block text-sm font-medium text-gray-700 mb-1">
-                Allergies <span className="text-gray-400">(comma-separated)</span>
+                {t('docRegisterPatient.allergies')} <span className="text-gray-400">{t('docRegisterPatient.commaSeparated')}</span>
               </label>
               <input
                 type="text"
@@ -261,13 +262,13 @@ function RegisterPatientPage() {
                 value={formData.allergies}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                placeholder="Penicillin, Sulfa drugs"
+                placeholder={t('docRegisterPatient.allergiesPlaceholder')}
               />
             </div>
             
             <div>
               <label htmlFor="register-current-medications" className="block text-sm font-medium text-gray-700 mb-1">
-                Current Medications <span className="text-gray-400">(comma-separated)</span>
+                {t('docRegisterPatient.currentMeds')} <span className="text-gray-400">{t('docRegisterPatient.commaSeparated')}</span>
               </label>
               <textarea
                 id="register-current-medications"
@@ -276,13 +277,13 @@ function RegisterPatientPage() {
                 onChange={handleChange}
                 rows={2}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
-                placeholder="Metformin 500mg - twice daily, Lisinopril 10mg - once daily"
+                placeholder={t('docRegisterPatient.currentMedsPlaceholder')}
               />
             </div>
             
             <div>
               <label htmlFor="register-chronic-conditions" className="block text-sm font-medium text-gray-700 mb-1">
-                Chronic Conditions <span className="text-gray-400">(comma-separated)</span>
+                {t('docRegisterPatient.chronicConditions')} <span className="text-gray-400">{t('docRegisterPatient.commaSeparated')}</span>
               </label>
               <input
                 type="text"
@@ -291,7 +292,7 @@ function RegisterPatientPage() {
                 value={formData.chronicConditions}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                placeholder="Type 2 Diabetes, Hypertension"
+                placeholder={t('docRegisterPatient.chronicPlaceholder')}
               />
             </div>
 
@@ -305,7 +306,7 @@ function RegisterPatientPage() {
                   onChange={handleChange}
                   className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
                 />
-                <span className="text-sm text-gray-700">Organ Donor</span>
+                <span className="text-sm text-gray-700">{t('docRegisterPatient.organDonor')}</span>
               </label>
               
               <label htmlFor="register-dnr-status" className="flex items-center gap-2 cursor-pointer">
@@ -317,18 +318,18 @@ function RegisterPatientPage() {
                   onChange={handleChange}
                   className="w-4 h-4 text-emergency-600 rounded focus:ring-emergency-500"
                 />
-                <span className="text-sm text-gray-700">Do Not Resuscitate (DNR)</span>
+                <span className="text-sm text-gray-700">{t('docRegisterPatient.dnr')}</span>
               </label>
             </div>
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Emergency Contact</h3>
+          <h3 className="font-semibold text-gray-900 mb-4">{t('docRegisterPatient.emergencyContact')}</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label htmlFor="register-emergency-contact-name" className="block text-sm font-medium text-gray-700 mb-1">Contact Name *</label>
+              <label htmlFor="register-emergency-contact-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.contactName')}</label>
               <input
                 type="text"
                 id="register-emergency-contact-name"
@@ -337,12 +338,12 @@ function RegisterPatientPage() {
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                placeholder="Jane Doe"
+                placeholder={t('docRegisterPatient.contactNamePlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-emergency-contact-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+              <label htmlFor="register-emergency-contact-phone" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.phone')}</label>
               <input
                 type="tel"
                 id="register-emergency-contact-phone"
@@ -354,7 +355,7 @@ function RegisterPatientPage() {
                 className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none ${
                   phoneError ? 'border-red-400' : 'border-gray-200'
                 }`}
-                placeholder="+234-801-234-5678"
+                placeholder={t('docRegisterPatient.phonePlaceholder')}
               />
               {phoneError && (
                 <p className="mt-1 text-sm text-red-600">{phoneError}</p>
@@ -362,7 +363,7 @@ function RegisterPatientPage() {
             </div>
             
             <div>
-              <label htmlFor="register-emergency-contact-relationship" className="block text-sm font-medium text-gray-700 mb-1">Relationship *</label>
+              <label htmlFor="register-emergency-contact-relationship" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.relationship')}</label>
               <input
                 type="text"
                 id="register-emergency-contact-relationship"
@@ -371,7 +372,7 @@ function RegisterPatientPage() {
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-                placeholder="Spouse"
+                placeholder={t('docRegisterPatient.relationshipPlaceholder')}
               />
             </div>
           </div>
@@ -383,7 +384,7 @@ function RegisterPatientPage() {
             onClick={() => navigate(-1)}
             className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
           >
-            Cancel
+            {t('docRegisterPatient.cancel')}
           </button>
           <button
             type="submit"
@@ -393,12 +394,12 @@ function RegisterPatientPage() {
             {isSubmitting ? (
               <>
                 <Loader2 className="animate-spin" size={20} />
-                Registering...
+                {t('docRegisterPatient.registering')}
               </>
             ) : (
               <>
                 <UserPlus size={20} />
-                Register Patient
+                {t('docRegisterPatient.registerPatient')}
               </>
             )}
           </button>
