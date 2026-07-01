@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { 
   ClipboardList, Plus, Clock, CheckCircle, XCircle, AlertTriangle,
   Pill, FlaskConical, Stethoscope, Activity, FileText, Loader2, Search
@@ -43,6 +43,7 @@ const STATUSES = [
 ];
 
 function OrdersPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [orders, setOrders] = useState<PhysicianOrder[]>([]);
@@ -91,11 +92,11 @@ function OrdersPage() {
         setOrders(data.orders || []);
         setError(null);
       } else {
-        setError('Failed to connect to server');
+        setError(t('docOrders.failConnect'));
         setOrders([]);
       }
     } catch (err) {
-      setError('Failed to fetch orders. Please ensure the API server is running.');
+      setError(t('docOrders.failFetch'));
       setOrders([]);
     } finally {
       setLoading(false);
@@ -128,10 +129,10 @@ function OrdersPage() {
           notes: '',
         });
       } else {
-        setError('Failed to create order');
+        setError(t('docOrders.failCreate'));
       }
     } catch (err) {
-      setError('Failed to create order. Please ensure the API server is running.');
+      setError(t('docOrders.failCreateApi'));
     }
   };
 
@@ -181,7 +182,7 @@ function OrdersPage() {
   };
 
   const getTypeInfo = (type: string) => {
-    return ORDER_TYPES.find(t => t.value === type) || ORDER_TYPES[0];
+    return ORDER_TYPES.find(ot => ot.value === type) || ORDER_TYPES[0];
   };
 
   const formatTime = (timestamp: number) => {
@@ -189,20 +190,50 @@ function OrdersPage() {
     return date.toLocaleString();
   };
 
+  const orderTypeLabel = (value: string): string => {
+    switch (value) {
+      case 'medication': return t('docOrders.typeMedication');
+      case 'lab': return t('docOrders.typeLab');
+      case 'imaging': return t('docOrders.typeImaging');
+      case 'consult': return t('docOrders.typeConsult');
+      case 'procedure': return t('docOrders.typeProcedure');
+      default: return value;
+    }
+  };
+
+  const priorityLabel = (value: string): string => {
+    switch (value) {
+      case 'stat': return t('docOrders.priStat');
+      case 'urgent': return t('docOrders.priUrgent');
+      case 'routine': return t('docOrders.priRoutine');
+      default: return value;
+    }
+  };
+
+  const statusLabel = (value: string): string => {
+    switch (value) {
+      case 'pending': return t('docOrders.stPending');
+      case 'in_progress': return t('docOrders.stInProgress');
+      case 'completed': return t('docOrders.stCompleted');
+      case 'cancelled': return t('docOrders.stCancelled');
+      default: return value;
+    }
+  };
+
   return (
     <div className="p-8">
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Physician Orders</h1>
-          <p className="text-gray-500 mt-1">Manage and track clinical orders</p>
+          <h1 className="text-2xl font-bold text-gray-900">{t('docOrders.title')}</h1>
+          <p className="text-gray-500 mt-1">{t('docOrders.subtitle')}</p>
         </div>
         <button
           onClick={() => setShowNewOrder(true)}
           className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
         >
           <Plus size={20} />
-          New Order
+          {t('docOrders.newOrder')}
         </button>
       </div>
 
@@ -215,7 +246,7 @@ function OrdersPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.status === 'pending').length}</p>
-              <p className="text-sm text-gray-500">Pending</p>
+              <p className="text-sm text-gray-500">{t('docOrders.statPending')}</p>
             </div>
           </div>
         </div>
@@ -226,7 +257,7 @@ function OrdersPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.status === 'in_progress').length}</p>
-              <p className="text-sm text-gray-500">In Progress</p>
+              <p className="text-sm text-gray-500">{t('docOrders.statInProgress')}</p>
             </div>
           </div>
         </div>
@@ -237,7 +268,7 @@ function OrdersPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.priority === 'stat').length}</p>
-              <p className="text-sm text-gray-500">STAT Orders</p>
+              <p className="text-sm text-gray-500">{t('docOrders.statStat')}</p>
             </div>
           </div>
         </div>
@@ -248,7 +279,7 @@ function OrdersPage() {
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.status === 'completed').length}</p>
-              <p className="text-sm text-gray-500">Completed Today</p>
+              <p className="text-sm text-gray-500">{t('docOrders.statCompleted')}</p>
             </div>
           </div>
         </div>
@@ -263,7 +294,7 @@ function OrdersPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search orders..."
+              placeholder={t('docOrders.searchPlaceholder')}
               className="w-full pl-10 pr-4 py-2 border rounded-lg"
             />
           </div>
@@ -272,9 +303,9 @@ function OrdersPage() {
             onChange={(e) => setFilterStatus(e.target.value)}
             className="px-4 py-2 border rounded-lg"
           >
-            <option value="all">All Statuses</option>
+            <option value="all">{t('docOrders.allStatuses')}</option>
             {STATUSES.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
+              <option key={s.value} value={s.value}>{statusLabel(s.value)}</option>
             ))}
           </select>
           <select
@@ -282,9 +313,9 @@ function OrdersPage() {
             onChange={(e) => setFilterType(e.target.value)}
             className="px-4 py-2 border rounded-lg"
           >
-            <option value="all">All Types</option>
-            {ORDER_TYPES.map(t => (
-              <option key={t.value} value={t.value}>{t.label}</option>
+            <option value="all">{t('docOrders.allTypes')}</option>
+            {ORDER_TYPES.map(ot => (
+              <option key={ot.value} value={ot.value}>{orderTypeLabel(ot.value)}</option>
             ))}
           </select>
         </div>
@@ -294,18 +325,18 @@ function OrdersPage() {
       <div className="bg-white rounded-xl shadow">
         <div className="p-4 border-b flex items-center gap-2">
           <ClipboardList className="text-gray-400" size={20} />
-          <span className="font-medium">{filteredOrders.length} Orders</span>
+          <span className="font-medium">{t('docOrders.ordersCount', { count: filteredOrders.length })}</span>
         </div>
 
         {loading ? (
           <div className="p-12 text-center">
             <Loader2 className="mx-auto animate-spin text-primary-500" size={48} />
-            <p className="text-gray-500 mt-3">Loading orders...</p>
+            <p className="text-gray-500 mt-3">{t('docOrders.loading')}</p>
           </div>
         ) : error ? (
           <div className="p-12 text-center text-red-500">{error}</div>
         ) : filteredOrders.length === 0 ? (
-          <div className="p-12 text-center text-gray-500">No orders found</div>
+          <div className="p-12 text-center text-gray-500">{t('docOrders.noneFound')}</div>
         ) : (
           <div className="divide-y">
             {filteredOrders.map(order => {
@@ -326,22 +357,22 @@ function OrdersPage() {
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium">{order.order_details}</h3>
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${priorityInfo.color}`}>
-                            {priorityInfo.label}
+                            {priorityLabel(order.priority)}
                           </span>
                         </div>
                         <p className="text-sm text-gray-500 mt-1">
-                          {order.patient_name || order.patient_id} • {typeInfo.label}
+                          {t('docOrders.patientType', { patient: order.patient_name || order.patient_id, type: orderTypeLabel(order.order_type) })}
                         </p>
                         <p className="text-xs text-gray-400 mt-1">
-                          Ordered: {formatTime(order.ordered_at)}
-                          {order.completed_at && ` • Completed: ${formatTime(order.completed_at)}`}
+                          {t('docOrders.orderedAt', { time: formatTime(order.ordered_at) })}
+                          {order.completed_at && t('docOrders.completedAt', { time: formatTime(order.completed_at) })}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className={`flex items-center gap-1 ${statusInfo.color}`}>
                         <StatusIcon size={16} />
-                        <span className="text-sm">{statusInfo.label}</span>
+                        <span className="text-sm">{statusLabel(order.status)}</span>
                       </div>
                       {order.status !== 'completed' && order.status !== 'cancelled' && (
                         <select
@@ -350,7 +381,7 @@ function OrdersPage() {
                           className="text-sm border rounded px-2 py-1"
                         >
                           {STATUSES.map(s => (
-                            <option key={s.value} value={s.value}>{s.label}</option>
+                            <option key={s.value} value={s.value}>{statusLabel(s.value)}</option>
                           ))}
                         </select>
                       )}
@@ -367,36 +398,36 @@ function OrdersPage() {
       {showNewOrder && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-xl font-bold mb-4">Create New Order</h2>
+            <h2 className="text-xl font-bold mb-4">{t('docOrders.createNewOrder')}</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
               <div>
-                <label htmlFor="order-patient-id" className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
+                <label htmlFor="order-patient-id" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.patientId')}</label>
                 <input
                   id="order-patient-id"
                   type="text"
                   value={newOrder.patient_id}
                   onChange={(e) => setNewOrder({ ...newOrder, patient_id: e.target.value })}
                   className="w-full px-4 py-2 border rounded-lg"
-                  placeholder="Enter patient ID or wallet address"
+                  placeholder={t('docOrders.patientIdPlaceholder')}
                   required
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="order-type" className="block text-sm font-medium text-gray-700 mb-1">Order Type</label>
+                  <label htmlFor="order-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.orderType')}</label>
                   <select
                     id="order-type"
                     value={newOrder.order_type}
                     onChange={(e) => setNewOrder({ ...newOrder, order_type: e.target.value })}
                     className="w-full px-4 py-2 border rounded-lg"
                   >
-                    {ORDER_TYPES.map(t => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
+                    {ORDER_TYPES.map(ot => (
+                      <option key={ot.value} value={ot.value}>{orderTypeLabel(ot.value)}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="order-priority" className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                  <label htmlFor="order-priority" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.priority')}</label>
                   <select
                     id="order-priority"
                     value={newOrder.priority}
@@ -404,32 +435,32 @@ function OrdersPage() {
                     className="w-full px-4 py-2 border rounded-lg"
                   >
                     {PRIORITIES.map(p => (
-                      <option key={p.value} value={p.value}>{p.label}</option>
+                      <option key={p.value} value={p.value}>{priorityLabel(p.value)}</option>
                     ))}
                   </select>
                 </div>
               </div>
               <div>
-                <label htmlFor="order-details" className="block text-sm font-medium text-gray-700 mb-1">Order Details</label>
+                <label htmlFor="order-details" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.orderDetails')}</label>
                 <textarea
                   id="order-details"
                   value={newOrder.order_details}
                   onChange={(e) => setNewOrder({ ...newOrder, order_details: e.target.value })}
                   className="w-full px-4 py-2 border rounded-lg"
                   rows={3}
-                  placeholder="Enter order details..."
+                  placeholder={t('docOrders.orderDetailsPlaceholder')}
                   required
                 />
               </div>
               <div>
-                <label htmlFor="order-notes" className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                <label htmlFor="order-notes" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.notesOptional')}</label>
                 <textarea
                   id="order-notes"
                   value={newOrder.notes}
                   onChange={(e) => setNewOrder({ ...newOrder, notes: e.target.value })}
                   className="w-full px-4 py-2 border rounded-lg"
                   rows={2}
-                  placeholder="Additional notes..."
+                  placeholder={t('docOrders.notesPlaceholder')}
                 />
               </div>
               <div className="flex justify-end gap-3 pt-4">
@@ -438,13 +469,13 @@ function OrdersPage() {
                   onClick={() => setShowNewOrder(false)}
                   className="px-4 py-2 border rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  {t('docOrders.cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
                 >
-                  Create Order
+                  {t('docOrders.createOrder')}
                 </button>
               </div>
             </form>
