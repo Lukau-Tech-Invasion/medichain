@@ -18,7 +18,7 @@ import {
   Beaker,
   BarChart3,
 } from 'lucide-react';
-import { getPharmacistDashboard } from '@medichain/shared';
+import { getPharmacistDashboard, useTranslation } from '@medichain/shared';
 import {
   StatCard,
   CriticalAlertsBanner,
@@ -77,6 +77,7 @@ interface PharmacistDashboardData {
 }
 
 export default function PharmacistDashboardPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<PharmacistDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,9 +104,9 @@ export default function PharmacistDashboardPage() {
     ...(data?.drug_interactions?.filter(d => d.severity === 'Major').map((d): CriticalAlert => ({
       id: d.id,
       type: 'drug_interaction',
-      title: `Drug Interaction: ${d.drug1} + ${d.drug2}`,
+      title: t('docPharmDashboard.drugInteractionTitle', { drug1: d.drug1, drug2: d.drug2 }),
       description: d.description,
-      patient_name: d.patient_name || 'Unknown',
+      patient_name: d.patient_name || t('docPharmDashboard.unknown'),
       timestamp: new Date().toISOString(),
       severity: 'critical',
     })) || []),
@@ -113,9 +114,9 @@ export default function PharmacistDashboardPage() {
     ...(data?.allergy_alerts?.map((a): CriticalAlert => ({
       id: a.id,
       type: 'allergy',
-      title: `Allergy Alert: ${a.allergen}`,
-      description: `Ordered medication: ${a.medication_ordered}`,
-      patient_name: a.patient_name || 'Unknown',
+      title: t('docPharmDashboard.allergyAlertTitle', { allergen: a.allergen }),
+      description: t('docPharmDashboard.orderedMedication', { medication: a.medication_ordered }),
+      patient_name: a.patient_name || t('docPharmDashboard.unknown'),
       timestamp: new Date().toISOString(),
       severity: 'high',
     })) || []),
@@ -123,15 +124,23 @@ export default function PharmacistDashboardPage() {
 
   // Quick actions for pharmacists
   const quickActions: QuickAction[] = [
-    { id: 'verify', label: 'Verify Prescription', icon: FileCheck, href: '/e-prescribe', color: 'green' },
-    { id: 'interactions', label: 'Check Interactions', icon: ShieldAlert, href: '/drug-interactions', color: 'emergency' },
-    { id: 'dispense', label: 'Dispense Medication', icon: Pill, href: '/medication-admin', color: 'blue' },
-    { id: 'iv-prep', label: 'IV Admixture', icon: Beaker, href: '/orders', color: 'purple' },
+    { id: 'verify', label: t('docPharmDashboard.qaVerify'), icon: FileCheck, href: '/e-prescribe', color: 'green' },
+    { id: 'interactions', label: t('docPharmDashboard.qaInteractions'), icon: ShieldAlert, href: '/drug-interactions', color: 'emergency' },
+    { id: 'dispense', label: t('docPharmDashboard.qaDispense'), icon: Pill, href: '/medication-admin', color: 'blue' },
+    { id: 'iv-prep', label: t('docPharmDashboard.qaIv'), icon: Beaker, href: '/orders', color: 'purple' },
   ];
+
+  const severityLabel = (severity: 'Major' | 'Moderate' | 'Minor'): string => {
+    switch (severity) {
+      case 'Major': return t('docPharmDashboard.sevMajor');
+      case 'Moderate': return t('docPharmDashboard.sevModerate');
+      case 'Minor': return t('docPharmDashboard.sevMinor');
+    }
+  };
 
   // Prepare prescription queue table data
   const prescriptionQueue = data?.prescriptions?.list?.slice(0, 10).map((rx) => [
-    rx.priority || 'Routine',
+    rx.priority || t('docPharmDashboard.routine'),
     rx.patient_name || rx.patient_id,
     rx.medication_name,
     rx.dosage,
@@ -150,8 +159,8 @@ export default function PharmacistDashboardPage() {
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Pharmacy Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">Prescription Verification & Drug Safety</p>
+        <h1 className="text-2xl font-bold text-gray-900">{t('docPharmDashboard.title')}</h1>
+        <p className="text-sm text-gray-500 mt-1">{t('docPharmDashboard.subtitle')}</p>
       </div>
 
       {/* Critical Alerts: Drug Interactions & Allergy Alerts */}
@@ -164,7 +173,7 @@ export default function PharmacistDashboardPage() {
       {/* Stat Cards Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Pending Rx"
+          label={t('docPharmDashboard.statPendingRx')}
           value={data?.prescriptions?.pending_fill || 0}
           icon={<Pill className="text-amber-600" size={24} />}
           color="bg-amber-100"
@@ -172,7 +181,7 @@ export default function PharmacistDashboardPage() {
           loading={loading}
         />
         <StatCard
-          label="STAT Orders"
+          label={t('docPharmDashboard.statStatOrders')}
           value={data?.prescriptions?.list?.filter(rx => rx.priority === 'STAT').length || 0}
           icon={<AlertTriangle className="text-red-600" size={24} />}
           color="bg-red-100"
@@ -180,14 +189,14 @@ export default function PharmacistDashboardPage() {
           loading={loading}
         />
         <StatCard
-          label="Verified Today"
+          label={t('docPharmDashboard.statVerifiedToday')}
           value={data?.prescriptions?.completed_today || 0}
           icon={<CheckCircle className="text-green-600" size={24} />}
           color="bg-green-100"
           loading={loading}
         />
         <StatCard
-          label="Interactions"
+          label={t('docPharmDashboard.statInteractions')}
           value={data?.drug_interactions?.length || 0}
           icon={<ShieldAlert className="text-red-600" size={24} />}
           color="bg-red-100"
@@ -202,13 +211,13 @@ export default function PharmacistDashboardPage() {
         <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-              <FileCheck size={16} aria-hidden="true" /> Orders to Verify
+              <FileCheck size={16} aria-hidden="true" /> {t('docPharmDashboard.ordersToVerify')}
             </h3>
             <button
               onClick={() => navigate('/e-prescribe')}
               className="text-xs text-blue-600 hover:text-blue-800"
             >
-              View All
+              {t('docPharmDashboard.viewAll')}
             </button>
           </div>
           {prescriptionQueue.length > 0 ? (
@@ -216,11 +225,11 @@ export default function PharmacistDashboardPage() {
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Patient</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Medication</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Dose</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colPriority')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colPatient')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colMedication')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colDose')}</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colStatus')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -237,7 +246,7 @@ export default function PharmacistDashboardPage() {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-gray-500 text-center py-4">No pending prescriptions</p>
+            <p className="text-sm text-gray-500 text-center py-4">{t('docPharmDashboard.noPendingRx')}</p>
           )}
         </div>
 
@@ -246,13 +255,13 @@ export default function PharmacistDashboardPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
               <ShieldAlert className="text-red-500" size={18} />
-              Drug Interaction Alerts
+              {t('docPharmDashboard.interactionAlerts')}
             </h3>
             <button
               onClick={() => navigate('/drug-interactions')}
               className="text-xs text-blue-600 hover:text-blue-800"
             >
-              View All
+              {t('docPharmDashboard.viewAll')}
             </button>
           </div>
           {data?.drug_interactions && data.drug_interactions.length > 0 ? (
@@ -279,7 +288,7 @@ export default function PharmacistDashboardPage() {
                             : 'bg-yellow-600 text-white'
                         }`}
                       >
-                        {interaction.severity.toUpperCase()}
+                        {severityLabel(interaction.severity)}
                       </span>
                       <p className="mt-1 font-medium text-gray-900">
                         {interaction.drug1} + {interaction.drug2}
@@ -289,14 +298,14 @@ export default function PharmacistDashboardPage() {
                   </div>
                   {interaction.patient_name && (
                     <p className="mt-2 text-xs text-gray-500">
-                      Patient: {interaction.patient_name}
+                      {t('docPharmDashboard.patientLabel', { name: interaction.patient_name })}
                     </p>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500 text-center py-4">No drug interaction alerts</p>
+            <p className="text-sm text-gray-500 text-center py-4">{t('docPharmDashboard.noInteractions')}</p>
           )}
         </div>
       </div>
@@ -308,7 +317,7 @@ export default function PharmacistDashboardPage() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
               <AlertCircle className="text-orange-500" size={18} />
-              Allergy Alerts
+              {t('docPharmDashboard.allergyAlerts')}
             </h3>
           </div>
           {data?.allergy_alerts && data.allergy_alerts.length > 0 ? (
@@ -322,18 +331,18 @@ export default function PharmacistDashboardPage() {
                     <div>
                       <p className="font-medium text-gray-900">{alert.patient_name}</p>
                       <p className="flex items-center gap-1.5 text-sm text-orange-700">
-                        <AlertTriangle size={14} aria-hidden="true" /> Allergic to: <strong>{alert.allergen}</strong>
+                        <AlertTriangle size={14} aria-hidden="true" /> {t('docPharmDashboard.allergicTo')} <strong>{alert.allergen}</strong>
                       </p>
                       <p className="text-sm text-gray-600">
-                        Ordered: {alert.medication_ordered}
+                        {t('docPharmDashboard.orderedLabel', { medication: alert.medication_ordered })}
                       </p>
                     </div>
                     <div className="flex gap-2">
                       <button className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">
-                        Reject
+                        {t('docPharmDashboard.reject')}
                       </button>
                       <button className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
-                        Contact MD
+                        {t('docPharmDashboard.contactMd')}
                       </button>
                     </div>
                   </div>
@@ -341,12 +350,12 @@ export default function PharmacistDashboardPage() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500 text-center py-4">No allergy alerts</p>
+            <p className="text-sm text-gray-500 text-center py-4">{t('docPharmDashboard.noAllergyAlerts')}</p>
           )}
         </div>
 
         {/* Quick Actions */}
-        <QuickActionsPanel actions={quickActions} title="Quick Actions" />
+        <QuickActionsPanel actions={quickActions} title={t('docPharmDashboard.quickActions')} />
       </div>
 
       {/* Controlled Substance Log Section */}
@@ -354,22 +363,22 @@ export default function PharmacistDashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
             <Clock className="text-purple-500" size={18} />
-            Controlled Substance Log (Schedule II-V)
+            {t('docPharmDashboard.controlledLog')}
           </h3>
           <button className="text-xs text-blue-600 hover:text-blue-800">
-            DEA Compliance Report
+            {t('docPharmDashboard.deaReport')}
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Medication</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Patient</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Qty</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Prescriber</th>
-                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colTime')}</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colMedication')}</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colPatient')}</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colQty')}</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colPrescriber')}</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('docPharmDashboard.colStatus')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -387,15 +396,15 @@ export default function PharmacistDashboardPage() {
                   <td className="px-4 py-2 font-medium text-gray-900">{rx.medication_name}</td>
                   <td className="px-4 py-2 text-gray-600">{rx.patient_name || rx.patient_id}</td>
                   <td className="px-4 py-2 text-gray-600">{rx.dosage}</td>
-                  <td className="px-4 py-2 text-gray-600">{rx.prescribed_by || 'Unknown'}</td>
+                  <td className="px-4 py-2 text-gray-600">{rx.prescribed_by || t('docPharmDashboard.unknown')}</td>
                   <td className="px-4 py-2">
                     <span className={`px-2 py-0.5 text-xs rounded ${
                       rx.status === 'Filled' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                     }`}>
                       {rx.status === 'Filled' ? (
-                        <span className="inline-flex items-center gap-1"><CheckCircle size={12} aria-hidden="true" /> Logged</span>
+                        <span className="inline-flex items-center gap-1"><CheckCircle size={12} aria-hidden="true" /> {t('docPharmDashboard.logged')}</span>
                       ) : (
-                        <span className="inline-flex items-center gap-1"><Clock size={12} aria-hidden="true" /> Pending</span>
+                        <span className="inline-flex items-center gap-1"><Clock size={12} aria-hidden="true" /> {t('docPharmDashboard.pending')}</span>
                       )}
                     </span>
                   </td>
@@ -403,7 +412,7 @@ export default function PharmacistDashboardPage() {
               )) || (
                 <tr>
                   <td colSpan={6} className="px-4 py-4 text-center text-gray-500">
-                    No controlled substances in queue
+                    {t('docPharmDashboard.noControlled')}
                   </td>
                 </tr>
               )}
@@ -415,26 +424,26 @@ export default function PharmacistDashboardPage() {
       {/* Today's Metrics */}
       <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
-          <BarChart3 size={16} aria-hidden="true" /> Today's Metrics
+          <BarChart3 size={16} aria-hidden="true" /> {t('docPharmDashboard.todaysMetrics')}
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="text-center p-3 bg-gray-50 rounded">
             <p className="text-2xl font-bold text-gray-900">
               {data?.prescriptions?.completed_today || 0}
             </p>
-            <p className="text-xs text-gray-500">Orders Verified</p>
+            <p className="text-xs text-gray-500">{t('docPharmDashboard.mOrdersVerified')}</p>
           </div>
           <div className="text-center p-3 bg-gray-50 rounded">
             <p className="text-2xl font-bold text-red-600">
               {data?.drug_interactions?.length || 0}
             </p>
-            <p className="text-xs text-gray-500">Interactions Caught</p>
+            <p className="text-xs text-gray-500">{t('docPharmDashboard.mInteractionsCaught')}</p>
           </div>
           <div className="text-center p-3 bg-gray-50 rounded">
             <p className="text-2xl font-bold text-orange-600">
               {data?.allergy_alerts?.length || 0}
             </p>
-            <p className="text-xs text-gray-500">Allergy Alerts</p>
+            <p className="text-xs text-gray-500">{t('docPharmDashboard.mAllergyAlerts')}</p>
           </div>
           <div className="text-center p-3 bg-gray-50 rounded">
             <p className="text-2xl font-bold text-purple-600">
@@ -443,13 +452,13 @@ export default function PharmacistDashboardPage() {
                 rx.medication_name.toLowerCase().includes('oxycodone')
               ).length || 0}
             </p>
-            <p className="text-xs text-gray-500">Controlled Dispensed</p>
+            <p className="text-xs text-gray-500">{t('docPharmDashboard.mControlledDispensed')}</p>
           </div>
           <div className="text-center p-3 bg-gray-50 rounded">
             <p className="text-2xl font-bold text-blue-600">
               {data?.prescriptions?.in_progress || 0}
             </p>
-            <p className="text-xs text-gray-500">In Progress</p>
+            <p className="text-xs text-gray-500">{t('docPharmDashboard.mInProgress')}</p>
           </div>
         </div>
       </div>
