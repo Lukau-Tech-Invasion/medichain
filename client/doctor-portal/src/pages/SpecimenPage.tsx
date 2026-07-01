@@ -13,7 +13,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -45,6 +45,7 @@ interface Specimen {
 }
 
 const SpecimenPage: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'specimens' | 'add' | 'tracking'>('specimens');
   const [specimens, setSpecimens] = useState<Specimen[]>([]);
   const [selectedSpecimen, setSelectedSpecimen] = useState<Specimen | null>(null);
@@ -57,7 +58,7 @@ const SpecimenPage: React.FC = () => {
   useEffect(() => {
     const fetchSpecimens = async () => {
       if (!user?.walletAddress) {
-        setError('User not authenticated');
+        setError(t('docSpecimen.notAuthenticated'));
         setLoading(false);
         return;
       }
@@ -72,7 +73,7 @@ const SpecimenPage: React.FC = () => {
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch specimens: ${response.status}`);
+          throw new Error(t('docSpecimen.fetchError', { status: response.status }));
         }
 
         const data = await response.json();
@@ -87,14 +88,14 @@ const SpecimenPage: React.FC = () => {
         setError(null);
       } catch (err) {
         console.error('Error fetching specimens:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load specimens');
+        setError(err instanceof Error ? err.message : t('docSpecimen.failLoad'));
       } finally {
         setLoading(false);
       }
     };
 
     fetchSpecimens();
-  }, [user]);
+  }, [user, t]);
 
   const getSpecimenIcon = (type: SpecimenType) => {
     const icons: Record<SpecimenType, React.ReactNode> = {
@@ -120,10 +121,19 @@ const SpecimenPage: React.FC = () => {
       'completed': { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
       'rejected': { bg: 'bg-red-100', text: 'text-red-700', icon: <AlertTriangle className="w-3 h-3" /> }
     };
+    const labels: Record<CollectionStatus, string> = {
+      'pending': t('docSpecimen.stPending'),
+      'collected': t('docSpecimen.stCollected'),
+      'in-transit': t('docSpecimen.stInTransit'),
+      'received': t('docSpecimen.stReceived'),
+      'processing': t('docSpecimen.stProcessing'),
+      'completed': t('docSpecimen.stCompleted'),
+      'rejected': t('docSpecimen.stRejected'),
+    };
     const s = styles[status];
     return (
       <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
-        {s.icon} {status.replace('-', ' ')}
+        {s.icon} {labels[status]}
       </span>
     );
   };
@@ -134,11 +144,29 @@ const SpecimenPage: React.FC = () => {
       'urgent': 'bg-orange-100 text-orange-700',
       'stat': 'bg-red-100 text-red-700'
     };
+    const labels: Record<Priority, string> = {
+      'routine': t('docSpecimen.priRoutine'),
+      'urgent': t('docSpecimen.priUrgent'),
+      'stat': t('docSpecimen.priStat'),
+    };
     return (
       <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${colors[priority]}`}>
-        {priority}
+        {labels[priority]}
       </span>
     );
+  };
+
+  const typeLabel = (type: SpecimenType): string => {
+    switch (type) {
+      case 'blood': return t('docSpecimen.typeBlood');
+      case 'urine': return t('docSpecimen.typeUrine');
+      case 'stool': return t('docSpecimen.typeStool');
+      case 'swab': return t('docSpecimen.typeSwab');
+      case 'tissue': return t('docSpecimen.typeTissue');
+      case 'csf': return t('docSpecimen.typeCsf');
+      case 'sputum': return t('docSpecimen.typeSputum');
+      case 'other': return t('docSpecimen.typeOther');
+    }
   };
 
   const filteredSpecimens = specimens.filter(s => {
@@ -157,16 +185,16 @@ const SpecimenPage: React.FC = () => {
       <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <TestTube className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Specimen Collection</h1>
+          <h1 className="text-2xl font-bold">{t('docSpecimen.title')}</h1>
         </div>
-        <p className="text-teal-100">Track and manage laboratory specimens</p>
+        <p className="text-teal-100">{t('docSpecimen.subtitle')}</p>
       </div>
 
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-2" />
-          <p className="text-gray-500">Loading specimens...</p>
+          <p className="text-gray-500">{t('docSpecimen.loading')}</p>
         </div>
       )}
 
@@ -176,7 +204,7 @@ const SpecimenPage: React.FC = () => {
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
             <p className="text-sm text-red-700">{error}</p>
-            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+            <p className="text-xs text-red-500 mt-1">{t('docSpecimen.apiHint')}</p>
           </div>
         </div>
       )}
@@ -188,15 +216,15 @@ const SpecimenPage: React.FC = () => {
           <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
             <div className="bg-white rounded-lg shadow p-4 text-center">
               <p className="text-2xl font-bold text-gray-800">{specimens.length}</p>
-              <p className="text-xs text-gray-500">Total</p>
+              <p className="text-xs text-gray-500">{t('docSpecimen.total')}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4 text-center">
               <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-              <p className="text-xs text-gray-500">Pending</p>
+              <p className="text-xs text-gray-500">{t('docSpecimen.pending')}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4 text-center">
               <p className="text-2xl font-bold text-red-600">{statCount}</p>
-              <p className="text-xs text-gray-500">STAT Orders</p>
+              <p className="text-xs text-gray-500">{t('docSpecimen.statOrders')}</p>
             </div>
           </div>
 
@@ -207,11 +235,11 @@ const SpecimenPage: React.FC = () => {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`flex-1 py-4 text-sm font-medium capitalize ${
+                  className={`flex-1 py-4 text-sm font-medium ${
                     activeTab === tab ? 'text-teal-700 border-b-2 border-teal-700' : 'text-gray-500'
                   }`}
                 >
-                  {tab === 'specimens' ? 'All Specimens' : tab === 'add' ? 'Collect Specimen' : 'Tracking'}
+                  {tab === 'specimens' ? t('docSpecimen.tabAll') : tab === 'add' ? t('docSpecimen.tabCollect') : t('docSpecimen.tabTracking')}
                 </button>
               ))}
             </div>
@@ -227,7 +255,7 @@ const SpecimenPage: React.FC = () => {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search specimen or patient..."
+                    placeholder={t('docSpecimen.searchPlaceholder')}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg"
                   />
             </div>
@@ -236,11 +264,11 @@ const SpecimenPage: React.FC = () => {
               onChange={(e) => setFilterStatus(e.target.value as CollectionStatus | 'all')}
               className="border rounded-lg px-3 py-2"
             >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="collected">Collected</option>
-              <option value="processing">Processing</option>
-              <option value="completed">Completed</option>
+              <option value="all">{t('docSpecimen.allStatus')}</option>
+              <option value="pending">{t('docSpecimen.filterPending')}</option>
+              <option value="collected">{t('docSpecimen.filterCollected')}</option>
+              <option value="processing">{t('docSpecimen.filterProcessing')}</option>
+              <option value="completed">{t('docSpecimen.filterCompleted')}</option>
             </select>
           </div>
 
@@ -261,21 +289,21 @@ const SpecimenPage: React.FC = () => {
                         <h3 className="font-semibold">{specimen.patientName}</h3>
                         {getPriorityBadge(specimen.priority)}
                       </div>
-                      <p className="text-sm text-gray-500">MRN: {specimen.mrn} • {specimen.id}</p>
+                      <p className="text-sm text-gray-500">{t('docSpecimen.mrnId', { mrn: specimen.mrn, id: specimen.id })}</p>
                     </div>
                   </div>
                   {getStatusBadge(specimen.status)}
                 </div>
 
                 <div className="bg-gray-50 rounded p-2 mb-2">
-                  <p className="text-sm"><strong>Test:</strong> {specimen.testOrdered}</p>
-                  <p className="text-sm"><strong>Type:</strong> {specimen.specimenType}</p>
+                  <p className="text-sm"><strong>{t('docSpecimen.testLabel')}</strong> {specimen.testOrdered}</p>
+                  <p className="text-sm"><strong>{t('docSpecimen.typeLabelInline')}</strong> {typeLabel(specimen.specimenType)}</p>
                 </div>
 
                 <div className="flex items-center justify-between text-xs text-gray-500">
                   <div className="flex items-center gap-1">
                     <User className="w-3 h-3" />
-                    <span>Ordered by: {specimen.orderedBy}</span>
+                    <span>{t('docSpecimen.orderedByLine', { by: specimen.orderedBy })}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
@@ -292,13 +320,13 @@ const SpecimenPage: React.FC = () => {
       {activeTab === 'add' && (
         <div className="p-4">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">Collect Specimen</h2>
+            <h2 className="text-lg font-semibold mb-4">{t('docSpecimen.collectTitle')}</h2>
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="specimen-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                <label htmlFor="specimen-patient" className="block text-sm font-medium mb-1">{t('docSpecimen.patientRequired')}</label>
                 <select id="specimen-patient" className="w-full border rounded-lg px-3 py-2">
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docSpecimen.selectPatient')}</option>
                   {specimens.map(s => (
                     <option key={s.patientId} value={s.patientId}>{s.patientName} - {s.mrn}</option>
                   ))}
@@ -307,47 +335,47 @@ const SpecimenPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="specimen-type" className="block text-sm font-medium mb-1">Specimen Type *</label>
+                  <label htmlFor="specimen-type" className="block text-sm font-medium mb-1">{t('docSpecimen.specimenTypeRequired')}</label>
                   <select id="specimen-type" className="w-full border rounded-lg px-3 py-2">
-                    <option value="blood">Blood</option>
-                    <option value="urine">Urine</option>
-                    <option value="stool">Stool</option>
-                    <option value="swab">Swab</option>
-                    <option value="tissue">Tissue</option>
-                    <option value="csf">CSF</option>
-                    <option value="sputum">Sputum</option>
-                    <option value="other">Other</option>
+                    <option value="blood">{t('docSpecimen.typeBlood')}</option>
+                    <option value="urine">{t('docSpecimen.typeUrine')}</option>
+                    <option value="stool">{t('docSpecimen.typeStool')}</option>
+                    <option value="swab">{t('docSpecimen.typeSwab')}</option>
+                    <option value="tissue">{t('docSpecimen.typeTissue')}</option>
+                    <option value="csf">{t('docSpecimen.typeCsf')}</option>
+                    <option value="sputum">{t('docSpecimen.typeSputum')}</option>
+                    <option value="other">{t('docSpecimen.typeOther')}</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="specimen-priority" className="block text-sm font-medium mb-1">Priority *</label>
+                  <label htmlFor="specimen-priority" className="block text-sm font-medium mb-1">{t('docSpecimen.priorityRequired')}</label>
                   <select id="specimen-priority" className="w-full border rounded-lg px-3 py-2">
-                    <option value="routine">Routine</option>
-                    <option value="urgent">Urgent</option>
-                    <option value="stat">STAT</option>
+                    <option value="routine">{t('docSpecimen.optRoutine')}</option>
+                    <option value="urgent">{t('docSpecimen.optUrgent')}</option>
+                    <option value="stat">{t('docSpecimen.optStat')}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="specimen-tests-ordered" className="block text-sm font-medium mb-1">Tests Ordered *</label>
-                <input id="specimen-tests-ordered" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="CBC, BMP, etc." />
+                <label htmlFor="specimen-tests-ordered" className="block text-sm font-medium mb-1">{t('docSpecimen.testsOrderedRequired')}</label>
+                <input id="specimen-tests-ordered" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.testsPlaceholder')} />
               </div>
 
               <div>
-                <label htmlFor="specimen-collection-site" className="block text-sm font-medium mb-1">Collection Site</label>
-                <input id="specimen-collection-site" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Left AC, midstream" />
+                <label htmlFor="specimen-collection-site" className="block text-sm font-medium mb-1">{t('docSpecimen.collectionSite')}</label>
+                <input id="specimen-collection-site" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.sitePlaceholder')} />
               </div>
 
               <div>
-                <label htmlFor="specimen-notes" className="block text-sm font-medium mb-1">Notes</label>
-                <textarea id="specimen-notes" className="w-full border rounded-lg px-3 py-2" rows={2} placeholder="Collection notes..." />
+                <label htmlFor="specimen-notes" className="block text-sm font-medium mb-1">{t('docSpecimen.notes')}</label>
+                <textarea id="specimen-notes" className="w-full border rounded-lg px-3 py-2" rows={2} placeholder={t('docSpecimen.notesPlaceholder')} />
               </div>
 
               <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
-                <p className="text-sm text-teal-700 font-medium mb-2">Collection Checklist:</p>
+                <p className="text-sm text-teal-700 font-medium mb-2">{t('docSpecimen.checklist')}</p>
                 <div className="space-y-1">
-                  {['Verify patient ID', 'Check specimen requirements', 'Label specimen at bedside', 'Document collection time'].map((item, idx) => (
+                  {[t('docSpecimen.chkVerifyId'), t('docSpecimen.chkRequirements'), t('docSpecimen.chkLabel'), t('docSpecimen.chkTime')].map((item, idx) => (
                     <label key={idx} className="flex items-center gap-2 text-sm">
                       <input type="checkbox" className="w-4 h-4" />
                       <span>{item}</span>
@@ -357,7 +385,7 @@ const SpecimenPage: React.FC = () => {
               </div>
 
               <button className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
-                <Plus className="w-5 h-5" /> Record Collection
+                <Plus className="w-5 h-5" /> {t('docSpecimen.recordCollection')}
               </button>
             </div>
           </div>
@@ -368,7 +396,7 @@ const SpecimenPage: React.FC = () => {
       {activeTab === 'tracking' && (
         <div className="p-4">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">Specimen Tracking</h2>
+            <h2 className="text-lg font-semibold mb-4">{t('docSpecimen.trackingTitle')}</h2>
             <div className="space-y-4">
               {specimens.filter(s => s.status !== 'completed').map(specimen => (
                 <div key={specimen.id} className="border rounded-lg p-4">
@@ -419,7 +447,7 @@ const SpecimenPage: React.FC = () => {
                 {getSpecimenIcon(selectedSpecimen.specimenType)}
                 <div>
                   <h2 className="text-xl font-semibold">{selectedSpecimen.id}</h2>
-                  <p className="text-sm text-gray-500">{selectedSpecimen.specimenType} specimen</p>
+                  <p className="text-sm text-gray-500">{t('docSpecimen.specimenSuffix', { type: typeLabel(selectedSpecimen.specimenType) })}</p>
                 </div>
               </div>
               <button onClick={() => setSelectedSpecimen(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
@@ -432,30 +460,30 @@ const SpecimenPage: React.FC = () => {
               </div>
 
               <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-medium mb-2">Patient Information</h3>
-                <p><strong>Name:</strong> {selectedSpecimen.patientName}</p>
-                <p><strong>MRN:</strong> {selectedSpecimen.mrn}</p>
+                <h3 className="font-medium mb-2">{t('docSpecimen.patientInfo')}</h3>
+                <p><strong>{t('docSpecimen.nameLabel')}</strong> {selectedSpecimen.patientName}</p>
+                <p><strong>{t('docSpecimen.mrnLabelBold')}</strong> {selectedSpecimen.mrn}</p>
               </div>
 
               <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-medium mb-2">Test Details</h3>
-                <p><strong>Tests Ordered:</strong> {selectedSpecimen.testOrdered}</p>
-                <p><strong>Ordered by:</strong> {selectedSpecimen.orderedBy}</p>
-                <p><strong>Ordered at:</strong> {selectedSpecimen.orderedAt.toLocaleString()}</p>
+                <h3 className="font-medium mb-2">{t('docSpecimen.testDetails')}</h3>
+                <p><strong>{t('docSpecimen.testsOrderedLabel')}</strong> {selectedSpecimen.testOrdered}</p>
+                <p><strong>{t('docSpecimen.orderedByLabel')}</strong> {selectedSpecimen.orderedBy}</p>
+                <p><strong>{t('docSpecimen.orderedAtLabel')}</strong> {selectedSpecimen.orderedAt.toLocaleString()}</p>
               </div>
 
               {selectedSpecimen.collectedBy && (
                 <div className="bg-blue-50 rounded-lg p-4">
-                  <h3 className="font-medium mb-2">Collection Details</h3>
-                  <p><strong>Collected by:</strong> {selectedSpecimen.collectedBy}</p>
-                  <p><strong>Collected at:</strong> {selectedSpecimen.collectedAt?.toLocaleString()}</p>
-                  {selectedSpecimen.notes && <p><strong>Notes:</strong> {selectedSpecimen.notes}</p>}
+                  <h3 className="font-medium mb-2">{t('docSpecimen.collectionDetails')}</h3>
+                  <p><strong>{t('docSpecimen.collectedByLabel')}</strong> {selectedSpecimen.collectedBy}</p>
+                  <p><strong>{t('docSpecimen.collectedAtLabel')}</strong> {selectedSpecimen.collectedAt?.toLocaleString()}</p>
+                  {selectedSpecimen.notes && <p><strong>{t('docSpecimen.notesLabel')}</strong> {selectedSpecimen.notes}</p>}
                 </div>
               )}
 
               {selectedSpecimen.status === 'pending' && (
                 <button className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium">
-                  Mark as Collected
+                  {t('docSpecimen.markCollected')}
                 </button>
               )}
             </div>
