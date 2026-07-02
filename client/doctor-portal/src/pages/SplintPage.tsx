@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bone, AlertTriangle, User, CheckCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createSplint } from '@medichain/shared';
+import { getPatients, createSplint, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -51,8 +51,16 @@ const returnPrecautionsList = [
 ];
 
 const SplintPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
+  const typeLabel = (v: string): string => ({
+    splint: t('docSplint.typeSplint'), cast: t('docSplint.typeCast'), sling: t('docSplint.typeSling'),
+    brace: t('docSplint.typeBrace'), boot: t('docSplint.typeBoot'),
+  }[v] ?? v);
+  const sideLabel = (v: string): string => ({
+    left: t('docSplint.sideLeft'), right: t('docSplint.sideRight'), bilateral: t('docSplint.sideBilateral'),
+  }[v] ?? v);
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [records, setRecords] = useState<SplintRecord[]>([]);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
@@ -93,7 +101,7 @@ const SplintPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient || !bodyPart) {
-      showWarning('Please select a patient and body part');
+      showWarning(t('docSplint.warnSelect'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -115,7 +123,7 @@ const SplintPage: React.FC = () => {
       console.error('Failed to save splint record:', err);
     }
     setRecords([record, ...records]);
-    showSuccess('Splint/Cast record saved!');
+    showSuccess(t('docSplint.saved'));
   };
 
   return (
@@ -125,8 +133,8 @@ const SplintPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Bone className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Splint & Cast Documentation</h1>
-            <p className="text-blue-100">Immobilization and orthopedic care</p>
+            <h1 className="text-2xl font-bold">{t('docSplint.title')}</h1>
+            <p className="text-blue-100">{t('docSplint.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -135,7 +143,7 @@ const SplintPage: React.FC = () => {
       {nvWarning && (
         <div className="bg-red-600 text-white p-4 flex items-center gap-3">
           <AlertTriangle className="w-6 h-6" />
-          <span className="font-semibold">Neurovascular compromise detected - reassess immediately!</span>
+          <span className="font-semibold">{t('docSplint.nvWarning')}</span>
         </div>
       )}
 
@@ -150,7 +158,7 @@ const SplintPage: React.FC = () => {
                 ? 'text-blue-600 border-b-2 border-blue-600'
                 : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {tab === 'new' ? 'New Application' : 'History'}
+              {tab === 'new' ? t('docSplint.tabNew') : t('docSplint.tabHistory')}
             </button>
           ))}
         </div>
@@ -162,64 +170,64 @@ const SplintPage: React.FC = () => {
             {/* Patient & Type */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <User className="w-5 h-5" /> Patient & Device
+                <User className="w-5 h-5" /> {t('docSplint.patientDevice')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="splint-patient" className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="splint-patient" className="text-sm text-gray-600">{t('docSplint.patient')}</label>
                   <select
                     id="splint-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="">Select...</option>
+                    <option value="">{t('docSplint.select')}</option>
                     {patients.map(p => (
                       <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-type" className="text-sm text-gray-600">Type</label>
+                  <label htmlFor="splint-type" className="text-sm text-gray-600">{t('docSplint.type')}</label>
                   <select
                     id="splint-type"
                     value={type}
                     onChange={e => setType(e.target.value as ImmobilizationType)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="splint">Splint</option>
-                    <option value="cast">Cast</option>
-                    <option value="sling">Sling</option>
-                    <option value="brace">Brace</option>
-                    <option value="boot">Walking boot</option>
+                    <option value="splint">{t('docSplint.typeSplint')}</option>
+                    <option value="cast">{t('docSplint.typeCast')}</option>
+                    <option value="sling">{t('docSplint.typeSling')}</option>
+                    <option value="brace">{t('docSplint.typeBrace')}</option>
+                    <option value="boot">{t('docSplint.typeBoot')}</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-material" className="text-sm text-gray-600">Material</label>
+                  <label htmlFor="splint-material" className="text-sm text-gray-600">{t('docSplint.material')}</label>
                   <select
                     id="splint-material"
                     value={material}
                     onChange={e => setMaterial(e.target.value as Material)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="fiberglass">Fiberglass</option>
-                    <option value="plaster">Plaster</option>
-                    <option value="prefab">Prefabricated</option>
-                    <option value="aluminum">Aluminum</option>
-                    <option value="soft">Soft</option>
+                    <option value="fiberglass">{t('docSplint.matFiberglass')}</option>
+                    <option value="plaster">{t('docSplint.matPlaster')}</option>
+                    <option value="prefab">{t('docSplint.matPrefab')}</option>
+                    <option value="aluminum">{t('docSplint.matAluminum')}</option>
+                    <option value="soft">{t('docSplint.matSoft')}</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-side" className="text-sm text-gray-600">Side</label>
+                  <label htmlFor="splint-side" className="text-sm text-gray-600">{t('docSplint.side')}</label>
                   <select
                     id="splint-side"
                     value={side}
                     onChange={e => setSide(e.target.value as 'left' | 'right' | 'bilateral')}
                     className="w-full border rounded p-2"
                   >
-                    <option value="left">Left</option>
-                    <option value="right">Right</option>
-                    <option value="bilateral">Bilateral</option>
+                    <option value="left">{t('docSplint.sideLeft')}</option>
+                    <option value="right">{t('docSplint.sideRight')}</option>
+                    <option value="bilateral">{t('docSplint.sideBilateral')}</option>
                   </select>
                 </div>
               </div>
@@ -227,45 +235,45 @@ const SplintPage: React.FC = () => {
 
             {/* Body Part & Indication */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Location & Indication</h2>
+              <h2 className="font-semibold mb-3">{t('docSplint.locationIndication')}</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="splint-body-part" className="text-sm text-gray-600">Body Part / Splint Type</label>
+                  <label htmlFor="splint-body-part" className="text-sm text-gray-600">{t('docSplint.bodyPartLabel')}</label>
                   <select
                     id="splint-body-part"
                     value={bodyPart}
                     onChange={e => setBodyPart(e.target.value)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="">Select...</option>
+                    <option value="">{t('docSplint.select')}</option>
                     {bodyParts.map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-indication" className="text-sm text-gray-600">Indication</label>
+                  <label htmlFor="splint-indication" className="text-sm text-gray-600">{t('docSplint.indicationLabel')}</label>
                   <select
                     id="splint-indication"
                     value={indication}
                     onChange={e => setIndication(e.target.value)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="">Select...</option>
+                    <option value="">{t('docSplint.select')}</option>
                     {indications.map(i => (
                       <option key={i} value={i}>{i}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-fracture-site" className="text-sm text-gray-600">Fracture Site (if applicable)</label>
+                  <label htmlFor="splint-fracture-site" className="text-sm text-gray-600">{t('docSplint.fractureSite')}</label>
                   <input
                     id="splint-fracture-site"
                     type="text"
                     value={fractureSite}
                     onChange={e => setFractureSite(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Distal radius"
+                    placeholder={t('docSplint.fractureSitePh')}
                   />
                 </div>
               </div>
@@ -274,11 +282,11 @@ const SplintPage: React.FC = () => {
             {/* NV Checks */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5" /> Neurovascular Assessment
+                <CheckCircle className="w-5 h-5" /> {t('docSplint.nvAssessment')}
               </h2>
               <div className="grid md:grid-cols-2 gap-6">
                 <div className="p-3 bg-gray-50 rounded">
-                  <h3 className="font-medium mb-2">Pre-Application</h3>
+                  <h3 className="font-medium mb-2">{t('docSplint.preApplication')}</h3>
                   <label htmlFor="splint-pre-nv-intact" className="flex items-center gap-2 mb-2">
                     <input
                       id="splint-pre-nv-intact"
@@ -287,7 +295,7 @@ const SplintPage: React.FC = () => {
                       onChange={e => setPreNV({ ...preNV, intact: e.target.checked })}
                     />
                     <span className={preNV.intact ? 'text-green-600' : 'text-red-600 font-semibold'}>
-                      NV status intact
+                      {t('docSplint.nvStatusIntact')}
                     </span>
                   </label>
                   <input
@@ -295,11 +303,11 @@ const SplintPage: React.FC = () => {
                     value={preNV.notes}
                     onChange={e => setPreNV({ ...preNV, notes: e.target.value })}
                     className="w-full border rounded p-2"
-                    placeholder="Notes (pulses, sensation, movement)"
+                    placeholder={t('docSplint.nvNotesPh')}
                   />
                 </div>
                 <div className="p-3 bg-gray-50 rounded">
-                  <h3 className="font-medium mb-2">Post-Application</h3>
+                  <h3 className="font-medium mb-2">{t('docSplint.postApplication')}</h3>
                   <label htmlFor="splint-post-nv-intact" className="flex items-center gap-2 mb-2">
                     <input
                       id="splint-post-nv-intact"
@@ -308,7 +316,7 @@ const SplintPage: React.FC = () => {
                       onChange={e => setPostNV({ ...postNV, intact: e.target.checked })}
                     />
                     <span className={postNV.intact ? 'text-green-600' : 'text-red-600 font-semibold'}>
-                      NV status intact
+                      {t('docSplint.nvStatusIntact')}
                     </span>
                   </label>
                   <input
@@ -316,7 +324,7 @@ const SplintPage: React.FC = () => {
                     value={postNV.notes}
                     onChange={e => setPostNV({ ...postNV, notes: e.target.value })}
                     className="w-full border rounded p-2"
-                    placeholder="Notes (pulses, sensation, movement)"
+                    placeholder={t('docSplint.nvNotesPh')}
                   />
                 </div>
               </div>
@@ -324,7 +332,7 @@ const SplintPage: React.FC = () => {
 
             {/* Quality Checklist */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Application Checklist</h2>
+              <h2 className="font-semibold mb-3">{t('docSplint.checklist')}</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <label htmlFor="splint-padding-adequate" className="flex items-center gap-2">
                   <input
@@ -333,7 +341,7 @@ const SplintPage: React.FC = () => {
                     checked={paddingAdequate}
                     onChange={e => setPaddingAdequate(e.target.checked)}
                   />
-                  Adequate padding applied
+                  {t('docSplint.chkPadding')}
                 </label>
                 <label htmlFor="splint-edges-smooth" className="flex items-center gap-2">
                   <input
@@ -342,7 +350,7 @@ const SplintPage: React.FC = () => {
                     checked={edgesSmooth}
                     onChange={e => setEdgesSmooth(e.target.checked)}
                   />
-                  Edges smooth / rolled
+                  {t('docSplint.chkEdges')}
                 </label>
                 <label htmlFor="splint-patient-instructions" className="flex items-center gap-2">
                   <input
@@ -351,27 +359,27 @@ const SplintPage: React.FC = () => {
                     checked={patientInstructions}
                     onChange={e => setPatientInstructions(e.target.checked)}
                   />
-                  Instructions given to patient
+                  {t('docSplint.chkInstructions')}
                 </label>
               </div>
             </div>
 
             {/* Activity Restrictions */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Activity & Instructions</h2>
+              <h2 className="font-semibold mb-3">{t('docSplint.activityInstructions')}</h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="splint-weight-bearing" className="text-sm text-gray-600">Weight Bearing</label>
+                  <label htmlFor="splint-weight-bearing" className="text-sm text-gray-600">{t('docSplint.weightBearing')}</label>
                   <select
                     id="splint-weight-bearing"
                     value={weightBearing}
                     onChange={e => setWeightBearing(e.target.value as 'non' | 'touch' | 'partial' | 'full')}
                     className="w-full border rounded p-2"
                   >
-                    <option value="non">Non-weight bearing</option>
-                    <option value="touch">Touch down / Toe touch</option>
-                    <option value="partial">Partial weight bearing</option>
-                    <option value="full">Full weight bearing</option>
+                    <option value="non">{t('docSplint.wbNon')}</option>
+                    <option value="touch">{t('docSplint.wbTouch')}</option>
+                    <option value="partial">{t('docSplint.wbPartial')}</option>
+                    <option value="full">{t('docSplint.wbFull')}</option>
                   </select>
                 </div>
                 <label htmlFor="splint-elevation-instructed" className="flex items-center gap-2">
@@ -381,7 +389,7 @@ const SplintPage: React.FC = () => {
                     checked={elevationInstructed}
                     onChange={e => setElevationInstructed(e.target.checked)}
                   />
-                  Elevation instructed
+                  {t('docSplint.elevation')}
                 </label>
                 <label htmlFor="splint-ice-instructed" className="flex items-center gap-2">
                   <input
@@ -390,17 +398,17 @@ const SplintPage: React.FC = () => {
                     checked={iceInstructed}
                     onChange={e => setIceInstructed(e.target.checked)}
                   />
-                  Ice application instructed
+                  {t('docSplint.ice')}
                 </label>
                 <div>
-                  <label htmlFor="splint-follow-up" className="text-sm text-gray-600">Follow-up</label>
+                  <label htmlFor="splint-follow-up" className="text-sm text-gray-600">{t('docSplint.followUp')}</label>
                   <input
                     id="splint-follow-up"
                     type="text"
                     value={followUp}
                     onChange={e => setFollowUp(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Ortho in 1 week"
+                    placeholder={t('docSplint.followUpPh')}
                   />
                 </div>
               </div>
@@ -409,7 +417,7 @@ const SplintPage: React.FC = () => {
             {/* Return Precautions */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5" /> Return Precautions Given
+                <AlertTriangle className="w-5 h-5" /> {t('docSplint.returnPrecautions')}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {returnPrecautionsList.map(p => (
@@ -431,12 +439,12 @@ const SplintPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Notes</h2>
+              <h2 className="font-semibold mb-3">{t('docSplint.notes')}</h2>
               <textarea
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 className="w-full border rounded p-2 h-24"
-                placeholder="Additional notes..."
+                placeholder={t('docSplint.notesPh')}
               />
             </div>
 
@@ -445,13 +453,13 @@ const SplintPage: React.FC = () => {
               onClick={handleSubmit}
               className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
             >
-              Save Splint/Cast Record
+              {t('docSplint.save')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">No records yet</div>
+              <div className="text-center py-8 text-gray-500">{t('docSplint.noRecords')}</div>
             ) : (
               records.map(r => (
                 <div key={r.id} className="bg-white rounded-lg shadow p-4">
@@ -461,16 +469,16 @@ const SplintPage: React.FC = () => {
                       <p className="text-sm text-gray-500">{new Date(r.appliedAt).toLocaleString()}</p>
                     </div>
                     <div className="flex gap-2">
-                      <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-700 capitalize">{r.type}</span>
+                      <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-700 capitalize">{typeLabel(r.type)}</span>
                       <span className={`px-2 py-1 text-xs rounded ${r.postApplicationNV.intact ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        NV {r.postApplicationNV.intact ? 'Intact' : 'Compromised'}
+                        {t('docSplint.nvLabel')} {r.postApplicationNV.intact ? t('docSplint.intact') : t('docSplint.compromised')}
                       </span>
                     </div>
                   </div>
                   <div className="text-sm">
-                    <p><strong>{r.bodyPart}</strong> - {r.side} side</p>
+                    <p><strong>{r.bodyPart}</strong> - {sideLabel(r.side)} {t('docSplint.sideSuffix')}</p>
                     <p className="text-gray-600">{r.indication}</p>
-                    {r.followUp && <p className="text-blue-600">Follow-up: {r.followUp}</p>}
+                    {r.followUp && <p className="text-blue-600">{t('docSplint.followUpPrefix', { value: r.followUp })}</p>}
                   </div>
                 </div>
               ))
