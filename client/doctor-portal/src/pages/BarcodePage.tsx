@@ -17,7 +17,7 @@ import {
   Activity,
   Loader2
 } from 'lucide-react';
-import { apiUrl, EmptyState } from '@medichain/shared';
+import { apiUrl, EmptyState, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 
 /**
@@ -61,6 +61,7 @@ interface _Medication {
 }
 
 const BarcodePage: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'scan' | 'history' | 'settings'>('scan');
   const [scanMode, setScanMode] = useState<ScanMode>('patient');
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -166,7 +167,7 @@ const BarcodePage: React.FC = () => {
           id: scanResult.id || `scan-${Date.now()}`,
           type: scanMode,
           barcode: scanResult.barcode || manualEntry,
-          name: scanResult.name || 'Unknown',
+          name: scanResult.name || t('docBarcode.unknown'),
           details: scanResult.details || '',
           timestamp: new Date(scanResult.timestamp || Date.now()),
           result: scanResult.result || 'success',
@@ -186,11 +187,11 @@ const BarcodePage: React.FC = () => {
           id: `scan-${Date.now()}`,
           type: scanMode,
           barcode: manualEntry || 'N/A',
-          name: 'Scan Failed',
-          details: 'Unable to process barcode',
+          name: t('docBarcode.scanFailed'),
+          details: t('docBarcode.unableToProcess'),
           timestamp: new Date(),
           result: 'error',
-          message: 'API request failed',
+          message: t('docBarcode.apiRequestFailed'),
         };
         setLastScan(errorScan);
         setScanHistory(prev => [errorScan, ...prev]);
@@ -201,11 +202,11 @@ const BarcodePage: React.FC = () => {
         id: `scan-${Date.now()}`,
         type: scanMode,
         barcode: manualEntry || 'N/A',
-        name: 'Scan Failed',
-        details: 'Server connection error',
+        name: t('docBarcode.scanFailed'),
+        details: t('docBarcode.serverConnError'),
         timestamp: new Date(),
         result: 'error',
-        message: 'Could not connect to server',
+        message: t('docBarcode.couldNotConnect'),
       };
       setLastScan(errorScan);
       setScanHistory(prev => [errorScan, ...prev]);
@@ -247,6 +248,15 @@ const BarcodePage: React.FC = () => {
     }
   };
 
+  const modeLabel = (m: ScanMode): string => ({
+    patient: t('docBarcode.modePatient'), medication: t('docBarcode.modeMedication'),
+    equipment: t('docBarcode.modeEquipment'), specimen: t('docBarcode.modeSpecimen'),
+  }[m]);
+
+  const tabLabel = (tb: 'scan' | 'history' | 'settings'): string => ({
+    scan: t('docBarcode.tabScan'), history: t('docBarcode.tabHistory'), settings: t('docBarcode.tabSettings'),
+  }[tb]);
+
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
       {/* Header */}
@@ -254,12 +264,12 @@ const BarcodePage: React.FC = () => {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <ScanLine className="w-8 h-8" />
-            <h1 className="text-xl font-bold">Barcode Scanner</h1>
+            <h1 className="text-xl font-bold">{t('docBarcode.title')}</h1>
           </div>
           {currentPatient && (
             <div className="text-right">
               <p className="text-sm font-medium">{currentPatient.name}</p>
-              <p className="text-xs text-gray-300">Room {currentPatient.room}</p>
+              <p className="text-xs text-gray-300">{t('docBarcode.room', { room: currentPatient.room })}</p>
             </div>
           )}
         </div>
@@ -279,7 +289,7 @@ const BarcodePage: React.FC = () => {
               }`}
             >
               {getModeIcon(mode)}
-              <span className="capitalize">{mode}</span>
+              <span className="capitalize">{modeLabel(mode)}</span>
             </button>
           ))}
         </div>
@@ -298,7 +308,7 @@ const BarcodePage: React.FC = () => {
                   : 'text-gray-400 hover:text-gray-300'
               }`}
             >
-              {tab}
+              {tabLabel(tab)}
             </button>
           ))}
         </div>
@@ -319,12 +329,12 @@ const BarcodePage: React.FC = () => {
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
                 <CameraOff className="w-16 h-16 mb-4" />
-                <p>Camera not active</p>
+                <p>{t('docBarcode.cameraNotActive')}</p>
                 <button
                   onClick={startCamera}
                   className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg font-medium"
                 >
-                  Start Camera
+                  {t('docBarcode.startCamera')}
                 </button>
               </div>
             )}
@@ -365,7 +375,7 @@ const BarcodePage: React.FC = () => {
                         : 'bg-blue-600 text-white'
                     }`}
                   >
-                    {isScanning ? 'Scanning...' : 'Scan'}
+                    {isScanning ? t('docBarcode.scanning') : t('docBarcode.scan')}
                   </button>
                   <button
                     onClick={() => {
@@ -390,7 +400,7 @@ const BarcodePage: React.FC = () => {
 
           {/* Manual Entry */}
           <div className="bg-gray-800 p-4">
-            <label htmlFor="barcode-manual-entry" className="sr-only">Enter barcode manually</label>
+            <label htmlFor="barcode-manual-entry" className="sr-only">{t('docBarcode.manualAria')}</label>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <input
@@ -398,7 +408,7 @@ const BarcodePage: React.FC = () => {
                   type="text"
                   value={manualEntry}
                   onChange={(e) => setManualEntry(e.target.value)}
-                  placeholder="Enter barcode manually..."
+                  placeholder={t('docBarcode.manualPlaceholder')}
                   className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500"
                 />
                 <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -407,7 +417,7 @@ const BarcodePage: React.FC = () => {
                 onClick={handleManualEntry}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium"
               >
-                Submit
+                {t('docBarcode.submit')}
               </button>
             </div>
           </div>
@@ -441,7 +451,7 @@ const BarcodePage: React.FC = () => {
             <div className="mx-4 mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-400" />
-                <span className="text-red-300 font-medium">Allergies:</span>
+                <span className="text-red-300 font-medium">{t('docBarcode.allergies')}</span>
                 <span className="text-red-200">{currentPatient.allergies.join(', ')}</span>
               </div>
             </div>
@@ -455,8 +465,8 @@ const BarcodePage: React.FC = () => {
           {scanHistory.length === 0 ? (
             <EmptyState
               icon={<History className="w-12 h-12" />}
-              title="No scan history yet"
-              description="Scanned wristbands and barcodes will appear here."
+              title={t('docBarcode.noHistoryTitle')}
+              description={t('docBarcode.noHistoryDesc')}
             />
           ) : (
             scanHistory.map(scan => (
@@ -506,14 +516,14 @@ const BarcodePage: React.FC = () => {
         <div className="flex-1 bg-gray-50 p-4 space-y-4">
           <div className="bg-white rounded-lg shadow divide-y">
             <div className="p-4">
-              <h3 className="font-semibold text-gray-900">Scanner Settings</h3>
+              <h3 className="font-semibold text-gray-900">{t('docBarcode.scannerSettings')}</h3>
             </div>
             {[
-              { label: 'Auto-scan on focus', enabled: true },
-              { label: 'Vibrate on successful scan', enabled: true },
-              { label: 'Sound feedback', enabled: true },
-              { label: 'Continuous scanning mode', enabled: false },
-              { label: 'Save scan history', enabled: true }
+              { label: t('docBarcode.setAutoScan'), enabled: true },
+              { label: t('docBarcode.setVibrate'), enabled: true },
+              { label: t('docBarcode.setSound'), enabled: true },
+              { label: t('docBarcode.setContinuous'), enabled: false },
+              { label: t('docBarcode.setSaveHistory'), enabled: true }
             ].map((setting, idx) => (
               <div key={idx} className="p-4 flex items-center justify-between">
                 <span className="text-gray-700">{setting.label}</span>
@@ -534,7 +544,7 @@ const BarcodePage: React.FC = () => {
 
           <div className="bg-white rounded-lg shadow divide-y">
             <div className="p-4">
-              <h3 className="font-semibold text-gray-900">Supported Formats</h3>
+              <h3 className="font-semibold text-gray-900">{t('docBarcode.supportedFormats')}</h3>
             </div>
             <div className="p-4">
               <div className="flex flex-wrap gap-2">
@@ -550,7 +560,7 @@ const BarcodePage: React.FC = () => {
           <div className="bg-white rounded-lg shadow p-4">
             <button className="w-full flex items-center justify-center gap-2 text-red-600 font-medium">
               <History className="w-5 h-5" />
-              Clear Scan History
+              {t('docBarcode.clearHistory')}
             </button>
           </div>
         </div>
