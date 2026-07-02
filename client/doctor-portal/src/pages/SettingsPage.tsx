@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useThemeStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { 
   Settings, 
   User, 
@@ -59,6 +59,7 @@ const initialSettings: UserSettings = {
 };
 
 function SettingsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
@@ -127,10 +128,10 @@ function SettingsPage() {
   };
 
   const tabs = [
-    { id: 'profile', label: 'Profile', icon: User },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'display', label: 'Display', icon: Palette },
+    { id: 'profile', label: t('docSettings.tabProfile'), icon: User },
+    { id: 'notifications', label: t('docSettings.tabNotifications'), icon: Bell },
+    { id: 'security', label: t('docSettings.tabSecurity'), icon: Shield },
+    { id: 'display', label: t('docSettings.tabDisplay'), icon: Palette },
   ] as const;
 
   return (
@@ -142,10 +143,10 @@ function SettingsPage() {
             <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
               <Settings className="text-primary-600" size={24} />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{t('docSettings.title')}</h1>
           </div>
           <p className="text-gray-500">
-            Manage your account settings and preferences
+            {t('docSettings.subtitle')}
           </p>
         </div>
         
@@ -157,12 +158,12 @@ function SettingsPage() {
           {saved ? (
             <>
               <CheckCircle size={18} />
-              Saved!
+              {t('docSettings.saved')}
             </>
           ) : (
             <>
               <Save size={18} />
-              {isSaving ? 'Saving...' : 'Save Changes'}
+              {isSaving ? t('docSettings.saving') : t('docSettings.saveChanges')}
             </>
           )}
         </button>
@@ -194,24 +195,24 @@ function SettingsPage() {
           {/* Profile Tab */}
           {activeTab === 'profile' && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">Profile Information</h2>
-              
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('docSettings.profileInfo')}</h2>
+
               <div className="flex items-start gap-6 mb-8">
                 <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center">
                   <User className="text-primary-600" size={32} />
                 </div>
                 <div>
-                  <h3 className="font-medium text-gray-900">{user?.username || 'User'}</h3>
-                  <p className="text-sm text-gray-500">{user?.role || 'Role'}</p>
+                  <h3 className="font-medium text-gray-900">{user?.username || t('docSettings.userFallback')}</h3>
+                  <p className="text-sm text-gray-500">{user?.role || t('docSettings.roleFallback')}</p>
                   <button className="mt-2 text-sm text-primary-600 hover:text-primary-700">
-                    Change Avatar
+                    {t('docSettings.changeAvatar')}
                   </button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">User ID</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.userId')}</label>
                   <input
                     type="text"
                     value={user?.userId || ''}
@@ -221,7 +222,7 @@ function SettingsPage() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.role')}</label>
                   <input
                     type="text"
                     value={user?.role || ''}
@@ -231,7 +232,7 @@ function SettingsPage() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.email')}</label>
                   <input
                     type="email"
                     defaultValue={`${user?.username || 'user'}@medichain.health`}
@@ -240,7 +241,7 @@ function SettingsPage() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.phone')}</label>
                   <input
                     type="tel"
                     defaultValue="+234-800-000-0000"
@@ -250,13 +251,13 @@ function SettingsPage() {
               </div>
 
               <div className="mt-6 pt-6 border-t border-gray-200">
-                <h4 className="font-medium text-gray-900 mb-3">Account Status</h4>
+                <h4 className="font-medium text-gray-900 mb-3">{t('docSettings.accountStatus')}</h4>
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center px-3 py-1 bg-success-100 text-success-700 text-sm font-medium rounded-full">
-                    Active
+                    {t('docSettings.active')}
                   </span>
                   <span className="text-sm text-gray-500">
-                    Member since January 2026
+                    {t('docSettings.memberSince')}
                   </span>
                 </div>
               </div>
@@ -266,13 +267,13 @@ function SettingsPage() {
           {/* Notifications Tab */}
           {activeTab === 'notifications' && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">Notification Preferences</h2>
-              
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('docSettings.notifPrefs')}</h2>
+
               <div className="space-y-6">
                 <div className="flex items-center justify-between py-3 border-b border-gray-100">
                   <div>
-                    <h4 className="font-medium text-gray-900">Emergency Alerts</h4>
-                    <p className="text-sm text-gray-500">Get notified when emergency access is requested</p>
+                    <h4 className="font-medium text-gray-900">{t('docSettings.emergencyAlerts')}</h4>
+                    <p className="text-sm text-gray-500">{t('docSettings.emergencyAlertsDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -287,8 +288,8 @@ function SettingsPage() {
 
                 <div className="flex items-center justify-between py-3 border-b border-gray-100">
                   <div>
-                    <h4 className="font-medium text-gray-900">Patient Updates</h4>
-                    <p className="text-sm text-gray-500">Notifications when patient records are updated</p>
+                    <h4 className="font-medium text-gray-900">{t('docSettings.patientUpdates')}</h4>
+                    <p className="text-sm text-gray-500">{t('docSettings.patientUpdatesDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -303,8 +304,8 @@ function SettingsPage() {
 
                 <div className="flex items-center justify-between py-3 border-b border-gray-100">
                   <div>
-                    <h4 className="font-medium text-gray-900">System Announcements</h4>
-                    <p className="text-sm text-gray-500">Important updates about MediChain</p>
+                    <h4 className="font-medium text-gray-900">{t('docSettings.systemAnnouncements')}</h4>
+                    <p className="text-sm text-gray-500">{t('docSettings.systemAnnouncementsDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -319,8 +320,8 @@ function SettingsPage() {
 
                 <div className="flex items-center justify-between py-3">
                   <div>
-                    <h4 className="font-medium text-gray-900">Email Digest</h4>
-                    <p className="text-sm text-gray-500">Weekly summary of all activity</p>
+                    <h4 className="font-medium text-gray-900">{t('docSettings.emailDigest')}</h4>
+                    <p className="text-sm text-gray-500">{t('docSettings.emailDigestDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -339,15 +340,15 @@ function SettingsPage() {
           {/* Security Tab */}
           {activeTab === 'security' && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">Security Settings</h2>
-              
+              <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('docSettings.securitySettings')}</h2>
+
               <div className="space-y-6">
                 <div className="flex items-center justify-between py-3 border-b border-gray-100">
                   <div className="flex items-start gap-3">
                     <Smartphone className="text-gray-400 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">Two-Factor Authentication</h4>
-                      <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
+                      <h4 className="font-medium text-gray-900">{t('docSettings.twoFactor')}</h4>
+                      <p className="text-sm text-gray-500">{t('docSettings.twoFactorDesc')}</p>
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -365,8 +366,8 @@ function SettingsPage() {
                   <div className="flex items-start gap-3 mb-3">
                     <Key className="text-gray-400 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">Session Timeout</h4>
-                      <p className="text-sm text-gray-500">Automatically log out after inactivity</p>
+                      <h4 className="font-medium text-gray-900">{t('docSettings.sessionTimeout')}</h4>
+                      <p className="text-sm text-gray-500">{t('docSettings.sessionTimeoutDesc')}</p>
                     </div>
                   </div>
                   <select
@@ -374,10 +375,10 @@ function SettingsPage() {
                     onChange={(e) => updateSecurity('sessionTimeout', Number(e.target.value))}
                     className="w-full max-w-xs px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                   >
-                    <option value={15}>15 minutes</option>
-                    <option value={30}>30 minutes</option>
-                    <option value={60}>1 hour</option>
-                    <option value={120}>2 hours</option>
+                    <option value={15}>{t('docSettings.min15')}</option>
+                    <option value={30}>{t('docSettings.min30')}</option>
+                    <option value={60}>{t('docSettings.hour1')}</option>
+                    <option value={120}>{t('docSettings.hour2')}</option>
                   </select>
                 </div>
 
@@ -385,8 +386,8 @@ function SettingsPage() {
                   <div className="flex items-start gap-3">
                     <Shield className="text-gray-400 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">PIN for Emergency Access</h4>
-                      <p className="text-sm text-gray-500">Require PIN confirmation for emergency patient access</p>
+                      <h4 className="font-medium text-gray-900">{t('docSettings.pinEmergency')}</h4>
+                      <p className="text-sm text-gray-500">{t('docSettings.pinEmergencyDesc')}</p>
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -402,7 +403,7 @@ function SettingsPage() {
 
                 <div className="pt-4">
                   <button className="px-4 py-2 text-emergency-600 border border-emergency-300 rounded-lg hover:bg-emergency-50 transition-colors">
-                    Change Password
+                    {t('docSettings.changePassword')}
                   </button>
                 </div>
               </div>
@@ -412,22 +413,22 @@ function SettingsPage() {
           {/* Display Tab */}
           {activeTab === 'display' && (
             <div className="dark:text-white">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Display Preferences</h2>
-              
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">{t('docSettings.displayPrefs')}</h2>
+
               <div className="space-y-6">
                 <div className="py-3 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex items-start gap-3 mb-3">
                     <Palette className="text-gray-400 dark:text-gray-300 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900 dark:text-white">Theme</h4>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Choose your preferred color scheme</p>
+                      <h4 className="font-medium text-gray-900 dark:text-white">{t('docSettings.theme')}</h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{t('docSettings.themeDesc')}</p>
                     </div>
                   </div>
                   <div className="flex gap-3">
                     {[
-                      { value: 'light', label: 'Light', icon: Sun },
-                      { value: 'dark', label: 'Dark', icon: Moon },
-                      { value: 'system', label: 'System', icon: Monitor }
+                      { value: 'light', label: t('docSettings.themeLight'), icon: Sun },
+                      { value: 'dark', label: t('docSettings.themeDark'), icon: Moon },
+                      { value: 'system', label: t('docSettings.themeSystem'), icon: Monitor }
                     ].map(({ value, label, icon: Icon }) => (
                       <button
                         key={value}
@@ -452,8 +453,8 @@ function SettingsPage() {
                   <div className="flex items-start gap-3 mb-3">
                     <Globe className="text-gray-400 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">Language</h4>
-                      <p className="text-sm text-gray-500">Select your preferred language</p>
+                      <h4 className="font-medium text-gray-900">{t('docSettings.language')}</h4>
+                      <p className="text-sm text-gray-500">{t('docSettings.languageDesc')}</p>
                     </div>
                   </div>
                   <select
@@ -461,12 +462,12 @@ function SettingsPage() {
                     onChange={(e) => updateDisplay('language', e.target.value)}
                     className="w-full max-w-xs px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                   >
-                    <option value="en">English</option>
-                    <option value="fr">French</option>
-                    <option value="sw">Swahili</option>
-                    <option value="ha">Hausa</option>
-                    <option value="yo">Yoruba</option>
-                    <option value="am">Amharic</option>
+                    <option value="en">{t('docSettings.langEnglish')}</option>
+                    <option value="fr">{t('docSettings.langFrench')}</option>
+                    <option value="sw">{t('docSettings.langSwahili')}</option>
+                    <option value="ha">{t('docSettings.langHausa')}</option>
+                    <option value="yo">{t('docSettings.langYoruba')}</option>
+                    <option value="am">{t('docSettings.langAmharic')}</option>
                   </select>
                 </div>
 
@@ -474,8 +475,8 @@ function SettingsPage() {
                   <div className="flex items-start gap-3 mb-3">
                     <Settings className="text-gray-400 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">Date Format</h4>
-                      <p className="text-sm text-gray-500">How dates are displayed</p>
+                      <h4 className="font-medium text-gray-900">{t('docSettings.dateFormat')}</h4>
+                      <p className="text-sm text-gray-500">{t('docSettings.dateFormatDesc')}</p>
                     </div>
                   </div>
                   <select
@@ -491,8 +492,8 @@ function SettingsPage() {
 
                 <div className="flex items-center justify-between py-3">
                   <div>
-                    <h4 className="font-medium text-gray-900">Compact View</h4>
-                    <p className="text-sm text-gray-500">Display more information with less spacing</p>
+                    <h4 className="font-medium text-gray-900">{t('docSettings.compactView')}</h4>
+                    <p className="text-sm text-gray-500">{t('docSettings.compactViewDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
