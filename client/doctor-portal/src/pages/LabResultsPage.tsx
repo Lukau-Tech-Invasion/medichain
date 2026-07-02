@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import {
   FlaskConical,
   Search,
@@ -41,6 +41,7 @@ interface LabSubmission {
 }
 
 function LabResultsPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [submissions, setSubmissions] = useState<LabSubmission[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -167,21 +168,21 @@ function LabResultsPage() {
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
             <Clock size={12} />
-            Pending Review
+            {t('docLabResults.pendingReview')}
           </span>
         );
       case 'approved':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
             <CheckCircle size={12} />
-            Approved
+            {t('docLabResults.approved')}
           </span>
         );
       case 'rejected':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
             <XCircle size={12} />
-            Rejected
+            {t('docLabResults.rejected')}
           </span>
         );
       default:
@@ -208,8 +209,8 @@ function LabResultsPage() {
             <FlaskConical className="text-purple-600" size={24} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Lab Results Review</h1>
-            <p className="text-gray-500">Review and approve lab submissions before they're visible to patients</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('docLabResults.title')}</h1>
+            <p className="text-gray-500">{t('docLabResults.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -220,7 +221,7 @@ function LabResultsPage() {
           <div className="flex items-center gap-3">
             <Clock className="text-yellow-600" size={24} />
             <div>
-              <p className="text-sm text-yellow-600 font-medium">Pending Review</p>
+              <p className="text-sm text-yellow-600 font-medium">{t('docLabResults.pendingReview')}</p>
               <p className="text-2xl font-bold text-yellow-800">{pendingCount}</p>
             </div>
           </div>
@@ -229,7 +230,7 @@ function LabResultsPage() {
           <div className="flex items-center gap-3">
             <CheckCircle className="text-green-600" size={24} />
             <div>
-              <p className="text-sm text-green-600 font-medium">Approved Today</p>
+              <p className="text-sm text-green-600 font-medium">{t('docLabResults.approvedToday')}</p>
               <p className="text-2xl font-bold text-green-800">0</p>
             </div>
           </div>
@@ -238,7 +239,7 @@ function LabResultsPage() {
           <div className="flex items-center gap-3">
             <XCircle className="text-red-600" size={24} />
             <div>
-              <p className="text-sm text-red-600 font-medium">Rejected Today</p>
+              <p className="text-sm text-red-600 font-medium">{t('docLabResults.rejectedToday')}</p>
               <p className="text-2xl font-bold text-red-800">0</p>
             </div>
           </div>
@@ -250,12 +251,12 @@ function LabResultsPage() {
         <div className="flex flex-col md:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
-            <label htmlFor="labresults-search" className="sr-only">Search lab results</label>
+            <label htmlFor="labresults-search" className="sr-only">{t('docLabResults.searchAria')}</label>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input
               id="labresults-search"
               type="text"
-              placeholder="Search by patient name, ID, or test name..."
+              placeholder={t('docLabResults.searchPh')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -264,7 +265,7 @@ function LabResultsPage() {
           
           {/* Status Filter */}
           <div className="flex items-center gap-2">
-            <label htmlFor="labresults-status-filter" className="sr-only">Filter by status</label>
+            <label htmlFor="labresults-status-filter" className="sr-only">{t('docLabResults.filterAria')}</label>
             <Filter size={20} className="text-gray-400" aria-hidden="true" />
             <select
               id="labresults-status-filter"
@@ -272,10 +273,10 @@ function LabResultsPage() {
               onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
               className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             >
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="all">All</option>
+              <option value="pending">{t('docLabResults.optPending')}</option>
+              <option value="approved">{t('docLabResults.approved')}</option>
+              <option value="rejected">{t('docLabResults.rejected')}</option>
+              <option value="all">{t('docLabResults.optAll')}</option>
             </select>
           </div>
         </div>
@@ -287,16 +288,16 @@ function LabResultsPage() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12">
             <div className="flex flex-col items-center justify-center">
               <Loader2 className="animate-spin text-purple-600 mb-4" size={40} />
-              <p className="text-gray-500">Loading lab submissions...</p>
+              <p className="text-gray-500">{t('docLabResults.loading')}</p>
             </div>
           </div>
         ) : filteredSubmissions.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12">
             <div className="flex flex-col items-center justify-center">
               <FlaskConical className="text-gray-300 mb-4" size={48} />
-              <p className="text-gray-500 text-lg font-medium">No lab submissions found</p>
+              <p className="text-gray-500 text-lg font-medium">{t('docLabResults.noSubmissions')}</p>
               <p className="text-gray-400 text-sm">
-                {filterStatus === 'pending' ? 'All lab results have been reviewed' : 'Try adjusting your filters'}
+                {filterStatus === 'pending' ? t('docLabResults.allReviewed') : t('docLabResults.adjustFilters')}
               </p>
             </div>
           </div>
@@ -330,9 +331,9 @@ function LabResultsPage() {
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
                           <Clock size={12} />
-                          <span>Submitted {date} at {time}</span>
+                          <span>{t('docLabResults.submittedAt', { date, time })}</span>
                           <span className="text-gray-300">•</span>
-                          <span>by {submission.submitted_by}</span>
+                          <span>{t('docLabResults.byUser', { name: submission.submitted_by })}</span>
                         </div>
                       </div>
                     </div>
@@ -357,17 +358,17 @@ function LabResultsPage() {
                     <div className="p-4">
                       <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
                         <FileText size={16} />
-                        Test Results
+                        {t('docLabResults.testResults')}
                       </h4>
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-gray-200">
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">Parameter</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">Value</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">Unit</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">Reference Range</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">Flag</th>
+                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colParameter')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colValue')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colUnit')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colReference')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colFlag')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -399,7 +400,7 @@ function LabResultsPage() {
                     {/* Notes */}
                     {submission.notes && (
                       <div className="px-4 pb-4">
-                        <h4 className="font-medium text-gray-900 mb-2">Lab Technician Notes</h4>
+                        <h4 className="font-medium text-gray-900 mb-2">{t('docLabResults.techNotes')}</h4>
                         <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">{submission.notes}</p>
                       </div>
                     )}
@@ -409,7 +410,7 @@ function LabResultsPage() {
                       <div className="px-4 pb-4">
                         <h4 className="font-medium text-red-700 mb-2 flex items-center gap-2">
                           <XCircle size={16} />
-                          Rejection Reason
+                          {t('docLabResults.rejectionReason')}
                         </h4>
                         <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{submission.rejection_reason}</p>
                       </div>
@@ -427,7 +428,7 @@ function LabResultsPage() {
                           className="px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
                           <XCircle size={18} />
-                          Reject
+                          {t('docLabResults.reject')}
                         </button>
                         <button
                           onClick={(e) => {
@@ -442,7 +443,7 @@ function LabResultsPage() {
                           ) : (
                             <CheckCircle size={18} />
                           )}
-                          Approve
+                          {t('docLabResults.approve')}
                         </button>
                       </div>
                     )}
@@ -460,16 +461,16 @@ function LabResultsPage() {
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <XCircle className="text-red-500" size={24} />
-              Reject Lab Result
+              {t('docLabResults.rejectTitle')}
             </h3>
             <label htmlFor="labresults-rejection-reason" className="text-sm text-gray-600 mb-4 block">
-              Please provide a reason for rejecting this lab submission. The lab technician will be notified.
+              {t('docLabResults.rejectPrompt')}
             </label>
             <textarea
               id="labresults-rejection-reason"
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
-              placeholder="Enter rejection reason..."
+              placeholder={t('docLabResults.rejectPh')}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
               rows={4}
             />
@@ -481,7 +482,7 @@ function LabResultsPage() {
                 }}
                 className="px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
               >
-                Cancel
+                {t('docLabResults.cancel')}
               </button>
               <button
                 onClick={() => handleReject(showRejectModal)}
@@ -493,7 +494,7 @@ function LabResultsPage() {
                 ) : (
                   <XCircle size={18} />
                 )}
-                Reject Submission
+                {t('docLabResults.rejectSubmission')}
               </button>
             </div>
           </div>
