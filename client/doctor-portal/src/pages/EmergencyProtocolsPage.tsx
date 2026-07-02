@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { 
   AlertCircle, 
   Activity, 
@@ -73,6 +73,7 @@ interface SepsisAssessment {
 type EmergencyType = 'code_blue' | 'trauma' | 'stroke' | 'cardiac' | 'sepsis';
 
 function EmergencyProtocolsPage() {
+  const { t } = useTranslation();
   const { patientId } = useParams<{ patientId: string }>();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
@@ -150,11 +151,11 @@ function EmergencyProtocolsPage() {
   };
 
   const tabs = [
-    { id: 'code_blue' as EmergencyType, label: 'Code Blue', icon: Siren, color: 'text-blue-600' },
-    { id: 'trauma' as EmergencyType, label: 'Trauma', icon: AlertCircle, color: 'text-orange-600' },
-    { id: 'stroke' as EmergencyType, label: 'Stroke', icon: Brain, color: 'text-purple-600' },
-    { id: 'cardiac' as EmergencyType, label: 'Cardiac Arrest', icon: Heart, color: 'text-red-600' },
-    { id: 'sepsis' as EmergencyType, label: 'Sepsis', icon: Flame, color: 'text-yellow-600' },
+    { id: 'code_blue' as EmergencyType, label: t('docEmergProto.tabCodeBlue'), icon: Siren, color: 'text-blue-600' },
+    { id: 'trauma' as EmergencyType, label: t('docEmergProto.tabTrauma'), icon: AlertCircle, color: 'text-orange-600' },
+    { id: 'stroke' as EmergencyType, label: t('docEmergProto.tabStroke'), icon: Brain, color: 'text-purple-600' },
+    { id: 'cardiac' as EmergencyType, label: t('docEmergProto.tabCardiac'), icon: Heart, color: 'text-red-600' },
+    { id: 'sepsis' as EmergencyType, label: t('docEmergProto.tabSepsis'), icon: Flame, color: 'text-yellow-600' },
   ];
 
   return (
@@ -166,8 +167,8 @@ function EmergencyProtocolsPage() {
             <ChevronLeft size={24} />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Emergency Protocols</h1>
-            <p className="text-gray-500 mt-1">Patient ID: {patientId}</p>
+            <h1 className="text-2xl font-bold text-gray-900">{t('docEmergProto.title')}</h1>
+            <p className="text-gray-500 mt-1">{t('docEmergProto.patientId', { id: patientId ?? '' })}</p>
           </div>
         </div>
         <button
@@ -175,7 +176,7 @@ function EmergencyProtocolsPage() {
           className="px-6 py-3 bg-emergency-600 text-white rounded-lg hover:bg-emergency-700 transition-colors flex items-center gap-2"
         >
           <Plus size={20} />
-          New Emergency Record
+          {t('docEmergProto.newRecord')}
         </button>
       </div>
 
@@ -213,8 +214,8 @@ function EmergencyProtocolsPage() {
                     <Siren className="text-blue-600" size={24} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-lg">Code Blue</h3>
-                    <p className="text-sm text-gray-500">ID: {record.code_blue_id}</p>
+                    <h3 className="font-semibold text-lg">{t('docEmergProto.codeBlue')}</h3>
+                    <p className="text-sm text-gray-500">{t('docEmergProto.idLabel', { id: record.code_blue_id })}</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -231,18 +232,18 @@ function EmergencyProtocolsPage() {
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Location:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.location')}</span>
                   <p className="text-gray-900">{record.location}</p>
                 </div>
                 {record.initial_rhythm && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">Initial Rhythm:</span>
+                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.initialRhythm')}</span>
                     <p className="text-gray-900">{record.initial_rhythm}</p>
                   </div>
                 )}
                 {record.outcome && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">Outcome:</span>
+                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.outcome')}</span>
                     <p className={`font-semibold ${
                       record.outcome.toLowerCase().includes('rosc') ? 'text-green-600' : 'text-red-600'
                     }`}>
@@ -254,7 +255,7 @@ function EmergencyProtocolsPage() {
 
               {record.interventions && record.interventions.length > 0 && (
                 <div className="mb-4">
-                  <span className="text-sm font-medium text-gray-700">Interventions:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.interventions')}</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {record.interventions.map((intervention, idx) => (
                       <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
@@ -267,7 +268,7 @@ function EmergencyProtocolsPage() {
 
               {record.notes && (
                 <div className="border-t border-gray-200 pt-4 mt-4">
-                  <span className="text-sm font-medium text-gray-700">Notes:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.notes')}</span>
                   <p className="text-gray-700 mt-2">{record.notes}</p>
                 </div>
               )}
@@ -276,7 +277,7 @@ function EmergencyProtocolsPage() {
           {codeBlueRecords.length === 0 && !loading && (
             <div className="bg-white rounded-xl shadow p-12 text-center">
               <Siren className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">No Code Blue records found</p>
+              <p className="text-gray-500">{t('docEmergProto.noCodeBlue')}</p>
             </div>
           )}
         </div>
@@ -293,8 +294,8 @@ function EmergencyProtocolsPage() {
                     <AlertCircle className="text-orange-600" size={24} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-lg">Trauma Assessment</h3>
-                    <p className="text-sm text-gray-500">Level {record.trauma_level}</p>
+                    <h3 className="font-semibold text-lg">{t('docEmergProto.traumaAssessment')}</h3>
+                    <p className="text-sm text-gray-500">{t('docEmergProto.level', { level: record.trauma_level })}</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -310,13 +311,13 @@ function EmergencyProtocolsPage() {
               </div>
               
               <div className="mb-4">
-                <span className="text-sm font-medium text-gray-700">Mechanism of Injury:</span>
+                <span className="text-sm font-medium text-gray-700">{t('docEmergProto.mechanism')}</span>
                 <p className="text-gray-900 mt-1">{record.mechanism_of_injury}</p>
               </div>
 
               {record.injuries && record.injuries.length > 0 && (
                 <div className="mb-4">
-                  <span className="text-sm font-medium text-gray-700">Injuries:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.injuries')}</span>
                   <ul className="list-disc list-inside mt-2 space-y-1">
                     {record.injuries.map((injury, idx) => (
                       <li key={idx} className="text-gray-700">{injury}</li>
@@ -327,7 +328,7 @@ function EmergencyProtocolsPage() {
 
               {record.interventions && record.interventions.length > 0 && (
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Interventions:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.interventions')}</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {record.interventions.map((intervention, idx) => (
                       <span key={idx} className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm">
@@ -342,7 +343,7 @@ function EmergencyProtocolsPage() {
           {traumaRecords.length === 0 && !loading && (
             <div className="bg-white rounded-xl shadow p-12 text-center">
               <AlertCircle className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">No trauma assessments found</p>
+              <p className="text-gray-500">{t('docEmergProto.noTrauma')}</p>
             </div>
           )}
         </div>
@@ -359,9 +360,9 @@ function EmergencyProtocolsPage() {
                     <Brain className="text-purple-600" size={24} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-lg">Stroke Assessment</h3>
+                    <h3 className="font-semibold text-lg">{t('docEmergProto.strokeAssessment')}</h3>
                     {record.nihss_score !== undefined && (
-                      <p className="text-sm text-gray-500">NIHSS: {record.nihss_score}</p>
+                      <p className="text-sm text-gray-500">{t('docEmergProto.nihss', { score: record.nihss_score })}</p>
                     )}
                   </div>
                 </div>
@@ -379,21 +380,21 @@ function EmergencyProtocolsPage() {
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Last Known Normal:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.lastKnownNormal')}</span>
                   <p className="text-gray-900">{formatTimestamp(record.last_known_normal)}</p>
                 </div>
                 {record.stroke_type && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">Stroke Type:</span>
+                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.strokeType')}</span>
                     <p className="text-gray-900">{record.stroke_type}</p>
                   </div>
                 )}
                 <div>
-                  <span className="text-sm font-medium text-gray-700">tPA Given:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.tpaGiven')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${
                     record.tpa_given ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                   }`}>
-                    {record.tpa_given ? 'Yes' : 'No'}
+                    {record.tpa_given ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
                 </div>
               </div>
@@ -402,7 +403,7 @@ function EmergencyProtocolsPage() {
           {strokeRecords.length === 0 && !loading && (
             <div className="bg-white rounded-xl shadow p-12 text-center">
               <Brain className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">No stroke assessments found</p>
+              <p className="text-gray-500">{t('docEmergProto.noStroke')}</p>
             </div>
           )}
         </div>
@@ -419,8 +420,8 @@ function EmergencyProtocolsPage() {
                     <Heart className="text-red-600" size={24} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-lg">Cardiac Arrest Protocol</h3>
-                    <p className="text-sm text-gray-500">ID: {record.protocol_id}</p>
+                    <h3 className="font-semibold text-lg">{t('docEmergProto.cardiacProtocol')}</h3>
+                    <p className="text-sm text-gray-500">{t('docEmergProto.idLabel', { id: record.protocol_id })}</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -433,30 +434,30 @@ function EmergencyProtocolsPage() {
               
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">CPR Started:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.cprStarted')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
                     record.cpr_started ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                   }`}>
-                    {record.cpr_started ? 'Yes' : 'No'}
+                    {record.cpr_started ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Defibrillation Shocks:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.defibShocks')}</span>
                   <p className="text-gray-900 font-semibold">{record.defib_shocks}</p>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-700">ROSC Achieved:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.roscAchieved')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
                     record.rosc_achieved ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                   }`}>
-                    {record.rosc_achieved ? 'Yes' : 'No'}
+                    {record.rosc_achieved ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
                 </div>
               </div>
 
               {record.medications_given && record.medications_given.length > 0 && (
                 <div className="mt-4">
-                  <span className="text-sm font-medium text-gray-700">Medications Given:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.medicationsGiven')}</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {record.medications_given.map((med, idx) => (
                       <span key={idx} className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm">
@@ -471,7 +472,7 @@ function EmergencyProtocolsPage() {
           {cardiacRecords.length === 0 && !loading && (
             <div className="bg-white rounded-xl shadow p-12 text-center">
               <Heart className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">No cardiac arrest protocols found</p>
+              <p className="text-gray-500">{t('docEmergProto.noCardiac')}</p>
             </div>
           )}
         </div>
@@ -488,8 +489,8 @@ function EmergencyProtocolsPage() {
                     <Flame className="text-yellow-600" size={24} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-lg">Sepsis Assessment</h3>
-                    <p className="text-sm text-gray-500">qSOFA: {record.qsofa_score}</p>
+                    <h3 className="font-semibold text-lg">{t('docEmergProto.sepsisAssessment')}</h3>
+                    <p className="text-sm text-gray-500">{t('docEmergProto.qsofa', { score: record.qsofa_score })}</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -507,26 +508,26 @@ function EmergencyProtocolsPage() {
               <div className="grid grid-cols-3 gap-4">
                 {record.lactate_level !== undefined && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">Lactate Level:</span>
+                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.lactateLevel')}</span>
                     <p className={`font-semibold ${record.lactate_level > 2 ? 'text-red-600' : 'text-green-600'}`}>
-                      {record.lactate_level} mmol/L
+                      {t('docEmergProto.lactateValue', { value: record.lactate_level })}
                     </p>
                   </div>
                 )}
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Antibiotics Given:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.antibioticsGiven')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
                     record.antibiotics_given ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                   }`}>
-                    {record.antibiotics_given ? 'Yes' : 'No'}
+                    {record.antibiotics_given ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-700">Fluid Resuscitation:</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.fluidResuscitation')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
                     record.fluid_resuscitation ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                   }`}>
-                    {record.fluid_resuscitation ? 'Yes' : 'No'}
+                    {record.fluid_resuscitation ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
                 </div>
               </div>
@@ -535,7 +536,7 @@ function EmergencyProtocolsPage() {
           {sepsisRecords.length === 0 && !loading && (
             <div className="bg-white rounded-xl shadow p-12 text-center">
               <Flame className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">No sepsis assessments found</p>
+              <p className="text-gray-500">{t('docEmergProto.noSepsis')}</p>
             </div>
           )}
         </div>
@@ -544,7 +545,7 @@ function EmergencyProtocolsPage() {
       {loading && (
         <div className="bg-white rounded-xl shadow p-12 text-center">
           <Activity className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-          <p className="text-gray-500">Loading emergency records...</p>
+          <p className="text-gray-500">{t('docEmergProto.loading')}</p>
         </div>
       )}
     </div>
