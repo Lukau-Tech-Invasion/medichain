@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, User, CheckCircle, AlertTriangle, ThermometerSun } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createPostOp, apiUrl } from '@medichain/shared';
+import { getPatients, createPostOp, apiUrl, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -59,6 +59,7 @@ const dischargeCriteriaList = [
 ];
 
 const PostOpPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -131,7 +132,7 @@ const PostOpPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient) {
-      showWarning('Please select a patient');
+      showWarning(t('docPostOp.warnSelectPatient'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -154,7 +155,7 @@ const PostOpPage: React.FC = () => {
       console.error('Failed to save post-op note:', err);
     }
     setNotes([note, ...notes]);
-    showSuccess('Post-Op note saved!');
+    showSuccess(t('docPostOp.saved'));
   };
 
   return (
@@ -164,8 +165,8 @@ const PostOpPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Activity className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Post-Operative Care</h1>
-            <p className="text-violet-100">PACU assessment and discharge criteria</p>
+            <h1 className="text-2xl font-bold">{t('docPostOp.title')}</h1>
+            <p className="text-violet-100">{t('docPostOp.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -179,7 +180,7 @@ const PostOpPage: React.FC = () => {
             <AlertTriangle className="w-6 h-6 text-yellow-600" />
           )}
           <span className="font-semibold">
-            Aldrete Score: {aldreteScore}/10 - {readyForDischarge ? 'Ready for discharge' : 'Continue monitoring'}
+            {t('docPostOp.banner', { score: aldreteScore, status: readyForDischarge ? t('docPostOp.statusReady') : t('docPostOp.statusMonitoring') })}
           </span>
         </div>
       </div>
@@ -195,7 +196,7 @@ const PostOpPage: React.FC = () => {
                 ? 'text-violet-600 border-b-2 border-violet-600'
                 : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'assessment' ? t('docPostOp.tabAssessment') : t('docPostOp.tabHistory')}
             </button>
           ))}
         </div>
@@ -207,25 +208,25 @@ const PostOpPage: React.FC = () => {
             {/* Patient & Procedure Info */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <User className="w-5 h-5" /> Patient & Procedure
+                <User className="w-5 h-5" /> {t('docPostOp.patientProcedure')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="postop-patient" className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="postop-patient" className="text-sm text-gray-600">{t('docPostOp.patient')}</label>
                   <select
                     id="postop-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="">Select...</option>
+                    <option value="">{t('docPostOp.select')}</option>
                     {patients.map(p => (
                       <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="postop-procedure" className="text-sm text-gray-600">Procedure</label>
+                  <label htmlFor="postop-procedure" className="text-sm text-gray-600">{t('docPostOp.procedure')}</label>
                   <input
                     id="postop-procedure"
                     type="text"
@@ -235,7 +236,7 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-surgeon" className="text-sm text-gray-600">Surgeon</label>
+                  <label htmlFor="postop-surgeon" className="text-sm text-gray-600">{t('docPostOp.surgeon')}</label>
                   <input
                     id="postop-surgeon"
                     type="text"
@@ -245,18 +246,18 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-anesthesia" className="text-sm text-gray-600">Anesthesia</label>
+                  <label htmlFor="postop-anesthesia" className="text-sm text-gray-600">{t('docPostOp.anesthesia')}</label>
                   <input
                     id="postop-anesthesia"
                     type="text"
                     value={anesthesiaType}
                     onChange={e => setAnesthesiaType(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., General"
+                    placeholder={t('docPostOp.anesthesiaPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-arrival-time" className="text-sm text-gray-600">PACU Arrival Time</label>
+                  <label htmlFor="postop-arrival-time" className="text-sm text-gray-600">{t('docPostOp.pacuArrival')}</label>
                   <input
                     id="postop-arrival-time"
                     type="time"
@@ -271,12 +272,12 @@ const PostOpPage: React.FC = () => {
             {/* Aldrete Score */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5" /> Aldrete Score
+                <CheckCircle className="w-5 h-5" /> {t('docPostOp.aldreteScore')}
               </h2>
               <div className="space-y-4">
                 {(Object.keys(aldreteDescriptions) as (keyof AldreteCriteria)[]).map(key => (
                   <div key={key} className="flex items-center gap-4">
-                    <span className="w-40 font-medium capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
+                    <span className="w-40 font-medium">{t(`docPostOp.crit_${key}`)}</span>
                     <div className="flex gap-2">
                       {[0, 1, 2].map(val => (
                         <button
@@ -296,9 +297,9 @@ const PostOpPage: React.FC = () => {
                   </div>
                 ))}
                 <div className="mt-4 pt-4 border-t flex items-center justify-between">
-                  <span className="text-xl font-bold">Total Score: {aldreteScore}/10</span>
+                  <span className="text-xl font-bold">{t('docPostOp.totalScore', { score: aldreteScore })}</span>
                   <span className={`px-3 py-1 rounded ${readyForDischarge ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                    {readyForDischarge ? 'Discharge Ready (≥9)' : 'Not Ready (<9)'}
+                    {readyForDischarge ? t('docPostOp.dischargeReady') : t('docPostOp.notReady')}
                   </span>
                 </div>
               </div>
@@ -307,7 +308,7 @@ const PostOpPage: React.FC = () => {
             {/* Vital Signs */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <ThermometerSun className="w-5 h-5" /> Vital Signs & Assessment
+                <ThermometerSun className="w-5 h-5" /> {t('docPostOp.vitalSigns')}
               </h2>
               <div className="grid md:grid-cols-5 gap-4">
                 <div>
@@ -341,7 +342,7 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-spo2" className="text-sm text-gray-600">SpO2 %</label>
+                  <label htmlFor="postop-spo2" className="text-sm text-gray-600">{t('docPostOp.spo2Pct')}</label>
                   <input
                     id="postop-spo2"
                     type="number"
@@ -351,7 +352,7 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-temp" className="text-sm text-gray-600">Temp °C</label>
+                  <label htmlFor="postop-temp" className="text-sm text-gray-600">{t('docPostOp.tempC')}</label>
                   <input
                     id="postop-temp"
                     type="number"
@@ -364,7 +365,7 @@ const PostOpPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-4 gap-4 mt-4">
                 <div>
-                  <label htmlFor="postop-pain-score" className="text-sm text-gray-600">Pain Score (0-10)</label>
+                  <label htmlFor="postop-pain-score" className="text-sm text-gray-600">{t('docPostOp.painScore')}</label>
                   <input
                     id="postop-pain-score"
                     type="range"
@@ -376,31 +377,31 @@ const PostOpPage: React.FC = () => {
                   <p className="text-center font-medium">{painScore}</p>
                 </div>
                 <div>
-                  <label htmlFor="postop-nausea" className="text-sm text-gray-600">Nausea/Vomiting</label>
+                  <label htmlFor="postop-nausea" className="text-sm text-gray-600">{t('docPostOp.nausea')}</label>
                   <select
                     id="postop-nausea"
                     value={nauseaVomiting}
                     onChange={e => setNauseaVomiting(e.target.value as 'none' | 'mild' | 'moderate' | 'severe')}
                     className="w-full border rounded p-2"
                   >
-                    <option value="none">None</option>
-                    <option value="mild">Mild</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="severe">Severe</option>
+                    <option value="none">{t('docPostOp.nauseaNone')}</option>
+                    <option value="mild">{t('docPostOp.nauseaMild')}</option>
+                    <option value="moderate">{t('docPostOp.nauseaModerate')}</option>
+                    <option value="severe">{t('docPostOp.nauseaSevere')}</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="postop-bleeding" className="text-sm text-gray-600">Bleeding</label>
+                  <label htmlFor="postop-bleeding" className="text-sm text-gray-600">{t('docPostOp.bleeding')}</label>
                   <select
                     id="postop-bleeding"
                     value={bleeding}
                     onChange={e => setBleeding(e.target.value as 'none' | 'minimal' | 'moderate' | 'significant')}
                     className="w-full border rounded p-2"
                   >
-                    <option value="none">None</option>
-                    <option value="minimal">Minimal</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="significant">Significant</option>
+                    <option value="none">{t('docPostOp.bleedNone')}</option>
+                    <option value="minimal">{t('docPostOp.bleedMinimal')}</option>
+                    <option value="moderate">{t('docPostOp.bleedModerate')}</option>
+                    <option value="significant">{t('docPostOp.bleedSignificant')}</option>
                   </select>
                 </div>
               </div>
@@ -408,83 +409,83 @@ const PostOpPage: React.FC = () => {
 
             {/* I&O, Meds, Dressing */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Intake/Output & Care</h2>
+              <h2 className="font-semibold mb-3">{t('docPostOp.ioCare')}</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="postop-urine-output" className="text-sm text-gray-600">Urine Output</label>
+                  <label htmlFor="postop-urine-output" className="text-sm text-gray-600">{t('docPostOp.urineOutput')}</label>
                   <input
                     id="postop-urine-output"
                     type="text"
                     value={urineOutput}
                     onChange={e => setUrineOutput(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., 200 mL"
+                    placeholder={t('docPostOp.urineOutputPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-fluid-intake" className="text-sm text-gray-600">IV Fluid Intake</label>
+                  <label htmlFor="postop-fluid-intake" className="text-sm text-gray-600">{t('docPostOp.ivFluidIntake')}</label>
                   <input
                     id="postop-fluid-intake"
                     type="text"
                     value={fluidIntake}
                     onChange={e => setFluidIntake(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., LR 500 mL"
+                    placeholder={t('docPostOp.ivFluidIntakePh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-oral-intake" className="text-sm text-gray-600">Oral Intake</label>
+                  <label htmlFor="postop-oral-intake" className="text-sm text-gray-600">{t('docPostOp.oralIntake')}</label>
                   <input
                     id="postop-oral-intake"
                     type="text"
                     value={oralIntake}
                     onChange={e => setOralIntake(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Ice chips, water"
+                    placeholder={t('docPostOp.oralIntakePh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-iv-access" className="text-sm text-gray-600">IV Access</label>
+                  <label htmlFor="postop-iv-access" className="text-sm text-gray-600">{t('docPostOp.ivAccess')}</label>
                   <input
                     id="postop-iv-access"
                     type="text"
                     value={ivAccess}
                     onChange={e => setIvAccess(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., 20G L forearm"
+                    placeholder={t('docPostOp.ivAccessPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-medications" className="text-sm text-gray-600">Medications Given</label>
+                  <label htmlFor="postop-medications" className="text-sm text-gray-600">{t('docPostOp.medsGiven')}</label>
                   <input
                     id="postop-medications"
                     type="text"
                     value={medications}
                     onChange={e => setMedications(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Morphine 2mg IV"
+                    placeholder={t('docPostOp.medsGivenPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-dressing" className="text-sm text-gray-600">Dressing Status</label>
+                  <label htmlFor="postop-dressing" className="text-sm text-gray-600">{t('docPostOp.dressingStatus')}</label>
                   <input
                     id="postop-dressing"
                     type="text"
                     value={dressingStatus}
                     onChange={e => setDressingStatus(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., CDI, no bleeding"
+                    placeholder={t('docPostOp.dressingStatusPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-drains" className="text-sm text-gray-600">Drains</label>
+                  <label htmlFor="postop-drains" className="text-sm text-gray-600">{t('docPostOp.drains')}</label>
                   <input
                     id="postop-drains"
                     type="text"
                     value={drains}
                     onChange={e => setDrains(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., JP 50 mL serosang"
+                    placeholder={t('docPostOp.drainsPh')}
                   />
                 </div>
               </div>
@@ -492,7 +493,7 @@ const PostOpPage: React.FC = () => {
 
             {/* Discharge Criteria */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Discharge Criteria</h2>
+              <h2 className="font-semibold mb-3">{t('docPostOp.dischargeCriteria')}</h2>
               <div className="flex flex-wrap gap-2 mb-4">
                 {dischargeCriteriaList.map(c => (
                   <label key={c} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedCriteria.includes(c) ? 'bg-green-100 border-green-300' : 'bg-gray-50'}`}>
@@ -511,7 +512,7 @@ const PostOpPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="postop-discharge-time" className="text-sm text-gray-600">Discharge Time</label>
+                  <label htmlFor="postop-discharge-time" className="text-sm text-gray-600">{t('docPostOp.dischargeTime')}</label>
                   <input
                     id="postop-discharge-time"
                     type="time"
@@ -521,14 +522,14 @@ const PostOpPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-disposition" className="text-sm text-gray-600">Disposition</label>
+                  <label htmlFor="postop-disposition" className="text-sm text-gray-600">{t('docPostOp.disposition')}</label>
                   <input
                     id="postop-disposition"
                     type="text"
                     value={dischargeDisposition}
                     onChange={e => setDischargeDisposition(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Home with family"
+                    placeholder={t('docPostOp.dispositionPh')}
                   />
                 </div>
               </div>
@@ -536,21 +537,21 @@ const PostOpPage: React.FC = () => {
 
             {/* Complications & Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Complications & Notes</h2>
+              <h2 className="font-semibold mb-3">{t('docPostOp.complicationsNotes')}</h2>
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="postop-complications" className="text-sm text-gray-600">Complications</label>
+                  <label htmlFor="postop-complications" className="text-sm text-gray-600">{t('docPostOp.complications')}</label>
                   <input
                     id="postop-complications"
                     type="text"
                     value={complications}
                     onChange={e => setComplications(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="None, or describe..."
+                    placeholder={t('docPostOp.complicationsPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="postop-notes" className="text-sm text-gray-600">Notes</label>
+                  <label htmlFor="postop-notes" className="text-sm text-gray-600">{t('docPostOp.notes')}</label>
                   <textarea
                     id="postop-notes"
                     value={notes2}
@@ -566,13 +567,13 @@ const PostOpPage: React.FC = () => {
               onClick={handleSubmit}
               className="w-full py-3 bg-violet-600 text-white rounded-lg font-semibold hover:bg-violet-700"
             >
-              Save Post-Op Note
+              {t('docPostOp.save')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             {notes.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">No post-op notes yet</div>
+              <div className="text-center py-8 text-gray-500">{t('docPostOp.noNotes')}</div>
             ) : (
               notes.map(n => (
                 <div key={n.id} className="bg-white rounded-lg shadow p-4">
@@ -582,13 +583,13 @@ const PostOpPage: React.FC = () => {
                       <p className="text-sm text-gray-500">{new Date(n.documentedAt).toLocaleString()}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${n.alderetScore >= 9 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                      Aldrete: {n.alderetScore}/10
+                      {t('docPostOp.aldreteBadge', { score: n.alderetScore })}
                     </span>
                   </div>
                   <div className="text-sm">
-                    <p><strong>Procedure:</strong> {n.procedure}</p>
-                    <p>Pain: {n.painScore}/10 | Nausea: {n.nauseaVomiting} | Bleeding: {n.bleeding}</p>
-                    {n.dischargeTime && <p className="text-green-600">Discharged: {n.dischargeTime}</p>}
+                    <p><strong>{t('docPostOp.lblProcedure')}</strong> {n.procedure}</p>
+                    <p>{t('docPostOp.painSummary', { pain: n.painScore, nausea: n.nauseaVomiting, bleeding: n.bleeding })}</p>
+                    {n.dischargeTime && <p className="text-green-600">{t('docPostOp.dischargedLine', { time: n.dischargeTime })}</p>}
                   </div>
                 </div>
               ))
