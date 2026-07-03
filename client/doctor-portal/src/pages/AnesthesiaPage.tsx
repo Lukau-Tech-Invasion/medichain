@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Syringe, User, Heart, Droplets, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createAnesthesia } from '@medichain/shared';
+import { getPatients, createAnesthesia, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
@@ -63,6 +63,7 @@ const complicationsList = [
 ];
 
 const AnesthesiaPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -110,7 +111,7 @@ const AnesthesiaPage: React.FC = () => {
 
   const addVital = () => {
     if (!newVital.time) {
-      showWarning('Please enter time');
+      showWarning(t('docAnesthesia.warnEnterTime'));
       return;
     }
     setVitals([...vitals, { ...newVital }]);
@@ -119,7 +120,7 @@ const AnesthesiaPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient) {
-      showError('Please select a patient');
+      showError(t('docAnesthesia.warnSelectPatient'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -140,7 +141,7 @@ const AnesthesiaPage: React.FC = () => {
       console.error('Failed to save anesthesia record:', err);
     }
     setRecords([record, ...records]);
-    showSuccess('Anesthesia record saved!');
+    showSuccess(t('docAnesthesia.saved'));
   };
 
   return (
@@ -150,8 +151,8 @@ const AnesthesiaPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Syringe className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Anesthesia Record</h1>
-            <p className="text-cyan-100">Intraoperative monitoring and medication tracking</p>
+            <h1 className="text-2xl font-bold">{t('docAnesthesia.title')}</h1>
+            <p className="text-cyan-100">{t('docAnesthesia.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -167,7 +168,7 @@ const AnesthesiaPage: React.FC = () => {
                 ? 'text-cyan-600 border-b-2 border-cyan-600'
                 : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'record' ? t('docAnesthesia.tabRecord') : t('docAnesthesia.tabHistory')}
             </button>
           ))}
         </div>
@@ -179,25 +180,25 @@ const AnesthesiaPage: React.FC = () => {
             {/* Patient & Case Info */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <User className="w-5 h-5" /> Patient & Case Info
+                <User className="w-5 h-5" /> {t('docAnesthesia.patientCaseInfo')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="anes-patient" className="text-sm text-gray-600">Patient</label>
+                  <label htmlFor="anes-patient" className="text-sm text-gray-600">{t('docAnesthesia.patient')}</label>
                   <select
                     id="anes-patient"
                     value={selectedPatient}
                     onChange={e => setSelectedPatient(e.target.value)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="">Select...</option>
+                    <option value="">{t('docAnesthesia.select')}</option>
                     {patients.map(p => (
                       <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anes-procedure" className="text-sm text-gray-600">Procedure</label>
+                  <label htmlFor="anes-procedure" className="text-sm text-gray-600">{t('docAnesthesia.procedure')}</label>
                   <input
                     id="anes-procedure"
                     type="text"
@@ -207,31 +208,31 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-asa-class" className="text-sm text-gray-600">ASA Class</label>
+                  <label htmlFor="anes-asa-class" className="text-sm text-gray-600">{t('docAnesthesia.asaClass')}</label>
                   <select                    id="anes-asa-class"                    value={asaClass}
                     onChange={e => setAsaClass(e.target.value as ASAClass)}
                     className="w-full border rounded p-2"
                   >
                     {Object.entries(asaDescriptions).map(([k, v]) => (
-                      <option key={k} value={k}>ASA {k} - {v}</option>
+                      <option key={k} value={k}>{t('docAnesthesia.asaOption', { class: k, desc: v })}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anes-type" className="text-sm text-gray-600">Anesthesia Type</label>
+                  <label htmlFor="anes-type" className="text-sm text-gray-600">{t('docAnesthesia.anesthesiaType')}</label>
                   <select
                     id="anes-type"
                     value={anesthesiaType}
                     onChange={e => setAnesthesiaType(e.target.value as AnesthesiaType)}
                     className="w-full border rounded p-2"
                   >
-                    <option value="general">General</option>
-                    <option value="spinal">Spinal</option>
-                    <option value="epidural">Epidural</option>
-                    <option value="regional">Regional Block</option>
-                    <option value="local">Local</option>
-                    <option value="mac">MAC</option>
-                    <option value="combined">Combined</option>
+                    <option value="general">{t('docAnesthesia.typeGeneral')}</option>
+                    <option value="spinal">{t('docAnesthesia.typeSpinal')}</option>
+                    <option value="epidural">{t('docAnesthesia.typeEpidural')}</option>
+                    <option value="regional">{t('docAnesthesia.typeRegional')}</option>
+                    <option value="local">{t('docAnesthesia.typeLocal')}</option>
+                    <option value="mac">{t('docAnesthesia.typeMac')}</option>
+                    <option value="combined">{t('docAnesthesia.typeCombined')}</option>
                   </select>
                 </div>
               </div>
@@ -239,10 +240,10 @@ const AnesthesiaPage: React.FC = () => {
 
             {/* Airway */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Airway Management</h2>
+              <h2 className="font-semibold mb-3">{t('docAnesthesia.airwayManagement')}</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="anes-airway-type" className="text-sm text-gray-600">Airway Type</label>
+                  <label htmlFor="anes-airway-type" className="text-sm text-gray-600">{t('docAnesthesia.airwayType')}</label>
                   <select
                     id="anes-airway-type"
                     value={airwayType}
@@ -253,7 +254,7 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anes-intubation-time" className="text-sm text-gray-600">Intubation Time</label>
+                  <label htmlFor="anes-intubation-time" className="text-sm text-gray-600">{t('docAnesthesia.intubationTime')}</label>
                   <input
                     id="anes-intubation-time"
                     type="time"
@@ -263,7 +264,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-extubation-time" className="text-sm text-gray-600">Extubation Time</label>
+                  <label htmlFor="anes-extubation-time" className="text-sm text-gray-600">{t('docAnesthesia.extubationTime')}</label>
                   <input
                     id="anes-extubation-time"
                     type="time"
@@ -278,84 +279,84 @@ const AnesthesiaPage: React.FC = () => {
             {/* Medications */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <Syringe className="w-5 h-5" /> Medications
+                <Syringe className="w-5 h-5" /> {t('docAnesthesia.medications')}
               </h2>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="anes-induction-agents" className="text-sm text-gray-600">Induction Agents</label>
+                  <label htmlFor="anes-induction-agents" className="text-sm text-gray-600">{t('docAnesthesia.inductionAgents')}</label>
                   <input
                     id="anes-induction-agents"
                     type="text"
                     value={inductionAgents}
                     onChange={e => setInductionAgents(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Propofol 200mg, Fentanyl 100mcg"
+                    placeholder={t('docAnesthesia.inductionPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-maintenance-agents" className="text-sm text-gray-600">Maintenance Agents</label>
+                  <label htmlFor="anes-maintenance-agents" className="text-sm text-gray-600">{t('docAnesthesia.maintenanceAgents')}</label>
                   <input
                     id="anes-maintenance-agents"
                     type="text"
                     value={maintenanceAgents}
                     onChange={e => setMaintenanceAgents(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Sevoflurane 2%, N2O 50%"
+                    placeholder={t('docAnesthesia.maintenancePh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-analgesics" className="text-sm text-gray-600">Analgesics</label>
+                  <label htmlFor="anes-analgesics" className="text-sm text-gray-600">{t('docAnesthesia.analgesics')}</label>
                   <input
                     id="anes-analgesics"
                     type="text"
                     value={analgesics}
                     onChange={e => setAnalgesics(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Fentanyl 100mcg, Morphine 4mg"
+                    placeholder={t('docAnesthesia.analgesicsPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-relaxants" className="text-sm text-gray-600">Muscle Relaxants</label>
+                  <label htmlFor="anes-relaxants" className="text-sm text-gray-600">{t('docAnesthesia.relaxants')}</label>
                   <input
                     id="anes-relaxants"
                     type="text"
                     value={relaxants}
                     onChange={e => setRelaxants(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Rocuronium 50mg"
+                    placeholder={t('docAnesthesia.relaxantsPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-reversals" className="text-sm text-gray-600">Reversal Agents</label>
+                  <label htmlFor="anes-reversals" className="text-sm text-gray-600">{t('docAnesthesia.reversals')}</label>
                   <input
                     id="anes-reversals"
                     type="text"
                     value={reversals}
                     onChange={e => setReversals(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Sugammadex 200mg"
+                    placeholder={t('docAnesthesia.reversalsPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vasoactives" className="text-sm text-gray-600">Vasoactives</label>
+                  <label htmlFor="anes-vasoactives" className="text-sm text-gray-600">{t('docAnesthesia.vasoactives')}</label>
                   <input
                     id="anes-vasoactives"
                     type="text"
                     value={vasoactives}
                     onChange={e => setVasoactives(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Phenylephrine 100mcg"
+                    placeholder={t('docAnesthesia.vasoactivesPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-antiemetics" className="text-sm text-gray-600">Antiemetics</label>
+                  <label htmlFor="anes-antiemetics" className="text-sm text-gray-600">{t('docAnesthesia.antiemetics')}</label>
                   <input
                     id="anes-antiemetics"
                     type="text"
                     value={antiemetics}
                     onChange={e => setAntiemetics(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., Ondansetron 4mg"
+                    placeholder={t('docAnesthesia.antiemeticsPh')}
                   />
                 </div>
               </div>
@@ -364,33 +365,33 @@ const AnesthesiaPage: React.FC = () => {
             {/* Fluids & I/O */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <Droplets className="w-5 h-5" /> Fluids & Blood
+                <Droplets className="w-5 h-5" /> {t('docAnesthesia.fluidsBlood')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="anes-fluids" className="text-sm text-gray-600">Crystalloids/Colloids</label>
+                  <label htmlFor="anes-fluids" className="text-sm text-gray-600">{t('docAnesthesia.crystalloids')}</label>
                   <input
                     id="anes-fluids"
                     type="text"
                     value={fluidsGiven}
                     onChange={e => setFluidsGiven(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., LR 2000mL"
+                    placeholder={t('docAnesthesia.crystalloidsPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-blood-products" className="text-sm text-gray-600">Blood Products</label>
+                  <label htmlFor="anes-blood-products" className="text-sm text-gray-600">{t('docAnesthesia.bloodProducts')}</label>
                   <input
                     id="anes-blood-products"
                     type="text"
                     value={bloodProducts}
                     onChange={e => setBloodProducts(e.target.value)}
                     className="w-full border rounded p-2"
-                    placeholder="e.g., pRBC 2 units"
+                    placeholder={t('docAnesthesia.bloodProductsPh')}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-ebl" className="text-sm text-gray-600">EBL (mL)</label>
+                  <label htmlFor="anes-ebl" className="text-sm text-gray-600">{t('docAnesthesia.ebl')}</label>
                   <input
                     id="anes-ebl"
                     type="number"
@@ -400,7 +401,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-urine-output" className="text-sm text-gray-600">Urine Output (mL)</label>
+                  <label htmlFor="anes-urine-output" className="text-sm text-gray-600">{t('docAnesthesia.urineOutput')}</label>
                   <input
                     id="anes-urine-output"
                     type="number"
@@ -415,14 +416,14 @@ const AnesthesiaPage: React.FC = () => {
             {/* Vitals Trend */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <Heart className="w-5 h-5" /> Intraoperative Vitals
+                <Heart className="w-5 h-5" /> {t('docAnesthesia.intraopVitals')}
               </h2>
               {vitals.length > 0 && (
                 <div className="overflow-x-auto mb-4">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="p-2 text-left">Time</th>
+                        <th className="p-2 text-left">{t('docAnesthesia.vitalTime')}</th>
                         <th className="p-2">BP</th>
                         <th className="p-2">HR</th>
                         <th className="p-2">SpO2</th>
@@ -449,7 +450,7 @@ const AnesthesiaPage: React.FC = () => {
               )}
               <div className="grid grid-cols-8 gap-2 items-end">
                 <div>
-                  <label htmlFor="anes-vital-time" className="text-xs text-gray-600">Time</label>
+                  <label htmlFor="anes-vital-time" className="text-xs text-gray-600">{t('docAnesthesia.vitalTime')}</label>
                   <input
                     id="anes-vital-time"
                     type="time"
@@ -518,14 +519,14 @@ const AnesthesiaPage: React.FC = () => {
                     className="w-full border rounded p-1 text-sm"
                   />
                 </div>
-                <button onClick={addVital} className="bg-cyan-600 text-white rounded p-1 text-sm">+ Add</button>
+                <button onClick={addVital} className="bg-cyan-600 text-white rounded p-1 text-sm">{t('docAnesthesia.addBtn')}</button>
               </div>
             </div>
 
             {/* Complications */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5" /> Complications
+                <AlertTriangle className="w-5 h-5" /> {t('docAnesthesia.complications')}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {complicationsList.map(c => (
@@ -549,7 +550,7 @@ const AnesthesiaPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <label htmlFor="anes-notes" className="font-semibold mb-3 block">Notes</label>
+              <label htmlFor="anes-notes" className="font-semibold mb-3 block">{t('docAnesthesia.notes')}</label>
               <textarea
                 id="anes-notes"
                 value={notes}
@@ -563,13 +564,13 @@ const AnesthesiaPage: React.FC = () => {
               onClick={handleSubmit}
               className="w-full py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700"
             >
-              Save Anesthesia Record
+              {t('docAnesthesia.save')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">No anesthesia records yet</div>
+              <div className="text-center py-8 text-gray-500">{t('docAnesthesia.noRecords')}</div>
             ) : (
               records.map(r => (
                 <div key={r.id} className="bg-white rounded-lg shadow p-4">
@@ -579,13 +580,13 @@ const AnesthesiaPage: React.FC = () => {
                       <p className="text-sm text-gray-500">{new Date(r.documentedAt).toLocaleString()}</p>
                     </div>
                     <span className="px-2 py-1 text-xs rounded bg-cyan-100 text-cyan-700">
-                      ASA {r.asaClass}
+                      {t('docAnesthesia.asaBadge', { class: r.asaClass })}
                     </span>
                   </div>
                   <div className="text-sm">
-                    <p><strong>Procedure:</strong> {r.procedure}</p>
-                    <p><strong>Type:</strong> {r.anesthesiaType} | <strong>Airway:</strong> {r.airwayType}</p>
-                    <p>EBL: {r.ebl} mL | UO: {r.urineOutput} mL | Vitals: {r.vitals.length} readings</p>
+                    <p><strong>{t('docAnesthesia.lblProcedure')}</strong> {r.procedure}</p>
+                    <p><strong>{t('docAnesthesia.lblType')}</strong> {r.anesthesiaType} | <strong>{t('docAnesthesia.lblAirway')}</strong> {r.airwayType}</p>
+                    <p>{t('docAnesthesia.summaryLine', { ebl: r.ebl, uo: r.urineOutput, count: r.vitals.length })}</p>
                   </div>
                 </div>
               ))
