@@ -606,6 +606,9 @@ pub async fn notify_critical_alert(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Process environment variables are shared by all concurrently running
+    // tests. Serialize the notification tests that temporarily change them.
+    static NOTIFICATION_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[test]
     fn test_medication_reminder_template_has_opt_out_footer() {
@@ -659,6 +662,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_sms_with_retry_logs_when_disabled() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
         let repos = RepositoryContainer::new_memory();
         // With SMS disabled (default), send_sms returns Ok after logging, so a
         // opted-in recipient yields Sent without hitting the network.
@@ -684,6 +688,7 @@ mod tests {
     /// only the project owner can provision.
     #[tokio::test]
     async fn test_send_sms_posts_expected_request_to_at_api() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
         use wiremock::matchers::{body_string_contains, header, method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -727,6 +732,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_breach_notification_skips_channels_when_env_unset() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
         std::env::remove_var("SECURITY_OFFICER_PHONE");
         std::env::remove_var("REGULATOR_NOTIFICATION_EMAIL");
         let repos = RepositoryContainer::new_memory();
@@ -737,6 +743,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_breach_notification_dispatches_regulator_email_when_configured() {
+        let _environment_guard = NOTIFICATION_ENV_LOCK.lock().await;
         std::env::remove_var("SECURITY_OFFICER_PHONE");
         std::env::set_var(
             "REGULATOR_NOTIFICATION_EMAIL",

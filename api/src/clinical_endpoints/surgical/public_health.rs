@@ -290,9 +290,12 @@ pub async fn create_appointment(
     }
 }
 
-/// Get appointment
+/// Get surgical appointment.
+///
+/// This explicit handler name prevents it from colliding with the appointment
+/// booking endpoint while preserving the established HTTP route.
 #[get("/api/surgical/appointment/{id}")]
-pub async fn get_appointment(
+pub async fn get_surgical_appointment(
     data: web::Data<AppState>,
     _http_req: HttpRequest,
     path: web::Path<String>,

@@ -97,6 +97,11 @@ export interface WalletRegisterRequest {
   username?: string;
   role: string;
   linked_patient_id?: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  specialty?: string;
+  license_number?: string;
 }
 
 /**
@@ -553,25 +558,26 @@ export interface IpfsHealthResponse {
 // ============================================================================
 
 export interface AssignRoleRequest {
-  user_id: string;
-  username: string;
+  wallet_address: string;
+  name: string;
+  username?: string;
   role: string;
 }
 
 export interface AssignRoleResponse {
   success: boolean;
-  user_id: string;
+  wallet_address: string;
   role: string;
   message: string;
 }
 
 export interface RevokeRoleRequest {
-  user_id: string;
+  wallet_address: string;
 }
 
 export interface RevokeRoleResponse {
   success: boolean;
-  user_id: string;
+  wallet_address: string;
   message: string;
 }
 

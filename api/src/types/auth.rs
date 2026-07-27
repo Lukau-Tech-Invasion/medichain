@@ -15,6 +15,16 @@ pub struct WalletRegisterRequest {
     pub username: Option<String>,
     /// Role (only Admin can register healthcare providers)
     pub role: String,
+    /// Work email used for account communication.
+    pub email: Option<String>,
+    /// Work contact number.
+    pub phone: Option<String>,
+    /// Facility department or service line.
+    pub department: Option<String>,
+    /// Professional specialty, for example Pediatrics or Radiology.
+    pub specialty: Option<String>,
+    /// Professional council or licence registration number.
+    pub license_number: Option<String>,
 }
 
 /// Response for wallet registration

@@ -88,13 +88,8 @@ pub struct GoogleSpeechTranscriber {
 }
 
 impl GoogleSpeechTranscriber {
-    /// Reads `GOOGLE_STT_API_KEY` (required) and `GOOGLE_STT_ENDPOINT`
-    /// (optional override, for tests — defaults to Google's real API).
-    pub fn from_env() -> Option<Self> {
-        let api_key = std::env::var("GOOGLE_STT_API_KEY").ok()?;
-        let endpoint = std::env::var("GOOGLE_STT_ENDPOINT")
-            .unwrap_or_else(|_| "https://speech.googleapis.com/v1/speech:recognize".to_string());
-        Some(Self { api_key, endpoint })
+    fn new(api_key: String, endpoint: String) -> Self {
+        Self { api_key, endpoint }
     }
 }
 
@@ -180,14 +175,30 @@ impl Transcriber for GoogleSpeechTranscriber {
 /// their own SDK + credentials. Unknown/unset values, and `google` without
 /// `GOOGLE_STT_API_KEY` set, fall back to the no-op.
 pub fn transcriber_from_env() -> Box<dyn Transcriber> {
-    match std::env::var("TRANSCRIPTION_PROVIDER")
-        .unwrap_or_default()
-        .to_lowercase()
-        .as_str()
-    {
-        "google" => match GoogleSpeechTranscriber::from_env() {
-            Some(t) => Box::new(t),
-            None => Box::new(NoopTranscriber),
+    transcriber_from_configuration(
+        &std::env::var("TRANSCRIPTION_PROVIDER").unwrap_or_default(),
+        std::env::var("GOOGLE_STT_API_KEY").ok(),
+        std::env::var("GOOGLE_STT_ENDPOINT").ok(),
+    )
+}
+
+/// Build a transcriber from explicit configuration values.
+/// Keeping configuration parsing separate makes provider selection testable
+/// without mutating the process-wide environment during parallel test runs.
+fn transcriber_from_configuration(
+    provider: &str,
+    google_api_key: Option<String>,
+    google_endpoint: Option<String>,
+) -> Box<dyn Transcriber> {
+    match provider.to_lowercase().as_str() {
+        "google" => match google_api_key {
+            Some(api_key) if !api_key.trim().is_empty() => Box::new(GoogleSpeechTranscriber::new(
+                api_key,
+                google_endpoint.unwrap_or_else(|| {
+                    "https://speech.googleapis.com/v1/speech:recognize".to_string()
+                }),
+            )),
+            _ => Box::new(NoopTranscriber),
         },
         // "aws" | "azure" => external SDK + credentials required.
         _ => Box::new(NoopTranscriber),
@@ -215,27 +226,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_transcriber_from_env_defaults_to_noop() {
-        std::env::remove_var("TRANSCRIPTION_PROVIDER");
-        let t = transcriber_from_env();
+        let t = transcriber_from_configuration("", None, None);
         assert_eq!(t.provider_name(), "none");
         assert!(t.transcribe(&req()).await.unwrap().is_none());
     }
 
     #[tokio::test]
     async fn test_transcriber_from_env_unknown_falls_back_to_noop() {
-        std::env::set_var("TRANSCRIPTION_PROVIDER", "made-up-provider");
-        let t = transcriber_from_env();
+        let t = transcriber_from_configuration("made-up-provider", None, None);
         assert_eq!(t.provider_name(), "none");
-        std::env::remove_var("TRANSCRIPTION_PROVIDER");
     }
 
     #[tokio::test]
     async fn test_transcriber_from_env_google_without_key_falls_back_to_noop() {
-        std::env::set_var("TRANSCRIPTION_PROVIDER", "google");
-        std::env::remove_var("GOOGLE_STT_API_KEY");
-        let t = transcriber_from_env();
+        let t = transcriber_from_configuration("google", None, None);
         assert_eq!(t.provider_name(), "none");
-        std::env::remove_var("TRANSCRIPTION_PROVIDER");
     }
 
     /// Verifies the real Google Speech-to-Text request/response handling
@@ -276,13 +281,10 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        std::env::set_var("GOOGLE_STT_API_KEY", "test-google-key");
-        std::env::set_var(
-            "GOOGLE_STT_ENDPOINT",
+        let transcriber = GoogleSpeechTranscriber::new(
+            "test-google-key".to_string(),
             format!("{}/speech:recognize", mock_server.uri()),
         );
-
-        let transcriber = GoogleSpeechTranscriber::from_env().expect("env vars are set above");
         assert_eq!(transcriber.provider_name(), "google");
 
         let request = TranscriptionRequest {
@@ -291,9 +293,6 @@ mod tests {
             language: "en".to_string(),
         };
         let transcript = transcriber.transcribe(&request).await.unwrap();
-
-        std::env::remove_var("GOOGLE_STT_API_KEY");
-        std::env::remove_var("GOOGLE_STT_ENDPOINT");
 
         assert_eq!(
             transcript.as_deref(),

@@ -175,7 +175,7 @@ pub fn parse_role(s: &str) -> Result<Role, String> {
         "admin" => Ok(Role::Admin),
         "doctor" => Ok(Role::Doctor),
         "nurse" => Ok(Role::Nurse),
-        "labtechnician" | "lab_technician" | "lab" => Ok(Role::LabTechnician),
+        "labtechnician" | "lab_technician" | "lab-technician" | "lab" => Ok(Role::LabTechnician),
         "pharmacist" => Ok(Role::Pharmacist),
         "patient" => Ok(Role::Patient),
         _ => Err(format!("Invalid role: {}. Valid roles: Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient", s)),

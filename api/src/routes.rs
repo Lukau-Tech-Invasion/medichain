@@ -264,7 +264,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_e_prescription)
         // Phase 17: Appointment endpoints
         .service(clinical_endpoints::create_appointment)
-        .service(clinical_endpoints::get_appointment)
+        .service(clinical_endpoints::get_surgical_appointment)
         // Phase 18: Death Certificate & Autopsy endpoints
         .service(clinical_endpoints::create_death_certificate)
         .service(clinical_endpoints::get_death_certificate)

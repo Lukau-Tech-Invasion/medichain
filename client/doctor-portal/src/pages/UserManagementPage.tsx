@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getUsers, assignRole, useTranslation } from '@medichain/shared';
+import { assignRole, getUsers, revokeRole, updateUserProfile, walletRegister, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
-type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'radiologist' | 'patient';
+type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'patient';
 type UserStatus = 'active' | 'inactive' | 'suspended' | 'pending';
 
 interface SystemUser {
@@ -31,6 +31,23 @@ interface Permission {
   category: 'clinical' | 'administrative' | 'system';
 }
 
+function normalizeUserRole(role?: string): UserRole {
+  switch (role?.toLowerCase()) {
+    case 'labtechnician':
+    case 'lab_technician':
+    case 'lab-technician':
+      return 'lab-technician';
+    case 'admin':
+    case 'doctor':
+    case 'nurse':
+    case 'pharmacist':
+    case 'patient':
+      return role.toLowerCase() as UserRole;
+    default:
+      return 'patient';
+  }
+}
+
 const UserManagementPage: React.FC = () => {
   const { t } = useTranslation();
   const { user: _user } = useAuthStore();
@@ -46,6 +63,8 @@ const UserManagementPage: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [newUser, setNewUser] = useState({
+    walletAddress: '',
+    username: '',
     name: '',
     email: '',
     phone: '',
@@ -93,7 +112,7 @@ const UserManagementPage: React.FC = () => {
         name: u.name || '',
         email: u.email || '',
         phone: u.phone || '',
-        role: (u.role as UserRole) || 'patient',
+        role: normalizeUserRole(u.role),
         status: (u.status as UserStatus) || 'active',
         department: u.department,
         licenseNumber: u.license_number || u.licenseNumber,
@@ -117,79 +136,71 @@ const UserManagementPage: React.FC = () => {
     fetchUsers();
   }, [fetchUsers]);
 
-  const handleCreateUser = () => {
-    if (!newUser.name || !newUser.email || !newUser.phone) {
+  const handleCreateUser = async () => {
+    if (!newUser.walletAddress || !newUser.name || !newUser.email || !newUser.phone) {
       showWarning(t('docUserManagement.warnRequiredFields'));
       return;
     }
 
-    const rolePrefix = {
-      admin: 'ADMIN',
-      doctor: 'DOC',
-      nurse: 'NURSE',
-      'lab-technician': 'LAB',
-      pharmacist: 'PHARM',
-      radiologist: 'RAD',
-      patient: 'PAT',
-    }[newUser.role];
-
-    const existingCount = users.filter((u) => u.userId.startsWith(rolePrefix)).length;
-
-    const defaultPermissions: { [key in UserRole]: string[] } = {
-      admin: ['view_patients', 'edit_patients', 'manage_users', 'manage_roles', 'view_audit_logs', 'manage_settings', 'system_admin'],
-      doctor: ['view_patients', 'edit_patients', 'prescribe_medications', 'order_labs', 'order_imaging', 'view_lab_results', 'document_notes'],
-      nurse: ['view_patients', 'edit_patients', 'view_lab_results', 'document_notes'],
-      'lab-technician': ['view_patients', 'view_lab_results', 'document_notes'],
-      pharmacist: ['view_patients', 'prescribe_medications', 'view_lab_results'],
-      radiologist: ['view_patients', 'order_imaging', 'document_notes'],
-      patient: ['view_patients'],
-    };
-
-    const newSystemUser: SystemUser = {
-      userId: `${rolePrefix}-${String(existingCount + 1).padStart(3, '0')}`,
-      name: newUser.name,
-      email: newUser.email,
-      phone: newUser.phone,
-      role: newUser.role,
-      status: 'pending',
-      department: newUser.department || undefined,
-      licenseNumber: newUser.licenseNumber || undefined,
-      specialization: newUser.specialization || undefined,
-      createdAt: new Date().toISOString(),
-      permissions: defaultPermissions[newUser.role],
-      emergencyContact: newUser.emergencyContact || undefined,
-      notes: newUser.notes || undefined,
-    };
-
-    setUsers([newSystemUser, ...users]);
-    setNewUser({
-      name: '',
-      email: '',
-      phone: '',
-      role: 'doctor',
-      department: '',
-      licenseNumber: '',
-      specialization: '',
-      emergencyContact: '',
-      notes: '',
-    });
-    setActiveTab('users');
-    showSuccess(t('docUserManagement.userCreatedSuccess', { id: newSystemUser.userId }));
+    try {
+      const result = await walletRegister({
+        wallet_address: newUser.walletAddress.trim(),
+        name: newUser.name.trim(),
+        username: newUser.username.trim() || undefined,
+        role: newUser.role,
+        email: newUser.email.trim(),
+        phone: newUser.phone.trim(),
+        department: newUser.department.trim() || undefined,
+        specialty: newUser.specialization.trim() || undefined,
+        license_number: newUser.licenseNumber.trim() || undefined,
+      });
+      await fetchUsers();
+      setNewUser({ walletAddress: '', username: '', name: '', email: '', phone: '', role: 'doctor', department: '', licenseNumber: '', specialization: '', emergencyContact: '', notes: '' });
+      setActiveTab('users');
+      showSuccess(t('docUserManagement.userCreatedSuccess', { id: result.wallet_address }));
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docUserManagement.loadUsersError'));
+    }
   };
 
-  const handleUpdateUser = () => {
+  const handleUpdateUser = async () => {
     if (!selectedUser) return;
 
-    setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u)));
-    setShowEditModal(false);
-    setSelectedUser(null);
-    showSuccess(t('docUserManagement.userUpdatedSuccess'));
+    try {
+      await updateUserProfile(selectedUser.userId, {
+        name: selectedUser.name,
+        email: selectedUser.email || undefined,
+        phone: selectedUser.phone || undefined,
+        department: selectedUser.department,
+        specialty: selectedUser.specialization,
+        license_number: selectedUser.licenseNumber,
+      });
+      const persistedRole = users.find((user) => user.userId === selectedUser.userId)?.role;
+      if (persistedRole !== selectedUser.role) {
+        await assignRole({
+          wallet_address: selectedUser.userId,
+          name: selectedUser.name,
+          role: selectedUser.role,
+        });
+      }
+      await fetchUsers();
+      setShowEditModal(false);
+      setSelectedUser(null);
+      showSuccess(t('docUserManagement.userUpdatedSuccess'));
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docUserManagement.loadUsersError'));
+    }
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (confirm(t('docUserManagement.confirmDeleteUser'))) {
-      setUsers(users.filter((u) => u.userId !== userId));
-      showSuccess(t('docUserManagement.userDeletedSuccess'));
+      try {
+        await revokeRole({ wallet_address: userId });
+        await fetchUsers();
+        showSuccess(t('docUserManagement.userDeletedSuccess'));
+      } catch (err) {
+        showError(err instanceof Error ? err.message : t('docUserManagement.loadUsersError'));
+      }
     }
   };
 
@@ -204,9 +215,14 @@ const UserManagementPage: React.FC = () => {
     setSelectedUser({ ...selectedUser, permissions: updatedPermissions });
   };
 
-  const handleStatusChange = (userId: string, newStatus: UserStatus) => {
-    setUsers(users.map((u) => (u.userId === userId ? { ...u, status: newStatus } : u)));
-    showSuccess(t('docUserManagement.statusChangedSuccess', { status: t(`docUserManagement.status_${newStatus}`) }));
+  const handleStatusChange = async (userId: string, newStatus: UserStatus) => {
+    try {
+      await updateUserProfile(userId, { status: newStatus });
+      await fetchUsers();
+      showSuccess(t('docUserManagement.statusChangedSuccess', { status: t(`docUserManagement.status_${newStatus}`) }));
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docUserManagement.loadUsersError'));
+    }
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -216,7 +232,6 @@ const UserManagementPage: React.FC = () => {
       nurse: 'bg-green-100 text-green-800',
       'lab-technician': 'bg-yellow-100 text-yellow-800',
       pharmacist: 'bg-pink-100 text-pink-800',
-      radiologist: 'bg-indigo-100 text-indigo-800',
       patient: 'bg-gray-100 text-gray-800',
     };
     return badges[role];
@@ -266,7 +281,6 @@ const UserManagementPage: React.FC = () => {
       nurse: ['view_patients', 'edit_patients', 'view_lab_results', 'document_notes'],
       'lab-technician': ['view_patients', 'view_lab_results', 'document_notes'],
       pharmacist: ['view_patients', 'prescribe_medications', 'view_lab_results'],
-      radiologist: ['view_patients', 'order_imaging', 'document_notes'],
       patient: ['view_patients'],
     };
 
@@ -339,7 +353,6 @@ const UserManagementPage: React.FC = () => {
                   <option value="nurse">{t('docUserManagement.role_nurse')}</option>
                   <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
                   <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
-                  <option value="radiologist">{t('docUserManagement.role_radiologist')}</option>
                 </select>
               </div>
               <div>
@@ -542,6 +555,20 @@ const UserManagementPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
+                <label htmlFor="new-user-wallet" className="block text-sm font-semibold text-gray-700 mb-2">
+                  Wallet address <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="new-user-wallet"
+                  type="text"
+                  value={newUser.walletAddress}
+                  onChange={(e) => setNewUser({ ...newUser, walletAddress: e.target.value })}
+                  placeholder="SS58 wallet address"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  required
+                />
+              </div>
+              <div>
                 <label htmlFor="new-user-name" className="block text-sm font-semibold text-gray-700 mb-2">
                   {t('docUserManagement.fullNameLabel')} <span className="text-red-600">*</span>
                 </label>
@@ -553,6 +580,16 @@ const UserManagementPage: React.FC = () => {
                   placeholder={t('docUserManagement.fullNamePlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   required
+                />
+              </div>
+              <div>
+                <label htmlFor="new-user-username" className="block text-sm font-semibold text-gray-700 mb-2">Username</label>
+                <input
+                  id="new-user-username"
+                  type="text"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
               <div>
@@ -570,8 +607,6 @@ const UserManagementPage: React.FC = () => {
                   <option value="nurse">{t('docUserManagement.role_nurse')}</option>
                   <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
                   <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
-                  <option value="radiologist">{t('docUserManagement.role_radiologist')}</option>
-                  <option value="admin">{t('docUserManagement.role_admin')}</option>
                 </select>
               </div>
             </div>
@@ -688,7 +723,7 @@ const UserManagementPage: React.FC = () => {
             </p>
 
             <div className="space-y-6">
-              {(['admin', 'doctor', 'nurse', 'lab-technician', 'pharmacist', 'radiologist'] as UserRole[]).map((role) => (
+              {(['admin', 'doctor', 'nurse', 'lab-technician', 'pharmacist', 'patient'] as UserRole[]).map((role) => (
                 <div key={role} className="border border-gray-300 rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -797,7 +832,6 @@ const UserManagementPage: React.FC = () => {
                     <option value="nurse">{t('docUserManagement.role_nurse')}</option>
                     <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
                     <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
-                    <option value="radiologist">{t('docUserManagement.role_radiologist')}</option>
                   </select>
                 </div>
               </div>
