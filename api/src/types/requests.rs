@@ -141,11 +141,3 @@ pub struct HealthCheckResponse {
     pub timestamp: DateTime<Utc>,
     pub blockchain_connected: bool,
 }
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize)]
-pub struct AccessLogsResponse {
-    pub patient_id: String,
-    pub access_logs: Vec<AccessLogEntry>,
-    pub total_accesses: usize,
-}

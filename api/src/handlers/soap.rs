@@ -243,6 +243,7 @@ pub async fn get_patient_soap_notes(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
+    query: web::Query<crate::pagination::CursorQuery>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
@@ -282,7 +283,9 @@ pub async fn get_patient_soap_notes(
         .get_by_owner(&patient_id)
         .await
         .unwrap_or_default();
-    let patient_notes: Vec<SOAPNote> = entities
+    let (page, next_cursor) =
+        crate::pagination::paginate_cursor(&entities, query.cursor.as_deref(), query.limit);
+    let patient_notes: Vec<SOAPNote> = page
         .iter()
         .filter_map(|e| serde_json::from_value(e.data.clone()).ok())
         .collect();
@@ -290,7 +293,8 @@ pub async fn get_patient_soap_notes(
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,
         "total": patient_notes.len(),
-        "notes": patient_notes
+        "notes": patient_notes,
+        "next_cursor": next_cursor
     }))
 }
 

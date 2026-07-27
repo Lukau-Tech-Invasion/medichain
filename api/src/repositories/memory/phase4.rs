@@ -78,7 +78,7 @@ impl BurnAssessmentRepository for MemoryBurnAssessmentRepository {
             .filter(|a| a.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.assessment_datetime.cmp(&a.assessment_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.assessment_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -121,7 +121,7 @@ impl BurnAssessmentRepository for MemoryBurnAssessmentRepository {
             .filter(|a| a.tbsa_percentage >= min_tbsa)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.tbsa_percentage.cmp(&a.tbsa_percentage));
+        items.sort_by_key(|b| std::cmp::Reverse(b.tbsa_percentage));
         Ok(items)
     }
 }
@@ -190,7 +190,7 @@ impl PsychiatricAssessmentRepository for MemoryPsychiatricAssessmentRepository {
             .filter(|a| a.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.assessment_datetime.cmp(&a.assessment_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.assessment_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -318,7 +318,7 @@ impl ToxicologyAssessmentRepository for MemoryToxicologyAssessmentRepository {
             .filter(|a| a.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.assessment_datetime.cmp(&a.assessment_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.assessment_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -428,7 +428,7 @@ impl PediatricAssessmentRepository for MemoryPediatricAssessmentRepository {
             .filter(|a| a.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.assessment_datetime.cmp(&a.assessment_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.assessment_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -535,7 +535,7 @@ impl ObstetricEmergencyRepository for MemoryObstetricEmergencyRepository {
             .filter(|e| e.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.assessment_datetime.cmp(&a.assessment_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.assessment_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -646,7 +646,7 @@ impl AppointmentRepository for MemoryAppointmentRepository {
             .filter(|a| a.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.scheduled_datetime.cmp(&a.scheduled_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.scheduled_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -672,7 +672,7 @@ impl AppointmentRepository for MemoryAppointmentRepository {
             .filter(|a| a.provider_id == provider_id && a.scheduled_datetime.date_naive() == date)
             .cloned()
             .collect();
-        items.sort_by(|a, b| a.scheduled_datetime.cmp(&b.scheduled_datetime));
+        items.sort_by_key(|a| a.scheduled_datetime);
         Ok(items)
     }
 
@@ -737,7 +737,7 @@ impl AppointmentRepository for MemoryAppointmentRepository {
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<_> = data.values().cloned().collect();
-        items.sort_by(|a, b| b.scheduled_datetime.cmp(&a.scheduled_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.scheduled_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -763,7 +763,7 @@ impl AppointmentRepository for MemoryAppointmentRepository {
             .filter(|a| a.provider_id == provider_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.scheduled_datetime.cmp(&a.scheduled_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.scheduled_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -837,7 +837,7 @@ impl PhysicianOrderRepository for MemoryPhysicianOrderRepository {
             .filter(|o| o.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.order_datetime.cmp(&a.order_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.order_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -881,7 +881,7 @@ impl PhysicianOrderRepository for MemoryPhysicianOrderRepository {
             "routine" => 4,
             _ => 5,
         };
-        items.sort_by(|a, b| priority_order(&a.priority).cmp(&priority_order(&b.priority)));
+        items.sort_by_key(|a| priority_order(&a.priority));
         Ok(items)
     }
 
@@ -1000,7 +1000,7 @@ impl DischargeSummaryRepository for MemoryDischargeSummaryRepository {
             .filter(|s| s.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.discharge_datetime.cmp(&a.discharge_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.discharge_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1095,7 +1095,7 @@ impl DischargeInstructionsRepository for MemoryDischargeInstructionsRepository {
             .filter(|i| i.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.visit_date.cmp(&a.visit_date));
+        items.sort_by_key(|b| std::cmp::Reverse(b.visit_date));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1201,7 +1201,7 @@ impl AmaDischargeRepository for MemoryAmaDischargeRepository {
             .filter(|d| d.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.discharge_datetime.cmp(&a.discharge_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.discharge_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1251,7 +1251,7 @@ impl AmaDischargeRepository for MemoryAmaDischargeRepository {
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<AmaDischargeEntity> = data.values().cloned().collect();
-        items.sort_by(|a, b| b.discharge_datetime.cmp(&a.discharge_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.discharge_datetime));
         let total = items.len() as u64;
         let offset = pagination.offset() as usize;
         let limit = pagination.limit() as usize;
@@ -1321,7 +1321,7 @@ impl ShiftHandoffRepository for MemoryShiftHandoffRepository {
             .filter(|h| h.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.handoff_datetime.cmp(&a.handoff_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.handoff_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1444,7 +1444,7 @@ impl IncidentReportRepository for MemoryIncidentReportRepository {
             .filter(|r| r.patient_id.as_deref() == Some(patient_id))
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.incident_datetime.cmp(&a.incident_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.incident_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1541,7 +1541,7 @@ impl IncidentReportRepository for MemoryIncidentReportRepository {
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<IncidentReportEntity> = data.values().cloned().collect();
-        items.sort_by(|a, b| b.incident_datetime.cmp(&a.incident_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.incident_datetime));
         let total = items.len() as u64;
         let offset = pagination.offset() as usize;
         let limit = pagination.limit() as usize;
@@ -1615,7 +1615,7 @@ impl EmsHandoffRepository for MemoryEmsHandoffRepository {
             .filter(|h| h.patient_id.as_deref() == Some(patient_id))
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.arrival_time.cmp(&a.arrival_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.arrival_time));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1653,7 +1653,7 @@ impl EmsHandoffRepository for MemoryEmsHandoffRepository {
             .filter(|h| h.arrival_time >= cutoff)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.arrival_time.cmp(&a.arrival_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.arrival_time));
         Ok(items)
     }
 

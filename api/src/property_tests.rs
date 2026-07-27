@@ -1,16 +1,15 @@
 //! Property-based tests (Phase 12.2) using `proptest`.
 //!
 //! These assert *invariants* over randomized inputs rather than fixed examples:
-//! consent-duration arithmetic never overflows, the blood-type compatibility
-//! matrix obeys transfusion rules, NFC hashing is deterministic and collision-
-//! resistant to separator ambiguity, and MAP arithmetic is bounded.
+//! the blood-type compatibility matrix obeys transfusion rules, NFC hashing is
+//! deterministic and collision-resistant to separator ambiguity, and MAP
+//! arithmetic is bounded.
 //!
 //! Lives inside the binary crate (not `tests/`) because it exercises crate-
 //! internal functions; run with `cargo test --bin medichain-api property`.
 
 use crate::clinical::{blood_type_compatible, mean_arterial_pressure};
 use crate::nfc_simulator::card_hash;
-use crate::support::checked_consent_expiry;
 use proptest::prelude::*;
 
 /// Strategy producing a valid ABO/Rh blood-type string.
@@ -21,28 +20,6 @@ fn blood_type_strategy() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    // ---- Consent duration arithmetic (overflow prevention) -----------------
-
-    #[test]
-    fn consent_expiry_never_panics(granted in any::<i64>(), dur in any::<u64>()) {
-        // The only contract is: it must not panic for any input.
-        let _ = checked_consent_expiry(granted, dur);
-    }
-
-    #[test]
-    fn consent_expiry_is_monotonic(granted in 0i64..4_000_000_000, dur in 0u64..4_000_000_000) {
-        // For non-negative, representable inputs the expiry is at or after grant.
-        if let Some(exp) = checked_consent_expiry(granted, dur) {
-            prop_assert!(exp >= granted);
-        }
-    }
-
-    #[test]
-    fn consent_expiry_saturates_instead_of_wrapping(dur in (i64::MAX as u64 + 1)..=u64::MAX) {
-        // Durations that cannot fit in i64 yield None, never a wrapped value.
-        prop_assert_eq!(checked_consent_expiry(0, dur), None);
-    }
-
     // ---- Blood type compatibility matrix -----------------------------------
 
     #[test]

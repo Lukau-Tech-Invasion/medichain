@@ -45,7 +45,7 @@ pub struct EmailNotification {
 pub fn smtp_enabled() -> bool {
     std::env::var("SMTP_ENABLED")
         .ok()
-        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
 
@@ -121,20 +121,27 @@ struct FcmNotificationPayload {
 // ---------------------------------------------------------------------------
 
 const FCM_V1_URL_PREFIX: &str = "https://fcm.googleapis.com/v1/projects/";
-const AT_SMS_URL: &str = "https://api.africastalking.com/version1/messaging";
+const AT_SMS_URL_DEFAULT: &str = "https://api.africastalking.com/version1/messaging";
 const TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Africa's Talking messaging endpoint. Overridable via `AT_SMS_URL` so tests
+/// (and a future live-sandbox verification pass) can point this at a mock
+/// server instead of AT's real API without touching request-building logic.
+fn at_sms_url() -> String {
+    std::env::var("AT_SMS_URL").unwrap_or_else(|_| AT_SMS_URL_DEFAULT.to_string())
+}
 
 pub fn fcm_enabled() -> bool {
     std::env::var("FCM_ENABLED")
         .ok()
-        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
 
 pub fn sms_enabled() -> bool {
     std::env::var("SMS_ENABLED")
         .ok()
-        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
 
@@ -234,7 +241,7 @@ pub async fn send_sms(msg: SmsMessage) -> Result<(), NotificationError> {
     params.insert("message", msg.body.clone());
 
     let resp = client
-        .post(AT_SMS_URL)
+        .post(at_sms_url())
         .header("apikey", api_key)
         .header("Accept", "application/json")
         .form(&params)
@@ -317,7 +324,7 @@ pub fn is_sms_stop_keyword(text: &str) -> bool {
 pub fn sms_globally_disabled() -> bool {
     std::env::var("SMS_GLOBAL_DISABLE")
         .ok()
-        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
 
@@ -385,55 +392,103 @@ pub async fn send_sms_with_retry(
 // Breach notification dispatch (Phase 11.4)
 // ---------------------------------------------------------------------------
 
-/// Dispatch a data-breach notification to the configured security officer(s).
+/// Result of a breach-declaration notification fan-out, broken out by channel
+/// so the caller (and the compliance officer reading the API response) can see
+/// which of the two independent regulatory obligations actually fired:
+/// internal security-officer paging (SMS) vs. the POPIA/HIPAA-mandated
+/// regulator/data-subject notification (email).
+#[derive(Debug, Clone, Serialize)]
+pub struct BreachNotificationResult {
+    pub security_officers_notified: usize,
+    pub regulator_emails_notified: usize,
+}
+
+/// Dispatch a data-breach notification on both configured channels:
 ///
-/// Channel: SMS via Africa's Talking to `SECURITY_OFFICER_PHONE` (a comma-
-/// separated list is supported). These are operational alerts, not marketing,
-/// so they are always treated as opted-in. Returns the number of recipients the
-/// dispatch was attempted for.
+/// 1. **Security officer paging** — SMS via Africa's Talking to
+///    `SECURITY_OFFICER_PHONE` (comma-separated list supported).
+/// 2. **Regulator / affected-data-subject notification** — email via
+///    `send_email` (the SMTP scaffold) to `REGULATOR_NOTIFICATION_EMAIL`
+///    (comma-separated list supported). This satisfies the POPIA
+///    Information Regulator / HIPAA breach-notification requirement described
+///    in `docs/INCIDENT_RESPONSE.md`. Real delivery still depends on
+///    `SMTP_ENABLED=true` plus a production mail transport (`send_email`'s own
+///    doc comment notes the network call is currently simulated pending a
+///    crate like `lettre` + real SMTP credentials) — with `SMTP_ENABLED`
+///    unset, the email is logged, not delivered.
 ///
-/// Regulator and affected-data-subject notification (email/postal) is a tracked
-/// follow-up — no SMTP provider is wired yet; see `docs/INCIDENT_RESPONSE.md`.
+/// Both channels are operational/compliance alerts, not marketing, so they are
+/// always treated as opted-in. Missing either env var logs a warning and skips
+/// that channel rather than failing the whole dispatch.
 pub async fn dispatch_breach_notification(
     _repos: &RepositoryContainer,
     summary: &str,
     notify_deadline: Option<chrono::DateTime<chrono::Utc>>,
-) -> usize {
-    let recipients = match std::env::var("SECURITY_OFFICER_PHONE") {
-        Ok(v) if !v.trim().is_empty() => v,
-        _ => {
-            warn!("[breach] SECURITY_OFFICER_PHONE not set; breach notification not dispatched");
-            return 0;
-        }
-    };
-
+) -> BreachNotificationResult {
     let deadline = notify_deadline
         .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
         .unwrap_or_else(|| "ASAP".to_string());
-    let body = format!(
-        "MediChain SECURITY BREACH: {}. Regulator/data-subject notification due by {} (POPIA 72h).",
-        summary, deadline
-    );
 
-    let mut count = 0usize;
-    for to in recipients
-        .split(',')
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-    {
-        let msg = SmsMessage {
-            to: to.to_string(),
-            body: body.clone(),
-        };
-        // Security alerts bypass persistent opt-out checks as they are operational/critical.
-        let _ = send_sms(msg).await;
-        count += 1;
+    let mut sms_count = 0usize;
+    match std::env::var("SECURITY_OFFICER_PHONE") {
+        Ok(v) if !v.trim().is_empty() => {
+            let body = format!(
+                "MediChain SECURITY BREACH: {}. Regulator/data-subject notification due by {} (POPIA 72h).",
+                summary, deadline
+            );
+            for to in v.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let msg = SmsMessage {
+                    to: to.to_string(),
+                    body: body.clone(),
+                };
+                // Security alerts bypass persistent opt-out checks as they are operational/critical.
+                let _ = send_sms(msg).await;
+                sms_count += 1;
+            }
+            info!(
+                "[breach] Dispatched breach SMS notification to {} security officer(s)",
+                sms_count
+            );
+        }
+        _ => warn!("[breach] SECURITY_OFFICER_PHONE not set; security-officer SMS not dispatched"),
     }
-    info!(
-        "[breach] Dispatched breach notification to {} recipient(s)",
-        count
-    );
-    count
+
+    let mut email_count = 0usize;
+    match std::env::var("REGULATOR_NOTIFICATION_EMAIL") {
+        Ok(v) if !v.trim().is_empty() => {
+            let subject = "MediChain Data Breach Notification (POPIA/HIPAA)".to_string();
+            let body = format!(
+                "A data breach was declared: {summary}\n\n\
+                 Notification of the applicable regulator (POPIA Information Regulator / \
+                 HHS OCR) and affected data subjects is due by {deadline}.\n\n\
+                 See docs/INCIDENT_RESPONSE.md for the full incident-response runbook.",
+            );
+            for to in v.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let email = EmailNotification {
+                    to: to.to_string(),
+                    subject: subject.clone(),
+                    body: body.clone(),
+                };
+                if let Err(e) = send_email(email).await {
+                    warn!("[breach] Failed to dispatch regulator email to {}: {}", to, e);
+                    continue;
+                }
+                email_count += 1;
+            }
+            info!(
+                "[breach] Dispatched breach email notification to {} regulator/compliance recipient(s)",
+                email_count
+            );
+        }
+        _ => warn!(
+            "[breach] REGULATOR_NOTIFICATION_EMAIL not set; regulator/data-subject email not dispatched"
+        ),
+    }
+
+    BreachNotificationResult {
+        security_officers_notified: sms_count,
+        regulator_emails_notified: email_count,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -619,5 +674,78 @@ mod tests {
         )
         .await;
         assert_eq!(status, SmsDeliveryStatus::Sent);
+    }
+
+    /// Verifies the real outbound Africa's Talking request shape (URL, `apikey`
+    /// header, form fields) against a local mock server — the part of "verify
+    /// SMS delivery end-to-end" this environment CAN check without a live AT
+    /// sandbox account (Phase 5.3). What this can't verify — whether AT's real
+    /// API accepts the request — needs live `AT_USERNAME`/`AT_API_KEY` credentials
+    /// only the project owner can provision.
+    #[tokio::test]
+    async fn test_send_sms_posts_expected_request_to_at_api() {
+        use wiremock::matchers::{body_string_contains, header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/"))
+            .and(header("apikey", "test-at-key"))
+            .and(body_string_contains("username=sandbox"))
+            .and(body_string_contains("to=%2B254700000000"))
+            .and(body_string_contains("message=Hello+from+MediChain"))
+            .respond_with(
+                ResponseTemplate::new(201)
+                    .set_body_string(r#"{"SMSMessageData":{"Message":"Sent","Recipients":[]}}"#),
+            )
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        std::env::set_var("SMS_ENABLED", "true");
+        std::env::set_var("AT_USERNAME", "sandbox");
+        std::env::set_var("AT_API_KEY", "test-at-key");
+        std::env::set_var("AT_SMS_URL", format!("{}/", mock_server.uri()));
+
+        let result = send_sms(SmsMessage {
+            to: "+254700000000".to_string(),
+            body: "Hello from MediChain".to_string(),
+        })
+        .await;
+
+        std::env::remove_var("SMS_ENABLED");
+        std::env::remove_var("AT_USERNAME");
+        std::env::remove_var("AT_API_KEY");
+        std::env::remove_var("AT_SMS_URL");
+
+        assert!(
+            result.is_ok(),
+            "send_sms should succeed against a 201 mock: {result:?}"
+        );
+        mock_server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn dispatch_breach_notification_skips_channels_when_env_unset() {
+        std::env::remove_var("SECURITY_OFFICER_PHONE");
+        std::env::remove_var("REGULATOR_NOTIFICATION_EMAIL");
+        let repos = RepositoryContainer::new_memory();
+        let result = dispatch_breach_notification(&repos, "test breach", None).await;
+        assert_eq!(result.security_officers_notified, 0);
+        assert_eq!(result.regulator_emails_notified, 0);
+    }
+
+    #[tokio::test]
+    async fn dispatch_breach_notification_dispatches_regulator_email_when_configured() {
+        std::env::remove_var("SECURITY_OFFICER_PHONE");
+        std::env::set_var(
+            "REGULATOR_NOTIFICATION_EMAIL",
+            "privacy@example.test,dpo@example.test",
+        );
+        let repos = RepositoryContainer::new_memory();
+        let result = dispatch_breach_notification(&repos, "test breach", None).await;
+        assert_eq!(result.security_officers_notified, 0);
+        assert_eq!(result.regulator_emails_notified, 2);
+        std::env::remove_var("REGULATOR_NOTIFICATION_EMAIL");
     }
 }

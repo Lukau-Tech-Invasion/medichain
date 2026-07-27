@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listConsults, createConsult } from '@medichain/shared';
+import { getPatients, listConsults, createConsult, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -79,6 +79,7 @@ interface Consult {
 }
 
 const ConsultPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -121,7 +122,7 @@ const ConsultPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching consults:', err);
-      setError('Failed to load consults');
+      setError(t('docConsult.errorLoadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -141,7 +142,7 @@ const ConsultPage: React.FC = () => {
 
   const handleRequestConsult = async () => {
     if (!newConsult.patientId || !newConsult.reason || !newConsult.clinicalQuestion) {
-      showWarning('Please fill in required fields');
+      showWarning(t('docConsult.errorRequiredFields'));
       return;
     }
 
@@ -188,12 +189,12 @@ const ConsultPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    showSuccess(`Consult ${consult.consultId} requested successfully`);
+    showSuccess(t('docConsult.successRequested', { id: consult.consultId }));
   };
 
   const handleRespondToConsult = () => {
     if (!selectedConsult || !consultResponse.assessment || !consultResponse.recommendations) {
-      showWarning('Please fill in required response fields');
+      showWarning(t('docConsult.errorRequiredResponseFields'));
       return;
     }
 
@@ -222,7 +223,7 @@ const ConsultPage: React.FC = () => {
       followUp: '',
     });
     setSelectedConsult('');
-    showSuccess('Consult response submitted successfully');
+    showSuccess(t('docConsult.successResponseSubmitted'));
   };
 
   const getStatusBadge = (status: ConsultStatus) => {
@@ -260,10 +261,7 @@ const ConsultPage: React.FC = () => {
   };
 
   const formatSpecialty = (specialty: string) => {
-    return specialty
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    return t(`docConsult.specialty_${specialty}`);
   };
 
   const _formatDate = (isoString: string) => {
@@ -293,8 +291,8 @@ const ConsultPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold mb-2">Specialty Consultations</h1>
-        <p className="text-blue-100">Request and manage inter-specialty consultations</p>
+        <h1 className="text-3xl font-bold mb-2">{t('docConsult.title')}</h1>
+        <p className="text-blue-100">{t('docConsult.subtitle')}</p>
       </div>
 
       <div className="flex gap-2 mb-6 border-b">
@@ -304,7 +302,7 @@ const ConsultPage: React.FC = () => {
             activeTab === 'active' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-gray-600 hover:text-blue-700'
           }`}
         >
-          Active Consults ({activeConsults.length})
+          {t('docConsult.tabActive', { count: activeConsults.length })}
         </button>
         <button
           onClick={() => setActiveTab('new-request')}
@@ -312,7 +310,7 @@ const ConsultPage: React.FC = () => {
             activeTab === 'new-request' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-gray-600 hover:text-blue-700'
           }`}
         >
-          New Request
+          {t('docConsult.tabNewRequest')}
         </button>
         <button
           onClick={() => setActiveTab('completed')}
@@ -320,7 +318,7 @@ const ConsultPage: React.FC = () => {
             activeTab === 'completed' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-gray-600 hover:text-blue-700'
           }`}
         >
-          Completed ({completedConsults.length})
+          {t('docConsult.tabCompleted', { count: completedConsults.length })}
         </button>
         <button
           onClick={() => setActiveTab('my-consults')}
@@ -328,7 +326,7 @@ const ConsultPage: React.FC = () => {
             activeTab === 'my-consults' ? 'text-blue-700 border-b-2 border-blue-700' : 'text-gray-600 hover:text-blue-700'
           }`}
         >
-          My Requests ({myConsults.length})
+          {t('docConsult.tabMyRequests', { count: myConsults.length })}
         </button>
       </div>
 
@@ -337,7 +335,7 @@ const ConsultPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label htmlFor="consult-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="consult-search" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.searchLabel')}</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -345,49 +343,49 @@ const ConsultPage: React.FC = () => {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search consults..."
+                    placeholder={t('docConsult.searchPh')}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="consult-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="consult-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.statusLabel')}</label>
                 <select
                   id="consult-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as ConsultStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="requested">Requested</option>
-                  <option value="acknowledged">Acknowledged</option>
-                  <option value="in-progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="declined">Declined</option>
-                  <option value="cancelled">Cancelled</option>
+                  <option value="all">{t('docConsult.filterAllStatuses')}</option>
+                  <option value="requested">{t('docConsult.status_requested')}</option>
+                  <option value="acknowledged">{t('docConsult.status_acknowledged')}</option>
+                  <option value="in-progress">{t('docConsult.status_in-progress')}</option>
+                  <option value="completed">{t('docConsult.status_completed')}</option>
+                  <option value="declined">{t('docConsult.status_declined')}</option>
+                  <option value="cancelled">{t('docConsult.status_cancelled')}</option>
                 </select>
               </div>
               <div>
-                <label htmlFor="consult-specialty-filter" className="block text-sm font-semibold text-gray-700 mb-2">Specialty</label>
+                <label htmlFor="consult-specialty-filter" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.specialtyLabel')}</label>
                 <select
                   id="consult-specialty-filter"
                   value={specialtyFilter}
                   onChange={(e) => setSpecialtyFilter(e.target.value as ConsultSpecialty | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="all">All Specialties</option>
-                  <option value="cardiology">Cardiology</option>
-                  <option value="neurology">Neurology</option>
-                  <option value="orthopedics">Orthopedics</option>
-                  <option value="general-surgery">General Surgery</option>
-                  <option value="psychiatry">Psychiatry</option>
-                  <option value="infectious-disease">Infectious Disease</option>
-                  <option value="nephrology">Nephrology</option>
-                  <option value="pulmonology">Pulmonology</option>
-                  <option value="gastroenterology">Gastroenterology</option>
-                  <option value="endocrinology">Endocrinology</option>
-                  <option value="hematology">Hematology</option>
-                  <option value="oncology">Oncology</option>
+                  <option value="all">{t('docConsult.filterAllSpecialties')}</option>
+                  <option value="cardiology">{t('docConsult.specialty_cardiology')}</option>
+                  <option value="neurology">{t('docConsult.specialty_neurology')}</option>
+                  <option value="orthopedics">{t('docConsult.specialty_orthopedics')}</option>
+                  <option value="general-surgery">{t('docConsult.specialty_general-surgery')}</option>
+                  <option value="psychiatry">{t('docConsult.specialty_psychiatry')}</option>
+                  <option value="infectious-disease">{t('docConsult.specialty_infectious-disease')}</option>
+                  <option value="nephrology">{t('docConsult.specialty_nephrology')}</option>
+                  <option value="pulmonology">{t('docConsult.specialty_pulmonology')}</option>
+                  <option value="gastroenterology">{t('docConsult.specialty_gastroenterology')}</option>
+                  <option value="endocrinology">{t('docConsult.specialty_endocrinology')}</option>
+                  <option value="hematology">{t('docConsult.specialty_hematology')}</option>
+                  <option value="oncology">{t('docConsult.specialty_oncology')}</option>
                 </select>
               </div>
             </div>
@@ -414,51 +412,51 @@ const ConsultPage: React.FC = () => {
                           <h3 className="text-lg font-bold text-gray-900">{consult.consultId}</h3>
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 ${getStatusBadge(consult.status)}`}>
                             <StatusIcon className="w-3 h-3" />
-                            {consult.status.toUpperCase()}
+                            {t(`docConsult.status_${consult.status}`).toUpperCase()}
                           </span>
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getUrgencyBadge(consult.urgency)}`}>
-                            {consult.urgency.toUpperCase()}
+                            {t(`docConsult.urgency_${consult.urgency}`).toUpperCase()}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600">Requested {formatDateTime(consult.requestedAt)}</p>
+                        <p className="text-sm text-gray-600">{t('docConsult.requestedLine', { date: formatDateTime(consult.requestedAt) })}</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-4 mb-4 bg-blue-50 rounded-lg p-4">
                       <div>
-                        <p className="text-sm text-blue-900 font-semibold mb-1">Patient</p>
+                        <p className="text-sm text-blue-900 font-semibold mb-1">{t('docConsult.lblPatient')}</p>
                         <p className="font-semibold text-gray-900">{consult.patientName}</p>
                         <p className="text-sm text-gray-600">{consult.patientId}</p>
                       </div>
                       <div>
-                        <p className="text-sm text-blue-900 font-semibold mb-1">Specialty</p>
+                        <p className="text-sm text-blue-900 font-semibold mb-1">{t('docConsult.lblSpecialty')}</p>
                         <p className="font-semibold text-gray-900">{formatSpecialty(consult.specialty)}</p>
                       </div>
                       <div>
-                        <p className="text-sm text-blue-900 font-semibold mb-1">Requested By</p>
+                        <p className="text-sm text-blue-900 font-semibold mb-1">{t('docConsult.lblRequestedBy')}</p>
                         <p className="text-sm text-gray-900">{consult.requestedBy}</p>
                       </div>
                     </div>
 
                     <div className="space-y-3 mb-4">
                       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                        <p className="text-sm font-semibold text-yellow-900 mb-1">Reason for Consult</p>
+                        <p className="text-sm font-semibold text-yellow-900 mb-1">{t('docConsult.reasonTitle')}</p>
                         <p className="text-sm text-yellow-800">{consult.reason}</p>
                       </div>
 
                       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                        <p className="text-sm font-semibold text-blue-900 mb-1">Clinical Question</p>
+                        <p className="text-sm font-semibold text-blue-900 mb-1">{t('docConsult.clinicalQuestionTitle')}</p>
                         <p className="text-sm text-blue-800">{consult.clinicalQuestion}</p>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
                         <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                          <p className="text-sm font-semibold text-gray-700 mb-1">Relevant History</p>
+                          <p className="text-sm font-semibold text-gray-700 mb-1">{t('docConsult.relevantHistoryTitle')}</p>
                           <p className="text-sm text-gray-900">{consult.relevantHistory}</p>
                         </div>
                         {consult.currentMedications && (
                           <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                            <p className="text-sm font-semibold text-gray-700 mb-1">Current Medications</p>
+                            <p className="text-sm font-semibold text-gray-700 mb-1">{t('docConsult.currentMedicationsTitle')}</p>
                             <p className="text-sm text-gray-900">{consult.currentMedications}</p>
                           </div>
                         )}
@@ -466,21 +464,21 @@ const ConsultPage: React.FC = () => {
 
                       {consult.vitalSigns && (
                         <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                          <p className="text-sm font-semibold text-gray-700 mb-1">Vital Signs</p>
+                          <p className="text-sm font-semibold text-gray-700 mb-1">{t('docConsult.vitalSignsTitle')}</p>
                           <p className="text-sm text-gray-900">{consult.vitalSigns}</p>
                         </div>
                       )}
 
                       {consult.labResults && (
                         <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                          <p className="text-sm font-semibold text-gray-700 mb-1">Laboratory Results</p>
+                          <p className="text-sm font-semibold text-gray-700 mb-1">{t('docConsult.labResultsTitle')}</p>
                           <p className="text-sm text-gray-900">{consult.labResults}</p>
                         </div>
                       )}
 
                       {consult.imagingResults && (
                         <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                          <p className="text-sm font-semibold text-gray-700 mb-1">Imaging Results</p>
+                          <p className="text-sm font-semibold text-gray-700 mb-1">{t('docConsult.imagingResultsTitle')}</p>
                           <p className="text-sm text-gray-900">{consult.imagingResults}</p>
                         </div>
                       )}
@@ -488,9 +486,9 @@ const ConsultPage: React.FC = () => {
 
                     {consult.acknowledgedBy && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
-                        <p className="text-sm font-semibold text-green-900 mb-1">Acknowledged</p>
+                        <p className="text-sm font-semibold text-green-900 mb-1">{t('docConsult.acknowledgedTitle')}</p>
                         <p className="text-sm text-green-800">
-                          By {consult.acknowledgedBy} at {formatDateTime(consult.acknowledgedAt!)}
+                          {t('docConsult.acknowledgedByLine', { by: consult.acknowledgedBy, date: formatDateTime(consult.acknowledgedAt!) })}
                         </p>
                       </div>
                     )}
@@ -499,28 +497,28 @@ const ConsultPage: React.FC = () => {
                       <div className="border-t pt-4">
                         <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
                           <MessageSquare className="w-5 h-5 text-blue-600" />
-                          Consultation Response
+                          {t('docConsult.consultationResponseTitle')}
                         </h4>
                         <div className="space-y-3">
                           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <p className="text-sm font-semibold text-blue-900 mb-2">Assessment</p>
+                            <p className="text-sm font-semibold text-blue-900 mb-2">{t('docConsult.assessmentTitle')}</p>
                             <p className="text-sm text-blue-800 whitespace-pre-line">{consult.response.assessment}</p>
                           </div>
 
                           <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                            <p className="text-sm font-semibold text-green-900 mb-2">Recommendations</p>
+                            <p className="text-sm font-semibold text-green-900 mb-2">{t('docConsult.recommendationsTitle')}</p>
                             <p className="text-sm text-green-800 whitespace-pre-line">{consult.response.recommendations}</p>
                           </div>
 
                           {consult.response.followUp && (
                             <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                              <p className="text-sm font-semibold text-purple-900 mb-2">Follow-Up Plan</p>
+                              <p className="text-sm font-semibold text-purple-900 mb-2">{t('docConsult.followUpPlanTitle')}</p>
                               <p className="text-sm text-purple-800">{consult.response.followUp}</p>
                             </div>
                           )}
 
                           <div className="text-sm text-gray-600">
-                            Response by {consult.response.respondedBy} on {formatDateTime(consult.response.respondedAt)}
+                            {t('docConsult.responseByLine', { by: consult.response.respondedBy, date: formatDateTime(consult.response.respondedAt) })}
                           </div>
                         </div>
                       </div>
@@ -528,7 +526,7 @@ const ConsultPage: React.FC = () => {
 
                     {consult.notes && (
                       <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mt-4">
-                        <p className="text-sm font-semibold text-gray-700 mb-1">Additional Notes</p>
+                        <p className="text-sm font-semibold text-gray-700 mb-1">{t('docConsult.additionalNotesTitle')}</p>
                         <p className="text-sm text-gray-600 italic">{consult.notes}</p>
                       </div>
                     )}
@@ -543,7 +541,7 @@ const ConsultPage: React.FC = () => {
                           className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2"
                         >
                           <Send className="w-4 h-4" />
-                          Respond to Consult
+                          {t('docConsult.respondToConsultBtn')}
                         </button>
                       </div>
                     )}
@@ -562,7 +560,7 @@ const ConsultPage: React.FC = () => {
             }).length === 0 && (
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
                 <FileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600">No consults found</p>
+                <p className="text-gray-600">{t('docConsult.noConsultsFound')}</p>
               </div>
             )}
           </div>
@@ -571,19 +569,19 @@ const ConsultPage: React.FC = () => {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
               <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
                 <MessageSquare className="w-5 h-5" />
-                Respond to Consult: {selectedConsult}
+                {t('docConsult.respondToConsultTitle', { id: selectedConsult })}
               </h3>
 
               <div className="space-y-4">
                 <div>
                   <label htmlFor="consult-assessment" className="block text-sm font-semibold text-gray-700 mb-2">
-                    Assessment <span className="text-red-600">*</span>
+                    {t('docConsult.assessmentLabel')} <span className="text-red-600">*</span>
                   </label>
                   <textarea
                     id="consult-assessment"
                     value={consultResponse.assessment}
                     onChange={(e) => setConsultResponse({ ...consultResponse, assessment: e.target.value })}
-                    placeholder="Your clinical assessment of the patient..."
+                    placeholder={t('docConsult.assessmentPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     rows={4}
                   />
@@ -591,25 +589,25 @@ const ConsultPage: React.FC = () => {
 
                 <div>
                   <label htmlFor="consult-recommendations" className="block text-sm font-semibold text-gray-700 mb-2">
-                    Recommendations <span className="text-red-600">*</span>
+                    {t('docConsult.recommendationsLabel')} <span className="text-red-600">*</span>
                   </label>
                   <textarea
                     id="consult-recommendations"
                     value={consultResponse.recommendations}
                     onChange={(e) => setConsultResponse({ ...consultResponse, recommendations: e.target.value })}
-                    placeholder="Numbered recommendations (e.g., 1. Start medication X, 2. Order test Y...)"
+                    placeholder={t('docConsult.recommendationsPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     rows={6}
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="consult-follow-up" className="block text-sm font-semibold text-gray-700 mb-2">Follow-Up Plan</label>
+                  <label htmlFor="consult-follow-up" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.followUpPlanLabel')}</label>
                   <textarea
                     id="consult-follow-up"
                     value={consultResponse.followUp}
                     onChange={(e) => setConsultResponse({ ...consultResponse, followUp: e.target.value })}
-                    placeholder="Follow-up instructions, when to call back, etc."
+                    placeholder={t('docConsult.followUpPlanPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     rows={3}
                   />
@@ -621,7 +619,7 @@ const ConsultPage: React.FC = () => {
                     className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2"
                   >
                     <Send className="w-4 h-4" />
-                    Submit Response
+                    {t('docConsult.submitResponseBtn')}
                   </button>
                   <button
                     onClick={() => {
@@ -630,7 +628,7 @@ const ConsultPage: React.FC = () => {
                     }}
                     className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-semibold"
                   >
-                    Cancel
+                    {t('docConsult.cancelBtn')}
                   </button>
                 </div>
               </div>
@@ -643,14 +641,14 @@ const ConsultPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
-            Request Specialty Consultation
+            {t('docConsult.requestConsultTitle')}
           </h2>
 
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="consult-patient" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Patient <span className="text-red-600">*</span>
+                  {t('docConsult.patientLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="consult-patient"
@@ -658,7 +656,7 @@ const ConsultPage: React.FC = () => {
                   onChange={(e) => setNewConsult({ ...newConsult, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docConsult.selectPatientPh')}</option>
                   {patients.map((p) => (
                     <option key={p.patient_id} value={p.patient_id}>
                       {p.full_name} ({p.patient_id})
@@ -669,7 +667,7 @@ const ConsultPage: React.FC = () => {
 
               <div>
                 <label htmlFor="consult-specialty" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Specialty <span className="text-red-600">*</span>
+                  {t('docConsult.specialtyLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="consult-specialty"
@@ -677,35 +675,35 @@ const ConsultPage: React.FC = () => {
                   onChange={(e) => setNewConsult({ ...newConsult, specialty: e.target.value as ConsultSpecialty })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="cardiology">Cardiology</option>
-                  <option value="neurology">Neurology</option>
-                  <option value="orthopedics">Orthopedics</option>
-                  <option value="general-surgery">General Surgery</option>
-                  <option value="psychiatry">Psychiatry</option>
-                  <option value="infectious-disease">Infectious Disease</option>
-                  <option value="nephrology">Nephrology</option>
-                  <option value="pulmonology">Pulmonology</option>
-                  <option value="gastroenterology">Gastroenterology</option>
-                  <option value="endocrinology">Endocrinology</option>
-                  <option value="hematology">Hematology</option>
-                  <option value="oncology">Oncology</option>
-                  <option value="dermatology">Dermatology</option>
-                  <option value="urology">Urology</option>
-                  <option value="ophthalmology">Ophthalmology</option>
-                  <option value="ent">ENT</option>
-                  <option value="obstetrics-gynecology">Obstetrics & Gynecology</option>
-                  <option value="pediatrics">Pediatrics</option>
-                  <option value="radiology">Radiology</option>
-                  <option value="pathology">Pathology</option>
-                  <option value="anesthesiology">Anesthesiology</option>
-                  <option value="plastic-surgery">Plastic Surgery</option>
-                  <option value="vascular-surgery">Vascular Surgery</option>
+                  <option value="cardiology">{t('docConsult.specialty_cardiology')}</option>
+                  <option value="neurology">{t('docConsult.specialty_neurology')}</option>
+                  <option value="orthopedics">{t('docConsult.specialty_orthopedics')}</option>
+                  <option value="general-surgery">{t('docConsult.specialty_general-surgery')}</option>
+                  <option value="psychiatry">{t('docConsult.specialty_psychiatry')}</option>
+                  <option value="infectious-disease">{t('docConsult.specialty_infectious-disease')}</option>
+                  <option value="nephrology">{t('docConsult.specialty_nephrology')}</option>
+                  <option value="pulmonology">{t('docConsult.specialty_pulmonology')}</option>
+                  <option value="gastroenterology">{t('docConsult.specialty_gastroenterology')}</option>
+                  <option value="endocrinology">{t('docConsult.specialty_endocrinology')}</option>
+                  <option value="hematology">{t('docConsult.specialty_hematology')}</option>
+                  <option value="oncology">{t('docConsult.specialty_oncology')}</option>
+                  <option value="dermatology">{t('docConsult.specialty_dermatology')}</option>
+                  <option value="urology">{t('docConsult.specialty_urology')}</option>
+                  <option value="ophthalmology">{t('docConsult.specialty_ophthalmology')}</option>
+                  <option value="ent">{t('docConsult.specialty_ent')}</option>
+                  <option value="obstetrics-gynecology">{t('docConsult.specialty_obstetrics-gynecology')}</option>
+                  <option value="pediatrics">{t('docConsult.specialty_pediatrics')}</option>
+                  <option value="radiology">{t('docConsult.specialty_radiology')}</option>
+                  <option value="pathology">{t('docConsult.specialty_pathology')}</option>
+                  <option value="anesthesiology">{t('docConsult.specialty_anesthesiology')}</option>
+                  <option value="plastic-surgery">{t('docConsult.specialty_plastic-surgery')}</option>
+                  <option value="vascular-surgery">{t('docConsult.specialty_vascular-surgery')}</option>
                 </select>
               </div>
 
               <div>
                 <label htmlFor="consult-urgency" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Urgency <span className="text-red-600">*</span>
+                  {t('docConsult.urgencyLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="consult-urgency"
@@ -713,49 +711,49 @@ const ConsultPage: React.FC = () => {
                   onChange={(e) => setNewConsult({ ...newConsult, urgency: e.target.value as ConsultUrgency })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="routine">Routine</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="emergent">Emergent</option>
-                  <option value="stat">STAT</option>
+                  <option value="routine">{t('docConsult.urgency_routine')}</option>
+                  <option value="urgent">{t('docConsult.urgency_urgent')}</option>
+                  <option value="emergent">{t('docConsult.urgency_emergent')}</option>
+                  <option value="stat">{t('docConsult.urgency_stat')}</option>
                 </select>
               </div>
             </div>
 
             <div>
               <label htmlFor="consult-reason" className="block text-sm font-semibold text-gray-700 mb-2">
-                Reason for Consult <span className="text-red-600">*</span>
+                {t('docConsult.reasonLabel')} <span className="text-red-600">*</span>
               </label>
               <input
                 id="consult-reason"
                 type="text"
                 value={newConsult.reason}
                 onChange={(e) => setNewConsult({ ...newConsult, reason: e.target.value })}
-                placeholder="e.g., Acute chest pain, elevated troponin"
+                placeholder={t('docConsult.reasonPh')}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
               />
             </div>
 
             <div>
               <label htmlFor="consult-clinical-question" className="block text-sm font-semibold text-gray-700 mb-2">
-                Clinical Question <span className="text-red-600">*</span>
+                {t('docConsult.clinicalQuestionLabel')} <span className="text-red-600">*</span>
               </label>
               <textarea
                 id="consult-clinical-question"
                 value={newConsult.clinicalQuestion}
                 onChange={(e) => setNewConsult({ ...newConsult, clinicalQuestion: e.target.value })}
-                placeholder="Specific question for consultant (e.g., Rule out ACS, need cath recommendation...)"
+                placeholder={t('docConsult.clinicalQuestionPh')}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 rows={3}
               />
             </div>
 
             <div>
-              <label htmlFor="consult-relevant-history" className="block text-sm font-semibold text-gray-700 mb-2">Relevant History</label>
+              <label htmlFor="consult-relevant-history" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.relevantHistoryLabel')}</label>
               <textarea
                 id="consult-relevant-history"
                 value={newConsult.relevantHistory}
                 onChange={(e) => setNewConsult({ ...newConsult, relevantHistory: e.target.value })}
-                placeholder="Pertinent PMH, risk factors, etc."
+                placeholder={t('docConsult.relevantHistoryPh')}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 rows={2}
               />
@@ -763,48 +761,48 @@ const ConsultPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="consult-current-medications" className="block text-sm font-semibold text-gray-700 mb-2">Current Medications</label>
+                <label htmlFor="consult-current-medications" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.currentMedicationsLabel')}</label>
                 <textarea
                   id="consult-current-medications"
                   value={newConsult.currentMedications}
                   onChange={(e) => setNewConsult({ ...newConsult, currentMedications: e.target.value })}
-                  placeholder="List current medications"
+                  placeholder={t('docConsult.currentMedicationsPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
 
               <div>
-                <label htmlFor="consult-vital-signs" className="block text-sm font-semibold text-gray-700 mb-2">Vital Signs</label>
+                <label htmlFor="consult-vital-signs" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.vitalSignsLabel')}</label>
                 <textarea
                   id="consult-vital-signs"
                   value={newConsult.vitalSigns}
                   onChange={(e) => setNewConsult({ ...newConsult, vitalSigns: e.target.value })}
-                  placeholder="BP, HR, RR, SpO2, Temp"
+                  placeholder={t('docConsult.vitalSignsPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
 
               <div>
-                <label htmlFor="consult-lab-results" className="block text-sm font-semibold text-gray-700 mb-2">Laboratory Results</label>
+                <label htmlFor="consult-lab-results" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.labResultsLabel')}</label>
                 <textarea
                   id="consult-lab-results"
                   value={newConsult.labResults}
                   onChange={(e) => setNewConsult({ ...newConsult, labResults: e.target.value })}
-                  placeholder="Pertinent lab values"
+                  placeholder={t('docConsult.labResultsPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
 
               <div>
-                <label htmlFor="consult-imaging-results" className="block text-sm font-semibold text-gray-700 mb-2">Imaging Results</label>
+                <label htmlFor="consult-imaging-results" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.imagingResultsLabel')}</label>
                 <textarea
                   id="consult-imaging-results"
                   value={newConsult.imagingResults}
                   onChange={(e) => setNewConsult({ ...newConsult, imagingResults: e.target.value })}
-                  placeholder="X-ray, CT, MRI, etc."
+                  placeholder={t('docConsult.imagingResultsPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   rows={2}
                 />
@@ -812,12 +810,12 @@ const ConsultPage: React.FC = () => {
             </div>
 
             <div>
-              <label htmlFor="consult-additional-notes" className="block text-sm font-semibold text-gray-700 mb-2">Additional Notes</label>
+              <label htmlFor="consult-additional-notes" className="block text-sm font-semibold text-gray-700 mb-2">{t('docConsult.additionalNotesLabel')}</label>
               <textarea
                 id="consult-additional-notes"
                 value={newConsult.notes}
                 onChange={(e) => setNewConsult({ ...newConsult, notes: e.target.value })}
-                placeholder="Any other relevant information..."
+                placeholder={t('docConsult.additionalNotesPh')}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 rows={2}
               />
@@ -826,14 +824,14 @@ const ConsultPage: React.FC = () => {
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" />
-                Consultation Request Guidelines
+                {t('docConsult.guidelinesTitle')}
               </p>
               <ul className="text-sm text-blue-800 space-y-1">
-                <li>• Provide complete clinical information to expedite consultant evaluation</li>
-                <li>• For urgent/emergent consults, consider calling consultant directly</li>
-                <li>• STAT consults should be used only for life-threatening situations</li>
-                <li>• Include pertinent positive and negative findings</li>
-                <li>• Specify what action you are requesting (evaluation, procedure, recommendations)</li>
+                <li>• {t('docConsult.guideline1')}</li>
+                <li>• {t('docConsult.guideline2')}</li>
+                <li>• {t('docConsult.guideline3')}</li>
+                <li>• {t('docConsult.guideline4')}</li>
+                <li>• {t('docConsult.guideline5')}</li>
               </ul>
             </div>
           </div>
@@ -843,7 +841,7 @@ const ConsultPage: React.FC = () => {
             className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold mt-6 flex items-center justify-center gap-2"
           >
             <Send className="w-4 h-4" />
-            Submit Consult Request
+            {t('docConsult.submitRequestBtn')}
           </button>
         </div>
       )}

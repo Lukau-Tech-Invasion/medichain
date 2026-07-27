@@ -1,0 +1,42 @@
+[package]
+name = "medichain-api-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Standalone from the parent workspace: `medichain-api` is a `[[bin]]`-only
+# crate (no `[lib]` target — see `api/Cargo.toml`), so these targets can't
+# depend on it as a library. Each fuzz target instead mirrors one small, pure
+# function from the main crate (see the header comment in each target file
+# for the exact source location to keep in sync).
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+sha3 = "0.10"
+hex = "0.4"
+
+[[bin]]
+name = "blood_type_compatible"
+path = "fuzz_targets/blood_type_compatible.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "card_hash"
+path = "fuzz_targets/card_hash.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mean_arterial_pressure"
+path = "fuzz_targets/mean_arterial_pressure.rs"
+test = false
+doc = false
+bench = false

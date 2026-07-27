@@ -110,10 +110,17 @@ pub async fn get_cds_audit(
     };
     match result {
         Ok(records) => {
-            let entries: Vec<serde_json::Value> = records.into_iter().map(|r| r.data).collect();
+            let limit = query.get("limit").and_then(|l| l.parse::<usize>().ok());
+            let (page, next_cursor) = crate::pagination::paginate_cursor(
+                &records,
+                query.get("cursor").map(String::as_str),
+                limit,
+            );
+            let entries: Vec<serde_json::Value> = page.into_iter().map(|r| r.data).collect();
             HttpResponse::Ok().json(serde_json::json!({
                 "count": entries.len(),
                 "entries": entries,
+                "next_cursor": next_cursor,
             }))
         }
         Err(e) => HttpResponse::InternalServerError().json(error_envelope_json(

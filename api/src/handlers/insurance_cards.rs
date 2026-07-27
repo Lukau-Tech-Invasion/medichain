@@ -251,7 +251,7 @@ pub async fn upload_insurance_card_image(
 
     let result = match data
         .ipfs_client
-        .upload_encrypted(&bytes, metadata, &data.encryption_key)
+        .upload_encrypted(&bytes, metadata, &data.encryption_keyring)
         .await
     {
         Ok(r) => r,

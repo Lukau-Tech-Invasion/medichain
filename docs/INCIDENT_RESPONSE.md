@@ -109,9 +109,104 @@ Assign a severity:
 
 ---
 
-## 5. Follow-ups (tracked, not yet implemented)
+## 5. Follow-ups
 
-- Persist security alerts to PostgreSQL (currently an in-memory ring buffer; lost on restart).
-- Automated regulator/subject notification dispatch (email/SMS templates).
-- Annual external penetration test (HIPAA 2025) — schedule and track findings here.
+**Done:**
+- ~~Persist security alerts to PostgreSQL~~ — `security_alerts` table; alerts survive a restart.
+- ~~Automated regulator/subject notification dispatch~~ — `POST /api/admin/security/breach` now
+  dispatches on both channels: SMS to `SECURITY_OFFICER_PHONE` and email to
+  `REGULATOR_NOTIFICATION_EMAIL` via `notifications::dispatch_breach_notification`
+  (`api/src/notifications.rs`). Real SMTP transport is still a scaffold pending a mail crate
+  (e.g. `lettre`) and production mail-server credentials — see `SMTP_ENABLED` in `.env.example`.
+
+**Still open (tracked, not yet implemented):**
 - SIEM/log shipping for long-term forensic retention.
+- Real SMTP provider wiring for `send_email` (currently simulates the network call when
+  `SMTP_ENABLED=true`; logs-only when unset).
+
+---
+
+## 6. Annual Penetration Testing Framework (HIPAA 2025)
+
+The actual engagement — hiring a tester, running the test, remediating live
+findings — needs a vendor relationship and a signed contract that only the
+project owner can create. What this section provides is everything that
+*doesn't* require that: scope, cadence, vendor criteria, rules of engagement,
+and a severity/remediation SLA, so the first real engagement can be scheduled
+and run without inventing this process under time pressure.
+
+### 6.1 Cadence and trigger conditions
+- **Baseline:** one external penetration test per 12 months (HIPAA Security
+  Rule's 2025 NPRM expectations for a regulated ePHI system).
+- **Additional out-of-cycle test required after:** a SEV-1 breach (§2.1), a
+  major architecture change to an in-scope system (new auth mechanism, new
+  public-facing service, blockchain integration going live in production), or
+  12+ months since the last test regardless of the calendar trigger above.
+
+### 6.2 Scope
+In scope:
+- The public API surface (`api/src/routes.rs` — all `/api/*` endpoints),
+  wallet-based auth + JWT (`api/src/security/jwt.rs`) + MFA
+  (`api/src/security/mfa.rs`), rate limiting and signature verification
+  middleware.
+- The doctor-portal and patient-app web clients as deployed (not local dev
+  builds).
+- Network perimeter: TLS termination (`docs/TLS.md`), exposed ports per
+  `docker-compose.tls.yml`.
+
+Out of scope (unless separately contracted):
+- The Substrate blockchain node/pallets (`node/`, `runtime/`, `pallets/`) —
+  immutable-ledger consensus security is a different specialty than a web API
+  pentest; commission a blockchain-specific audit if/when the chain carries
+  real value.
+- Physical security, social engineering, and denial-of-service testing
+  (explicitly excluded by default — DoS testing against a healthcare system's
+  production environment risks a real availability incident; only include it
+  against a dedicated non-production environment with explicit sign-off).
+
+### 6.3 Vendor selection criteria
+- Prior healthcare/HIPAA engagement experience (ask for 2 anonymized sample
+  reports).
+- Named methodology: OWASP ASVS/Testing Guide or PTES, not "we'll poke
+  around."
+- Carries professional liability insurance; will sign a Business Associate
+  Agreement (this environment cannot verify a BAA exists — see 4.1's STT
+  provider note for the same constraint) since the test necessarily touches
+  systems that process ePHI.
+- Fixed-price or time-boxed engagement with a written rules-of-engagement
+  document delivered *before* testing starts (test window, IP allowlist for
+  the tester's source addresses, an emergency stop contact on both sides).
+
+### 6.4 Rules of engagement (non-negotiable)
+- Testing happens against a **staging environment with synthetic data**
+  wherever the finding class allows it (auth bypass, injection, XSS, IDOR).
+  Only test against production for checks that are meaningless on synthetic
+  data (TLS config, rate-limit behavior under real traffic shape), and only
+  with the on-call engineer notified in advance.
+- No test ever targets real patient ePHI. If a finding requires proving data
+  exposure, prove it against a seeded synthetic patient record, not a live one.
+- A kill switch: either party can halt testing immediately; the Security
+  Officer has authority to invoke it without needing IC sign-off first (this
+  mirrors §2.2's containment authority).
+
+### 6.5 Severity and remediation SLA
+Reuse the incident severity bands from §2.1 for consistency:
+
+| Severity | Example | Remediation SLA |
+|----------|---------|------------------|
+| SEV-1 Critical | Auth bypass, ePHI exfiltration path, RCE | 72 hours (matches the breach-notification clock) |
+| SEV-2 High | Privilege escalation, stored XSS on an authenticated page, IDOR on PHI | 30 days |
+| SEV-3 Low | Missing security header, verbose error message, outdated dependency with no known exploit | Next release cycle |
+
+Every finding gets an owner and a due date, tracked the same way as §2.5's
+post-incident action items — a SEV-1 finding from a pentest triggers the same
+retro-and-action-item discipline as a real incident, since an unremediated
+critical finding *is* a live risk, not a hypothetical one.
+
+### 6.6 Findings tracking template
+Track findings in whatever issue tracker the team already uses (not this
+file — findings often contain exploit details that shouldn't sit in a public
+or semi-public git history). Each entry needs: finding ID, severity (6.5),
+affected endpoint/component, reproduction steps, remediation owner, due date,
+verification method (how the fix will be confirmed, e.g. "re-test the same
+request against staging"), and status.

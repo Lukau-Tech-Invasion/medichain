@@ -229,6 +229,9 @@ pub async fn wallet_register(
         .write()
         .unwrap()
         .insert(body.wallet_address.clone(), user.clone());
+    if let Err(e) = data.persist_user(&user).await {
+        log::error!("Failed to persist new user {}: {}", body.wallet_address, e);
+    }
 
     log::info!(
         "New user registered: wallet={}, name={}, role={} by admin={}",

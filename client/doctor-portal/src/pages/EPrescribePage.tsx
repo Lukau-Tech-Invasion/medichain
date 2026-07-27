@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { createEPrescription, useTranslation } from '@medichain/shared';
-import { FileText, Send, AlertCircle } from 'lucide-react';
+import { createEPrescription, exportDocumentToPdf, useTranslation } from '@medichain/shared';
+import { FileText, Send, AlertCircle, Download } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
 
@@ -24,6 +24,8 @@ export default function EPrescribePage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [lastPrescription, setLastPrescription] = useState<typeof formData | null>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +33,7 @@ export default function EPrescribePage() {
     try {
       await createEPrescription(formData);
       setSuccess(true);
+      setLastPrescription(formData);
       setTimeout(() => setSuccess(false), 3000);
       // Reset form
       setFormData({
@@ -45,6 +48,47 @@ export default function EPrescribePage() {
       showError(t('docEPrescribe.errorCreating'));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (!lastPrescription) return;
+    setIsExportingPdf(true);
+    try {
+      await exportDocumentToPdf({
+        title: t('docEPrescribe.title'),
+        subtitle: `${lastPrescription.medication_name} ${lastPrescription.strength} — ${lastPrescription.patient_id}`,
+        filename: `prescription-${lastPrescription.patient_id}-${lastPrescription.medication_name}.pdf`,
+        sections: [
+          {
+            heading: t('docEPrescribe.medicationDetails'),
+            lines: [
+              `${t('docEPrescribe.medicationName')}: ${lastPrescription.medication_name}`,
+              `${t('docEPrescribe.strength')}: ${lastPrescription.strength}`,
+              `${t('docEPrescribe.form')}: ${lastPrescription.form}`,
+              `${t('docEPrescribe.quantity')}: ${lastPrescription.quantity}`,
+              `${t('docEPrescribe.daysSupply')}: ${lastPrescription.days_supply}`,
+              `${t('docEPrescribe.refillsAllowed')}: ${lastPrescription.refills_allowed}`,
+              `${t('docEPrescribe.directions')}: ${lastPrescription.directions}`,
+            ],
+          },
+          {
+            heading: t('docEPrescribe.patientPharmacy'),
+            lines: [
+              `${t('docEPrescribe.patient')}: ${lastPrescription.patient_id}`,
+              `${t('docEPrescribe.pharmacy')}: ${lastPrescription.pharmacy_name}`,
+            ],
+          },
+          ...(lastPrescription.patient_instructions
+            ? [{ heading: t('docEPrescribe.patientInstructions'), lines: [lastPrescription.patient_instructions] }]
+            : []),
+        ],
+      });
+    } catch (err) {
+      console.error('Failed to export prescription PDF:', err);
+      showError(t('docEPrescribe.errorCreating'));
+    } finally {
+      setIsExportingPdf(false);
     }
   };
 
@@ -69,9 +113,20 @@ export default function EPrescribePage() {
       </div>
 
       {success && (
-        <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-center">
-          <Send className="h-5 w-5 text-green-600 mr-2" />
-          <span className="text-green-800">{t('docEPrescribe.sentSuccess')}</span>
+        <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+          <div className="flex items-center">
+            <Send className="h-5 w-5 text-green-600 mr-2" />
+            <span className="text-green-800">{t('docEPrescribe.sentSuccess')}</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleExportPdf}
+            disabled={isExportingPdf}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-800 border border-green-300 rounded-md hover:bg-green-100 disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" />
+            {isExportingPdf ? t('docEPrescribe.exportingPdf') : t('docEPrescribe.exportPdf')}
+          </button>
         </div>
       )}
 

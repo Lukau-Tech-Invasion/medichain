@@ -90,7 +90,7 @@ export default function PharmacistDashboardPage() {
     try {
       setLoading(true);
       const response = await getPharmacistDashboard();
-      setData(response as PharmacistDashboardData);
+      setData(response as unknown as PharmacistDashboardData);
     } catch (error) {
       console.error('Failed to load pharmacist dashboard:', error);
     } finally {

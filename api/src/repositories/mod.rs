@@ -240,6 +240,52 @@ pub struct RepositoryContainer {
     // Phase 4.3: per-facility CDS thresholds + CDS audit trail
     pub cds_threshold_configs: Arc<dyn JsonRecordRepository>,
     pub cds_audit_entries: Arc<dyn JsonRecordRepository>,
+
+    // Phase 33: offline-sync device registry (JSON-record backed)
+    pub sync_devices: Arc<dyn JsonRecordRepository>,
+}
+
+/// The `[start, end)` instant range an appointment occupies.
+fn appointment_time_range(
+    appointment: &AppointmentEntity,
+) -> (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) {
+    let start = appointment.scheduled_datetime;
+    (start, minutes_end(start, appointment.duration_minutes))
+}
+
+fn minutes_end(
+    start: chrono::DateTime<chrono::Utc>,
+    duration_minutes: i32,
+) -> chrono::DateTime<chrono::Utc> {
+    start + chrono::Duration::minutes(duration_minutes as i64)
+}
+
+/// Two half-open `[start, end)` ranges overlap iff each starts before the other ends.
+fn ranges_overlap(
+    a_start: chrono::DateTime<chrono::Utc>,
+    a_end: chrono::DateTime<chrono::Utc>,
+    b_start: chrono::DateTime<chrono::Utc>,
+    b_end: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    a_start < b_end && b_start < a_end
+}
+
+/// Whether `existing` (an already-booked, non-cancelled appointment for the
+/// same provider) overlaps `candidate`'s requested time slot.
+fn appointments_overlap(existing: &AppointmentEntity, candidate: &AppointmentEntity) -> bool {
+    if matches!(existing.status.as_str(), "cancelled" | "no_show") {
+        return false;
+    }
+    let (c_start, c_end) = appointment_time_range(candidate);
+    let (e_start, e_end) = appointment_time_range(existing);
+    ranges_overlap(c_start, c_end, e_start, e_end)
+}
+
+fn booking_conflict_error(provider_id: &str) -> RepositoryError {
+    RepositoryError::Duplicate(format!(
+        "Provider {} already has an appointment overlapping this time slot",
+        provider_id
+    ))
 }
 
 impl RepositoryContainer {
@@ -411,6 +457,9 @@ impl RepositoryContainer {
             // Phase 4.3: CDS thresholds + audit (memory)
             cds_threshold_configs: Arc::new(memory::MemoryJsonRecordRepository::new()),
             cds_audit_entries: Arc::new(memory::MemoryJsonRecordRepository::new()),
+
+            // Phase 33: offline-sync device registry (memory)
+            sync_devices: Arc::new(memory::MemoryJsonRecordRepository::new()),
         }
     }
 
@@ -578,6 +627,128 @@ impl RepositoryContainer {
 
         tx.commit().await?;
         Ok(())
+    }
+
+    /// Book an appointment atomically: reject a booking that overlaps an
+    /// existing, non-cancelled appointment for the same provider, checked and
+    /// inserted in one transaction on PostgreSQL so two concurrent requests
+    /// can't double-book the same slot (11.1 TOCTOU — extends the
+    /// `record_access_atomic` pattern to appointment scheduling). Memory
+    /// backend: check-then-act under the repo's own locking, the same
+    /// accepted limitation `record_access_atomic` documents above.
+    pub async fn book_appointment_atomic(
+        &self,
+        appointment: AppointmentEntity,
+    ) -> RepositoryResult<AppointmentEntity> {
+        match &self.pool {
+            Some(pool) => self.book_appointment_postgres(pool, appointment).await,
+            None => self.book_appointment_memory(appointment).await,
+        }
+    }
+
+    async fn book_appointment_memory(
+        &self,
+        appointment: AppointmentEntity,
+    ) -> RepositoryResult<AppointmentEntity> {
+        let day = appointment.scheduled_datetime.date_naive();
+        let existing = self
+            .appointments
+            .get_by_provider(&appointment.provider_id, day)
+            .await?;
+        if existing
+            .iter()
+            .any(|e| appointments_overlap(e, &appointment))
+        {
+            return Err(booking_conflict_error(&appointment.provider_id));
+        }
+        self.appointments.create(appointment).await
+    }
+
+    async fn book_appointment_postgres(
+        &self,
+        pool: &sqlx::PgPool,
+        appointment: AppointmentEntity,
+    ) -> RepositoryResult<AppointmentEntity> {
+        let mut tx = pool.begin().await?;
+
+        let day_start = appointment
+            .scheduled_datetime
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_utc();
+        let day_end = day_start + chrono::Duration::days(1);
+
+        // Lock this provider's rows for the day so a concurrent booking can't
+        // slip in between our check and our insert.
+        let rows: Vec<(chrono::DateTime<chrono::Utc>, i32)> = sqlx::query_as(
+            "SELECT scheduled_datetime, duration_minutes FROM appointments \
+             WHERE provider_id = $1 AND scheduled_datetime >= $2 AND scheduled_datetime < $3 \
+             AND status NOT IN ('cancelled', 'no_show') FOR UPDATE",
+        )
+        .bind(&appointment.provider_id)
+        .bind(day_start)
+        .bind(day_end)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let (new_start, new_end) = appointment_time_range(&appointment);
+        let conflict = rows.iter().any(|(start, minutes)| {
+            ranges_overlap(new_start, new_end, *start, minutes_end(*start, *minutes))
+        });
+        if conflict {
+            return Err(booking_conflict_error(&appointment.provider_id));
+        }
+
+        let mut qb: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO appointments (
+                id, patient_id, provider_id, appointment_type, scheduled_datetime,
+                duration_minutes, status, location, room, reason_for_visit, visit_type,
+                priority, recurring, recurrence_pattern, parent_appointment_id,
+                insurance_verified, copay_amount, copay_collected, reminder_sent,
+                reminder_sent_at, check_in_time, check_out_time, cancelled_at,
+                cancellation_reason, cancelled_by, notes, created_by, data
+            ) ",
+        );
+        qb.push_values([&appointment], |mut b, a| {
+            b.push_bind(&a.id)
+                .push_bind(&a.patient_id)
+                .push_bind(&a.provider_id)
+                .push_bind(&a.appointment_type)
+                .push_bind(a.scheduled_datetime)
+                .push_bind(a.duration_minutes)
+                .push_bind(&a.status)
+                .push_bind(&a.location)
+                .push_bind(&a.room)
+                .push_bind(&a.reason_for_visit)
+                .push_bind(&a.visit_type)
+                .push_bind(&a.priority)
+                .push_bind(a.recurring)
+                .push_bind(&a.recurrence_pattern)
+                .push_bind(&a.parent_appointment_id)
+                .push_bind(a.insurance_verified)
+                .push_bind(a.copay_amount)
+                .push_bind(a.copay_collected)
+                .push_bind(a.reminder_sent)
+                .push_bind(a.reminder_sent_at)
+                .push_bind(a.check_in_time)
+                .push_bind(a.check_out_time)
+                .push_bind(a.cancelled_at)
+                .push_bind(&a.cancellation_reason)
+                .push_bind(&a.cancelled_by)
+                .push_bind(&a.notes)
+                .push_bind(&a.created_by)
+                .push_bind(&a.data);
+        });
+        qb.push(" RETURNING *");
+
+        let result = qb
+            .build_query_as::<AppointmentEntity>()
+            .fetch_one(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+        Ok(result)
     }
 
     /// Create a new repository container with PostgreSQL backend
@@ -815,6 +986,9 @@ impl RepositoryContainer {
             )),
             cds_audit_entries: Arc::new(postgres::PgCdsAuditEntryRepository::new(pool.clone())),
 
+            // Phase 33: offline-sync device registry (PostgreSQL)
+            sync_devices: Arc::new(postgres::PgSyncDeviceRepository::new(pool.clone())),
+
             consent_records: Arc::new(postgres::PgConsentRecordRepository::new(pool)),
         })
     }
@@ -877,5 +1051,77 @@ mod tests {
     fn test_memory_container_creation() {
         let container = RepositoryContainer::new_memory();
         assert_eq!(container.backend, StorageBackend::Memory);
+    }
+
+    fn appt(
+        provider_id: &str,
+        start_offset_min: i64,
+        duration_minutes: i32,
+        status: &str,
+    ) -> AppointmentEntity {
+        let base = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        AppointmentEntity {
+            id: "A1".to_string(),
+            patient_id: "P1".to_string(),
+            provider_id: provider_id.to_string(),
+            appointment_type: "FollowUp".to_string(),
+            scheduled_datetime: base + chrono::Duration::minutes(start_offset_min),
+            duration_minutes,
+            status: status.to_string(),
+            location: None,
+            room: None,
+            reason_for_visit: None,
+            visit_type: None,
+            priority: None,
+            recurring: false,
+            recurrence_pattern: None,
+            parent_appointment_id: None,
+            insurance_verified: false,
+            copay_amount: None,
+            copay_collected: false,
+            reminder_sent: false,
+            reminder_sent_at: None,
+            check_in_time: None,
+            check_out_time: None,
+            cancelled_at: None,
+            cancellation_reason: None,
+            cancelled_by: None,
+            notes: None,
+            created_by: "U1".to_string(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            data: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn overlapping_slots_conflict() {
+        let existing = appt("DR-1", 0, 30, "scheduled");
+        let candidate = appt("DR-1", 15, 30, "scheduled"); // overlaps [0,30) at 15
+        assert!(appointments_overlap(&existing, &candidate));
+    }
+
+    #[test]
+    fn back_to_back_slots_do_not_conflict() {
+        let existing = appt("DR-1", 0, 30, "scheduled");
+        let candidate = appt("DR-1", 30, 30, "scheduled"); // starts exactly when existing ends
+        assert!(!appointments_overlap(&existing, &candidate));
+    }
+
+    #[test]
+    fn cancelled_appointments_never_conflict() {
+        let existing = appt("DR-1", 0, 30, "cancelled");
+        let candidate = appt("DR-1", 10, 30, "scheduled");
+        assert!(!appointments_overlap(&existing, &candidate));
+
+        let existing_no_show = appt("DR-1", 0, 30, "no_show");
+        assert!(!appointments_overlap(&existing_no_show, &candidate));
+    }
+
+    #[test]
+    fn identical_slot_conflicts() {
+        let existing = appt("DR-1", 0, 30, "scheduled");
+        let candidate = appt("DR-1", 0, 30, "scheduled");
+        assert!(appointments_overlap(&existing, &candidate));
     }
 }

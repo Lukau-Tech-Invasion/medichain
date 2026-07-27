@@ -29,8 +29,6 @@ pub const MAX_ALERTS: usize = 500;
 
 /// Severity levels for security alerts.
 pub mod severity {
-    #[allow(dead_code)]
-    pub const MEDIUM: &str = "medium";
     pub const HIGH: &str = "high";
     pub const CRITICAL: &str = "critical";
 }

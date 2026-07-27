@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listCriticalValues, createCriticalValue } from '@medichain/shared';
+import { getPatients, listCriticalValues, createCriticalValue, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -81,6 +81,7 @@ const CRITICAL_THRESHOLDS: CriticalValueThreshold[] = [
 ];
 
 const CriticalValuePage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -149,7 +150,7 @@ const CriticalValuePage: React.FC = () => {
       
       setNotifications(mappedNotifications);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch critical value data');
+      setError(err instanceof Error ? err.message : t('docCriticalValue.errorFetchFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -184,7 +185,7 @@ const CriticalValuePage: React.FC = () => {
 
   const handleReportCriticalValue = async () => {
     if (!newCritical.patientId || !newCritical.analyte || !newCritical.value || !newCritical.orderingProvider) {
-      showWarning('Please fill in all required fields');
+      showWarning(t('docCriticalValue.errorRequiredFields'));
       return;
     }
 
@@ -195,7 +196,7 @@ const CriticalValuePage: React.FC = () => {
     const criticalInfo = determineCriticalLevel(newCritical.analyte, value);
 
     if (!criticalInfo) {
-      showWarning('This value does not meet critical thresholds');
+      showWarning(t('docCriticalValue.warningNotCritical'));
       return;
     }
 
@@ -227,13 +228,13 @@ const CriticalValuePage: React.FC = () => {
           orderingProvider: '',
         });
         setActiveTab('pending');
-        showSuccess(`Critical value notification ${newNotification.notificationId} created`);
+        showSuccess(t('docCriticalValue.successCreated', { id: newNotification.notificationId }));
       } else {
-        showError(response.error || 'Failed to create critical value notification');
+        showError(response.error || t('docCriticalValue.errorCreateFailed'));
       }
     } catch (err) {
       console.error('Error creating critical value notification:', err);
-      showError('An error occurred while creating the critical value notification');
+      showError(t('docCriticalValue.errorGenericCreate'));
     } finally {
       setIsLoading(false);
     }
@@ -253,7 +254,7 @@ const CriticalValuePage: React.FC = () => {
     if (!selectedNotification) return;
 
     if (!acknowledgment.notifiedProvider || !acknowledgment.readBackValue) {
-      showWarning('Provider name and read-back verification are required');
+      showWarning(t('docCriticalValue.errorProviderReadBackRequired'));
       return;
     }
 
@@ -264,7 +265,7 @@ const CriticalValuePage: React.FC = () => {
 
     if (!readBackMatch) {
       const confirm = window.confirm(
-        `Read-back value does not match expected value "${expectedReadBack}". Continue anyway?`
+        t('docCriticalValue.readBackMismatchConfirm', { expected: expectedReadBack })
       );
       if (!confirm) return;
     }
@@ -300,7 +301,7 @@ const CriticalValuePage: React.FC = () => {
       readBackValue: '',
       acknowledgmentNotes: '',
     });
-    showSuccess('Critical value acknowledged and documented');
+    showSuccess(t('docCriticalValue.successAcknowledged'));
   };
 
   const handleCancelNotification = (notificationId: string, reason: string) => {
@@ -318,7 +319,7 @@ const CriticalValuePage: React.FC = () => {
     });
 
     setNotifications(updatedNotifications);
-    showSuccess('Notification cancelled');
+    showSuccess(t('docCriticalValue.successCancelled'));
   };
 
   const filteredNotifications = notifications.filter((n) => {
@@ -390,15 +391,17 @@ const CriticalValuePage: React.FC = () => {
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold mb-2">Critical Value Reporting</h1>
+        <h1 className="text-3xl font-bold mb-2">{t('docCriticalValue.title')}</h1>
         <p className="text-teal-50">
-          Alert notification and read-back verification workflow
+          {t('docCriticalValue.subtitle')}
         </p>
         {pendingNotifications.length > 0 && (
           <div className="mt-4 bg-white/20 rounded-lg p-3 flex items-center gap-2">
             <Bell className="w-5 h-5 animate-pulse" />
             <span className="font-semibold">
-              {pendingNotifications.length} pending notification{pendingNotifications.length !== 1 ? 's' : ''} requiring action
+              {pendingNotifications.length !== 1
+                ? t('docCriticalValue.pendingBannerPlural', { count: pendingNotifications.length })
+                : t('docCriticalValue.pendingBannerSingular', { count: pendingNotifications.length })}
             </span>
           </div>
         )}
@@ -414,7 +417,7 @@ const CriticalValuePage: React.FC = () => {
               : 'text-gray-600 hover:text-teal-600'
           }`}
         >
-          Pending Notifications
+          {t('docCriticalValue.tabPending')}
           {pendingNotifications.length > 0 && (
             <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
               {pendingNotifications.length}
@@ -429,7 +432,7 @@ const CriticalValuePage: React.FC = () => {
               : 'text-gray-600 hover:text-teal-600'
           }`}
         >
-          Report Critical Value
+          {t('docCriticalValue.tabReportNew')}
         </button>
         <button
           onClick={() => setActiveTab('history')}
@@ -439,7 +442,7 @@ const CriticalValuePage: React.FC = () => {
               : 'text-gray-600 hover:text-teal-600'
           }`}
         >
-          History
+          {t('docCriticalValue.tabHistory')}
         </button>
         <button
           onClick={() => setActiveTab('thresholds')}
@@ -449,7 +452,7 @@ const CriticalValuePage: React.FC = () => {
               : 'text-gray-600 hover:text-teal-600'
           }`}
         >
-          Critical Thresholds
+          {t('docCriticalValue.tabThresholds')}
         </button>
       </div>
 
@@ -460,10 +463,10 @@ const CriticalValuePage: React.FC = () => {
             <div className="bg-green-50 border border-green-200 rounded-lg p-8 text-center">
               <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
               <h3 className="text-lg font-semibold text-green-900 mb-2">
-                No Pending Notifications
+                {t('docCriticalValue.noPendingTitle')}
               </h3>
               <p className="text-green-700">
-                All critical values have been acknowledged
+                {t('docCriticalValue.noPendingHint')}
               </p>
             </div>
           ) : (
@@ -489,7 +492,7 @@ const CriticalValuePage: React.FC = () => {
                           )}`}
                         >
                           <AlertTriangle className="w-4 h-4" />
-                          {notification.criticalLevel === 'panic' ? 'PANIC' : 'CRITICAL'}
+                          {notification.criticalLevel === 'panic' ? t('docCriticalValue.panicBadge') : t('docCriticalValue.criticalBadge')}
                         </span>
                         <span
                           className={`px-3 py-1 rounded-full text-sm font-semibold flex items-center gap-1 ${getStatusBadge(
@@ -497,12 +500,11 @@ const CriticalValuePage: React.FC = () => {
                           )}`}
                         >
                           {getStatusIcon(notification.notificationStatus)}
-                          {notification.notificationStatus.toUpperCase().replace('-', ' ')}
+                          {t(`docCriticalValue.status_${notification.notificationStatus}`)}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600">
-                        Reported {getTimeAgo(notification.reportedAt)} •{' '}
-                        {formatTimestamp(notification.reportedAt)}
+                        {t('docCriticalValue.reportedLine', { ago: getTimeAgo(notification.reportedAt), time: formatTimestamp(notification.reportedAt) })}
                       </p>
                     </div>
                     <div className="text-right">
@@ -515,14 +517,14 @@ const CriticalValuePage: React.FC = () => {
 
                   <div className="grid grid-cols-2 gap-4 mb-4 bg-white rounded-lg p-4">
                     <div>
-                      <p className="text-sm text-gray-600 mb-1">Patient</p>
+                      <p className="text-sm text-gray-600 mb-1">{t('docCriticalValue.lblPatient')}</p>
                       <p className="font-semibold text-gray-900">
                         {notification.patientName}
                       </p>
                       <p className="text-sm text-gray-600">{notification.patientId}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600 mb-1">Critical Result</p>
+                      <p className="text-sm text-gray-600 mb-1">{t('docCriticalValue.lblCriticalResult')}</p>
                       <p className="text-2xl font-bold text-red-700">
                         {notification.analyte}: {notification.value} {notification.unit}
                       </p>
@@ -531,13 +533,13 @@ const CriticalValuePage: React.FC = () => {
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600 mb-1">Ordering Provider</p>
+                      <p className="text-sm text-gray-600 mb-1">{t('docCriticalValue.lblOrderingProvider')}</p>
                       <p className="font-semibold text-gray-900">
                         {notification.orderingProvider}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600 mb-1">Reported By</p>
+                      <p className="text-sm text-gray-600 mb-1">{t('docCriticalValue.lblReportedBy')}</p>
                       <p className="font-semibold text-gray-900">
                         {notification.reportedBy}
                       </p>
@@ -548,9 +550,11 @@ const CriticalValuePage: React.FC = () => {
                     <div className="mb-4 bg-yellow-100 border border-yellow-200 rounded-lg p-3">
                       <p className="text-sm text-yellow-900">
                         <Activity className="w-4 h-4 inline mr-1" />
-                        Notification in progress - contacted {notification.notifiedProvider} via{' '}
-                        {notification.notificationMethod} at{' '}
-                        {notification.notifiedAt && formatTimestamp(notification.notifiedAt)}
+                        {t('docCriticalValue.inProgressNote', {
+                          provider: notification.notifiedProvider || '',
+                          method: notification.notificationMethod || '',
+                          time: notification.notifiedAt ? formatTimestamp(notification.notifiedAt) : ''
+                        })}
                       </p>
                     </div>
                   )}
@@ -559,9 +563,11 @@ const CriticalValuePage: React.FC = () => {
                     <div className="mb-4 bg-purple-100 border border-purple-200 rounded-lg p-3">
                       <p className="text-sm text-purple-900">
                         <Bell className="w-4 h-4 inline mr-1" />
-                        Escalated to {notification.escalatedTo} at{' '}
-                        {notification.escalatedAt && formatTimestamp(notification.escalatedAt)} - no
-                        response from {notification.notifiedProvider}
+                        {t('docCriticalValue.escalatedNote', {
+                          escalatedTo: notification.escalatedTo || '',
+                          time: notification.escalatedAt ? formatTimestamp(notification.escalatedAt) : '',
+                          provider: notification.notifiedProvider || ''
+                        })}
                       </p>
                     </div>
                   )}
@@ -572,18 +578,18 @@ const CriticalValuePage: React.FC = () => {
                       className="flex-1 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors font-semibold flex items-center justify-center gap-2"
                     >
                       <Phone className="w-4 h-4" />
-                      Acknowledge & Document
+                      {t('docCriticalValue.acknowledgeBtn')}
                     </button>
                     <button
                       onClick={() => {
-                        const reason = prompt('Reason for cancellation:');
+                        const reason = prompt(t('docCriticalValue.cancelReasonPrompt'));
                         if (reason) {
                           handleCancelNotification(notification.notificationId, reason);
                         }
                       }}
                       className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
-                      Cancel
+                      {t('docCriticalValue.cancelBtn')}
                     </button>
                   </div>
                 </div>
@@ -596,7 +602,7 @@ const CriticalValuePage: React.FC = () => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="bg-teal-600 text-white p-4 flex items-center justify-between">
-                  <h2 className="text-xl font-bold">Acknowledge Critical Value</h2>
+                  <h2 className="text-xl font-bold">{t('docCriticalValue.acknowledgeModalTitle')}</h2>
                   <button
                     onClick={() => setSelectedNotification(null)}
                     className="text-white hover:bg-teal-700 rounded p-1"
@@ -608,27 +614,27 @@ const CriticalValuePage: React.FC = () => {
                 <div className="p-6 space-y-4">
                   {/* Critical Value Summary */}
                   <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <h3 className="font-bold text-red-900 mb-2">Critical Result</h3>
+                    <h3 className="font-bold text-red-900 mb-2">{t('docCriticalValue.criticalResultTitle')}</h3>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <p className="text-gray-600">Patient</p>
+                        <p className="text-gray-600">{t('docCriticalValue.lblPatient')}</p>
                         <p className="font-semibold">{selectedNotification.patientName}</p>
                       </div>
                       <div>
-                        <p className="text-gray-600">Result</p>
+                        <p className="text-gray-600">{t('docCriticalValue.resultLabel')}</p>
                         <p className="font-bold text-red-700 text-lg">
                           {selectedNotification.analyte}: {selectedNotification.value}{' '}
                           {selectedNotification.unit}
                         </p>
                       </div>
                       <div>
-                        <p className="text-gray-600">Threshold</p>
+                        <p className="text-gray-600">{t('docCriticalValue.thresholdLabel')}</p>
                         <p className="font-semibold text-red-700">
                           {selectedNotification.thresholdExceeded}
                         </p>
                       </div>
                       <div>
-                        <p className="text-gray-600">Ordering Provider</p>
+                        <p className="text-gray-600">{t('docCriticalValue.orderingProviderLabel')}</p>
                         <p className="font-semibold">{selectedNotification.orderingProvider}</p>
                       </div>
                     </div>
@@ -637,7 +643,7 @@ const CriticalValuePage: React.FC = () => {
                   {/* Notification Method */}
                   <div>
                     <label htmlFor="critval-notification-method" className="block text-sm font-semibold text-gray-700 mb-2">
-                      Notification Method <span className="text-red-600">*</span>
+                      {t('docCriticalValue.notificationMethodLabel')} <span className="text-red-600">*</span>
                     </label>
                     <select
                       id="critval-notification-method"
@@ -650,17 +656,17 @@ const CriticalValuePage: React.FC = () => {
                       }
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     >
-                      <option value="phone">Phone Call</option>
-                      <option value="in-person">In-Person</option>
-                      <option value="secure-message">Secure Message</option>
-                      <option value="page">Page/Beeper</option>
+                      <option value="phone">{t('docCriticalValue.method_phone')}</option>
+                      <option value="in-person">{t('docCriticalValue.method_in-person')}</option>
+                      <option value="secure-message">{t('docCriticalValue.method_secure-message')}</option>
+                      <option value="page">{t('docCriticalValue.method_page')}</option>
                     </select>
                   </div>
 
                   {/* Notified Provider */}
                   <div>
                     <label htmlFor="critval-notified-provider" className="block text-sm font-semibold text-gray-700 mb-2">
-                      Provider Notified <span className="text-red-600">*</span>
+                      {t('docCriticalValue.providerNotifiedLabel')} <span className="text-red-600">*</span>
                     </label>
                     <input
                       id="critval-notified-provider"
@@ -672,7 +678,7 @@ const CriticalValuePage: React.FC = () => {
                           notifiedProvider: e.target.value,
                         })
                       }
-                      placeholder="Provider name or ID"
+                      placeholder={t('docCriticalValue.providerNotifiedPh')}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                   </div>
@@ -681,14 +687,13 @@ const CriticalValuePage: React.FC = () => {
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
                       <FileText className="w-5 h-5" />
-                      Read-Back Verification (Required)
+                      {t('docCriticalValue.readBackTitle')}
                     </h3>
                     <p className="text-sm text-blue-800 mb-3">
-                      The provider must read back the critical value to verify understanding. Enter
-                      exactly what the provider stated.
+                      {t('docCriticalValue.readBackIntro')}
                     </p>
                     <label htmlFor="critval-read-back" className="block text-sm font-semibold text-gray-700 mb-2">
-                      Provider Read-Back <span className="text-red-600">*</span>
+                      {t('docCriticalValue.providerReadBackLabel')} <span className="text-red-600">*</span>
                     </label>
                     <input
                       id="critval-read-back"
@@ -700,18 +705,18 @@ const CriticalValuePage: React.FC = () => {
                           readBackValue: e.target.value,
                         })
                       }
-                      placeholder={`Expected: ${selectedNotification.analyte} ${selectedNotification.value} ${selectedNotification.unit}`}
+                      placeholder={t('docCriticalValue.readBackPh', { analyte: selectedNotification.analyte, value: selectedNotification.value, unit: selectedNotification.unit })}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     />
                     <p className="text-xs text-gray-600 mt-1">
-                      Example: "Potassium 7.2 millimoles per liter"
+                      {t('docCriticalValue.readBackExample')}
                     </p>
                   </div>
 
                   {/* Acknowledgment Notes */}
                   <div>
                     <label htmlFor="critval-action-plan" className="block text-sm font-semibold text-gray-700 mb-2">
-                      Provider Response / Action Plan
+                      {t('docCriticalValue.providerResponseLabel')}
                     </label>
                     <textarea
                       id="critval-action-plan"
@@ -722,7 +727,7 @@ const CriticalValuePage: React.FC = () => {
                           acknowledgmentNotes: e.target.value,
                         })
                       }
-                      placeholder="Document provider's acknowledgment and planned actions..."
+                      placeholder={t('docCriticalValue.providerResponsePh')}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2"
                       rows={3}
                     />
@@ -734,13 +739,13 @@ const CriticalValuePage: React.FC = () => {
                       onClick={handleAcknowledge}
                       className="flex-1 bg-teal-600 text-white px-4 py-3 rounded-lg hover:bg-teal-700 transition-colors font-semibold"
                     >
-                      Complete Acknowledgment
+                      {t('docCriticalValue.completeAcknowledgmentBtn')}
                     </button>
                     <button
                       onClick={() => setSelectedNotification(null)}
                       className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                     >
-                      Cancel
+                      {t('docCriticalValue.cancelBtn')}
                     </button>
                   </div>
                 </div>
@@ -755,7 +760,7 @@ const CriticalValuePage: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
-            Report New Critical Value
+            {t('docCriticalValue.reportNewTitle')}
           </h2>
 
           <div className="space-y-4 mb-6">
@@ -763,7 +768,7 @@ const CriticalValuePage: React.FC = () => {
               {/* Patient Selection */}
               <div>
                 <label htmlFor="critval-patient" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Patient <span className="text-red-600">*</span>
+                  {t('docCriticalValue.patientLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="critval-patient"
@@ -771,7 +776,7 @@ const CriticalValuePage: React.FC = () => {
                   onChange={(e) => setNewCritical({ ...newCritical, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docCriticalValue.selectPatientPh')}</option>
                   {patients.map((patient) => (
                     <option key={patient.patient_id} value={patient.patient_id}>
                       {patient.full_name} ({patient.patient_id})
@@ -783,7 +788,7 @@ const CriticalValuePage: React.FC = () => {
               {/* Analyte Selection */}
               <div>
                 <label htmlFor="critval-analyte" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Analyte/Test <span className="text-red-600">*</span>
+                  {t('docCriticalValue.analyteLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="critval-analyte"
@@ -798,7 +803,7 @@ const CriticalValuePage: React.FC = () => {
                   }}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="">Select analyte...</option>
+                  <option value="">{t('docCriticalValue.selectAnalytePh')}</option>
                   {CRITICAL_THRESHOLDS.map((threshold) => (
                     <option key={threshold.analyte} value={threshold.analyte}>
                       {threshold.analyte}
@@ -810,7 +815,7 @@ const CriticalValuePage: React.FC = () => {
               {/* Result Value */}
               <div>
                 <label htmlFor="critval-result-value" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Result Value <span className="text-red-600">*</span>
+                  {t('docCriticalValue.resultValueLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="critval-result-value"
@@ -818,7 +823,7 @@ const CriticalValuePage: React.FC = () => {
                   step="0.01"
                   value={newCritical.value}
                   onChange={(e) => setNewCritical({ ...newCritical, value: e.target.value })}
-                  placeholder="Enter value"
+                  placeholder={t('docCriticalValue.resultValuePh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
@@ -826,14 +831,14 @@ const CriticalValuePage: React.FC = () => {
               {/* Unit */}
               <div>
                 <label htmlFor="critval-unit" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Unit <span className="text-red-600">*</span>
+                  {t('docCriticalValue.unitLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="critval-unit"
                   type="text"
                   value={newCritical.unit}
                   onChange={(e) => setNewCritical({ ...newCritical, unit: e.target.value })}
-                  placeholder="Unit of measurement"
+                  placeholder={t('docCriticalValue.unitPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   readOnly={!!newCritical.analyte}
                 />
@@ -842,7 +847,7 @@ const CriticalValuePage: React.FC = () => {
               {/* Ordering Provider */}
               <div className="col-span-2">
                 <label htmlFor="critval-ordering-provider" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Ordering Provider <span className="text-red-600">*</span>
+                  {t('docCriticalValue.orderingProviderLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="critval-ordering-provider"
@@ -851,7 +856,7 @@ const CriticalValuePage: React.FC = () => {
                   onChange={(e) =>
                     setNewCritical({ ...newCritical, orderingProvider: e.target.value })
                   }
-                  placeholder="Provider ID or name"
+                  placeholder={t('docCriticalValue.providerNotifiedPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
@@ -860,7 +865,7 @@ const CriticalValuePage: React.FC = () => {
             {/* Value Check Preview */}
             {newCritical.analyte && newCritical.value && (
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h3 className="font-bold text-blue-900 mb-2">Critical Threshold Check</h3>
+                <h3 className="font-bold text-blue-900 mb-2">{t('docCriticalValue.thresholdCheckTitle')}</h3>
                 {(() => {
                   const value = parseFloat(newCritical.value);
                   const result = determineCriticalLevel(newCritical.analyte, value);
@@ -869,16 +874,16 @@ const CriticalValuePage: React.FC = () => {
                       <div className="text-sm">
                         <p className="text-blue-800">
                           <CheckCircle className="w-4 h-4 inline mr-1 text-green-600" />
-                          This value meets <strong>{result.threshold}</strong> criteria
+                          {t('docCriticalValue.meetsCriteriaLine', { threshold: result.threshold })}
                         </p>
                         <p className="text-blue-700 mt-1">
-                          Severity:{' '}
+                          {t('docCriticalValue.severityLabel')}{' '}
                           <span
                             className={`font-bold ${
                               result.level === 'panic' ? 'text-red-700' : 'text-orange-700'
                             }`}
                           >
-                            {result.level === 'panic' ? 'PANIC' : 'CRITICAL'}
+                            {result.level === 'panic' ? t('docCriticalValue.panicBadge') : t('docCriticalValue.criticalBadge')}
                           </span>
                         </p>
                       </div>
@@ -887,7 +892,7 @@ const CriticalValuePage: React.FC = () => {
                     return (
                       <p className="text-sm text-orange-800">
                         <AlertTriangle className="w-4 h-4 inline mr-1" />
-                        This value does not meet critical thresholds
+                        {t('docCriticalValue.warningNotCritical')}
                       </p>
                     );
                   }
@@ -898,13 +903,13 @@ const CriticalValuePage: React.FC = () => {
 
           {/* Critical Value Policy */}
           <div className="bg-teal-50 border border-teal-200 rounded-lg p-4 mb-6">
-            <h3 className="font-bold text-teal-900 mb-2">Critical Value Reporting Policy</h3>
+            <h3 className="font-bold text-teal-900 mb-2">{t('docCriticalValue.policyTitle')}</h3>
             <ul className="text-sm text-teal-800 space-y-1">
-              <li>• Notify ordering provider within 30 minutes of result availability</li>
-              <li>• Document provider name, notification method, and time</li>
-              <li>• Obtain and document read-back verification</li>
-              <li>• Escalate to supervisor if provider cannot be reached within 30 minutes</li>
-              <li>• All notifications must be acknowledged within 1 hour</li>
+              <li>• {t('docCriticalValue.policy1')}</li>
+              <li>• {t('docCriticalValue.policy2')}</li>
+              <li>• {t('docCriticalValue.policy3')}</li>
+              <li>• {t('docCriticalValue.policy4')}</li>
+              <li>• {t('docCriticalValue.policy5')}</li>
             </ul>
           </div>
 
@@ -913,7 +918,7 @@ const CriticalValuePage: React.FC = () => {
             className="w-full bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 transition-colors font-semibold flex items-center justify-center gap-2"
           >
             <Bell className="w-5 h-5" />
-            Create Critical Value Notification
+            {t('docCriticalValue.createNotificationBtn')}
           </button>
         </div>
       )}
@@ -925,7 +930,7 @@ const CriticalValuePage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <label htmlFor="critval-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="critval-search" className="block text-sm font-semibold text-gray-700 mb-2">{t('docCriticalValue.searchLabel')}</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -933,25 +938,25 @@ const CriticalValuePage: React.FC = () => {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search by notification ID, patient, or analyte..."
+                    placeholder={t('docCriticalValue.searchPh')}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="critval-status" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="critval-status" className="block text-sm font-semibold text-gray-700 mb-2">{t('docCriticalValue.statusLabel')}</label>
                 <select
                   id="critval-status"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as NotificationStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="in-progress">In Progress</option>
-                  <option value="acknowledged">Acknowledged</option>
-                  <option value="escalated">Escalated</option>
-                  <option value="cancelled">Cancelled</option>
+                  <option value="all">{t('docCriticalValue.filterAllStatuses')}</option>
+                  <option value="pending">{t('docCriticalValue.filterStatus_pending')}</option>
+                  <option value="in-progress">{t('docCriticalValue.filterStatus_in-progress')}</option>
+                  <option value="acknowledged">{t('docCriticalValue.filterStatus_acknowledged')}</option>
+                  <option value="escalated">{t('docCriticalValue.filterStatus_escalated')}</option>
+                  <option value="cancelled">{t('docCriticalValue.filterStatus_cancelled')}</option>
                 </select>
               </div>
             </div>
@@ -963,22 +968,22 @@ const CriticalValuePage: React.FC = () => {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                    Status
+                    {t('docCriticalValue.colStatus')}
                   </th>
                   <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                    Notification
+                    {t('docCriticalValue.colNotification')}
                   </th>
                   <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                    Patient
+                    {t('docCriticalValue.colPatient')}
                   </th>
                   <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                    Critical Result
+                    {t('docCriticalValue.colCriticalResult')}
                   </th>
                   <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                    Provider
+                    {t('docCriticalValue.colProvider')}
                   </th>
                   <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                    Details
+                    {t('docCriticalValue.colDetails')}
                   </th>
                 </tr>
               </thead>
@@ -992,7 +997,7 @@ const CriticalValuePage: React.FC = () => {
                         )}`}
                       >
                         {getStatusIcon(notification.notificationStatus)}
-                        {notification.notificationStatus.replace('-', ' ').toUpperCase()}
+                        {t(`docCriticalValue.status_${notification.notificationStatus}`)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -1017,14 +1022,14 @@ const CriticalValuePage: React.FC = () => {
                           notification.criticalLevel
                         )}`}
                       >
-                        {notification.criticalLevel === 'panic' ? 'PANIC' : 'CRITICAL'}
+                        {notification.criticalLevel === 'panic' ? t('docCriticalValue.panicBadge') : t('docCriticalValue.criticalBadge')}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-sm text-gray-900">{notification.orderingProvider}</p>
                       {notification.notifiedProvider && (
                         <p className="text-xs text-gray-600">
-                          Notified: {notification.notifiedProvider}
+                          {t('docCriticalValue.notifiedLine', { provider: notification.notifiedProvider })}
                         </p>
                       )}
                     </td>
@@ -1032,7 +1037,7 @@ const CriticalValuePage: React.FC = () => {
                       {notification.timeToAcknowledge !== undefined && (
                         <p className="text-gray-600">
                           <Clock className="w-3 h-3 inline mr-1" />
-                          Ack: {notification.timeToAcknowledge} min
+                          {t('docCriticalValue.ackMinLine', { count: notification.timeToAcknowledge })}
                         </p>
                       )}
                       {notification.notificationMethod && (
@@ -1044,7 +1049,7 @@ const CriticalValuePage: React.FC = () => {
                       {notification.readBackVerified && (
                         <p className="text-green-600">
                           <CheckCircle className="w-3 h-3 inline mr-1" />
-                          Read-back verified
+                          {t('docCriticalValue.readBackVerifiedLabel')}
                         </p>
                       )}
                       {notification.acknowledgmentNotes && (
@@ -1066,29 +1071,29 @@ const CriticalValuePage: React.FC = () => {
       {activeTab === 'thresholds' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="p-4 bg-gray-50 border-b border-gray-200">
-            <h2 className="text-lg font-bold">Critical Value Thresholds</h2>
+            <h2 className="text-lg font-bold">{t('docCriticalValue.thresholdsTitle')}</h2>
             <p className="text-sm text-gray-600 mt-1">
-              Laboratory reference ranges for critical and panic values
+              {t('docCriticalValue.thresholdsSubtitle')}
             </p>
           </div>
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                  Analyte/Test
+                  {t('docCriticalValue.colAnalyte')}
                 </th>
-                <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Unit</th>
+                <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">{t('docCriticalValue.colUnit')}</th>
                 <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                  Critical Low
-                </th>
-                <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                  Panic Low
+                  {t('docCriticalValue.colCriticalLow')}
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                  Critical High
+                  {t('docCriticalValue.colPanicLow')}
                 </th>
                 <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
-                  Panic High
+                  {t('docCriticalValue.colCriticalHigh')}
+                </th>
+                <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">
+                  {t('docCriticalValue.colPanicHigh')}
                 </th>
               </tr>
             </thead>
@@ -1096,7 +1101,7 @@ const CriticalValuePage: React.FC = () => {
               {CRITICAL_THRESHOLDS.map((threshold) => (
                 <tr key={threshold.analyte} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-semibold text-gray-900">{threshold.analyte}</td>
-                  <td className="px-4 py-3 text-gray-600">{threshold.unit || 'N/A'}</td>
+                  <td className="px-4 py-3 text-gray-600">{threshold.unit || t('docCriticalValue.naLabel')}</td>
                   <td className="px-4 py-3">
                     {threshold.criticalLow ? (
                       <span className="text-orange-700 font-semibold">
@@ -1141,14 +1146,12 @@ const CriticalValuePage: React.FC = () => {
             <div className="flex items-start gap-3 text-sm">
               <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-gray-900 mb-1">Threshold Definitions</p>
+                <p className="font-semibold text-gray-900 mb-1">{t('docCriticalValue.definitionsTitle')}</p>
                 <p className="text-gray-700 mb-2">
-                  <span className="font-semibold text-orange-700">Critical Values:</span> Require
-                  prompt notification (within 30 minutes) and acknowledgment
+                  <span className="font-semibold text-orange-700">{t('docCriticalValue.criticalValuesLabel')}</span> {t('docCriticalValue.criticalValuesDesc')}
                 </p>
                 <p className="text-gray-700">
-                  <span className="font-semibold text-red-700">Panic Values:</span> Life-threatening
-                  results requiring immediate notification and intervention
+                  <span className="font-semibold text-red-700">{t('docCriticalValue.panicValuesLabel')}</span> {t('docCriticalValue.panicValuesDesc')}
                 </p>
               </div>
             </div>

@@ -194,6 +194,8 @@ pub use phase7::{
     // Round 7: SOAP clinical notes
     PgSoapNoteRecordRepository,
     PgSymptomSessionRepository,
+    // Phase 33: offline-sync device registry
+    PgSyncDeviceRepository,
     PgSyncQueueItemRepository,
     // Round 5: wearables + telehealth
     PgTelehealthSessionRecordRepository,

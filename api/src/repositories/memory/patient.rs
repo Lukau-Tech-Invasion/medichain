@@ -157,7 +157,7 @@ impl PatientRepository for MemoryPatientRepository {
         let mut patients: Vec<PatientEntity> =
             storage.values().filter(|p| p.is_active).cloned().collect();
 
-        patients.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        patients.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
         let total = patients.len() as u64;
         let offset = pagination.offset() as usize;
@@ -186,7 +186,7 @@ impl PatientRepository for MemoryPatientRepository {
             .cloned()
             .collect();
 
-        patients.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        patients.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
         let total = patients.len() as u64;
         let offset = pagination.offset() as usize;
@@ -210,7 +210,7 @@ impl PatientRepository for MemoryPatientRepository {
             .cloned()
             .collect();
 
-        patients.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        patients.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
         let total = patients.len() as u64;
         let offset = pagination.offset() as usize;
@@ -263,6 +263,7 @@ mod tests {
             is_verified: false,
             is_active: true,
             profile_extras_encrypted: None,
+            key_version: 1,
         }
     }
 

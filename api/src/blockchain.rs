@@ -47,7 +47,7 @@ use subxt::{OnlineClient, PolkadotConfig};
 pub fn blockchain_enabled() -> bool {
     std::env::var("BLOCKCHAIN_ENABLED")
         .ok()
-        .map(|v| v.trim().to_ascii_lowercase() == "true")
+        .map(|v| v.trim().eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
 
@@ -395,7 +395,7 @@ impl SubstrateClient {
                 ))],
             ),
             DynamicValue::unnamed_variant(id_type_variant, vec![]),
-            DynamicValue::from_bytes(&id_hash_bytes),
+            DynamicValue::from_bytes(id_hash_bytes),
         ];
 
         self.pending_extrinsic("PatientIdentity", "register_patient", params)
@@ -506,7 +506,7 @@ impl SubstrateClient {
                     &patient_account,
                 ))],
             ),
-            DynamicValue::from_bytes(&reason_hash),
+            DynamicValue::from_bytes(reason_hash),
         ];
         // `log_access(patient, reason_hash, emergency)` takes the extra bool flag;
         // `grant_emergency_access(patient, reason_hash)` does not.
@@ -617,6 +617,11 @@ impl SubstrateClient {
         let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
 
         if blockchain_enabled() && self.is_connected() && self.subxt.is_some() {
+            // Clippy can't correlate `is_some()` across the `&&` short-circuit with the
+            // `as_ref()` below; restructuring into `if let` would reshape the 3-way
+            // enabled/connected/not-ready branching below it, so this is deliberately
+            // left as a checked unwrap rather than risking that.
+            #[allow(clippy::unnecessary_unwrap)]
             let api = self.subxt.as_ref().unwrap();
 
             info!(

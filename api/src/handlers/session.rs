@@ -124,8 +124,8 @@ pub async fn verify_session_token(req: HttpRequest) -> impl Responder {
         }
     };
 
-    let token = if auth_header.starts_with("Bearer ") {
-        auth_header["Bearer ".len()..].trim().to_owned()
+    let token = if let Some(stripped) = auth_header.strip_prefix("Bearer ") {
+        stripped.trim().to_owned()
     } else {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             success: false,

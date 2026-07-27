@@ -37,7 +37,10 @@ mod medical_id;
 mod physician;
 mod platform;
 mod surgical;
+mod validators;
 mod workflow;
+
+pub(crate) use validators::*;
 
 pub use assessment::*;
 pub use billing::*;

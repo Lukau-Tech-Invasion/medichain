@@ -52,6 +52,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 tracing-log = "0.2"
 
+# Async task debugger (Phase 12.1) — opt-in, see the `tokio-console` feature below.
+console-subscriber = { version = "0.4", optional = true }
+
 # PDF generation (Phase 13.3)
 printpdf = "0.7"
 
@@ -86,8 +89,18 @@ dotenvy = "0.15"
 [features]
 default = ["postgres"]
 postgres = []
+# Async task debugger (Phase 12.1). Requires building with `tokio_unstable`
+# (tokio's task-tracking instrumentation is opt-in at compile time, not just
+# a runtime toggle): `RUSTFLAGS="--cfg tokio_unstable" cargo run -p medichain-api
+# --features tokio-console`, then connect with the `tokio-console` CLI
+# (`cargo install tokio-console`) against the default gRPC endpoint.
+tokio-console = ["dep:console-subscriber"]
 
 [dev-dependencies]
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres"] }
 # Property-based testing (Phase 12.2)
 proptest = "1"
+# Mock HTTP server for outbound-integration tests (Phase 5.3) — verifies the
+# real Africa's Talking/FCM request shape against a local server instead of
+# a live sandbox this environment has no credentials for.
+wiremock = "0.6"

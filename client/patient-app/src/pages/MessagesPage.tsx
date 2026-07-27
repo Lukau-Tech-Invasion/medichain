@@ -224,7 +224,7 @@ export function MessagesPage() {
         {/* Input */}
         <div className="bg-white border-t border-neutral-200 p-4">
           <div className="flex items-center gap-3">
-            <button className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg">
+            <button className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg" aria-label="Attach file">
               <Paperclip className="w-5 h-5" />
             </button>
             <input

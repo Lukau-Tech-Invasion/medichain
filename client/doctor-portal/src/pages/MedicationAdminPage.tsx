@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, listMar, administerMedication } from '@medichain/shared';
+import { getPatients, listMar, administerMedication, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Pill, Clock, User, CheckCircle, XCircle, AlertTriangle, Calendar, Search, FileText, Activity, RefreshCw } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
@@ -56,6 +56,7 @@ interface MedicationAdmin {
 }
 
 const MedicationAdminPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -115,7 +116,7 @@ const MedicationAdminPage: React.FC = () => {
       setAdministrations([]);
     } catch (err) {
       console.error('Failed to load medication data:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load medication data');
+      setError(err instanceof Error ? err.message : t('docMedicationAdmin.errorLoad'));
     } finally {
       setIsLoading(false);
     }
@@ -143,17 +144,17 @@ const MedicationAdminPage: React.FC = () => {
     e.preventDefault();
     
     if (!selectedMed || !actualTime) {
-      showWarning('Please fill in required fields');
+      showWarning(t('docMedicationAdmin.warningRequiredFields'));
       return;
     }
 
     if (status === 'given' && !fiveRightsVerified) {
-      showWarning('Five Rights must be verified before administering medication');
+      showWarning(t('docMedicationAdmin.warningFiveRights'));
       return;
     }
 
     if ((status === 'not-given' || status === 'held' || status === 'refused') && !reasonNotGiven) {
-      showWarning('Please provide a reason for not administering the medication');
+      showWarning(t('docMedicationAdmin.warningReasonNotGiven'));
       return;
     }
 
@@ -199,12 +200,12 @@ const MedicationAdminPage: React.FC = () => {
       };
 
       setAdministrations([...administrations, newAdmin]);
-      showSuccess('Medication administration recorded successfully');
+      showSuccess(t('docMedicationAdmin.successRecorded'));
       setActiveTab('mar');
       setSelectedMed(null);
     } catch (err) {
       console.error('Failed to record medication administration:', err);
-      showError('Failed to record medication administration. Please try again.');
+      showError(t('docMedicationAdmin.errorRecord'));
     }
   };
 
@@ -263,12 +264,12 @@ const MedicationAdminPage: React.FC = () => {
           <div className="flex items-center space-x-3">
             <Pill className="h-8 w-8" />
             <div>
-              <h1 className="text-3xl font-bold">Medication Administration Record (eMAR)</h1>
-              <p className="text-indigo-100">Electronic medication tracking and documentation</p>
+              <h1 className="text-3xl font-bold">{t('docMedicationAdmin.title')}</h1>
+              <p className="text-indigo-100">{t('docMedicationAdmin.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-indigo-100">Nurse</p>
+            <p className="text-sm text-indigo-100">{t('docMedicationAdmin.nurseLabel')}</p>
             <p className="font-semibold">{user?.username || 'Unknown'}</p>
           </div>
         </div>
@@ -280,7 +281,7 @@ const MedicationAdminPage: React.FC = () => {
           <div>
             <label htmlFor="medadmin-patient" className="block text-sm font-medium text-gray-700 mb-1">
               <User className="inline h-4 w-4 mr-1" />
-              Patient
+              {t('docMedicationAdmin.patientLabel')}
             </label>
             <select
               id="medadmin-patient"
@@ -288,7 +289,7 @@ const MedicationAdminPage: React.FC = () => {
               onChange={(e) => setSelectedPatientId(e.target.value)}
               className="w-full px-3 py-2 border rounded-md"
             >
-              <option value="">All Patients</option>
+              <option value="">{t('docMedicationAdmin.allPatients')}</option>
               {patients.map((patient) => (
                 <option key={patient.patient_id} value={patient.patient_id}>
                   {patient.full_name} ({patient.patient_id})
@@ -299,7 +300,7 @@ const MedicationAdminPage: React.FC = () => {
           <div>
             <label htmlFor="medadmin-date" className="block text-sm font-medium text-gray-700 mb-1">
               <Calendar className="inline h-4 w-4 mr-1" />
-              Date
+              {t('docMedicationAdmin.dateLabel')}
             </label>
             <input
               id="medadmin-date"
@@ -312,14 +313,14 @@ const MedicationAdminPage: React.FC = () => {
           <div>
             <label htmlFor="medadmin-search" className="block text-sm font-medium text-gray-700 mb-1">
               <Search className="inline h-4 w-4 mr-1" />
-              Search Medication
+              {t('docMedicationAdmin.searchMedicationLabel')}
             </label>
             <input
               id="medadmin-search"
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Medication name..."
+              placeholder={t('docMedicationAdmin.searchMedicationPh')}
               className="w-full px-3 py-2 border rounded-md"
             />
           </div>
@@ -337,7 +338,7 @@ const MedicationAdminPage: React.FC = () => {
           }`}
         >
           <Activity className="inline h-4 w-4 mr-2" />
-          MAR Grid
+          {t('docMedicationAdmin.tabMarGrid')}
         </button>
         {selectedMed && (
           <button
@@ -349,7 +350,7 @@ const MedicationAdminPage: React.FC = () => {
             }`}
           >
             <Pill className="inline h-4 w-4 mr-2" />
-            Administer
+            {t('docMedicationAdmin.tabAdminister')}
           </button>
         )}
         <button
@@ -361,7 +362,7 @@ const MedicationAdminPage: React.FC = () => {
           }`}
         >
           <FileText className="inline h-4 w-4 mr-2" />
-          History
+          {t('docMedicationAdmin.tabHistory')}
         </button>
       </div>
 
@@ -372,13 +373,13 @@ const MedicationAdminPage: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patient</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Medication</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dose/Route</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Frequency</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Scheduled Times</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indication</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Alerts</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tablePatient')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableMedication')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDoseRoute')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableFrequency')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableScheduledTimes')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableIndication')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableAlerts')}</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -390,7 +391,7 @@ const MedicationAdminPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{med.medicationName}</div>
-                      <div className="text-xs text-gray-500">Prescribed by {med.prescriber}</div>
+                      <div className="text-xs text-gray-500">{t('docMedicationAdmin.prescribedByLine', { name: med.prescriber })}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-900">{med.dose}</div>
@@ -411,7 +412,7 @@ const MedicationAdminPage: React.FC = () => {
                           onClick={() => handleAdministerMed(med, 'PRN')}
                           className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded text-sm hover:bg-yellow-200"
                         >
-                          PRN - Give Now
+                          {t('docMedicationAdmin.prnGiveNowButton')}
                         </button>
                       ) : (
                         <div className="flex space-x-2">
@@ -442,13 +443,13 @@ const MedicationAdminPage: React.FC = () => {
                       {med.allergies && med.allergies.length > 0 && (
                         <div className="text-xs text-red-600 flex items-center mb-1">
                           <AlertTriangle className="h-3 w-3 mr-1" />
-                          Allergies: {med.allergies.join(', ')}
+                          {t('docMedicationAdmin.allergiesLine', { list: med.allergies.join(', ') })}
                         </div>
                       )}
                       {med.interactions && med.interactions.length > 0 && (
                         <div className="text-xs text-orange-600 flex items-center">
                           <AlertTriangle className="h-3 w-3 mr-1" />
-                          Interactions: {med.interactions.join(', ')}
+                          {t('docMedicationAdmin.interactionsLine', { list: med.interactions.join(', ') })}
                         </div>
                       )}
                     </td>
@@ -463,41 +464,41 @@ const MedicationAdminPage: React.FC = () => {
       {/* Administer Medication Tab */}
       {activeTab === 'administerMed' && selectedMed && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4">Administer Medication</h2>
-          
+          <h2 className="text-xl font-bold mb-4">{t('docMedicationAdmin.administerMedicationHeading')}</h2>
+
           {/* Medication Details */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <span className="font-medium text-gray-700">Patient:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.patientDetailLabel')}</span>
                 <p className="text-gray-900">{selectedMed.patientName}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Medication:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.medicationDetailLabel')}</span>
                 <p className="text-gray-900">{selectedMed.medicationName}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Dose:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.doseDetailLabel')}</span>
                 <p className="text-gray-900">{selectedMed.dose}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Route:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.routeDetailLabel')}</span>
                 <p className="text-gray-900">{selectedMed.route}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Scheduled Time:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.scheduledTimeDetailLabel')}</span>
                 <p className="text-gray-900">{selectedTime}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Indication:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.indicationDetailLabel')}</span>
                 <p className="text-gray-900">{selectedMed.indication}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Prescriber:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.prescriberDetailLabel')}</span>
                 <p className="text-gray-900">{selectedMed.prescriber}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Frequency:</span>
+                <span className="font-medium text-gray-700">{t('docMedicationAdmin.frequencyDetailLabel')}</span>
                 <p className="text-gray-900">{selectedMed.frequency}</p>
               </div>
             </div>
@@ -505,31 +506,31 @@ const MedicationAdminPage: React.FC = () => {
 
           {/* Five Rights Verification */}
           <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4 mb-6">
-            <h3 className="font-bold text-green-900 mb-3">Five Rights Verification</h3>
+            <h3 className="font-bold text-green-900 mb-3">{t('docMedicationAdmin.fiveRightsHeading')}</h3>
             <div className="space-y-2">
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
-                <span className="font-medium">Right Patient:</span>
+                <span className="font-medium">{t('docMedicationAdmin.rightPatientLabel')}</span>
                 <span className="ml-2 text-gray-700">{selectedMed.patientName} ({selectedMed.patientId})</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
-                <span className="font-medium">Right Drug:</span>
+                <span className="font-medium">{t('docMedicationAdmin.rightDrugLabel')}</span>
                 <span className="ml-2 text-gray-700">{selectedMed.medicationName}</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
-                <span className="font-medium">Right Dose:</span>
+                <span className="font-medium">{t('docMedicationAdmin.rightDoseLabel')}</span>
                 <span className="ml-2 text-gray-700">{selectedMed.dose}</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
-                <span className="font-medium">Right Route:</span>
+                <span className="font-medium">{t('docMedicationAdmin.rightRouteLabel')}</span>
                 <span className="ml-2 text-gray-700">{selectedMed.route}</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
-                <span className="font-medium">Right Time:</span>
+                <span className="font-medium">{t('docMedicationAdmin.rightTimeLabel')}</span>
                 <span className="ml-2 text-gray-700">{selectedTime}</span>
               </label>
               <div className="mt-4 pt-4 border-t">
@@ -541,7 +542,7 @@ const MedicationAdminPage: React.FC = () => {
                     onChange={(e) => setFiveRightsVerified(e.target.checked)}
                     className="mr-2"
                   />
-                  <span className="font-bold text-green-900">I verify all Five Rights are correct</span>
+                  <span className="font-bold text-green-900">{t('docMedicationAdmin.fiveRightsConfirm')}</span>
                 </label>
               </div>
             </div>
@@ -552,7 +553,7 @@ const MedicationAdminPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label htmlFor="medadmin-status" className="block text-sm font-medium text-gray-700 mb-1">
-                  Administration Status <span className="text-red-500">*</span>
+                  {t('docMedicationAdmin.administrationStatusRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="medadmin-status"
@@ -561,16 +562,16 @@ const MedicationAdminPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="given">Given</option>
-                  <option value="not-given">Not Given</option>
-                  <option value="held">Held</option>
-                  <option value="refused">Refused by Patient</option>
+                  <option value="given">{t('docMedicationAdmin.status_given')}</option>
+                  <option value="not-given">{t('docMedicationAdmin.status_not-given')}</option>
+                  <option value="held">{t('docMedicationAdmin.status_held')}</option>
+                  <option value="refused">{t('docMedicationAdmin.status_refused')}</option>
                 </select>
               </div>
 
               <div>
                 <label htmlFor="medadmin-actual-time" className="block text-sm font-medium text-gray-700 mb-1">
-                  Actual Time <span className="text-red-500">*</span>
+                  {t('docMedicationAdmin.actualTimeRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="medadmin-actual-time"
@@ -585,14 +586,14 @@ const MedicationAdminPage: React.FC = () => {
               {(status === 'not-given' || status === 'held' || status === 'refused') && (
                 <div className="md:col-span-2">
                   <label htmlFor="medadmin-reason-not-given" className="block text-sm font-medium text-gray-700 mb-1">
-                    Reason Not Given <span className="text-red-500">*</span>
+                    {t('docMedicationAdmin.reasonNotGivenRequired')} <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     id="medadmin-reason-not-given"
                     value={reasonNotGiven}
                     onChange={(e) => setReasonNotGiven(e.target.value)}
                     rows={3}
-                    placeholder="Document reason medication was not administered..."
+                    placeholder={t('docMedicationAdmin.reasonNotGivenPh')}
                     className="w-full px-3 py-2 border rounded-md"
                     required
                   />
@@ -603,8 +604,8 @@ const MedicationAdminPage: React.FC = () => {
                 <>
                   <div>
                     <label htmlFor="medadmin-site" className="block text-sm font-medium text-gray-700 mb-1">
-                      Administration Site
-                      {(selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV') && 
+                      {t('docMedicationAdmin.administrationSiteLabel')}
+                      {(selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV') &&
                         <span className="text-red-500"> *</span>
                       }
                     </label>
@@ -613,32 +614,32 @@ const MedicationAdminPage: React.FC = () => {
                       type="text"
                       value={administrationSite}
                       onChange={(e) => setAdministrationSite(e.target.value)}
-                      placeholder="e.g., Left deltoid, Right forearm IV"
+                      placeholder={t('docMedicationAdmin.administrationSitePh')}
                       className="w-full px-3 py-2 border rounded-md"
                       required={selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV'}
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="medadmin-witnessed-by" className="block text-sm font-medium text-gray-700 mb-1">Witnessed By</label>
+                    <label htmlFor="medadmin-witnessed-by" className="block text-sm font-medium text-gray-700 mb-1">{t('docMedicationAdmin.witnessedByLabel')}</label>
                     <input
                       id="medadmin-witnessed-by"
                       type="text"
                       value={witnessedBy}
                       onChange={(e) => setWitnessedBy(e.target.value)}
-                      placeholder="Required for controlled substances"
+                      placeholder={t('docMedicationAdmin.witnessedByPh')}
                       className="w-full px-3 py-2 border rounded-md"
                     />
                   </div>
 
                   <div className="md:col-span-2">
-                    <label htmlFor="medadmin-patient-response" className="block text-sm font-medium text-gray-700 mb-1">Patient Response</label>
+                    <label htmlFor="medadmin-patient-response" className="block text-sm font-medium text-gray-700 mb-1">{t('docMedicationAdmin.patientResponseLabel')}</label>
                     <textarea
                       id="medadmin-patient-response"
                       value={patientResponse}
                       onChange={(e) => setPatientResponse(e.target.value)}
                       rows={3}
-                      placeholder="Document patient's response to medication..."
+                      placeholder={t('docMedicationAdmin.patientResponsePh')}
                       className="w-full px-3 py-2 border rounded-md"
                     />
                   </div>
@@ -654,7 +655,7 @@ const MedicationAdminPage: React.FC = () => {
                     onChange={(e) => setBarcodeScanned(e.target.checked)}
                     className="mr-2"
                   />
-                  <span className="text-sm font-medium text-gray-700">Barcode Scanned (Patient + Medication)</span>
+                  <span className="text-sm font-medium text-gray-700">{t('docMedicationAdmin.barcodeScannedCheckbox')}</span>
                 </label>
               </div>
             </div>
@@ -669,14 +670,14 @@ const MedicationAdminPage: React.FC = () => {
                 }}
                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('docMedicationAdmin.cancelButton')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
-                Record Administration
+                {t('docMedicationAdmin.recordAdministrationButton')}
               </button>
             </div>
           </form>
@@ -690,13 +691,13 @@ const MedicationAdminPage: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date/Time</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patient</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Medication</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dose/Route</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Administered By</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDateTime')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tablePatient')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableMedication')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDoseRoute')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableStatus')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableAdministeredBy')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDetails')}</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -706,7 +707,7 @@ const MedicationAdminPage: React.FC = () => {
                       <div className="text-sm text-gray-900">{selectedDate}</div>
                       <div className="text-xs text-gray-500">{admin.actualTime}</div>
                       {admin.scheduledTime !== 'PRN' && (
-                        <div className="text-xs text-gray-400">Scheduled: {admin.scheduledTime}</div>
+                        <div className="text-xs text-gray-400">{t('docMedicationAdmin.scheduledLine', { time: admin.scheduledTime })}</div>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -726,7 +727,7 @@ const MedicationAdminPage: React.FC = () => {
                           admin.status === 'held' ? 'text-yellow-700' :
                           'text-red-700'
                         }`}>
-                          {admin.status}
+                          {t(`docMedicationAdmin.status_${admin.status}`)}
                         </span>
                       </div>
                       {admin.reasonNotGiven && (
@@ -735,20 +736,20 @@ const MedicationAdminPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-700">{admin.administeredBy}</td>
                     <td className="px-4 py-3 text-xs">
-                      {admin.site && <div className="text-gray-600">Site: {admin.site}</div>}
-                      {admin.witnessedBy && <div className="text-gray-600">Witness: {admin.witnessedBy}</div>}
-                      {admin.patientResponse && <div className="text-gray-600">Response: {admin.patientResponse}</div>}
+                      {admin.site && <div className="text-gray-600">{t('docMedicationAdmin.siteLine', { site: admin.site })}</div>}
+                      {admin.witnessedBy && <div className="text-gray-600">{t('docMedicationAdmin.witnessLine', { name: admin.witnessedBy })}</div>}
+                      {admin.patientResponse && <div className="text-gray-600">{t('docMedicationAdmin.responseLine', { text: admin.patientResponse })}</div>}
                       <div className="flex items-center mt-1 space-x-2">
                         {admin.barcodeScanned && (
                           <span className="text-green-600 flex items-center">
                             <CheckCircle className="h-3 w-3 mr-1" />
-                            Scanned
+                            {t('docMedicationAdmin.scannedBadge')}
                           </span>
                         )}
                         {admin.fiveRightsVerified && (
                           <span className="text-green-600 flex items-center">
                             <CheckCircle className="h-3 w-3 mr-1" />
-                            5 Rights
+                            {t('docMedicationAdmin.fiveRightsBadge')}
                           </span>
                         )}
                       </div>

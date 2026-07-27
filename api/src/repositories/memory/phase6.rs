@@ -713,7 +713,7 @@ impl DeathRecordRepository for MemoryDeathRecordRepository {
             })
             .cloned()
             .collect();
-        items.sort_by(|a, b| a.date_of_death.cmp(&b.date_of_death));
+        items.sort_by_key(|a| a.date_of_death);
         Ok(items)
     }
 }
@@ -869,7 +869,7 @@ impl SyncOperationRepository for MemorySyncOperationRepository {
             .filter(|r| r.initiated_at.map(|t| t >= cutoff).unwrap_or(false))
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.initiated_at.cmp(&a.initiated_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.initiated_at));
         Ok(items)
     }
 
@@ -1463,7 +1463,7 @@ impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
     async fn get_recent(&self, limit: i32) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
         let records = self.records.read().unwrap();
         let mut items: Vec<_> = records.values().cloned().collect();
-        items.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.started_at));
         items.truncate(limit as usize);
         Ok(items)
     }

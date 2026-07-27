@@ -197,7 +197,7 @@ const OfflineSyncPage: React.FC = () => {
   // Load server-detected sync conflicts (last-write-wins, from /api/sync/conflicts)
   const loadConflicts = useCallback(async () => {
     try {
-      const res = (await getSyncConflicts()) as { conflicts?: ConflictItem[] };
+      const res = (await getSyncConflicts()) as unknown as { conflicts?: ConflictItem[] };
       setConflicts(res?.conflicts ?? []);
     } catch {
       setConflicts([]);

@@ -470,7 +470,8 @@ pub async fn declare_breach(
         )
         .await;
 
-    // Automated notification dispatch to the security officer (SMS); best-effort.
+    // Automated notification dispatch: security officer (SMS) + regulator/
+    // data-subject (email); best-effort, per-channel.
     let notified = crate::notifications::dispatch_breach_notification(
         &data.repositories,
         &alert.message,
@@ -481,7 +482,8 @@ pub async fn declare_breach(
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "alert": alert,
-        "officers_notified": notified,
+        "officers_notified": notified.security_officers_notified,
+        "regulator_emails_notified": notified.regulator_emails_notified,
         "message": "Breach recorded. Notify affected parties within 72 hours (POPIA).",
     }))
 }
@@ -524,7 +526,7 @@ fn require_admin(data: &web::Data<AppState>, req: &HttpRequest) -> Result<(), Ht
 /// that has MFA enabled but has not stepped up this session. Pure `X-User-Id`
 /// requests (no JWT claims) are exempt so demo mode and legacy clients still
 /// work — production should run with JWT + `REQUIRE_SIGNATURES=true`.
-fn enforce_mfa_step_up(req: &HttpRequest) -> Option<HttpResponse> {
+pub(crate) fn enforce_mfa_step_up(req: &HttpRequest) -> Option<HttpResponse> {
     let claims = get_current_claims(req)?; // None → no JWT → exempt
     if claims.mfa {
         return None;

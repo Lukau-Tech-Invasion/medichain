@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, exportDocumentToPdf, useTranslation } from '@medichain/shared';
 import {
   FlaskConical,
   Search,
@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
+  Download,
 } from 'lucide-react';
 
 interface LabTestResult {
@@ -51,6 +52,7 @@ function LabResultsPage() {
   const [isReviewing, setIsReviewing] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState<string | null>(null);
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSubmissions();
@@ -151,6 +153,33 @@ function LabResultsPage() {
       console.error('Failed to reject:', error);
     } finally {
       setIsReviewing(null);
+    }
+  };
+
+  const handleExportPdf = async (submission: LabSubmission) => {
+    setExportingId(submission.id);
+    try {
+      const { date, time } = formatTimestamp(submission.submitted_at);
+      await exportDocumentToPdf({
+        title: submission.test_name,
+        subtitle: `${submission.patient_name} (${submission.patient_id}) — ${date} ${time}`,
+        filename: `lab-result-${submission.id}.pdf`,
+        sections: [
+          {
+            heading: t('docLabResults.testResults'),
+            lines: submission.results.map(
+              r => `${r.parameter}: ${r.value} ${r.unit} (${t('docLabResults.colReference')}: ${r.reference_range}${r.flag ? ` — ${r.flag}` : ''})`
+            ),
+          },
+          ...(submission.notes
+            ? [{ heading: t('docLabResults.techNotes'), lines: [submission.notes] }]
+            : []),
+        ],
+      });
+    } catch (error) {
+      console.error('Failed to export lab result PDF:', error);
+    } finally {
+      setExportingId(null);
     }
   };
 
@@ -356,10 +385,27 @@ function LabResultsPage() {
                   <div className="border-t border-gray-200">
                     {/* Results Table */}
                     <div className="p-4">
-                      <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
-                        <FileText size={16} />
-                        {t('docLabResults.testResults')}
-                      </h4>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                          <FileText size={16} />
+                          {t('docLabResults.testResults')}
+                        </h4>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleExportPdf(submission);
+                          }}
+                          disabled={exportingId === submission.id}
+                          className="no-print px-3 py-1.5 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {exportingId === submission.id ? (
+                            <Loader2 className="animate-spin" size={14} />
+                          ) : (
+                            <Download size={14} />
+                          )}
+                          {exportingId === submission.id ? t('docLabResults.exportingPdf') : t('docLabResults.exportPdf')}
+                        </button>
+                      </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>

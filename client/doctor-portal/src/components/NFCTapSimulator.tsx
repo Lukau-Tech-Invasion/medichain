@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePatientStore, useAuthStore } from '../store';
+import { usePatientStore } from '../store';
 import { Smartphone, Wifi, QrCode, Search, AlertCircle, CheckCircle } from 'lucide-react';
-import { apiUrl } from '@medichain/shared';
+import { enterWorkContext, grantBoundEmergencyAccess } from '@medichain/shared';
 
 /**
  * NFC tap simulation states
@@ -22,12 +22,12 @@ interface NFCTapSimulatorProps {
  */
 function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
   const { setEmergencyAccess } = usePatientStore();
   
   const [tapState, setTapState] = useState<TapState>('idle');
   const [nfcTagId, setNfcTagId] = useState('');
   const [qrInput, setQrInput] = useState('');
+  const [deviceId, setDeviceId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'nfc' | 'qr' | 'manual'>('nfc');
 
@@ -40,30 +40,25 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       return;
     }
 
+    if (!deviceId.trim()) {
+      setError('Enter the approved hospital device ID before emergency access');
+      return;
+    }
+
     setTapState('waiting');
     setError(null);
 
     try {
-      // Call emergency access API
-      const response = await fetch(apiUrl('/api/emergency-access'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user?.userId || '',
-        },
-        body: JSON.stringify({
-          nfc_tag_id: tagId,
-          accessor_id: user?.userId,
-          accessor_role: user?.role,
-          location: 'Emergency Room 1',
-        }),
+      // Always mint a fresh work context. This prevents personal-health or
+      // stale professional tokens from being reused for emergency access.
+      const workContext = await enterWorkContext();
+      const data = await grantBoundEmergencyAccess({
+        nfc_tag_id: tagId,
+        device_id: deviceId.trim(),
+        work_context_id: workContext.context.id,
+        reason_code: 'emergency_nfc_access',
+        reason_text: 'NFC emergency summary access',
       });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || 'Emergency access denied');
-      }
 
       // Store emergency info
       const emergencyInfo = {
@@ -78,7 +73,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         lastUpdated: data.emergency_info.last_updated,
       };
       
-      setEmergencyAccess(emergencyInfo, data.access_id);
+      setEmergencyAccess(emergencyInfo, data.grant_id, data.expires_at);
 
       // Call optional callback for parent component
       if (onEmergencyAccess) {
@@ -95,7 +90,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       setTapState('error');
       setError(err instanceof Error ? err.message : 'Failed to access records');
     }
-  }, [user, setEmergencyAccess, navigate, onEmergencyAccess]);
+  }, [deviceId, setEmergencyAccess, navigate, onEmergencyAccess]);
 
   /**
    * Use demo NFC tag
@@ -139,6 +134,22 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       </div>
 
       {/* Mode selector */}
+      <div className="mb-4">
+        <label htmlFor="approved-device" className="block text-sm font-medium text-gray-700 mb-1">
+          Approved hospital device ID
+        </label>
+        <input
+          id="approved-device"
+          type="text"
+          value={deviceId}
+          onChange={(event) => setDeviceId(event.target.value)}
+          placeholder="Registered device UUID"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          disabled={tapState === 'waiting'}
+        />
+        <p className="mt-1 text-xs text-gray-500">Emergency access is bound to this enrolled device and a new professional work context.</p>
+      </div>
+
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setMode('nfc')}

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createPsych } from '@medichain/shared';
+import { getPatients, createPsych, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type RiskLevel = 'none' | 'low' | 'moderate' | 'high' | 'imminent';
@@ -79,6 +79,7 @@ const psychiatricDiagnoses = [
 ];
 
 const PsychPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -158,7 +159,7 @@ const PsychPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient) {
-      showWarning('Please select a patient');
+      showWarning(t('docPsych.warnSelectPatient'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -188,7 +189,7 @@ const PsychPage: React.FC = () => {
       console.error('Failed to save psychiatric assessment:', err);
     }
     setAssessments([newAssessment, ...assessments]);
-    showSuccess('Psychiatric assessment saved!');
+    showSuccess(t('docPsych.saved'));
   };
 
   return (
@@ -198,8 +199,8 @@ const PsychPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Brain className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Psychiatric Assessment</h1>
-            <p className="text-purple-100">Mental status exam and risk assessment</p>
+            <h1 className="text-2xl font-bold">{t('docPsych.title')}</h1>
+            <p className="text-purple-100">{t('docPsych.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -209,9 +210,9 @@ const PsychPage: React.FC = () => {
         homicideRisk.riskLevel === 'high' || homicideRisk.riskLevel === 'imminent') && (
           <div className="bg-red-600 text-white p-4 flex items-center gap-3">
             <AlertTriangle className="w-6 h-6" />
-            <span className="font-semibold">HIGH RISK PATIENT - Implement safety precautions immediately</span>
+            <span className="font-semibold">{t('docPsych.highRiskBanner')}</span>
             <Phone className="w-5 h-5 ml-auto" />
-            <span>Crisis Line: 988</span>
+            <span>{t('docPsych.crisisLine')}</span>
           </div>
         )}
 
@@ -226,7 +227,7 @@ const PsychPage: React.FC = () => {
                 ? 'text-purple-600 border-b-2 border-purple-600'
                 : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'assessment' ? t('docPsych.tabAssessment') : t('docPsych.tabHistory')}
             </button>
           ))}
         </div>
@@ -238,7 +239,7 @@ const PsychPage: React.FC = () => {
             {/* Patient Selection */}
             <div className="bg-white rounded-lg shadow p-4">
               <label htmlFor="psych-patient" className="font-semibold mb-3 flex items-center gap-2">
-                <User className="w-5 h-5" /> Patient
+                <User className="w-5 h-5" /> {t('docPsych.patient')}
               </label>
               <select
                 id="psych-patient"
@@ -246,7 +247,7 @@ const PsychPage: React.FC = () => {
                 onChange={e => setSelectedPatient(e.target.value)}
                 className="w-full border rounded p-2"
               >
-                <option value="">Select patient...</option>
+                <option value="">{t('docPsych.selectPatient')}</option>
                 {patients.map(p => (
                   <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
                 ))}
@@ -255,22 +256,22 @@ const PsychPage: React.FC = () => {
 
             {/* Chief Complaint & HPI */}
             <div className="bg-white rounded-lg shadow p-4">
-              <label htmlFor="psych-chief-complaint" className="font-semibold mb-3 block">Chief Complaint</label>
+              <label htmlFor="psych-chief-complaint" className="font-semibold mb-3 block">{t('docPsych.chiefComplaint')}</label>
               <input
                 id="psych-chief-complaint"
                 type="text"
                 value={chiefComplaint}
                 onChange={e => setChiefComplaint(e.target.value)}
                 className="w-full border rounded p-2 mb-4"
-                placeholder="Patient's main concern..."
+                placeholder={t('docPsych.chiefComplaintPh')}
               />
-              <label htmlFor="psych-hpi" className="font-semibold mb-3 block">History of Present Illness</label>
+              <label htmlFor="psych-hpi" className="font-semibold mb-3 block">{t('docPsych.hpi')}</label>
               <textarea
                 id="psych-hpi"
                 value={hpi}
                 onChange={e => setHpi(e.target.value)}
                 className="w-full border rounded p-2 h-24"
-                placeholder="Detailed history..."
+                placeholder={t('docPsych.hpiPh')}
               />
             </div>
 
@@ -280,19 +281,19 @@ const PsychPage: React.FC = () => {
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-semibold flex items-center gap-2">
-                    <Shield className="w-5 h-5" /> Suicide Risk Assessment
+                    <Shield className="w-5 h-5" /> {t('docPsych.suicideRiskTitle')}
                   </h2>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${riskLevelColors[suicideRisk.riskLevel]}`}>
-                    {suicideRisk.riskLevel.toUpperCase()}
+                    {t(`docPsych.risk_${suicideRisk.riskLevel}`).toUpperCase()}
                   </span>
                 </div>
                 <div className="space-y-2">
                   {[
-                    { key: 'ideation', label: 'Suicidal ideation' },
-                    { key: 'plan', label: 'Has specific plan' },
-                    { key: 'intent', label: 'Intent to act' },
-                    { key: 'means', label: 'Access to means' },
-                    { key: 'recentAttempt', label: 'Recent attempt (past 30 days)' }
+                    { key: 'ideation', label: t('docPsych.si_ideation') },
+                    { key: 'plan', label: t('docPsych.si_plan') },
+                    { key: 'intent', label: t('docPsych.si_intent') },
+                    { key: 'means', label: t('docPsych.si_means') },
+                    { key: 'recentAttempt', label: t('docPsych.si_recentAttempt') }
                   ].map(item => (
                     <label key={item.key} className="flex items-center gap-2">
                       <input
@@ -304,7 +305,7 @@ const PsychPage: React.FC = () => {
                     </label>
                   ))}
                   <div className="flex items-center gap-2 mt-2">
-                    <label htmlFor="psych-prior-attempts">Prior attempts:</label>
+                    <label htmlFor="psych-prior-attempts">{t('docPsych.priorAttempts')}</label>
                     <input
                       id="psych-prior-attempts"
                       type="number"
@@ -321,18 +322,18 @@ const PsychPage: React.FC = () => {
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-semibold flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5" /> Homicide Risk Assessment
+                    <AlertTriangle className="w-5 h-5" /> {t('docPsych.homicideRiskTitle')}
                   </h2>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${riskLevelColors[homicideRisk.riskLevel]}`}>
-                    {homicideRisk.riskLevel.toUpperCase()}
+                    {t(`docPsych.risk_${homicideRisk.riskLevel}`).toUpperCase()}
                   </span>
                 </div>
                 <div className="space-y-2">
                   {[
-                    { key: 'ideation', label: 'Homicidal ideation' },
-                    { key: 'plan', label: 'Has specific plan' },
-                    { key: 'target', label: 'Identified target' },
-                    { key: 'means', label: 'Access to means' }
+                    { key: 'ideation', label: t('docPsych.hi_ideation') },
+                    { key: 'plan', label: t('docPsych.hi_plan') },
+                    { key: 'target', label: t('docPsych.hi_target') },
+                    { key: 'means', label: t('docPsych.hi_means') }
                   ].map(item => (
                     <label key={item.key} className="flex items-center gap-2">
                       <input
@@ -349,18 +350,18 @@ const PsychPage: React.FC = () => {
 
             {/* Mental Status Exam */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Mental Status Examination</h2>
+              <h2 className="font-semibold mb-3">{t('docPsych.mseTitle')}</h2>
               <div className="grid md:grid-cols-2 gap-4">
                 {[
-                  { key: 'appearance', label: 'Appearance' },
-                  { key: 'behavior', label: 'Behavior' },
-                  { key: 'speech', label: 'Speech' },
-                  { key: 'mood', label: 'Mood (patient states)' },
-                  { key: 'affect', label: 'Affect (observed)' },
-                  { key: 'thoughtProcess', label: 'Thought Process' },
-                  { key: 'cognition', label: 'Cognition' },
-                  { key: 'insight', label: 'Insight' },
-                  { key: 'judgment', label: 'Judgment' }
+                  { key: 'appearance', label: t('docPsych.mse_appearance') },
+                  { key: 'behavior', label: t('docPsych.mse_behavior') },
+                  { key: 'speech', label: t('docPsych.mse_speech') },
+                  { key: 'mood', label: t('docPsych.mse_mood') },
+                  { key: 'affect', label: t('docPsych.mse_affect') },
+                  { key: 'thoughtProcess', label: t('docPsych.mse_thoughtProcess') },
+                  { key: 'cognition', label: t('docPsych.mse_cognition') },
+                  { key: 'insight', label: t('docPsych.mse_insight') },
+                  { key: 'judgment', label: t('docPsych.mse_judgment') }
                 ].map(field => (
                   <div key={field.key}>
                     <label htmlFor={`psych-mse-${field.key}`} className="text-sm text-gray-600">{field.label}</label>
@@ -374,7 +375,7 @@ const PsychPage: React.FC = () => {
                   </div>
                 ))}
                 <div className="md:col-span-2">
-                  <label id="psych-thought-content-label" className="text-sm text-gray-600">Thought Content (select all that apply)</label>
+                  <label id="psych-thought-content-label" className="text-sm text-gray-600">{t('docPsych.thoughtContent')}</label>
                   <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-thought-content-label">
                     {['SI', 'HI', 'Paranoia', 'Delusions', 'Obsessions', 'Phobias'].map(item => (
                       <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.thoughtContent.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
@@ -396,7 +397,7 @@ const PsychPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <label id="psych-perceptions-label" className="text-sm text-gray-600">Perceptions</label>
+                  <label id="psych-perceptions-label" className="text-sm text-gray-600">{t('docPsych.perceptions')}</label>
                   <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-perceptions-label">
                     {['AVH', 'VH', 'AH', 'Illusions', 'Derealization', 'Depersonalization'].map(item => (
                       <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.perceptions.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
@@ -423,9 +424,9 @@ const PsychPage: React.FC = () => {
             {/* Substance Use */}
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex justify-between items-center mb-3">
-                <h2 className="font-semibold">Substance Use History</h2>
+                <h2 className="font-semibold">{t('docPsych.substanceTitle')}</h2>
                 <button onClick={addSubstance} className="text-purple-600 hover:text-purple-700 flex items-center gap-1">
-                  <Plus className="w-4 h-4" /> Add
+                  <Plus className="w-4 h-4" /> {t('docPsych.addBtn')}
                 </button>
               </div>
               {substances.map((s, i) => (
@@ -439,7 +440,7 @@ const PsychPage: React.FC = () => {
                       setSubstances(updated);
                     }}
                     className="border rounded p-2"
-                    placeholder="Substance"
+                    placeholder={t('docPsych.phSubstance')}
                   />
                   <input
                     type="text"
@@ -450,7 +451,7 @@ const PsychPage: React.FC = () => {
                       setSubstances(updated);
                     }}
                     className="border rounded p-2"
-                    placeholder="Frequency"
+                    placeholder={t('docPsych.phFrequency')}
                   />
                   <input
                     type="text"
@@ -461,7 +462,7 @@ const PsychPage: React.FC = () => {
                       setSubstances(updated);
                     }}
                     className="border rounded p-2"
-                    placeholder="Last use"
+                    placeholder={t('docPsych.phLastUse')}
                   />
                 </div>
               ))}
@@ -469,7 +470,7 @@ const PsychPage: React.FC = () => {
 
             {/* Diagnoses */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Diagnoses</h2>
+              <h2 className="font-semibold mb-3">{t('docPsych.diagnosesTitle')}</h2>
               <div className="flex flex-wrap gap-2">
                 {psychiatricDiagnoses.map(dx => (
                   <label key={dx} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedDiagnoses.includes(dx) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
@@ -494,42 +495,42 @@ const PsychPage: React.FC = () => {
             {/* Legal Status & Disposition */}
             <div className="grid md:grid-cols-2 gap-6">
               <div className="bg-white rounded-lg shadow p-4">
-                <label htmlFor="psych-legal-status" className="font-semibold mb-3 block">Legal Status</label>
+                <label htmlFor="psych-legal-status" className="font-semibold mb-3 block">{t('docPsych.legalStatus')}</label>
                 <select
                   id="psych-legal-status"
                   value={legalStatus}
                   onChange={e => setLegalStatus(e.target.value as LegalStatus)}
                   className="w-full border rounded p-2"
                 >
-                  <option value="voluntary">Voluntary</option>
-                  <option value="involuntary">Involuntary</option>
-                  <option value="5150">5150 Hold (72hr)</option>
-                  <option value="5250">5250 Hold (14 day)</option>
-                  <option value="conservatorship">Conservatorship</option>
+                  <option value="voluntary">{t('docPsych.legal_voluntary')}</option>
+                  <option value="involuntary">{t('docPsych.legal_involuntary')}</option>
+                  <option value="5150">{t('docPsych.legal_5150')}</option>
+                  <option value="5250">{t('docPsych.legal_5250')}</option>
+                  <option value="conservatorship">{t('docPsych.legal_conservatorship')}</option>
                 </select>
               </div>
               <div className="bg-white rounded-lg shadow p-4">
-                <label htmlFor="psych-disposition" className="font-semibold mb-3 block">Disposition</label>
+                <label htmlFor="psych-disposition" className="font-semibold mb-3 block">{t('docPsych.disposition')}</label>
                 <select
                   id="psych-disposition"
                   value={disposition}
                   onChange={e => setDisposition(e.target.value)}
                   className="w-full border rounded p-2"
                 >
-                  <option value="">Select...</option>
-                  <option value="discharge">Discharge home</option>
-                  <option value="admit-voluntary">Admit - Voluntary</option>
-                  <option value="admit-involuntary">Admit - Involuntary</option>
-                  <option value="transfer">Transfer to psychiatric facility</option>
-                  <option value="crisis-stabilization">Crisis stabilization unit</option>
-                  <option value="outpatient">Outpatient follow-up</option>
+                  <option value="">{t('docPsych.dispSelect')}</option>
+                  <option value="discharge">{t('docPsych.disp_discharge')}</option>
+                  <option value="admit-voluntary">{t('docPsych.disp_admitVoluntary')}</option>
+                  <option value="admit-involuntary">{t('docPsych.disp_admitInvoluntary')}</option>
+                  <option value="transfer">{t('docPsych.disp_transfer')}</option>
+                  <option value="crisis-stabilization">{t('docPsych.disp_crisis')}</option>
+                  <option value="outpatient">{t('docPsych.disp_outpatient')}</option>
                 </select>
               </div>
             </div>
 
             {/* Safety Plan */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Safety Plan</h2>
+              <h2 className="font-semibold mb-3">{t('docPsych.safetyPlanTitle')}</h2>
               <div className="space-y-2">
                 {['Remove access to lethal means', 'Crisis hotline: 988', 'Emergency contact notified',
                   'Follow-up appointment scheduled', 'Medications reviewed', '1:1 observation ordered'].map(item => (
@@ -553,13 +554,13 @@ const PsychPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <label htmlFor="psych-notes" className="font-semibold mb-3 block">Additional Notes</label>
+              <label htmlFor="psych-notes" className="font-semibold mb-3 block">{t('docPsych.notesTitle')}</label>
               <textarea
                 id="psych-notes"
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 className="w-full border rounded p-2 h-24"
-                placeholder="Clinical notes..."
+                placeholder={t('docPsych.notesPh')}
               />
             </div>
 
@@ -568,13 +569,13 @@ const PsychPage: React.FC = () => {
               onClick={handleSubmit}
               className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700"
             >
-              Save Assessment
+              {t('docPsych.save')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             {assessments.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">No assessments yet</div>
+              <div className="text-center py-8 text-gray-500">{t('docPsych.noAssessments')}</div>
             ) : (
               assessments.map(a => (
                 <div key={a.id} className="bg-white rounded-lg shadow p-4">
@@ -585,16 +586,16 @@ const PsychPage: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                       <span className={`px-2 py-1 text-xs rounded ${riskLevelColors[a.suicideRisk.riskLevel]}`}>
-                        SI: {a.suicideRisk.riskLevel}
+                        {t('docPsych.siBadge', { level: t(`docPsych.risk_${a.suicideRisk.riskLevel}`) })}
                       </span>
                       <span className={`px-2 py-1 text-xs rounded ${riskLevelColors[a.homicideRisk.riskLevel]}`}>
-                        HI: {a.homicideRisk.riskLevel}
+                        {t('docPsych.hiBadge', { level: t(`docPsych.risk_${a.homicideRisk.riskLevel}`) })}
                       </span>
                     </div>
                   </div>
-                  <p className="text-sm"><strong>CC:</strong> {a.chiefComplaint}</p>
-                  <p className="text-sm"><strong>Diagnoses:</strong> {a.diagnoses.join(', ') || 'None'}</p>
-                  <p className="text-sm"><strong>Disposition:</strong> {a.disposition}</p>
+                  <p className="text-sm"><strong>{t('docPsych.lblCC')}</strong> {a.chiefComplaint}</p>
+                  <p className="text-sm"><strong>{t('docPsych.lblDiagnoses')}</strong> {a.diagnoses.join(', ') || t('docPsych.diagnosesNone')}</p>
+                  <p className="text-sm"><strong>{t('docPsych.lblDisposition')}</strong> {a.disposition}</p>
                 </div>
               ))
             )}

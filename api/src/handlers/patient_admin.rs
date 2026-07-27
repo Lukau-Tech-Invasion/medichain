@@ -73,7 +73,7 @@ pub async fn list_patients(
 
     let mut patient_list: Vec<PatientProfile> = entities
         .iter()
-        .filter_map(|e| patient_entity_to_profile(e, &data.encryption_key))
+        .filter_map(|e| patient_entity_to_profile(e, &data.encryption_keyring))
         .collect();
 
     // Sort: timestamp DESC, then ID ASC (stable tiebreaker)
@@ -138,7 +138,7 @@ pub async fn get_patient_by_id(
 
     // Via repository (was: in-memory data.patients HashMap); decrypt profile blob.
     match data.repositories.patients.get_by_id(&patient_id).await {
-        Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_key) {
+        Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
             Some(profile) => HttpResponse::Ok().json(profile),
             None => HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
@@ -240,7 +240,7 @@ pub async fn update_patient(
             });
         }
     };
-    let mut patient = match patient_entity_to_profile(&entity, &data.encryption_key) {
+    let mut patient = match patient_entity_to_profile(&entity, &data.encryption_keyring) {
         Some(p) => p,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
@@ -314,7 +314,7 @@ pub async fn update_patient(
     patient.last_updated = Utc::now();
 
     // Persist via repository, preserving entity-only fields not in PatientProfile.
-    let mut updated_entity = patient_profile_to_entity(&patient, &data.encryption_key);
+    let mut updated_entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
     updated_entity.health_id = entity.health_id.clone();
     updated_entity.gender = entity.gender.clone();
     updated_entity.wallet_address = entity.wallet_address.clone();
@@ -422,7 +422,7 @@ pub async fn add_emergency_contact(
             });
         }
     };
-    let mut patient = match patient_entity_to_profile(&entity, &data.encryption_key) {
+    let mut patient = match patient_entity_to_profile(&entity, &data.encryption_keyring) {
         Some(p) => p,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
@@ -453,7 +453,7 @@ pub async fn add_emergency_contact(
     patient.last_updated = Utc::now();
 
     // Persist via repository, preserving entity-only fields not in PatientProfile.
-    let mut updated_entity = patient_profile_to_entity(&patient, &data.encryption_key);
+    let mut updated_entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
     updated_entity.health_id = entity.health_id.clone();
     updated_entity.gender = entity.gender.clone();
     updated_entity.wallet_address = entity.wallet_address.clone();

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createPreOp, getPatients, apiUrl } from '@medichain/shared';
+import { createPreOp, getPatients, apiUrl, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Stethoscope,
@@ -72,33 +72,8 @@ interface _PreOpAssessment {
   notes: string;
 }
 
-const asaClassifications: { value: ASAClass; label: string; description: string }[] = [
-  { value: 'I', label: 'ASA I', description: 'Healthy patient - No organic, physiologic, or psychiatric disturbance' },
-  { value: 'II', label: 'ASA II', description: 'Mild systemic disease - Well-controlled HTN, DM, obesity, pregnancy' },
-  { value: 'III', label: 'ASA III', description: 'Severe systemic disease - Poorly controlled DM, ESRD on dialysis, CHF, stable angina' },
-  { value: 'IV', label: 'ASA IV', description: 'Severe life-threatening disease - Recent MI, CVA, TIA, ongoing cardiac ischemia' },
-  { value: 'V', label: 'ASA V', description: 'Moribund patient - Not expected to survive without surgery' },
-  { value: 'VI', label: 'ASA VI', description: 'Brain-dead patient - Organ donor' }
-];
-
-const mallampatiClasses: { value: MallampatiClass; label: string; description: string }[] = [
-  { value: 'I', label: 'Class I', description: 'Soft palate, uvula, fauces, pillars visible' },
-  { value: 'II', label: 'Class II', description: 'Soft palate, uvula, fauces visible' },
-  { value: 'III', label: 'Class III', description: 'Soft palate, base of uvula visible' },
-  { value: 'IV', label: 'Class IV', description: 'Only hard palate visible (difficult intubation)' }
-];
-
-const anesthesiaTypes: { value: AnesthesiaType; label: string }[] = [
-  { value: 'general', label: 'General Anesthesia' },
-  { value: 'regional', label: 'Regional Block' },
-  { value: 'local', label: 'Local Anesthesia' },
-  { value: 'mac', label: 'MAC (Monitored Anesthesia Care)' },
-  { value: 'spinal', label: 'Spinal Anesthesia' },
-  { value: 'epidural', label: 'Epidural' },
-  { value: 'combined', label: 'Combined Spinal-Epidural' }
-];
-
 export default function PreOpPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
@@ -176,27 +151,53 @@ export default function PreOpPage() {
     'anesthesiaSeen': false
   });
 
+  const asaClassifications: { value: ASAClass; label: string; description: string }[] = [
+    { value: 'I', label: t('docPreOp.asa_I_label'), description: t('docPreOp.asa_I_desc') },
+    { value: 'II', label: t('docPreOp.asa_II_label'), description: t('docPreOp.asa_II_desc') },
+    { value: 'III', label: t('docPreOp.asa_III_label'), description: t('docPreOp.asa_III_desc') },
+    { value: 'IV', label: t('docPreOp.asa_IV_label'), description: t('docPreOp.asa_IV_desc') },
+    { value: 'V', label: t('docPreOp.asa_V_label'), description: t('docPreOp.asa_V_desc') },
+    { value: 'VI', label: t('docPreOp.asa_VI_label'), description: t('docPreOp.asa_VI_desc') }
+  ];
+
+  const mallampatiClasses: { value: MallampatiClass; label: string; description: string }[] = [
+    { value: 'I', label: t('docPreOp.mallampati_I_label'), description: t('docPreOp.mallampati_I_desc') },
+    { value: 'II', label: t('docPreOp.mallampati_II_label'), description: t('docPreOp.mallampati_II_desc') },
+    { value: 'III', label: t('docPreOp.mallampati_III_label'), description: t('docPreOp.mallampati_III_desc') },
+    { value: 'IV', label: t('docPreOp.mallampati_IV_label'), description: t('docPreOp.mallampati_IV_desc') }
+  ];
+
+  const anesthesiaTypes: { value: AnesthesiaType; label: string }[] = [
+    { value: 'general', label: t('docPreOp.anesthesia_general') },
+    { value: 'regional', label: t('docPreOp.anesthesia_regional') },
+    { value: 'local', label: t('docPreOp.anesthesia_local') },
+    { value: 'mac', label: t('docPreOp.anesthesia_mac') },
+    { value: 'spinal', label: t('docPreOp.anesthesia_spinal') },
+    { value: 'epidural', label: t('docPreOp.anesthesia_epidural') },
+    { value: 'combined', label: t('docPreOp.anesthesia_combined') }
+  ];
+
   const checklistLabels: Record<string, string> = {
-    'identityVerified': 'Patient identity verified (2 identifiers)',
-    'siteMarked': 'Surgical site marked by surgeon',
-    'consentsSigned': 'All consents signed and witnessed',
-    'allergiesBandOn': 'Allergy band on patient',
-    'npoVerified': 'NPO status verified',
-    'labsReviewed': 'Labs reviewed and acceptable',
-    'ivAccess': 'IV access established',
-    'preOpMedsGiven': 'Pre-operative medications given',
-    'jewelryRemoved': 'Jewelry/piercings removed',
-    'denturesRemoved': 'Dentures/partials removed',
-    'contactsRemoved': 'Contact lenses/glasses removed',
-    'prosthesesRemoved': 'Hearing aids/prostheses removed',
-    'hbVerified': 'H&H verified if applicable',
-    'bloodAvailable': 'Blood products available if needed',
-    'imagingReviewed': 'Imaging/studies reviewed',
-    'anticoagHeld': 'Anticoagulants held appropriately',
-    'antibioticOrdered': 'Prophylactic antibiotic ordered',
-    'vteProphy': 'VTE prophylaxis ordered',
-    'familyNotified': 'Family/support person notified',
-    'anesthesiaSeen': 'Anesthesia evaluation complete'
+    'identityVerified': t('docPreOp.checklist_identityVerified'),
+    'siteMarked': t('docPreOp.checklist_siteMarked'),
+    'consentsSigned': t('docPreOp.checklist_consentsSigned'),
+    'allergiesBandOn': t('docPreOp.checklist_allergiesBandOn'),
+    'npoVerified': t('docPreOp.checklist_npoVerified'),
+    'labsReviewed': t('docPreOp.checklist_labsReviewed'),
+    'ivAccess': t('docPreOp.checklist_ivAccess'),
+    'preOpMedsGiven': t('docPreOp.checklist_preOpMedsGiven'),
+    'jewelryRemoved': t('docPreOp.checklist_jewelryRemoved'),
+    'denturesRemoved': t('docPreOp.checklist_denturesRemoved'),
+    'contactsRemoved': t('docPreOp.checklist_contactsRemoved'),
+    'prosthesesRemoved': t('docPreOp.checklist_prosthesesRemoved'),
+    'hbVerified': t('docPreOp.checklist_hbVerified'),
+    'bloodAvailable': t('docPreOp.checklist_bloodAvailable'),
+    'imagingReviewed': t('docPreOp.checklist_imagingReviewed'),
+    'anticoagHeld': t('docPreOp.checklist_anticoagHeld'),
+    'antibioticOrdered': t('docPreOp.checklist_antibioticOrdered'),
+    'vteProphy': t('docPreOp.checklist_vteProphy'),
+    'familyNotified': t('docPreOp.checklist_familyNotified'),
+    'anesthesiaSeen': t('docPreOp.checklist_anesthesiaSeen')
   };
 
   const labOptions = [
@@ -312,7 +313,7 @@ export default function PreOpPage() {
 
   const handleSave = async () => {
     if (!selectedPatient) {
-      setError('Please select a patient');
+      setError(t('docPreOp.errorSelectPatient'));
       return;
     }
 
@@ -347,10 +348,10 @@ export default function PreOpPage() {
       };
 
       await createPreOp(assessmentData);
-      setSuccess('Pre-operative assessment saved successfully!');
+      setSuccess(t('docPreOp.savedSuccess'));
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
-      setError('Failed to save pre-operative assessment. Please try again.');
+      setError(t('docPreOp.errorSave'));
       console.error('Failed to save pre-op assessment', err);
     } finally {
       setIsSubmitting(false);
@@ -368,8 +369,8 @@ export default function PreOpPage() {
                 <Scissors className="h-8 w-8 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">Pre-Operative Assessment</h1>
-                <p className="text-indigo-100">ASA Classification & Surgical Readiness</p>
+                <h1 className="text-2xl font-bold text-white">{t('docPreOp.title')}</h1>
+                <p className="text-indigo-100">{t('docPreOp.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -378,7 +379,7 @@ export default function PreOpPage() {
                 <p className="text-sm opacity-75">{selectedPatient.patient_id}</p>
                 {asaClass && (
                   <span className={`inline-block mt-1 px-3 py-1 rounded-full text-sm font-bold ${getAsaColor(asaClass)}`}>
-                    ASA {asaClass}{asaEmergency ? 'E' : ''}
+                    {t('docPreOp.asaClassBadge', { class: asaClass, suffix: asaEmergency ? 'E' : '' })}
                   </span>
                 )}
               </div>
@@ -403,8 +404,8 @@ export default function PreOpPage() {
         {/* Progress Bar */}
         <div className="bg-white rounded-lg shadow mb-6 p-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-gray-700">Checklist Progress</h3>
-            <span className="text-sm text-gray-500">{checklistProgress}/{totalChecklistItems} items complete</span>
+            <h3 className="font-medium text-gray-700">{t('docPreOp.checklistProgressLabel')}</h3>
+            <span className="text-sm text-gray-500">{t('docPreOp.itemsCompleteLine', { done: checklistProgress, total: totalChecklistItems })}</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3">
             <div
@@ -429,7 +430,7 @@ export default function PreOpPage() {
               }`}
             >
               <Stethoscope className="h-5 w-5" />
-              <span>Assessment</span>
+              <span>{t('docPreOp.tabAssessment')}</span>
             </button>
             <button
               onClick={() => setActiveTab('checklist')}
@@ -440,7 +441,7 @@ export default function PreOpPage() {
               }`}
             >
               <FileText className="h-5 w-5" />
-              <span>Pre-Op Checklist</span>
+              <span>{t('docPreOp.tabChecklist')}</span>
             </button>
             <button
               onClick={() => setActiveTab('history')}
@@ -451,7 +452,7 @@ export default function PreOpPage() {
               }`}
             >
               <History className="h-5 w-5" />
-              <span>History</span>
+              <span>{t('docPreOp.tabHistory')}</span>
             </button>
           </div>
         </div>
@@ -464,17 +465,17 @@ export default function PreOpPage() {
               <div className="bg-white rounded-lg shadow p-4">
                 <h2 className="font-bold text-gray-900 mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-indigo-500" />
-                  Select Patient
+                  {t('docPreOp.selectPatientHeading')}
                 </h2>
                 <div className="relative mb-4">
-                  <label htmlFor="preop-search-patients" className="sr-only">Search patients</label>
+                  <label htmlFor="preop-search-patients" className="sr-only">{t('docPreOp.searchPatientsSrLabel')}</label>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     id="preop-search-patients"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search patients..."
+                    placeholder={t('docPreOp.searchPatientsPh')}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
@@ -500,34 +501,34 @@ export default function PreOpPage() {
               <div className="bg-white rounded-lg shadow p-4">
                 <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                   <Scissors className="h-5 w-5 mr-2 text-indigo-500" />
-                  Surgery Details
+                  {t('docPreOp.surgeryDetailsHeading')}
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="preop-scheduled-procedure" className="block text-sm font-medium text-gray-700 mb-1">Scheduled Procedure</label>
+                    <label htmlFor="preop-scheduled-procedure" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.scheduledProcedureLabel')}</label>
                     <input
                       id="preop-scheduled-procedure"
                       type="text"
                       value={scheduledSurgery}
                       onChange={(e) => setScheduledSurgery(e.target.value)}
-                      placeholder="e.g., Laparoscopic Cholecystectomy"
+                      placeholder={t('docPreOp.scheduledProcedurePh')}
                       className="w-full p-2 border border-gray-300 rounded"
                     />
                   </div>
                   <div>
-                    <label htmlFor="preop-surgeon" className="block text-sm font-medium text-gray-700 mb-1">Surgeon</label>
+                    <label htmlFor="preop-surgeon" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.surgeonLabel')}</label>
                     <input
                       id="preop-surgeon"
                       type="text"
                       value={surgeon}
                       onChange={(e) => setSurgeon(e.target.value)}
-                      placeholder="Surgeon name"
+                      placeholder={t('docPreOp.surgeonPh')}
                       className="w-full p-2 border border-gray-300 rounded"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label htmlFor="preop-scheduled-date" className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                      <label htmlFor="preop-scheduled-date" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.dateLabel')}</label>
                       <input
                         id="preop-scheduled-date"
                         type="date"
@@ -537,7 +538,7 @@ export default function PreOpPage() {
                       />
                     </div>
                     <div>
-                      <label htmlFor="preop-scheduled-time" className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                      <label htmlFor="preop-scheduled-time" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.timeLabel')}</label>
                       <input
                         id="preop-scheduled-time"
                         type="time"
@@ -548,7 +549,7 @@ export default function PreOpPage() {
                     </div>
                   </div>
                   <div>
-                    <label htmlFor="preop-anesthesia-type" className="block text-sm font-medium text-gray-700 mb-1">Anesthesia Type</label>
+                    <label htmlFor="preop-anesthesia-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.anesthesiaTypeLabel')}</label>
                     <select
                       id="preop-anesthesia-type"
                       value={anesthesiaType}
@@ -567,11 +568,11 @@ export default function PreOpPage() {
               <div className="bg-white rounded-lg shadow p-4">
                 <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                   <Clock className="h-5 w-5 mr-2 text-indigo-500" />
-                  NPO Status
+                  {t('docPreOp.npoStatusHeading')}
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="preop-last-solid-food" className="block text-sm font-medium text-gray-700 mb-1">Last Solid Food</label>
+                    <label htmlFor="preop-last-solid-food" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.lastSolidFoodLabel')}</label>
                     <input
                       id="preop-last-solid-food"
                       type="datetime-local"
@@ -581,7 +582,7 @@ export default function PreOpPage() {
                     />
                   </div>
                   <div>
-                    <label htmlFor="preop-last-clear-liquid" className="block text-sm font-medium text-gray-700 mb-1">Last Clear Liquid</label>
+                    <label htmlFor="preop-last-clear-liquid" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.lastClearLiquidLabel')}</label>
                     <input
                       id="preop-last-clear-liquid"
                       type="datetime-local"
@@ -599,7 +600,7 @@ export default function PreOpPage() {
                       className="rounded border-gray-300 text-green-600"
                     />
                     <span className={`font-medium ${npoStatus.compliant ? 'text-green-600' : 'text-red-600'}`}>
-                      {npoStatus.compliant ? '✓ NPO Compliant' : '✗ NPO NOT Compliant'}
+                      {npoStatus.compliant ? t('docPreOp.npoCompliant') : t('docPreOp.npoNotCompliant')}
                     </span>
                   </label>
                 </div>
@@ -612,7 +613,7 @@ export default function PreOpPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
                   <Shield className="h-6 w-6 mr-2 text-indigo-500" />
-                  ASA Physical Status Classification
+                  {t('docPreOp.asaHeading')}
                 </h2>
                 <div className="space-y-3">
                   {asaClassifications.map(asa => (
@@ -643,7 +644,7 @@ export default function PreOpPage() {
                     className="rounded border-gray-300 text-red-600"
                   />
                   <span className="font-medium text-red-600">
-                    Emergency Case (add "E" suffix)
+                    {t('docPreOp.emergencyCaseCheckbox')}
                   </span>
                 </label>
               </div>
@@ -652,11 +653,11 @@ export default function PreOpPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="font-bold text-gray-900 mb-4 flex items-center">
                   <Wind className="h-5 w-5 mr-2 text-indigo-500" />
-                  Airway Assessment
+                  {t('docPreOp.airwayAssessmentHeading')}
                 </h3>
-                
+
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Mallampati Classification</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('docPreOp.mallampatiLabel')}</label>
                   <div className="grid grid-cols-4 gap-2">
                     {mallampatiClasses.map(mp => (
                       <button
@@ -678,56 +679,56 @@ export default function PreOpPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="preop-mouth-opening" className="block text-sm font-medium text-gray-700 mb-1">Mouth Opening</label>
+                    <label htmlFor="preop-mouth-opening" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.mouthOpeningLabel')}</label>
                     <select
                       id="preop-mouth-opening"
                       value={airwayAssessment.mouthOpening}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
                     >
-                      <option value=">3cm">&gt;3 cm (Normal)</option>
-                      <option value="2-3cm">2-3 cm (Limited)</option>
-                      <option value="<2cm">&lt;2 cm (Restricted)</option>
+                      <option value=">3cm">{t('docPreOp.mouthOpening_normal')}</option>
+                      <option value="2-3cm">{t('docPreOp.mouthOpening_limited')}</option>
+                      <option value="<2cm">{t('docPreOp.mouthOpening_restricted')}</option>
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="preop-thyromental-distance" className="block text-sm font-medium text-gray-700 mb-1">Thyromental Distance</label>
+                    <label htmlFor="preop-thyromental-distance" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.thyromentalLabel')}</label>
                     <select
                       id="preop-thyromental-distance"
                       value={airwayAssessment.thyromental}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, thyromental: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
                     >
-                      <option value=">6cm">&gt;6 cm (Normal)</option>
-                      <option value="6-6.5cm">6-6.5 cm (Borderline)</option>
-                      <option value="<6cm">&lt;6 cm (Short)</option>
+                      <option value=">6cm">{t('docPreOp.thyromental_normal')}</option>
+                      <option value="6-6.5cm">{t('docPreOp.thyromental_borderline')}</option>
+                      <option value="<6cm">{t('docPreOp.thyromental_short')}</option>
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="preop-neck-mobility" className="block text-sm font-medium text-gray-700 mb-1">Neck Mobility</label>
+                    <label htmlFor="preop-neck-mobility" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.neckMobilityLabel')}</label>
                     <select
                       id="preop-neck-mobility"
                       value={airwayAssessment.neckMobility}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, neckMobility: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
                     >
-                      <option value="full">Full Range</option>
-                      <option value="limited">Limited</option>
-                      <option value="fixed">Fixed/Immobile</option>
+                      <option value="full">{t('docPreOp.neckMobility_full')}</option>
+                      <option value="limited">{t('docPreOp.neckMobility_limited')}</option>
+                      <option value="fixed">{t('docPreOp.neckMobility_fixed')}</option>
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="preop-dentition" className="block text-sm font-medium text-gray-700 mb-1">Dentition</label>
+                    <label htmlFor="preop-dentition" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.dentitionLabel')}</label>
                     <select
                       id="preop-dentition"
                       value={airwayAssessment.dentition}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, dentition: e.target.value }))}
                       className="w-full p-2 border border-gray-300 rounded"
                     >
-                      <option value="intact">Intact</option>
-                      <option value="loose">Loose/Damaged Teeth</option>
-                      <option value="dentures">Dentures</option>
-                      <option value="edentulous">Edentulous</option>
+                      <option value="intact">{t('docPreOp.dentition_intact')}</option>
+                      <option value="loose">{t('docPreOp.dentition_loose')}</option>
+                      <option value="dentures">{t('docPreOp.dentition_dentures')}</option>
+                      <option value="edentulous">{t('docPreOp.dentition_edentulous')}</option>
                     </select>
                   </div>
                 </div>
@@ -741,7 +742,7 @@ export default function PreOpPage() {
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, beardPresent: !prev.beardPresent }))}
                       className="rounded border-gray-300 text-indigo-600"
                     />
-                    <span className="text-sm">Beard Present</span>
+                    <span className="text-sm">{t('docPreOp.beardPresentCheckbox')}</span>
                   </label>
                   <label htmlFor="preop-obese-neck" className="flex items-center space-x-2 cursor-pointer">
                     <input
@@ -751,7 +752,7 @@ export default function PreOpPage() {
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, obeseNeck: !prev.obeseNeck }))}
                       className="rounded border-gray-300 text-indigo-600"
                     />
-                    <span className="text-sm">Obese Neck</span>
+                    <span className="text-sm">{t('docPreOp.obeseNeckCheckbox')}</span>
                   </label>
                   <label htmlFor="preop-difficult-airway" className="flex items-center space-x-2 cursor-pointer">
                     <input
@@ -761,7 +762,7 @@ export default function PreOpPage() {
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, difficultyPredicted: !prev.difficultyPredicted }))}
                       className="rounded border-gray-300 text-red-600"
                     />
-                    <span className="text-sm text-red-600 font-medium">Difficult Airway Predicted</span>
+                    <span className="text-sm text-red-600 font-medium">{t('docPreOp.difficultAirwayCheckbox')}</span>
                   </label>
                 </div>
               </div>
@@ -771,7 +772,7 @@ export default function PreOpPage() {
                 <div className="bg-white rounded-lg shadow p-4">
                   <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                     <Heart className="h-5 w-5 mr-2 text-red-500" />
-                    Medical History
+                    {t('docPreOp.medicalHistoryHeading')}
                   </h3>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {medicalHistoryOptions.map(condition => (
@@ -792,16 +793,16 @@ export default function PreOpPage() {
                 <div className="bg-white rounded-lg shadow p-4">
                   <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                     <AlertTriangle className="h-5 w-5 mr-2 text-yellow-500" />
-                    Allergies
+                    {t('docPreOp.allergiesHeading')}
                   </h3>
                   <div className="flex space-x-2 mb-2">
-                    <label htmlFor="preop-new-allergy" className="sr-only">Add allergy</label>
+                    <label htmlFor="preop-new-allergy" className="sr-only">{t('docPreOp.addAllergySrLabel')}</label>
                     <input
                       id="preop-new-allergy"
                       type="text"
                       value={newAllergy}
                       onChange={(e) => setNewAllergy(e.target.value)}
-                      placeholder="Add allergy..."
+                      placeholder={t('docPreOp.addAllergyPh')}
                       className="flex-1 p-2 border border-gray-300 rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addAllergy()}
                     />
@@ -810,7 +811,7 @@ export default function PreOpPage() {
                       onClick={addAllergy}
                       className="px-3 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
                     >
-                      Add
+                      {t('docPreOp.addButton')}
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -824,13 +825,14 @@ export default function PreOpPage() {
                           type="button"
                           onClick={() => setAllergies(prev => prev.filter(a => a !== allergy))}
                           className="ml-1 text-red-600 hover:text-red-800"
+                          aria-label={`Remove ${allergy}`}
                         >
                           <X className="h-3 w-3" />
                         </button>
                       </span>
                     ))}
                     {allergies.length === 0 && (
-                      <span className="text-gray-400 text-sm">NKDA (No Known Drug Allergies)</span>
+                      <span className="text-gray-400 text-sm">{t('docPreOp.nkda')}</span>
                     )}
                   </div>
                 </div>
@@ -841,16 +843,16 @@ export default function PreOpPage() {
                 <div className="bg-white rounded-lg shadow p-4">
                   <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                     <Pill className="h-5 w-5 mr-2 text-blue-500" />
-                    Current Medications
+                    {t('docPreOp.currentMedicationsHeading')}
                   </h3>
                   <div className="flex space-x-2 mb-2">
-                    <label htmlFor="preop-new-medication" className="sr-only">Add medication</label>
+                    <label htmlFor="preop-new-medication" className="sr-only">{t('docPreOp.addMedicationSrLabel')}</label>
                     <input
                       id="preop-new-medication"
                       type="text"
                       value={newMedication}
                       onChange={(e) => setNewMedication(e.target.value)}
-                      placeholder="Add medication..."
+                      placeholder={t('docPreOp.addMedicationPh')}
                       className="flex-1 p-2 border border-gray-300 rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addMedication()}
                     />
@@ -859,7 +861,7 @@ export default function PreOpPage() {
                       onClick={addMedication}
                       className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
                     >
-                      Add
+                      {t('docPreOp.addButton')}
                     </button>
                   </div>
                   <div className="max-h-24 overflow-y-auto flex flex-wrap gap-1">
@@ -873,6 +875,7 @@ export default function PreOpPage() {
                           type="button"
                           onClick={() => setCurrentMedications(prev => prev.filter(m => m !== med))}
                           className="ml-1 text-blue-600 hover:text-blue-800"
+                          aria-label={`Remove ${med}`}
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -884,7 +887,7 @@ export default function PreOpPage() {
                 <div className="bg-white rounded-lg shadow p-4">
                   <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                     <AlertCircle className="h-5 w-5 mr-2 text-orange-500" />
-                    Medications to Hold
+                    {t('docPreOp.medicationsToHoldHeading')}
                   </h3>
                   <div className="max-h-32 overflow-y-auto space-y-1">
                     {holdMedicationOptions.map(med => (
@@ -908,7 +911,7 @@ export default function PreOpPage() {
                 <div className="bg-white rounded-lg shadow p-4">
                   <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                     <Activity className="h-5 w-5 mr-2 text-green-500" />
-                    Labs Reviewed
+                    {t('docPreOp.labsReviewedHeading')}
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {labOptions.map(lab => (
@@ -931,13 +934,13 @@ export default function PreOpPage() {
                 <div className="bg-white rounded-lg shadow p-4">
                   <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                     <FileText className="h-5 w-5 mr-2 text-purple-500" />
-                    Consents
+                    {t('docPreOp.consentsHeading')}
                   </h3>
                   <div className="space-y-2">
                     {[
-                      { key: 'surgicalConsent', label: 'Surgical Consent Signed' },
-                      { key: 'anesthesiaConsent', label: 'Anesthesia Consent Signed' },
-                      { key: 'bloodConsent', label: 'Blood Transfusion Consent' }
+                      { key: 'surgicalConsent', label: t('docPreOp.consent_surgicalConsent') },
+                      { key: 'anesthesiaConsent', label: t('docPreOp.consent_anesthesiaConsent') },
+                      { key: 'bloodConsent', label: t('docPreOp.consent_bloodConsent') }
                     ].map(({ key, label }) => (
                       <label key={key} htmlFor={`preop-consent-${key}`} className="flex items-center space-x-2 cursor-pointer">
                         <input
@@ -956,12 +959,12 @@ export default function PreOpPage() {
 
               {/* Notes */}
               <div className="bg-white rounded-lg shadow p-6">
-                <label htmlFor="preop-additional-notes" className="font-bold text-gray-900 mb-4 block">Additional Notes</label>
+                <label htmlFor="preop-additional-notes" className="font-bold text-gray-900 mb-4 block">{t('docPreOp.additionalNotesLabel')}</label>
                 <textarea
                   id="preop-additional-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Pre-operative concerns, special considerations, anesthesia plan notes..."
+                  placeholder={t('docPreOp.additionalNotesPh')}
                   rows={4}
                   className="w-full p-3 border border-gray-300 rounded-lg"
                 />
@@ -977,12 +980,12 @@ export default function PreOpPage() {
                   {isSubmitting ? (
                     <>
                       <RefreshCw className="animate-spin h-5 w-5 mr-2" />
-                      Saving...
+                      {t('docPreOp.saving')}
                     </>
                   ) : (
                     <>
                       <Save className="h-5 w-5 mr-2" />
-                      Save Assessment
+                      {t('docPreOp.saveAssessmentButton')}
                     </>
                   )}
                 </button>
@@ -995,13 +998,13 @@ export default function PreOpPage() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
               <FileText className="h-6 w-6 mr-2 text-indigo-500" />
-              Pre-Operative Checklist
+              {t('docPreOp.preOpChecklistHeading')}
             </h2>
-            
+
             <div className="mb-4 p-3 bg-blue-50 rounded-lg flex items-start">
               <Info className="h-5 w-5 mr-2 text-blue-500 flex-shrink-0 mt-0.5" />
               <p className="text-sm text-blue-700">
-                Complete all items before transferring patient to the operating room. Critical items are highlighted.
+                {t('docPreOp.checklistInfoBanner')}
               </p>
             </div>
 
@@ -1032,7 +1035,7 @@ export default function PreOpPage() {
                       {label}
                     </span>
                     {isCritical && !preOpChecklist[key] && (
-                      <span className="text-red-500 text-xs font-bold ml-2">CRITICAL</span>
+                      <span className="text-red-500 text-xs font-bold ml-2">{t('docPreOp.criticalBadge')}</span>
                     )}
                     {preOpChecklist[key] && (
                       <Check className="h-5 w-5 text-green-500 ml-2" />
@@ -1051,12 +1054,12 @@ export default function PreOpPage() {
                 {isSubmitting ? (
                   <>
                     <RefreshCw className="animate-spin h-5 w-5 mr-2" />
-                    Saving...
+                    {t('docPreOp.saving')}
                   </>
                 ) : (
                   <>
                     <Save className="h-5 w-5 mr-2" />
-                    Save Pre-Op Assessment
+                    {t('docPreOp.savePreOpAssessmentButton')}
                   </>
                 )}
               </button>
@@ -1068,29 +1071,29 @@ export default function PreOpPage() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
               <History className="h-6 w-6 mr-2 text-indigo-500" />
-              Assessment History
+              {t('docPreOp.assessmentHistoryHeading')}
             </h2>
             {!selectedPatient ? (
               <div className="text-center py-12 text-gray-500">
-                <p className="text-sm">Select a patient to view their pre-op history.</p>
+                <p className="text-sm">{t('docPreOp.selectPatientForHistory')}</p>
               </div>
             ) : recordsLoading ? (
-              <div className="text-center py-8 text-gray-500">Loading records...</div>
+              <div className="text-center py-8 text-gray-500">{t('docPreOp.loadingRecords')}</div>
             ) : recentRecords.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>No assessment history available.</p>
-                <p className="text-sm mt-1">Previous pre-operative assessments will appear here.</p>
+                <p>{t('docPreOp.noHistoryAvailable')}</p>
+                <p className="text-sm mt-1">{t('docPreOp.noHistoryHint')}</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">ID</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Surgery</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">ASA Class</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.tableId')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.tableSurgery')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.tableAsaClass')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.dateLabel')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">

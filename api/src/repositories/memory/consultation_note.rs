@@ -65,7 +65,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
             .cloned()
             .collect();
 
-        consultations.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        consultations.sort_by_key(|b| std::cmp::Reverse(b.requested_at));
 
         let total = consultations.len() as u64;
         let offset = pagination.offset() as usize;
@@ -91,7 +91,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
             .cloned()
             .collect();
 
-        consultations.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        consultations.sort_by_key(|b| std::cmp::Reverse(b.requested_at));
 
         let total = consultations.len() as u64;
         let offset = pagination.offset() as usize;
@@ -132,7 +132,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
             .cloned()
             .collect();
 
-        consultations.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        consultations.sort_by_key(|b| std::cmp::Reverse(b.requested_at));
 
         let total = consultations.len() as u64;
         let offset = pagination.offset() as usize;
@@ -146,7 +146,7 @@ impl ConsultationNoteRepository for MemoryConsultationNoteRepository {
         let storage = self.data.read().unwrap();
         let mut items: Vec<ConsultationNoteEntity> =
             storage.values().filter(|c| c.is_active).cloned().collect();
-        items.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.requested_at));
         Ok(items)
     }
 }

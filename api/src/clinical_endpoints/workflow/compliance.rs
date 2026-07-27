@@ -115,21 +115,20 @@ pub async fn sign_consent(
         }
     };
 
-    let consent_type_id = body
+    let consent_type = body
         .get("type_id")
+        .or_else(|| body.get("consent_type"))
         .and_then(|v| v.as_str())
-        .unwrap_or("UNKNOWN");
+        .unwrap_or("UNKNOWN")
+        .to_string();
     let patient_id = body
         .get("patient_id")
         .and_then(|v| v.as_str())
-        .unwrap_or(&current_user_id);
-    let signature_image = body
-        .get("signature_image")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .unwrap_or(&current_user_id)
+        .to_string();
 
     // Auth check: patient or legal guardian
-    if current_user_id != *patient_id && !current_user.role.is_admin() {
+    if current_user_id != patient_id && !current_user.role.is_admin() {
         // In a real app, check for legal proxy/guardian status
         return HttpResponse::Forbidden().finish();
     }
@@ -142,29 +141,69 @@ pub async fn sign_consent(
             .next()
             .unwrap_or("000")
     );
+    let now = chrono::Utc::now();
 
-    let consent = serde_json::json!({
-        "consent_id": consent_id,
-        "type_id": consent_type_id,
-        "patient_id": patient_id,
-        "signed_at": chrono::Utc::now().timestamp(),
-        "expires_at": chrono::Utc::now().timestamp() + 365 * 86400,
-        "signature_image": signature_image,
-        "status": "active",
-        "witness_id": body.get("witness_id").and_then(|v| v.as_str())
-    });
+    let entity = ConsentRecordEntity {
+        id: consent_id,
+        patient_id: patient_id.clone(),
+        consent_type: consent_type.clone(),
+        consent_given: true,
+        consent_datetime: now,
+        expiration_datetime: Some(now + chrono::Duration::days(365)),
+        scope_description: None,
+        data_types_covered: None,
+        purpose: None,
+        recipient_organization: None,
+        collection_method: Some("electronic_signature".to_string()),
+        witness_name: None,
+        witness_signature: None,
+        collector_id: Some(current_user_id.clone()),
+        collector_name: Some(current_user.name.clone()),
+        revoked: Some(false),
+        revoked_datetime: None,
+        revocation_reason: None,
+        revoked_by: None,
+        document_url: None,
+        document_ipfs_hash: None,
+        regulatory_requirement: None,
+        version: None,
+        created_at: Some(now),
+        updated_at: Some(now),
+    };
 
-    HttpResponse::Created().json(serde_json::json!({
-        "success": true,
-        "consent": consent,
-        "message": "Consent signed and stored on blockchain"
-    }))
+    match data.repositories.consent_records.create(entity).await {
+        Ok(created) => HttpResponse::Created().json(serde_json::json!({
+            "success": true,
+            "consent_id": created.id,
+            "consent": {
+                "consent_id": created.id,
+                "consent_type": created.consent_type,
+                "patient_id": created.patient_id,
+                "signed_at": created.consent_datetime.timestamp(),
+                "expires_at": created.expiration_datetime.map(|d| d.timestamp()),
+                "status": "active"
+            },
+            "message": "Consent signed and recorded"
+        })),
+        Err(e) => {
+            log::error!(
+                "Failed to persist consent for patient {}: {}",
+                patient_id,
+                e
+            );
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to save consent".to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            })
+        }
+    }
 }
 
 /// Get patient consents
 #[get("/api/consent/patient/{patient_id}")]
 pub async fn get_patient_consents(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
@@ -178,21 +217,26 @@ pub async fn get_patient_consents(
         return HttpResponse::Forbidden().finish();
     }
 
-    // Mock consents
-    let consents = vec![
-        serde_json::json!({
-            "consent_id": "CONS-001",
-            "type_id": "CONSENT-TREATMENT",
-            "signed_at": chrono::Utc::now().timestamp() - 1000000,
-            "status": "active"
-        }),
-        serde_json::json!({
-            "consent_id": "CONS-002",
-            "type_id": "CONSENT-HIPAA",
-            "signed_at": chrono::Utc::now().timestamp() - 1000000,
-            "status": "active"
-        }),
-    ];
+    let records = data
+        .repositories
+        .consent_records
+        .get_by_patient(&patient_id)
+        .await
+        .unwrap_or_default();
+
+    let consents: Vec<serde_json::Value> = records
+        .iter()
+        .filter(|c| !c.revoked.unwrap_or(false))
+        .map(|c| {
+            serde_json::json!({
+                "consent_id": c.id,
+                "consent_type": c.consent_type,
+                "signed_at": c.consent_datetime.timestamp(),
+                "expires_at": c.expiration_datetime.map(|d| d.timestamp()),
+                "status": "active"
+            })
+        })
+        .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "patient_id": patient_id,

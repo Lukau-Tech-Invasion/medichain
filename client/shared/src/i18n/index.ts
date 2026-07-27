@@ -23,6 +23,8 @@ export type SupportedLocale =
   | 'ru-RU'
   | 'sw-KE'
   | 'am-ET'
+  | 'zu-ZA'
+  | 'ha-NG'
   | 'vi-VN';
 
 export interface LocaleConfig {
@@ -65,6 +67,8 @@ export const LOCALE_CONFIGS: Record<SupportedLocale, LocaleConfig> = {
   // African target markets (Phase 3.5)
   'sw-KE': { code: 'sw-KE', name: 'Swahili', nativeName: 'Kiswahili', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'KES', currencySymbol: 'KSh' },
   'am-ET': { code: 'am-ET', name: 'Amharic', nativeName: 'አማርኛ', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'ETB', currencySymbol: 'Br' },
+  'zu-ZA': { code: 'zu-ZA', name: 'Zulu', nativeName: 'isiZulu', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'ZAR', currencySymbol: 'R' },
+  'ha-NG': { code: 'ha-NG', name: 'Hausa', nativeName: 'Hausa', direction: 'ltr', dateFormat: 'DD/MM/YYYY', timeFormat: '24h', currency: 'NGN', currencySymbol: '₦' },
 };
 
 // Translation key-value store for each locale

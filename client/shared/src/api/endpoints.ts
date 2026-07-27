@@ -12,6 +12,8 @@ import type {
   RegisterPatientResponse,
   EmergencyAccessRequest,
   EmergencyAccessResponse,
+  GrantBoundEmergencyAccessRequest,
+  GrantBoundEmergencyAccessResponse,
   AccessLogsResponse,
   HealthCheckResponse,
   IpfsHealthResponse,
@@ -27,6 +29,115 @@ import type {
   GenerateNFCCardRequest,
   GenerateNFCCardResponse,
   NFCCardInfo,
+  CodeBlueRecord,
+  TraumaAssessment,
+  StrokeAssessment,
+  CardiacEvent,
+  SepsisAssessment,
+  EMSHandoff,
+  MedicationAdministrationRecord,
+  IntakeOutputRecord,
+  NursingCarePlan,
+  WoundAssessment,
+  IVSiteAssessment,
+  ShiftHandoff,
+  IncidentReport,
+  FallRiskAssessment,
+  BurnAssessment,
+  PsychiatricAssessment,
+  ToxicologyAssessment,
+  MassCasualtyIncident,
+  IntubationRecord,
+  LacerationRepair,
+  SplintCastRecord,
+  PediatricAssessment,
+  ObstetricEmergency,
+  SpecimenCollection,
+  ChainOfCustody,
+  LabQCRecord,
+  CriticalValueNotification,
+  SpecimenRejection,
+  PhysicianOrder,
+  DischargeSummary,
+  DischargeInstructions,
+  AMADischarge,
+  HistoryAndPhysical,
+  ConsultationNote,
+  ProgressNote,
+  PreOperativeAssessment,
+  OperativeNote,
+  PostOperativeNote,
+  AnesthesiaRecord,
+  RadiologyOrder,
+  RadiologyReport,
+  PathologyReport,
+  ImmunizationRecord,
+  FamilyMedicalHistory,
+  BloodTypeScreen,
+  TransfusionRecord,
+  ElectronicPrescription,
+  Appointment,
+  DeathCertificate,
+  AutopsyRequest,
+  AutopsyReport,
+  PatientSatisfactionSurvey,
+  GcsAssessmentRecord,
+  SampleHistoryRecord,
+  ClinicalCreateResult,
+  AssessmentCreateResult,
+  IncidentCreateResult,
+  RecordCreateResult,
+  CollectionCreateResult,
+  FormCreateResult,
+  QcCreateResult,
+  NotificationCreateResult,
+  RejectionCreateResult,
+  OrderCreateResult,
+  SummaryCreateResult,
+  InstructionsCreateResult,
+  AmaCreateResult,
+  HpCreateResult,
+  ConsultCreateResult,
+  NoteCreateResult,
+  EPrescriptionCreateResult,
+  InsuranceClaimCreateResult,
+  CdsAlertCreateResult,
+  TelehealthSessionCreateResult,
+  AppointmentCreateResult,
+  FamilyGroupCreateResult,
+  SymptomCheckCreateResult,
+  WearableDeviceCreateResult,
+  WearableReadingCreateResult,
+  AlertRuleCreateResult,
+  MedicationReminderCreateResult,
+  AdherenceLogCreateResult,
+  SyncDeviceCreateResult,
+  DoctorDashboardResponse,
+  NurseDashboardResponse,
+  LabDashboardResponse,
+  AdminDashboardResponse,
+  PatientDashboardResponse,
+  PharmacistDashboardResponse,
+  TelehealthSession,
+  SymptomCheckSession,
+  FamilyGroup,
+  DrugReference,
+  WearableDevice,
+  WearableReading,
+  WearableAlert,
+  DemoInfo,
+  PatientEmergencyRecords,
+  NurseTasksResponse,
+  EndTelehealthSessionResponse,
+  CheckEligibilityResponse,
+  DashboardMetricsResponse,
+  PatientAnalyticsResponse,
+  AppointmentAnalyticsResponse,
+  QualityMetricsResponse,
+  LockscreenMedicalId,
+  MedicalIdCard,
+  EmergencyMedicalId,
+  VerifyInsuranceResponse,
 } from '../types';
 
 // ============================================================================
@@ -325,6 +436,58 @@ export async function refreshJwt(
   return getApiClient().post('/api/auth/jwt/refresh', { refresh_token: refreshToken });
 }
 
+/** Request a context- and device-bound emergency summary grant. */
+export async function grantBoundEmergencyAccess(
+  data: GrantBoundEmergencyAccessRequest
+): Promise<GrantBoundEmergencyAccessResponse> {
+  return getApiClient().post('/api/emergency/access', data);
+}
+
+// ============================================================================
+// Federation identity contexts (Phase 1)
+// ============================================================================
+
+export type IdentityContextType = 'patient' | 'professional';
+
+export interface IdentityContext {
+  id: string;
+  person_id: string;
+  wallet_address: string;
+  context_type: IdentityContextType;
+  patient_profile_id?: string;
+  organization_id?: string;
+  facility_id?: string;
+  assignment_id?: string;
+  role?: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface IdentityContextResponse {
+  success: boolean;
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  context: IdentityContext;
+}
+
+/** Enter the authenticated user's professional work context. */
+export async function enterWorkContext(): Promise<IdentityContextResponse> {
+  return getApiClient().post('/api/identity/context/work', {});
+}
+
+/** Enter the authenticated user's personal patient context. */
+export async function enterPatientContext(): Promise<IdentityContextResponse> {
+  return getApiClient().post('/api/identity/context/patient', {});
+}
+
+/** Replace the active context and require clients to discard the previous token. */
+export async function switchIdentityContext(
+  context: IdentityContextType
+): Promise<IdentityContextResponse> {
+  return getApiClient().post('/api/identity/context/switch', { context });
+}
+
 // ============================================================================
 // Multi-factor authentication — TOTP (Phase 11.3)
 // ============================================================================
@@ -548,6 +711,13 @@ export async function nfcTap(
   return getApiClient().post('/api/nfc/tap', { card_hash: cardHash });
 }
 
+/** Patient-only self-verification of a physically-tapped NFC card (not a provider lookup by ID). */
+export async function verifyMyNfcCard(
+  cardHash: string
+): Promise<{ success: boolean; status: string | null; last_used_at: number | null; message: string }> {
+  return getApiClient().post('/api/nfc/verify-mine', { card_hash: cardHash });
+}
+
 export async function verifyQRCode(
   qrData: string
 ): Promise<{ success: boolean; patient_id: string; card_hash: string; verified: boolean; message: string }> {
@@ -570,7 +740,7 @@ export async function listNFCCards(): Promise<{ cards: NFCCardInfo[]; total: num
 // Demo
 // ============================================================================
 
-export async function getDemoInfo(): Promise<unknown> {
+export async function getDemoInfo(): Promise<DemoInfo> {
   return getApiClient().get('/api/demo');
 }
 
@@ -645,76 +815,81 @@ export async function getPatientLabSubmissions(
 // Emergency Protocols (Phase 2)
 // ============================================================================
 
-export async function createCodeBlue(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/code-blue', data);
+export async function createCodeBlue(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/code-blue', data);
 }
 
-export async function getCodeBlue(eventId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/code-blue/${eventId}`);
+export async function getCodeBlue(eventId: string): Promise<CodeBlueRecord> {
+  return getApiClient().get(`/api/emergency/code-blue/${eventId}`);
 }
 
-export async function getPatientCodeBlues(patientId: string): Promise<unknown[]> {
-  return getApiClient().get(`/api/clinical/code-blue/patient/${patientId}`);
+export async function getPatientCodeBlues(patientId: string): Promise<CodeBlueRecord[]> {
+  return getApiClient().get(`/api/emergency/code-blue/patient/${patientId}`);
 }
 
-export async function createTrauma(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/trauma', data);
+export async function createTrauma(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/trauma', data);
 }
 
-export async function getTrauma(assessmentId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/trauma/${assessmentId}`);
+export async function getTrauma(assessmentId: string): Promise<TraumaAssessment> {
+  return getApiClient().get(`/api/emergency/trauma/${assessmentId}`);
 }
 
-export async function createStroke(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/stroke', data);
+export async function createStroke(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/stroke', data);
 }
 
-export async function getStroke(assessmentId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/stroke/${assessmentId}`);
+export async function getStroke(assessmentId: string): Promise<StrokeAssessment> {
+  return getApiClient().get(`/api/emergency/stroke/${assessmentId}`);
 }
 
-export async function createCardiac(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/cardiac', data);
+export async function createCardiac(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/cardiac', data);
 }
 
-export async function getCardiac(eventId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/cardiac/${eventId}`);
+export async function getCardiac(eventId: string): Promise<CardiacEvent> {
+  return getApiClient().get(`/api/emergency/cardiac/${eventId}`);
 }
 
-export async function createSepsis(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/sepsis', data);
+export async function createSepsis(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/sepsis', data);
 }
 
-export async function getSepsis(assessmentId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/sepsis/${assessmentId}`);
+export async function getSepsis(assessmentId: string): Promise<SepsisAssessment> {
+  return getApiClient().get(`/api/emergency/sepsis/${assessmentId}`);
 }
 
-export async function createEmsHandoff(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/ems-handoff', data);
+export async function createEmsHandoff(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/ems-handoff', data);
 }
 
-export async function getEmsHandoff(reportId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/ems-handoff/${reportId}`);
+export async function getEmsHandoff(reportId: string): Promise<EMSHandoff> {
+  return getApiClient().get(`/api/emergency/ems-handoff/${reportId}`);
 }
 
-export async function getPatientEmergencyRecords(patientId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/patient/${patientId}/emergency`);
+export async function getPatientEmergencyRecords(patientId: string): Promise<PatientEmergencyRecords> {
+  return getApiClient().get(`/api/emergency/patient/${patientId}`);
 }
 
 // ============================================================================
 // Nursing Documentation (Phase 3)
 // ============================================================================
 
-export async function createMar(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/mar', data);
+export async function createMar(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/mar', data);
 }
 
-export async function getMar(patientId: string, date: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/mar/${patientId}/${date}`);
+// NOTE: the backend's `GET /api/emergency/mar/{patient_id}/{medication_id}` looks up
+// a composite `"{patient_id}:{medication_id}"` id, but `createMar` stores records under
+// `"MAR-{patient_id}-{date}"` — the two id schemes don't match, so this lookup can never
+// find a record `createMar` actually wrote. Backend bug, not just a path fix; tracked
+// separately. Path corrected here so it at least reaches the real handler.
+export async function getMar(patientId: string, medicationId: string): Promise<MedicationAdministrationRecord> {
+  return getApiClient().get(`/api/emergency/mar/${patientId}/${medicationId}`);
 }
 
 export async function listMar(): Promise<unknown[]> {
-  const response = await getApiClient().get<unknown>('/api/nursing/mar');
+  const response = await getApiClient().get<unknown>('/api/emergency/mar/list');
   // Handle different response formats from API
   if (response && typeof response === 'object') {
     // API returns { success: true, records: [...] }
@@ -729,115 +904,120 @@ export async function listMar(): Promise<unknown[]> {
   return Array.isArray(response) ? response : [];
 }
 
-export async function administerMedication(data: unknown): Promise<unknown> {
+export async function administerMedication(data: unknown): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/nursing/mar/administer', data);
 }
 
-export async function createIo(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/io', data);
+export async function createIo(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/io', data);
 }
 
-export async function getIo(patientId: string, date: string, shift: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/io/${patientId}/${date}/${shift}`);
+// NOTE: the backend route is `{patient_id}/{type}/{timestamp}` but `get_io` ignores the
+// middle segment and reconstructs its lookup id from `{patient_id}` + the THIRD segment
+// (which must be the record's date, matching `create_io`'s `IO-{patient_id}-{date}` id) —
+// so `shift` here must actually be a date string, not a shift name. No current caller;
+// flagging for whoever wires this up next rather than guessing at a fix with no usage to verify against.
+export async function getIo(patientId: string, date: string, shift: string): Promise<IntakeOutputRecord> {
+  return getApiClient().get(`/api/emergency/io/${patientId}/${date}/${shift}`);
 }
 
-export async function listIo(): Promise<unknown> {
-  return getApiClient().get('/api/nursing/intake-output');
+export async function listIo(): Promise<IntakeOutputRecord[]> {
+  return getApiClient().get('/api/emergency/io/list');
 }
 
-export async function recordFluid(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/nursing/intake-output/record', data);
+export async function recordFluid(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/record-fluid', data);
 }
 
-export async function createCarePlan(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/care-plan', data);
+export async function createCarePlan(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/care-plan', data);
 }
 
-export async function getCarePlan(planId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/care-plan/${planId}`);
+export async function getCarePlan(planId: string): Promise<NursingCarePlan> {
+  return getApiClient().get(`/api/emergency/care-plan/${planId}`);
 }
 
-export async function listCarePlans(): Promise<unknown> {
-  return getApiClient().get('/api/nursing/care-plans');
+export async function listCarePlans(): Promise<NursingCarePlan[]> {
+  return getApiClient().get('/api/emergency/care-plan/list');
 }
 
-export async function createWound(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/wound', data);
+export async function createWound(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/wound', data);
 }
 
-export async function getWound(assessmentId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/wound/${assessmentId}`);
+export async function getWound(assessmentId: string): Promise<WoundAssessment> {
+  return getApiClient().get(`/api/emergency/wound/${assessmentId}`);
 }
 
-export async function createIvSite(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/iv-site', data);
+export async function createIvSite(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/iv-site', data);
 }
 
-export async function getIvSite(assessmentId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/iv-site/${assessmentId}`);
+export async function getIvSite(assessmentId: string): Promise<IVSiteAssessment> {
+  return getApiClient().get(`/api/emergency/iv-site/${assessmentId}`);
 }
 
-export async function createShiftHandoff(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/shift-handoff', data);
+export async function createShiftHandoff(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/handoff', data);
 }
 
-export async function getShiftHandoff(handoffId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/shift-handoff/${handoffId}`);
+export async function getShiftHandoff(handoffId: string): Promise<ShiftHandoff> {
+  return getApiClient().get(`/api/emergency/handoff/${handoffId}`);
 }
 
-export async function createIncident(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/incident', data);
+export async function createIncident(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/incident', data);
 }
 
-export async function getIncident(reportId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/incident/${reportId}`);
+export async function getIncident(reportId: string): Promise<IncidentReport> {
+  return getApiClient().get(`/api/emergency/incident/${reportId}`);
 }
 
-export async function createFallRisk(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/fall-risk', data);
+export async function createFallRisk(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/fall-risk', data);
 }
 
-export async function getFallRisk(assessmentId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/fall-risk/${assessmentId}`);
+export async function getFallRisk(assessmentId: string): Promise<FallRiskAssessment> {
+  return getApiClient().get(`/api/emergency/fall-risk/${assessmentId}`);
 }
 
-export async function getNurseTasks(): Promise<unknown> {
-  return getApiClient().get('/api/tasks/nurse');
+export async function getNurseTasks(): Promise<NurseTasksResponse> {
+  return getApiClient().get('/api/nurse/tasks');
 }
 
 // ============================================================================
 // Specialized Assessments (Phase 4)
 // ============================================================================
 
-export async function createBurn(data: unknown): Promise<unknown> {
+export async function createBurn(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/burn', data);
 }
 
-export async function getBurn(assessmentId: string): Promise<unknown> {
+export async function getBurn(assessmentId: string): Promise<BurnAssessment> {
   return getApiClient().get(`/api/clinical/burn/${assessmentId}`);
 }
 
-export async function createPsych(data: unknown): Promise<unknown> {
+export async function createPsych(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/psych', data);
 }
 
-export async function getPsych(assessmentId: string): Promise<unknown> {
+export async function getPsych(assessmentId: string): Promise<PsychiatricAssessment> {
   return getApiClient().get(`/api/clinical/psych/${assessmentId}`);
 }
 
-export async function createTox(data: unknown): Promise<unknown> {
+export async function createTox(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/tox', data);
 }
 
-export async function getTox(assessmentId: string): Promise<unknown> {
+export async function getTox(assessmentId: string): Promise<ToxicologyAssessment> {
   return getApiClient().get(`/api/clinical/tox/${assessmentId}`);
 }
 
-export async function createMci(data: unknown): Promise<unknown> {
+export async function createMci(data: unknown): Promise<IncidentCreateResult> {
   return getApiClient().post('/api/clinical/mci', data);
 }
 
-export async function getMci(incidentId: string): Promise<unknown> {
+export async function getMci(incidentId: string): Promise<MassCasualtyIncident> {
   return getApiClient().get(`/api/clinical/mci/${incidentId}`);
 }
 
@@ -845,27 +1025,27 @@ export async function getMci(incidentId: string): Promise<unknown> {
 // Procedures (Phase 5)
 // ============================================================================
 
-export async function createIntubation(data: unknown): Promise<unknown> {
+export async function createIntubation(data: unknown): Promise<RecordCreateResult> {
   return getApiClient().post('/api/clinical/intubation', data);
 }
 
-export async function getIntubation(recordId: string): Promise<unknown> {
+export async function getIntubation(recordId: string): Promise<IntubationRecord> {
   return getApiClient().get(`/api/clinical/intubation/${recordId}`);
 }
 
-export async function createLaceration(data: unknown): Promise<unknown> {
+export async function createLaceration(data: unknown): Promise<RecordCreateResult> {
   return getApiClient().post('/api/clinical/laceration', data);
 }
 
-export async function getLaceration(recordId: string): Promise<unknown> {
+export async function getLaceration(recordId: string): Promise<LacerationRepair> {
   return getApiClient().get(`/api/clinical/laceration/${recordId}`);
 }
 
-export async function createSplint(data: unknown): Promise<unknown> {
+export async function createSplint(data: unknown): Promise<RecordCreateResult> {
   return getApiClient().post('/api/clinical/splint', data);
 }
 
-export async function getSplint(recordId: string): Promise<unknown> {
+export async function getSplint(recordId: string): Promise<SplintCastRecord> {
   return getApiClient().get(`/api/clinical/splint/${recordId}`);
 }
 
@@ -873,19 +1053,19 @@ export async function getSplint(recordId: string): Promise<unknown> {
 // Specialty Populations (Phase 6)
 // ============================================================================
 
-export async function createPeds(data: unknown): Promise<unknown> {
+export async function createPeds(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/peds', data);
 }
 
-export async function getPeds(assessmentId: string): Promise<unknown> {
+export async function getPeds(assessmentId: string): Promise<PediatricAssessment> {
   return getApiClient().get(`/api/clinical/peds/${assessmentId}`);
 }
 
-export async function createOb(data: unknown): Promise<unknown> {
+export async function createOb(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/ob', data);
 }
 
-export async function getOb(assessmentId: string): Promise<unknown> {
+export async function getOb(assessmentId: string): Promise<ObstetricEmergency> {
   return getApiClient().get(`/api/clinical/ob/${assessmentId}`);
 }
 
@@ -893,43 +1073,43 @@ export async function getOb(assessmentId: string): Promise<unknown> {
 // Laboratory (Phase 7)
 // ============================================================================
 
-export async function createSpecimen(data: unknown): Promise<unknown> {
+export async function createSpecimen(data: unknown): Promise<CollectionCreateResult> {
   return getApiClient().post('/api/clinical/specimen', data);
 }
 
-export async function getSpecimen(collectionId: string): Promise<unknown> {
+export async function getSpecimen(collectionId: string): Promise<SpecimenCollection> {
   return getApiClient().get(`/api/clinical/specimen/${collectionId}`);
 }
 
-export async function createChainOfCustody(data: unknown): Promise<unknown> {
+export async function createChainOfCustody(data: unknown): Promise<FormCreateResult> {
   return getApiClient().post('/api/clinical/chain-of-custody', data);
 }
 
-export async function getChainOfCustody(formId: string): Promise<unknown> {
+export async function getChainOfCustody(formId: string): Promise<ChainOfCustody> {
   return getApiClient().get(`/api/clinical/chain-of-custody/${formId}`);
 }
 
-export async function createLabQc(data: unknown): Promise<unknown> {
+export async function createLabQc(data: unknown): Promise<QcCreateResult> {
   return getApiClient().post('/api/clinical/lab-qc', data);
 }
 
-export async function getLabQc(qcId: string): Promise<unknown> {
+export async function getLabQc(qcId: string): Promise<LabQCRecord> {
   return getApiClient().get(`/api/clinical/lab-qc/${qcId}`);
 }
 
-export async function createCriticalValue(data: unknown): Promise<unknown> {
+export async function createCriticalValue(data: unknown): Promise<NotificationCreateResult> {
   return getApiClient().post('/api/clinical/critical-value', data);
 }
 
-export async function getCriticalValue(notificationId: string): Promise<unknown> {
+export async function getCriticalValue(notificationId: string): Promise<CriticalValueNotification> {
   return getApiClient().get(`/api/clinical/critical-value/${notificationId}`);
 }
 
-export async function createSpecimenRejection(data: unknown): Promise<unknown> {
+export async function createSpecimenRejection(data: unknown): Promise<RejectionCreateResult> {
   return getApiClient().post('/api/clinical/specimen-rejection', data);
 }
 
-export async function getSpecimenRejection(rejectionId: string): Promise<unknown> {
+export async function getSpecimenRejection(rejectionId: string): Promise<SpecimenRejection> {
   return getApiClient().get(`/api/clinical/specimen-rejection/${rejectionId}`);
 }
 
@@ -937,71 +1117,73 @@ export async function getSpecimenRejection(rejectionId: string): Promise<unknown
 // Physician Documentation (Phase 8)
 // ============================================================================
 
-export async function createOrder(data: unknown): Promise<unknown> {
+export async function createOrder(data: unknown): Promise<OrderCreateResult> {
   return getApiClient().post('/api/clinical/order', data);
 }
 
-export async function getOrder(orderId: string): Promise<unknown> {
+export async function getOrder(orderId: string): Promise<PhysicianOrder> {
   return getApiClient().get(`/api/clinical/order/${orderId}`);
 }
 
-export async function listOrders(): Promise<unknown> {
+export async function listOrders(): Promise<{ success: boolean; orders: PhysicianOrder[] }> {
   return getApiClient().get('/api/clinical/orders');
 }
 
-export async function createDischargeSummary(data: unknown): Promise<unknown> {
+export async function createDischargeSummary(data: unknown): Promise<SummaryCreateResult> {
   return getApiClient().post('/api/clinical/discharge-summary', data);
 }
 
-export async function getDischargeSummary(summaryId: string): Promise<unknown> {
+export async function getDischargeSummary(summaryId: string): Promise<DischargeSummary> {
   return getApiClient().get(`/api/clinical/discharge-summary/${summaryId}`);
 }
 
-export async function listDischarges(): Promise<unknown> {
+export async function listDischarges(): Promise<{ success: boolean; discharges: DischargeSummary[] }> {
   return getApiClient().get('/api/clinical/discharges');
 }
 
-export async function approveDischarge(summaryId: string): Promise<unknown> {
+export async function approveDischarge(
+  summaryId: string
+): Promise<{ success: boolean; message: string; summary_id: string; signed_by: string }> {
   return getApiClient().post(`/api/clinical/discharges/${summaryId}/approve`, {});
 }
 
-export async function createDischargeInstructions(data: unknown): Promise<unknown> {
+export async function createDischargeInstructions(data: unknown): Promise<InstructionsCreateResult> {
   return getApiClient().post('/api/clinical/discharge-instructions', data);
 }
 
-export async function getDischargeInstructions(instructionsId: string): Promise<unknown> {
+export async function getDischargeInstructions(instructionsId: string): Promise<DischargeInstructions> {
   return getApiClient().get(`/api/clinical/discharge-instructions/${instructionsId}`);
 }
 
-export async function createAma(data: unknown): Promise<unknown> {
+export async function createAma(data: unknown): Promise<AmaCreateResult> {
   return getApiClient().post('/api/clinical/ama', data);
 }
 
-export async function getAma(amaId: string): Promise<unknown> {
+export async function getAma(amaId: string): Promise<AMADischarge> {
   return getApiClient().get(`/api/clinical/ama/${amaId}`);
 }
 
-export async function createHp(data: unknown): Promise<unknown> {
+export async function createHp(data: unknown): Promise<HpCreateResult> {
   return getApiClient().post('/api/clinical/hp', data);
 }
 
-export async function getHp(hpId: string): Promise<unknown> {
+export async function getHp(hpId: string): Promise<HistoryAndPhysical> {
   return getApiClient().get(`/api/clinical/hp/${hpId}`);
 }
 
-export async function createConsult(data: unknown): Promise<unknown> {
+export async function createConsult(data: unknown): Promise<ConsultCreateResult> {
   return getApiClient().post('/api/clinical/consult', data);
 }
 
-export async function getConsult(consultId: string): Promise<unknown> {
+export async function getConsult(consultId: string): Promise<ConsultationNote> {
   return getApiClient().get(`/api/clinical/consult/${consultId}`);
 }
 
-export async function createProgressNote(data: unknown): Promise<unknown> {
+export async function createProgressNote(data: unknown): Promise<NoteCreateResult> {
   return getApiClient().post('/api/clinical/progress-note', data);
 }
 
-export async function getProgressNote(noteId: string): Promise<unknown> {
+export async function getProgressNote(noteId: string): Promise<ProgressNote> {
   return getApiClient().get(`/api/clinical/progress-note/${noteId}`);
 }
 
@@ -1009,184 +1191,200 @@ export async function getProgressNote(noteId: string): Promise<unknown> {
 // Surgical Documentation (Phase 9)
 // ============================================================================
 
-export async function createPreOp(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/pre-op', data);
+export async function createPreOp(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/pre-op', data);
 }
 
-export async function getPreOp(assessmentId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/pre-op/${assessmentId}`);
+export async function getPreOp(assessmentId: string): Promise<PreOperativeAssessment> {
+  return getApiClient().get(`/api/surgical/pre-op/${assessmentId}`);
 }
 
-export async function createOperativeNote(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/operative-note', data);
+export async function createOperativeNote(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/operative-note', data);
 }
 
-export async function getOperativeNote(noteId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/operative-note/${noteId}`);
+export async function getOperativeNote(noteId: string): Promise<OperativeNote> {
+  return getApiClient().get(`/api/surgical/operative-note/${noteId}`);
 }
 
-export async function createPostOp(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/post-op', data);
+export async function createPostOp(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/post-op', data);
 }
 
-export async function getPostOp(noteId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/post-op/${noteId}`);
+export async function getPostOp(noteId: string): Promise<PostOperativeNote> {
+  return getApiClient().get(`/api/surgical/post-op/${noteId}`);
 }
 
 // ============================================================================
 // Clinical Records (Specialty)
 // ============================================================================
 
-export async function createAMADischarge(data: unknown): Promise<unknown> {
+export async function createAMADischarge(data: unknown): Promise<AmaCreateResult> {
   return getApiClient().post('/api/clinical/ama', data);
 }
 
-export async function listAMADischarges(): Promise<unknown[]> {
-  const response = await getApiClient().get<any>('/api/clinical/ama-discharges');
+export async function listAMADischarges(): Promise<AMADischarge[]> {
+  const response = await getApiClient().get<AMADischarge[]>('/api/platform/list/ama-discharges');
   return response || [];
 }
 
-export async function createHistoryPhysical(data: unknown): Promise<unknown> {
+export async function createHistoryPhysical(data: unknown): Promise<HpCreateResult> {
   return getApiClient().post('/api/clinical/hp', data);
 }
 
-export async function getHistoryPhysical(hpId: string): Promise<unknown> {
+export async function getHistoryPhysical(hpId: string): Promise<HistoryAndPhysical> {
   return getApiClient().get(`/api/clinical/hp/${hpId}`);
 }
 
-export async function listHistoryPhysicals(): Promise<unknown[]> {
+export async function listHistoryPhysicals(): Promise<HistoryAndPhysical[]> {
   return getApiClient().get('/api/clinical/hp');
 }
 
-export async function createIncidentReport(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/incident-reports', data);
+// NOTE: no distinct "incident report" (plural) backend feature exists — the real
+// endpoints are the singular `create_incident`/`get_incident` under `/api/emergency/incident`
+// (see createIncident/getIncident above) plus an admin-wide list at `/api/platform/list/incidents`.
+// Pointed at those real endpoints rather than the nonexistent `/api/clinical/incident-reports`.
+export async function createIncidentReport(data: unknown): Promise<IncidentCreateResult> {
+  return getApiClient().post('/api/emergency/incident', data);
 }
 
-export async function listIncidentReports(): Promise<unknown[]> {
-  return getApiClient().get('/api/clinical/incident-reports');
+export async function listIncidentReports(): Promise<IncidentReport[]> {
+  return getApiClient().get('/api/platform/list/incidents');
 }
 
-export async function createIntakeOutput(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/intake-output', data);
+// NOTE: same situation as incident reports above — real endpoints are `create_io`
+// (`/api/emergency/io`, see createIo above) and the admin-wide list at
+// `/api/platform/list/intake-output`, not the nonexistent `/api/clinical/intake-output`.
+export async function createIntakeOutput(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/emergency/io', data);
 }
 
-export async function listIntakeOutput(): Promise<unknown[]> {
-  return getApiClient().get('/api/clinical/intake-output');
+export async function listIntakeOutput(): Promise<IntakeOutputRecord[]> {
+  return getApiClient().get('/api/platform/list/intake-output');
 }
 
 // ============================================================================
 // Anesthesia (Phase 10)
 // ============================================================================
 
-export async function createAnesthesia(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/anesthesia', data);
+export async function createAnesthesia(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/anesthesia', data);
 }
 
-export async function getAnesthesia(recordId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/anesthesia/${recordId}`);
+export async function getAnesthesia(recordId: string): Promise<AnesthesiaRecord> {
+  return getApiClient().get(`/api/surgical/anesthesia/${recordId}`);
 }
 
-export async function listAnesthesia(): Promise<unknown[]> {
-  return getApiClient().get('/api/clinical/anesthesia');
+export async function listAnesthesia(): Promise<AnesthesiaRecord[]> {
+  return getApiClient().get('/api/surgical/anesthesia/list');
 }
 
 // ============================================================================
 // Radiology (Phase 11)
 // ============================================================================
 
-export async function createRadiologyOrder(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/radiology/order', data);
+export async function createRadiologyOrder(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/radiology/order', data);
 }
 
-export async function getRadiologyOrder(orderId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/radiology/order/${orderId}`);
+export async function getRadiologyOrder(orderId: string): Promise<RadiologyOrder> {
+  return getApiClient().get(`/api/surgical/radiology/order/${orderId}`);
 }
 
-export async function createRadiologyReport(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/radiology/report', data);
+export async function createRadiologyReport(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/radiology/report', data);
 }
 
-export async function getRadiologyReport(reportId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/radiology/report/${reportId}`);
+export async function getRadiologyReport(reportId: string): Promise<RadiologyReport> {
+  return getApiClient().get(`/api/surgical/radiology/report/${reportId}`);
 }
 
 // ============================================================================
 // Pathology (Phase 12)
 // ============================================================================
 
-export async function createPathology(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/pathology', data);
+export async function createPathology(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/pathology', data);
 }
 
-export async function getPathology(reportId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/pathology/${reportId}`);
+export async function getPathology(reportId: string): Promise<PathologyReport> {
+  return getApiClient().get(`/api/surgical/pathology/${reportId}`);
 }
 
 // ============================================================================
 // Immunization (Phase 13)
 // ============================================================================
 
-export async function createImmunization(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/immunization', data);
+export async function createImmunization(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/immunization', data);
 }
 
-export async function getImmunization(recordId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/immunization/${recordId}`);
+export async function getImmunization(recordId: string): Promise<ImmunizationRecord> {
+  return getApiClient().get(`/api/surgical/immunization/${recordId}`);
 }
 
 // ============================================================================
 // Family History (Phase 14)
 // ============================================================================
 
-export async function createFamilyHistory(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/family-history', data);
+export async function createFamilyHistory(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/family-history', data);
 }
 
-export async function getFamilyHistory(patientId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/family-history/${patientId}`);
+export async function getFamilyHistory(patientId: string): Promise<FamilyMedicalHistory> {
+  return getApiClient().get(`/api/surgical/family-history/${patientId}`);
 }
 
 // ============================================================================
 // Blood Bank (Phase 15)
 // ============================================================================
 
-export async function createBloodTypeScreen(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/blood-bank/type-screen', data);
+export async function createBloodTypeScreen(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/blood-type', data);
 }
 
-export async function getBloodTypeScreen(testId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/blood-bank/type-screen/${testId}`);
+export async function getBloodTypeScreen(testId: string): Promise<BloodTypeScreen> {
+  return getApiClient().get(`/api/surgical/blood-type/${testId}`);
 }
 
-export async function createTransfusion(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/blood-bank/transfusion', data);
+export async function createTransfusion(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/transfusion', data);
 }
 
-export async function getTransfusion(transfusionId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/blood-bank/transfusion/${transfusionId}`);
+export async function getTransfusion(transfusionId: string): Promise<TransfusionRecord> {
+  return getApiClient().get(`/api/surgical/transfusion/${transfusionId}`);
 }
 
 // ============================================================================
 // E-Prescribing (Phase 16)
 // ============================================================================
 
-export async function createEPrescription(data: unknown): Promise<unknown> {
+export async function createEPrescription(data: unknown): Promise<EPrescriptionCreateResult> {
   return getApiClient().post('/api/e-prescriptions', data);
 }
 
-export async function signEPrescription(prescriptionId: string, data: unknown): Promise<unknown> {
+export async function signEPrescription(
+  prescriptionId: string,
+  data: unknown
+): Promise<{ success: boolean; prescription_id: string; status: string; signed_at: number; message: string }> {
   return getApiClient().post(`/api/e-prescriptions/${prescriptionId}/sign`, data);
 }
 
-export async function transmitEPrescription(prescriptionId: string): Promise<unknown> {
+export async function transmitEPrescription(
+  prescriptionId: string
+): Promise<{ success: boolean; prescription_id: string; status: string; transmitted_at: number; pharmacy: string; message: string }> {
   return getApiClient().post(`/api/e-prescriptions/${prescriptionId}/transmit`, {});
 }
 
-export async function getEPrescription(prescriptionId: string): Promise<unknown> {
+export async function getEPrescription(
+  prescriptionId: string
+): Promise<{ success: boolean; prescription: ElectronicPrescription }> {
   return getApiClient().get(`/api/e-prescriptions/${prescriptionId}`);
 }
 
-export async function getPatientEPrescriptions(patientId: string): Promise<unknown> {
+export async function getPatientEPrescriptions(
+  patientId: string
+): Promise<{ success: boolean; patient_id: string; prescriptions: ElectronicPrescription[]; count: number }> {
   return getApiClient().get(`/api/e-prescriptions/patient/${patientId}`);
 }
 
@@ -1194,31 +1392,41 @@ export async function getPatientEPrescriptions(patientId: string): Promise<unkno
 // Appointments (Phase 17)
 // ============================================================================
 
-export async function createAppointment(data: unknown): Promise<unknown> {
+export async function createAppointment(data: unknown): Promise<AppointmentCreateResult> {
   return getApiClient().post('/api/appointments', data);
 }
 
-export async function getAppointment(appointmentId: string): Promise<unknown> {
+export async function getAppointment(appointmentId: string): Promise<Appointment> {
   return getApiClient().get(`/api/appointments/${appointmentId}`);
 }
 
-export async function getPatientAppointments(patientId: string): Promise<unknown> {
+export async function getPatientAppointments(
+  patientId: string
+): Promise<{ success: boolean; appointments: Appointment[]; count: number }> {
   return getApiClient().get(`/api/appointments/patient/${patientId}`);
 }
 
-export async function getProviderAppointments(providerId: string): Promise<unknown> {
+export async function getProviderAppointments(
+  providerId: string
+): Promise<{ success: boolean; appointments: Appointment[]; count: number }> {
   return getApiClient().get(`/api/appointments/provider/${providerId}`);
 }
 
-export async function cancelAppointment(appointmentId: string, data: unknown): Promise<unknown> {
+export async function cancelAppointment(
+  appointmentId: string,
+  data: unknown
+): Promise<{ success: boolean; message: string }> {
   return getApiClient().post(`/api/appointments/${appointmentId}/cancel`, data);
 }
 
-export async function checkInAppointment(appointmentId: string): Promise<unknown> {
+export async function checkInAppointment(appointmentId: string): Promise<{ success: boolean; message: string }> {
   return getApiClient().post(`/api/appointments/${appointmentId}/check-in`, {});
 }
 
-export async function getAvailableSlots(providerId: string, date: string): Promise<unknown> {
+export async function getAvailableSlots(
+  providerId: string,
+  date: string
+): Promise<{ success: boolean; provider_id: string; date: string; available_slots: string[]; slot_duration_minutes: number }> {
   return getApiClient().get(`/api/appointments/slots/${providerId}/${date}`);
 }
 
@@ -1226,59 +1434,61 @@ export async function getAvailableSlots(providerId: string, date: string): Promi
 // Death Certificate & Autopsy (Phase 18)
 // ============================================================================
 
-export async function createDeathCertificate(data: unknown): Promise<unknown> {
+export async function createDeathCertificate(data: unknown): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/surgical/death-certificate', data);
 }
 
-export async function getDeathCertificate(certificateId: string): Promise<unknown> {
+export async function getDeathCertificate(certificateId: string): Promise<DeathCertificate> {
   return getApiClient().get(`/api/surgical/death-certificate/${certificateId}`);
 }
 
-export async function createAutopsyRequest(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/autopsy/request', data);
+export async function createAutopsyRequest(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/autopsy', data);
 }
 
-export async function getAutopsyRequest(requestId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/autopsy/request/${requestId}`);
+export async function getAutopsyRequest(requestId: string): Promise<AutopsyRequest> {
+  return getApiClient().get(`/api/surgical/autopsy/${requestId}`);
 }
 
-export async function createAutopsyReport(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/autopsy/report', data);
+export async function createAutopsyReport(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/autopsy/report', data);
 }
 
-export async function getAutopsyReport(reportId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/autopsy/report/${reportId}`);
+export async function getAutopsyReport(reportId: string): Promise<AutopsyReport> {
+  return getApiClient().get(`/api/surgical/autopsy/report/${reportId}`);
 }
 
 // ============================================================================
 // Patient Satisfaction (Phase 19)
 // ============================================================================
 
-export async function createSatisfactionSurvey(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/clinical/satisfaction-survey', data);
+export async function createSatisfactionSurvey(data: unknown): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/surgical/satisfaction-survey', data);
 }
 
-export async function getSatisfactionSurvey(surveyId: string): Promise<unknown> {
-  return getApiClient().get(`/api/clinical/satisfaction-survey/${surveyId}`);
+export async function getSatisfactionSurvey(surveyId: string): Promise<PatientSatisfactionSurvey> {
+  return getApiClient().get(`/api/surgical/satisfaction-survey/${surveyId}`);
 }
 
 // ============================================================================
 // Medication Reminders (Phase 20)
 // ============================================================================
 
-export async function createMedicationReminder(data: unknown): Promise<unknown> {
+export async function createMedicationReminder(data: unknown): Promise<MedicationReminderCreateResult> {
   return getApiClient().post('/api/reminders/medication', data);
 }
 
-export async function getPatientReminders(patientId: string): Promise<unknown> {
+export async function getPatientReminders(
+  patientId: string
+): Promise<{ success: boolean; patient_id: string; reminders: Record<string, unknown>[]; count: number }> {
   return getApiClient().get(`/api/reminders/medication/${patientId}`);
 }
 
-export async function logMedicationAdherence(data: unknown): Promise<unknown> {
+export async function logMedicationAdherence(data: unknown): Promise<AdherenceLogCreateResult> {
   return getApiClient().post('/api/reminders/adherence', data);
 }
 
-export async function deleteMedicationReminder(reminderId: string): Promise<unknown> {
+export async function deleteMedicationReminder(reminderId: string): Promise<{ success: boolean; message: string }> {
   return getApiClient().delete(`/api/reminders/medication/${reminderId}`);
 }
 
@@ -1286,19 +1496,35 @@ export async function deleteMedicationReminder(reminderId: string): Promise<unkn
 // Drug Interactions (Phase 21)
 // ============================================================================
 
-export async function getDrugDatabase(): Promise<unknown> {
+export async function getDrugDatabase(): Promise<{ success: boolean; drugs: DrugReference[]; count: number }> {
   return getApiClient().get('/api/drugs');
 }
 
-export async function getInteractionDatabase(): Promise<unknown> {
+export async function getInteractionDatabase(): Promise<{
+  success: boolean;
+  interactions: Record<string, unknown>[];
+  count: number;
+}> {
   return getApiClient().get('/api/interactions');
 }
 
-export async function checkDrugInteractions(data: unknown): Promise<unknown> {
+export async function checkDrugInteractions(data: unknown): Promise<{
+  success: boolean;
+  check_id: string;
+  patient_id: string;
+  medications_checked: number;
+  interactions_found: number;
+  has_critical: boolean;
+  interactions: Record<string, unknown>[];
+  allergy_alerts: Record<string, unknown>[];
+  recommendation: string;
+}> {
   return getApiClient().post('/api/interactions/check', data);
 }
 
-export async function getInteractionHistory(patientId: string): Promise<unknown> {
+export async function getInteractionHistory(
+  patientId: string
+): Promise<{ success: boolean; patient_id: string; checks: Record<string, unknown>[]; count: number }> {
   return getApiClient().get(`/api/interactions/history/${patientId}`);
 }
 
@@ -1306,23 +1532,29 @@ export async function getInteractionHistory(patientId: string): Promise<unknown>
 // Family Groups (Phase 22)
 // ============================================================================
 
-export async function createFamilyGroup(data: unknown): Promise<unknown> {
+export async function createFamilyGroup(data: unknown): Promise<FamilyGroupCreateResult> {
   return getApiClient().post('/api/family/groups', data);
 }
 
-export async function addFamilyMember(groupId: string, data: unknown): Promise<unknown> {
+export async function addFamilyMember(
+  groupId: string,
+  data: unknown
+): Promise<{ success: boolean; message: string }> {
   return getApiClient().post(`/api/family/groups/${groupId}/members`, data);
 }
 
-export async function getFamilyGroup(groupId: string): Promise<unknown> {
+export async function getFamilyGroup(groupId: string): Promise<{ success: boolean; group: FamilyGroup }> {
   return getApiClient().get(`/api/family/groups/${groupId}`);
 }
 
-export async function getMyFamilyGroups(): Promise<unknown> {
+export async function getMyFamilyGroups(): Promise<{ success: boolean; groups: FamilyGroup[]; count: number }> {
   return getApiClient().get('/api/family/my-groups');
 }
 
-export async function removeFamilyMember(groupId: string, patientId: string): Promise<unknown> {
+export async function removeFamilyMember(
+  groupId: string,
+  patientId: string
+): Promise<{ success: boolean; message: string }> {
   return getApiClient().delete(`/api/family/groups/${groupId}/members/${patientId}`);
 }
 
@@ -1330,28 +1562,31 @@ export async function removeFamilyMember(groupId: string, patientId: string): Pr
 // Wearables (Phase 24)
 // ============================================================================
 
-export async function registerWearableDevice(data: unknown): Promise<unknown> {
+export async function registerWearableDevice(data: unknown): Promise<WearableDeviceCreateResult> {
   return getApiClient().post('/api/wearables/devices', data);
 }
 
-export async function getWearableDevices(): Promise<unknown> {
+export async function getWearableDevices(): Promise<{ success: boolean; devices: WearableDevice[]; count: number }> {
   return getApiClient().get('/api/wearables/devices');
 }
 
-export async function submitWearableReading(data: unknown): Promise<unknown> {
+export async function submitWearableReading(data: unknown): Promise<WearableReadingCreateResult> {
   return getApiClient().post('/api/wearables/readings', data);
 }
 
-export async function getWearableReadings(patientId: string, type?: string): Promise<unknown> {
+export async function getWearableReadings(
+  patientId: string,
+  type?: string
+): Promise<{ success: boolean; readings: WearableReading[]; count: number }> {
   const url = type ? `/api/wearables/readings/${patientId}?type=${type}` : `/api/wearables/readings/${patientId}`;
   return getApiClient().get(url);
 }
 
-export async function createWearableAlertRule(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/wearables/alert-rules', data);
+export async function createWearableAlertRule(data: unknown): Promise<AlertRuleCreateResult> {
+  return getApiClient().post('/api/wearables/alerts/rules', data);
 }
 
-export async function getWearableAlerts(): Promise<unknown> {
+export async function getWearableAlerts(): Promise<{ success: boolean; alerts: WearableAlert[]; count: number }> {
   return getApiClient().get('/api/wearables/alerts');
 }
 
@@ -1388,19 +1623,26 @@ export async function analyzeSymptoms(data: SymptomAnalysisRequest): Promise<Sym
   return getApiClient().post('/api/symptoms/analyze', data);
 }
 
-export async function startSymptomCheck(data: unknown): Promise<unknown> {
+export async function startSymptomCheck(data: unknown): Promise<SymptomCheckCreateResult> {
   return getApiClient().post('/api/symptoms/start', data);
 }
 
-export async function submitSymptomAnswers(sessionId: string, data: unknown): Promise<unknown> {
+export async function submitSymptomAnswers(
+  sessionId: string,
+  data: unknown
+): Promise<{ success: boolean; session: SymptomCheckSession }> {
   return getApiClient().post(`/api/symptoms/${sessionId}/answers`, data);
 }
 
-export async function getSymptomSession(sessionId: string): Promise<unknown> {
+export async function getSymptomSession(
+  sessionId: string
+): Promise<{ success: boolean; session: SymptomCheckSession }> {
   return getApiClient().get(`/api/symptoms/${sessionId}`);
 }
 
-export async function getSymptomCheckerHistory(patientId: string): Promise<unknown> {
+export async function getSymptomCheckerHistory(
+  patientId: string
+): Promise<{ success: boolean; patient_id: string; sessions: SymptomCheckSession[]; count: number }> {
   return getApiClient().get(`/api/symptoms/history/${patientId}`);
 }
 
@@ -1408,19 +1650,23 @@ export async function getSymptomCheckerHistory(patientId: string): Promise<unkno
 // Telehealth (Phase 26)
 // ============================================================================
 
-export async function createTelehealthSession(data: unknown): Promise<unknown> {
+export async function createTelehealthSession(data: unknown): Promise<TelehealthSessionCreateResult> {
   return getApiClient().post('/api/telehealth/sessions', data);
 }
 
-export async function getTelehealthSession(sessionId: string): Promise<unknown> {
+export async function getTelehealthSession(
+  sessionId: string
+): Promise<{ success: boolean; session: TelehealthSession }> {
   return getApiClient().get(`/api/telehealth/sessions/${sessionId}`);
 }
 
-export async function joinTelehealthSession(sessionId: string): Promise<unknown> {
+export async function joinTelehealthSession(
+  sessionId: string
+): Promise<{ jitsi?: Record<string, unknown> | null; video_room_url?: string | null; role?: string; subject?: string | null }> {
   return getApiClient().post(`/api/telehealth/sessions/${sessionId}/join`, {});
 }
 
-export async function endTelehealthSession(sessionId: string, data?: unknown): Promise<unknown> {
+export async function endTelehealthSession(sessionId: string, data?: unknown): Promise<EndTelehealthSessionResponse> {
   return getApiClient().post(`/api/telehealth/sessions/${sessionId}/end`, data || {});
 }
 
@@ -1429,7 +1675,7 @@ export async function telehealthEvent(
   sessionId: string,
   eventType: string,
   detail?: string
-): Promise<unknown> {
+): Promise<{ success: boolean }> {
   return getApiClient().post(`/api/telehealth/sessions/${sessionId}/event`, {
     event_type: eventType,
     detail,
@@ -1448,11 +1694,20 @@ export async function telehealthRecording(
   });
 }
 
-export async function submitDeviceCheck(data: unknown): Promise<unknown> {
+export async function submitDeviceCheck(data: unknown): Promise<{
+  success: boolean;
+  ready_for_telehealth: boolean;
+  check_id: string;
+  issues: string[];
+  recommendations: string[];
+  details: Record<string, unknown>;
+}> {
   return getApiClient().post('/api/telehealth/device-check', data);
 }
 
-export async function getPatientTelehealthSessions(patientId: string): Promise<unknown> {
+export async function getPatientTelehealthSessions(
+  patientId: string
+): Promise<{ success: boolean; patient_id: string; sessions: TelehealthSession[]; count: number }> {
   return getApiClient().get(`/api/telehealth/patient/${patientId}/sessions`);
 }
 
@@ -1471,24 +1726,31 @@ export async function getTelehealthJoinQr(
 // CDS (Phase 27)
 // ============================================================================
 
-export async function createCdsAlert(data: unknown): Promise<unknown> {
+export async function createCdsAlert(data: unknown): Promise<CdsAlertCreateResult> {
   return getApiClient().post('/api/cds/alerts', data);
 }
 
-export async function getCdsAlerts(params?: Record<string, string>): Promise<unknown> {
+export async function getCdsAlerts(
+  params?: Record<string, string>
+): Promise<{ success: boolean; alerts: Record<string, unknown>[]; count: number }> {
   const query = new URLSearchParams(params).toString();
   return getApiClient().get(`/api/cds/alerts?${query}`);
 }
 
-export async function getCdsAlert(alertId: string): Promise<unknown> {
+export async function getCdsAlert(alertId: string): Promise<{ success: boolean; alert: Record<string, unknown> }> {
   return getApiClient().get(`/api/cds/alerts/${alertId}`);
 }
 
-export async function respondToCdsAlert(alertId: string, data: unknown): Promise<unknown> {
+export async function respondToCdsAlert(
+  alertId: string,
+  data: unknown
+): Promise<{ success: boolean; alert_id: string; status: string; message: string }> {
   return getApiClient().post(`/api/cds/alerts/${alertId}/respond`, data);
 }
 
-export async function getPatientCdsAlerts(patientId: string): Promise<unknown> {
+export async function getPatientCdsAlerts(
+  patientId: string
+): Promise<{ success: boolean; patient_id: string; alerts: Record<string, unknown>[]; count: number }> {
   return getApiClient().get(`/api/cds/patient/${patientId}/alerts`);
 }
 
@@ -1496,16 +1758,32 @@ export async function getPatientCdsAlerts(patientId: string): Promise<unknown> {
 // Lab Trends (Phase 28)
 // ============================================================================
 
-export async function getLabTrends(patientId: string, testCode?: string): Promise<unknown> {
+export async function getLabTrends(
+  patientId: string,
+  testCode?: string
+): Promise<{
+  success: boolean;
+  patient_id: string;
+  trends: Record<string, unknown>[];
+  count: number;
+  statistics: Record<string, unknown>;
+  per_test_statistics: Record<string, unknown>;
+}> {
   const url = testCode ? `/api/lab-trends/patient/${patientId}?test_code=${testCode}` : `/api/lab-trends/patient/${patientId}`;
   return getApiClient().get(url);
 }
 
-export async function analyzeLabTrends(data: unknown): Promise<unknown> {
+export async function analyzeLabTrends(data: unknown): Promise<{
+  success: boolean;
+  patient_id: string;
+  trends: Record<string, unknown>[];
+  count: number;
+  aggregate_statistics: Record<string, unknown>;
+}> {
   return getApiClient().post('/api/lab-trends/analyze', data);
 }
 
-export async function getLabTrendResult(resultId: string): Promise<unknown> {
+export async function getLabTrendResult(resultId: string): Promise<{ success: boolean; trend: Record<string, unknown> }> {
   return getApiClient().get(`/api/lab-trends/${resultId}`);
 }
 
@@ -1513,23 +1791,40 @@ export async function getLabTrendResult(resultId: string): Promise<unknown> {
 // Insurance Claims (Phase 30)
 // ============================================================================
 
-export async function createInsuranceClaim(data: unknown): Promise<unknown> {
+export async function createInsuranceClaim(data: unknown): Promise<InsuranceClaimCreateResult> {
   return getApiClient().post('/api/insurance/claims', data);
 }
 
-export async function submitInsuranceClaim(claimId: string): Promise<unknown> {
+export async function submitInsuranceClaim(
+  claimId: string
+): Promise<{ success: boolean; claim_id: string; payer_claim_number: string; status: string; submitted_at: number; message: string }> {
   return getApiClient().post(`/api/insurance/claims/${claimId}/submit`, {});
 }
 
-export async function getInsuranceClaim(claimId: string): Promise<unknown> {
+export async function getInsuranceClaim(claimId: string): Promise<{ success: boolean; claim: Record<string, unknown> }> {
   return getApiClient().get(`/api/insurance/claims/${claimId}`);
 }
 
-export async function getPatientInsuranceClaims(patientId: string): Promise<unknown> {
-  return getApiClient().get(`/api/insurance/claims/patient/${patientId}`);
+export async function getPatientInsuranceClaims(
+  patientId: string,
+  pagination?: { cursor?: string | null; limit?: number }
+): Promise<{
+  success: boolean;
+  patient_id: string;
+  claims: Record<string, unknown>[];
+  count: number;
+  next_cursor?: string | null;
+}> {
+  const params = new URLSearchParams();
+  if (pagination?.cursor) params.set('cursor', pagination.cursor);
+  if (pagination?.limit) params.set('limit', String(pagination.limit));
+  const query = params.toString();
+  return getApiClient().get(
+    `/api/insurance/claims/patient/${patientId}${query ? `?${query}` : ''}`
+  );
 }
 
-export async function checkInsuranceEligibility(data: unknown): Promise<unknown> {
+export async function checkInsuranceEligibility(data: unknown): Promise<CheckEligibilityResponse> {
   return getApiClient().post('/api/insurance/eligibility', data);
 }
 
@@ -1537,75 +1832,136 @@ export async function checkInsuranceEligibility(data: unknown): Promise<unknown>
 // Analytics (Phase 31)
 // ============================================================================
 
-export async function getDashboardMetrics(params: Record<string, string>): Promise<unknown> {
+export async function getDashboardMetrics(params: Record<string, string>): Promise<DashboardMetricsResponse> {
   const query = new URLSearchParams(params).toString();
-  return getApiClient().get(`/api/analytics/dashboard?${query}`);
+  return getApiClient().get(`/api/platform/analytics/dashboard?${query}`);
 }
 
-export async function getPatientAnalytics(): Promise<unknown> {
-  return getApiClient().get('/api/analytics/patients');
+export async function getPatientAnalytics(): Promise<PatientAnalyticsResponse> {
+  return getApiClient().get('/api/platform/analytics/patients');
 }
 
-export async function getAppointmentAnalytics(): Promise<unknown> {
-  return getApiClient().get('/api/analytics/appointments');
+export async function getAppointmentAnalytics(): Promise<AppointmentAnalyticsResponse> {
+  return getApiClient().get('/api/platform/analytics/appointments');
 }
 
-export async function getQualityMetrics(): Promise<unknown> {
-  return getApiClient().get('/api/analytics/quality');
+export async function getQualityMetrics(): Promise<QualityMetricsResponse> {
+  return getApiClient().get('/api/platform/analytics/quality');
 }
 
 // ============================================================================
 // Languages (Phase 32)
 // ============================================================================
 
-export async function getSupportedLanguages(): Promise<unknown> {
-  return getApiClient().get('/api/languages');
+export async function getSupportedLanguages(): Promise<{
+  success: boolean;
+  languages: { code: string; name: string; native_name: string }[];
+}> {
+  return getApiClient().get('/api/platform/languages');
 }
 
-export async function setLanguagePreference(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/languages/preference', data);
+export async function setLanguagePreference(data: unknown): Promise<{ success: boolean; message: string }> {
+  return getApiClient().post('/api/platform/languages/preference', data);
 }
 
-export async function getLanguagePreference(userId: string): Promise<unknown> {
-  return getApiClient().get(`/api/languages/preference/${userId}`);
+export async function getLanguagePreference(userId: string): Promise<{
+  user_id: string;
+  preferred_language: string;
+  secondary_language: string | null;
+  reading_proficiency: string;
+  needs_interpreter: boolean;
+  interpreter_language: string | null;
+  updated_at: number;
+}> {
+  return getApiClient().get(`/api/platform/languages/preference/${userId}`);
 }
 
-export async function translateContent(data: unknown): Promise<unknown> {
-  return getApiClient().post('/api/languages/translate', data);
+export async function translateContent(
+  data: unknown
+): Promise<{ success: boolean; original_content: string; translated_content: string; target_language: string }> {
+  return getApiClient().post('/api/platform/translate', data);
+}
+
+// ============================================================================
+// SMS Preferences (Phase 5.3)
+// ============================================================================
+
+export async function optOutOfSms(phoneNumber: string): Promise<{ success: boolean; message: string }> {
+  return getApiClient().post('/api/notifications/sms/opt-out', { phone_number: phoneNumber });
+}
+
+export async function optInToSms(phoneNumber: string): Promise<{ success: boolean; message: string }> {
+  return getApiClient().post('/api/notifications/sms/opt-in', { phone_number: phoneNumber });
+}
+
+export async function getSmsOptOutStatus(
+  phoneNumber: string
+): Promise<{ phone_number: string; opted_out: boolean }> {
+  return getApiClient().get(`/api/notifications/sms/opt-out/${encodeURIComponent(phoneNumber)}`);
+}
+
+// ============================================================================
+// Push Notifications (Phase 5.2 — FCM device registration)
+// ============================================================================
+
+export async function registerDeviceToken(
+  token: string,
+  deviceType?: string,
+  deviceName?: string
+): Promise<{ success: boolean; status: string }> {
+  return getApiClient().post('/api/notifications/register-device', {
+    token,
+    device_type: deviceType,
+    device_name: deviceName,
+  });
 }
 
 // ============================================================================
 // Offline Sync (Phase 33)
 // ============================================================================
 
-export async function getSyncStatus(deviceId: string): Promise<unknown> {
+export async function getSyncStatus(deviceId: string): Promise<{
+  device_id: string;
+  last_successful_sync: number;
+  pending_server_changes: number;
+  status: string;
+}> {
   return getApiClient().get(`/api/sync/status/${deviceId}`);
 }
 
-export async function registerSyncDevice(data: unknown): Promise<unknown> {
+export async function registerSyncDevice(data: unknown): Promise<SyncDeviceCreateResult> {
   return getApiClient().post('/api/sync/register', data);
 }
 
-export async function getSyncConflicts(): Promise<unknown> {
+export async function getSyncConflicts(): Promise<{ conflicts: Record<string, unknown>[] }> {
   return getApiClient().get('/api/sync/conflicts');
 }
 
 export async function resolveSyncConflict(
   conflictId: string,
   resolution: 'UseLocal' | 'UseServer' | 'Merge',
-): Promise<unknown> {
+): Promise<{ success: boolean; conflict_id: string; resolution: string }> {
   return getApiClient().post(`/api/sync/conflicts/${conflictId}/resolve`, { resolution });
 }
 
-export async function performSync(data: unknown): Promise<unknown> {
+export async function performSync(
+  data: unknown
+): Promise<{ success: boolean; processed: number; conflicts: Record<string, unknown>[]; sync_timestamp: number }> {
   return getApiClient().post('/api/sync', data);
 }
 
-export async function getSyncQueue(deviceId: string): Promise<unknown> {
+export async function getSyncQueue(
+  deviceId: string
+): Promise<{ device_id: string; queue: Record<string, unknown>[]; count: number }> {
   return getApiClient().get(`/api/sync/queue/${deviceId}`);
 }
 
-export async function downloadOfflineData(patientId: string): Promise<unknown> {
+export async function downloadOfflineData(patientId: string): Promise<{
+  patient: Record<string, unknown>;
+  records: Record<string, unknown>[];
+  vitals: Record<string, unknown>[];
+  downloaded_at: number;
+}> {
   return getApiClient().get(`/api/sync/download/${patientId}`);
 }
 
@@ -1613,39 +1969,61 @@ export async function downloadOfflineData(patientId: string): Promise<unknown> {
 // System & Misc
 // ============================================================================
 
-export async function getOrderSets(): Promise<unknown> {
+export async function getOrderSets(): Promise<{ success: boolean; order_sets: Record<string, unknown>[] }> {
   return getApiClient().get('/api/order-sets');
 }
 
-export async function getNoteTemplates(): Promise<unknown> {
+export async function getNoteTemplates(): Promise<{
+  success: boolean;
+  templates: Record<string, unknown>[];
+  count: number;
+}> {
   return getApiClient().get('/api/templates/notes');
 }
 
-export async function useNoteTemplate(data: unknown): Promise<unknown> {
+export async function useNoteTemplate(
+  data: unknown
+): Promise<{ success: boolean; template_id: string; generated_note: string; timestamp: number }> {
   return getApiClient().post('/api/templates/notes/use', data);
 }
 
-export async function generateBarcode(data: unknown): Promise<unknown> {
+export async function generateBarcode(
+  data: unknown
+): Promise<{ success: boolean; barcode: Record<string, unknown>; message: string }> {
   return getApiClient().post('/api/barcode/generate', data);
 }
 
-export async function scanBarcode(data: unknown): Promise<unknown> {
+export async function scanBarcode(data: unknown): Promise<{
+  success: boolean;
+  barcode_value: string;
+  entity_info: Record<string, unknown>;
+  location: string | null;
+  scanned_at: number;
+}> {
   return getApiClient().post('/api/barcode/scan', data);
 }
 
-export async function trackBarcode(barcodeValue: string): Promise<unknown> {
-  return getApiClient().get(`/api/barcode/track/${barcodeValue}`);
+export async function trackBarcode(
+  barcodeValue: string
+): Promise<{ barcode_id: string; history: Record<string, unknown>[] }> {
+  return getApiClient().get(`/api/barcode/${barcodeValue}/history`);
 }
 
-export async function updateMedicalIdPreferences(patientId: string, data: unknown): Promise<unknown> {
+export async function updateMedicalIdPreferences(
+  patientId: string,
+  data: unknown
+): Promise<{ success: boolean; preferences: Record<string, unknown>; message: string }> {
   return getApiClient().post(`/api/medical-id/${patientId}/preferences`, data);
 }
 
-export async function triggerEmergencyNotification(patientId: string, data: unknown): Promise<unknown> {
+export async function triggerEmergencyNotification(
+  patientId: string,
+  data: unknown
+): Promise<{ success: boolean; patient_id: string; notifications_sent: number; notifications: Record<string, unknown>[]; message: string }> {
   return getApiClient().post(`/api/medical-id/${patientId}/emergency-notify`, data);
 }
 
-export async function getLockscreenMedicalId(patientId: string): Promise<unknown> {
+export async function getLockscreenMedicalId(patientId: string): Promise<LockscreenMedicalId> {
   return getApiClient().get(`/api/medical-id/${patientId}/lockscreen`);
 }
 // ============================================================================
@@ -1706,42 +2084,42 @@ export async function addVitalSigns(data: {
 /**
  * Get patient dashboard data
  */
-export async function getPatientDashboard(): Promise<unknown> {
+export async function getPatientDashboard(): Promise<PatientDashboardResponse> {
   return getApiClient().get('/api/dashboard/patient');
 }
 
 /**
  * Get doctor dashboard data
  */
-export async function getDoctorDashboard(): Promise<unknown> {
+export async function getDoctorDashboard(): Promise<DoctorDashboardResponse> {
   return getApiClient().get('/api/dashboard/doctor');
 }
 
 /**
  * Get nurse dashboard data
  */
-export async function getNurseDashboard(): Promise<unknown> {
+export async function getNurseDashboard(): Promise<NurseDashboardResponse> {
   return getApiClient().get('/api/dashboard/nurse');
 }
 
 /**
  * Get lab tech dashboard data
  */
-export async function getLabDashboard(): Promise<unknown> {
+export async function getLabDashboard(): Promise<LabDashboardResponse> {
   return getApiClient().get('/api/dashboard/lab');
 }
 
 /**
  * Get admin dashboard data
  */
-export async function getAdminDashboard(): Promise<unknown> {
+export async function getAdminDashboard(): Promise<AdminDashboardResponse> {
   return getApiClient().get('/api/dashboard/admin');
 }
 
 /**
  * Get pharmacist dashboard data
  */
-export async function getPharmacistDashboard(): Promise<unknown> {
+export async function getPharmacistDashboard(): Promise<PharmacistDashboardResponse> {
   return getApiClient().get('/api/dashboard/pharmacist');
 }
 
@@ -1782,7 +2160,7 @@ export async function getNotifications(): Promise<{ notifications: unknown[]; un
 /**
  * Get full medical ID data
  */
-export async function getMedicalId(patientId: string): Promise<unknown> {
+export async function getMedicalId(patientId: string): Promise<MedicalIdCard> {
   return getApiClient().get(`/api/medical-id/${patientId}`);
 }
 
@@ -1796,7 +2174,7 @@ export async function getMedicalIdQR(patientId: string): Promise<{ qr_base64: st
 /**
  * Get emergency view of medical ID
  */
-export async function getEmergencyMedicalId(patientId: string): Promise<unknown> {
+export async function getEmergencyMedicalId(patientId: string): Promise<EmergencyMedicalId> {
   return getApiClient().get(`/api/medical-id/${patientId}/emergency`);
 }
 
@@ -1807,59 +2185,70 @@ export async function getEmergencyMedicalId(patientId: string): Promise<unknown>
 /**
  * Verify patient insurance
  */
-export async function verifyInsurance(patientId: string): Promise<unknown> {
+export async function verifyInsurance(patientId: string): Promise<VerifyInsuranceResponse> {
   return getApiClient().post('/api/insurance/verify', { patient_id: patientId });
 }
 
 /**
- * Check eligibility for a service
+ * Check eligibility for a service.
+ * NOTE: the backend previously had two handlers duplicate-registered on this
+ * route (a crude one that only read `patient_id`/`service_code`, and this
+ * richer one) — the crude registration has been removed so the real
+ * `EligibilityCheckRequest` shape (payer/member/subscriber/service fields) is
+ * what actually runs; the signature here was widened to match. No caller used
+ * the old 2-arg form yet.
  */
-export async function checkEligibility(
-  patientId: string,
-  serviceCode: string
-): Promise<unknown> {
-  return getApiClient().post('/api/insurance/eligibility', {
-    patient_id: patientId,
-    service_code: serviceCode,
-  });
+export async function checkEligibility(request: {
+  patient_id: string;
+  payer_id: string;
+  member_id: string;
+  subscriber_dob: string;
+  service_type: string;
+  service_date: string;
+}): Promise<CheckEligibilityResponse> {
+  return getApiClient().post('/api/insurance/eligibility', request);
 }
 
 // ============================================================================
 // HL7 FHIR R4 API
+//
+// FHIR resource/Bundle shapes follow the HL7 FHIR R4 standard (external spec,
+// not a MediChain-defined struct) — typed structurally rather than mirroring
+// the full FHIR resource model.
 // ============================================================================
 
 /**
  * Get FHIR Patient resource
  */
-export async function fhirGetPatient(patientId: string): Promise<unknown> {
+export async function fhirGetPatient(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/Patient/${patientId}`);
 }
 
 /**
  * Get FHIR AllergyIntolerance resources
  */
-export async function fhirGetAllergies(patientId: string): Promise<unknown> {
+export async function fhirGetAllergies(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/AllergyIntolerance?patient=${patientId}`);
 }
 
 /**
  * Get FHIR Condition resources
  */
-export async function fhirGetConditions(patientId: string): Promise<unknown> {
+export async function fhirGetConditions(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/Condition?patient=${patientId}`);
 }
 
 /**
  * Get FHIR Observation resources (vital signs)
  */
-export async function fhirGetObservations(patientId: string): Promise<unknown> {
+export async function fhirGetObservations(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/Observation?patient=${patientId}`);
 }
 
 /**
  * Get FHIR server capability statement
  */
-export async function fhirCapabilityStatement(): Promise<unknown> {
+export async function fhirCapabilityStatement(): Promise<Record<string, unknown>> {
   return getApiClient().get('/api/fhir/r4/metadata');
 }
 
@@ -1922,23 +2311,35 @@ export async function getSymptomHistory(
 // Missing Clinical Endpoints (Task 1)
 // ============================================================================
 
-export async function createSampleHistory(data: unknown): Promise<unknown> {
+export async function createSampleHistory(data: unknown): Promise<ClinicalCreateResult> {
   return getApiClient().post('/api/clinical/sample', data);
 }
 
-export async function getSampleHistory(patientId: string): Promise<unknown> {
+export async function getSampleHistory(
+  patientId: string
+): Promise<{ success: boolean; history: SampleHistoryRecord }> {
   return getApiClient().get(`/api/clinical/sample/${patientId}`);
 }
 
-export async function createGCS(data: unknown): Promise<unknown> {
+export async function createGCS(data: unknown): Promise<{
+  success: boolean;
+  assessment_id: string;
+  total_score: number;
+  interpretation: string;
+  is_comatose: boolean;
+  needs_airway: boolean;
+  message: string;
+}> {
   return getApiClient().post('/api/clinical/gcs', data);
 }
 
-export async function getGCS(assessmentId: string): Promise<unknown> {
+export async function getGCS(assessmentId: string): Promise<GcsAssessmentRecord> {
   return getApiClient().get(`/api/clinical/gcs/${assessmentId}`);
 }
 
-export async function getPatientGCS(patientId: string): Promise<unknown> {
+export async function getPatientGCS(
+  patientId: string
+): Promise<{ patient_id: string; assessments: GcsAssessmentRecord[]; total: number }> {
   return getApiClient().get(`/api/clinical/patient/${patientId}/gcs`);
 }
 
@@ -1946,23 +2347,23 @@ export async function getPatientGCS(patientId: string): Promise<unknown> {
 // Missing FHIR Endpoints (Task 1)
 // ============================================================================
 
-export async function fhirGetMedications(patientId: string): Promise<unknown> {
+export async function fhirGetMedications(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/MedicationStatement?patient=${patientId}`);
 }
 
-export async function fhirGetEncounters(patientId: string): Promise<unknown> {
+export async function fhirGetEncounters(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/Encounter?patient=${patientId}`);
 }
 
-export async function fhirGetDiagnosticReports(patientId: string): Promise<unknown> {
+export async function fhirGetDiagnosticReports(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/DiagnosticReport?patient=${patientId}`);
 }
 
-export async function fhirGetProcedures(patientId: string): Promise<unknown> {
+export async function fhirGetProcedures(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/Procedure?patient=${patientId}`);
 }
 
-export async function fhirGetImmunizations(patientId: string): Promise<unknown> {
+export async function fhirGetImmunizations(patientId: string): Promise<Record<string, unknown>> {
   return getApiClient().get(`/api/fhir/r4/Immunization?patient=${patientId}`);
 }
 
@@ -1976,58 +2377,84 @@ export interface ListResponse<T> {
   items: T[];
 }
 
+/** Wrap a bare-array admin-list response in the `{success, total, items}` shape. */
+function wrapListResponse<T>(items: T[]): ListResponse<T> {
+  return { success: true, total: items.length, items };
+}
+
 /**
  * List all chain of custody records
  */
 export async function listChainOfCustody(): Promise<ListResponse<unknown>> {
-  return getApiClient().get('/api/clinical/chain-of-custody');
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/chain-of-custody');
+  return wrapListResponse(items || []);
 }
 
 /**
  * List all lab QC records
  */
 export async function listLabQc(): Promise<ListResponse<unknown>> {
-  return getApiClient().get('/api/clinical/lab-qc');
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/lab-qc');
+  return wrapListResponse(items || []);
 }
 
 /**
  * List all critical value notifications
  */
 export async function listCriticalValues(): Promise<ListResponse<unknown>> {
-  return getApiClient().get('/api/clinical/critical-values');
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/critical-values');
+  return wrapListResponse(items || []);
 }
 
 /**
- * List all radiology orders and reports
+ * List all radiology orders and reports.
+ * NOTE: the backend only has an admin list for orders, not reports — `reports` is
+ * always empty until a `/api/platform/list/radiology-reports` endpoint exists.
  */
 export async function listRadiology(): Promise<{
   success: boolean;
   orders: { total: number; items: unknown[] };
   reports: { total: number; items: unknown[] };
 }> {
-  return getApiClient().get('/api/clinical/radiology/orders');
+  const orders = (await getApiClient().get<unknown[]>('/api/platform/list/radiology-orders')) || [];
+  return {
+    success: true,
+    orders: { total: orders.length, items: orders },
+    reports: { total: 0, items: [] },
+  };
 }
 
 /**
  * List all pathology reports
  */
 export async function listPathology(): Promise<ListResponse<unknown>> {
-  return getApiClient().get('/api/clinical/pathology');
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/pathology');
+  return wrapListResponse(items || []);
 }
 
 /**
- * List all immunization records and schedules
+ * List all immunization records and schedules.
+ * NOTE: the backend only has an admin list for records, not schedules — `schedules`
+ * is always empty until a `/api/platform/list/immunization-schedules` endpoint exists.
  */
 export async function listImmunizations(): Promise<{
   success: boolean;
   records: { total: number; items: unknown[] };
   schedules: { total: number; items: unknown[] };
 }> {
-  return getApiClient().get('/api/clinical/immunizations');
+  const records = (await getApiClient().get<unknown[]>('/api/platform/list/immunizations')) || [];
+  return {
+    success: true,
+    records: { total: records.length, items: records },
+    schedules: { total: 0, items: [] },
+  };
 }
 
 /**
- * List all blood bank records
+ * List all blood bank records.
+ * NOTE: the backend only tracks type/screen records today (returned as
+ * `type_screens`) — `crossmatches`/`transfusions` are always empty until their
+ * repositories gain a `list_all()` admin view.
  */
 export async function listBloodBank(): Promise<{
   success: boolean;
@@ -2035,30 +2462,47 @@ export async function listBloodBank(): Promise<{
   crossmatches: { total: number; items: unknown[] };
   transfusions: { total: number; items: unknown[] };
 }> {
-  return getApiClient().get('/api/clinical/blood-bank');
+  const response = await getApiClient().get<{ screens: unknown[] }>('/api/platform/list/blood-bank');
+  const screens = response?.screens || [];
+  return {
+    success: true,
+    type_screens: { total: screens.length, items: screens },
+    crossmatches: { total: 0, items: [] },
+    transfusions: { total: 0, items: [] },
+  };
 }
 
 /**
- * List all autopsy records
+ * List all autopsy records (requests + reports)
  */
 export async function listAutopsy(): Promise<{
   success: boolean;
   requests: { total: number; items: unknown[] };
   reports: { total: number; items: unknown[] };
 }> {
-  return getApiClient().get('/api/clinical/autopsy');
+  const [requests, reports] = await Promise.all([
+    getApiClient().get<unknown[]>('/api/platform/list/autopsy'),
+    getApiClient().get<unknown[]>('/api/platform/list/autopsy-reports'),
+  ]);
+  return {
+    success: true,
+    requests: { total: (requests || []).length, items: requests || [] },
+    reports: { total: (reports || []).length, items: reports || [] },
+  };
 }
 
 /**
  * List all consultation notes
  */
 export async function listConsults(): Promise<ListResponse<unknown>> {
-  return getApiClient().get('/api/clinical/consults');
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/consults');
+  return wrapListResponse(items || []);
 }
 
 /**
  * List all CDS alerts
  */
 export async function listCdsAlerts(): Promise<ListResponse<unknown>> {
-  return getApiClient().get('/api/clinical/cds-alerts');
+  const items = await getApiClient().get<unknown[]>('/api/platform/list/cds-alerts');
+  return wrapListResponse(items || []);
 }

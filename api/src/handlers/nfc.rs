@@ -228,6 +228,118 @@ pub async fn nfc_tap(
     })
 }
 
+/// Request body for a patient verifying their own physical NFC card.
+#[derive(Debug, Deserialize)]
+pub struct VerifyMyCardRequest {
+    /// The card_hash read off the physical card via NFC (not looked up by
+    /// patient_id — this is what makes it a genuine tap-verification rather
+    /// than just "show my card's status").
+    pub card_hash: String,
+}
+
+/// Response for a patient's own card-verification tap.
+#[derive(Debug, Serialize)]
+pub struct VerifyMyCardResponse {
+    pub success: bool,
+    pub status: Option<String>,
+    pub last_used_at: Option<u64>,
+    pub message: String,
+}
+
+/// A patient taps their own physical NFC card to confirm it's genuinely
+/// theirs and still active — e.g. right after a clinic issues a new card, or
+/// periodically to catch a suspended/revoked card before an emergency.
+///
+/// Deliberately patient-only and self-scoped: `nfc_tap` (above) is the
+/// provider-only emergency-read path for tapping ANOTHER patient's card;
+/// this is the self-service counterpart a patient's own phone can actually
+/// use, mirroring the QR-scanning scope split already made for the mobile
+/// app (see `mobile-examples/expo-starter`'s `FamilyScreen` doc comment).
+#[post("/api/nfc/verify-mine")]
+pub async fn verify_my_nfc_card(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    body: web::Json<VerifyMyCardRequest>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            });
+        }
+    };
+
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            });
+        }
+    };
+
+    if current_user.role != Role::Patient {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only patients can self-verify a card; providers use /api/nfc/tap".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
+
+    let card = match data.card_registry.get_card(&body.card_hash) {
+        Some(c) => c,
+        None => {
+            return HttpResponse::Ok().json(VerifyMyCardResponse {
+                success: false,
+                status: None,
+                last_used_at: None,
+                message: "This card isn't registered in MediChain.".to_string(),
+            });
+        }
+    };
+
+    // The card_hash is a valid registered card, but does it belong to the
+    // patient holding the phone? Reject silently-wrong or cloned cards.
+    if card.patient_id != current_user_id {
+        return HttpResponse::Ok().json(VerifyMyCardResponse {
+            success: false,
+            status: None,
+            last_used_at: None,
+            message: "This card is registered to a different account.".to_string(),
+        });
+    }
+
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: current_user_id.clone(),
+                accessor_id: current_user_id.clone(),
+                accessor_role: current_user.role.to_string(),
+                access_type: "nfc_self_verify".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
+
+    HttpResponse::Ok().json(VerifyMyCardResponse {
+        success: true,
+        status: Some(card.status.to_string()),
+        last_used_at: card.last_used_at,
+        message: "Card verified — this is your active MediChain card.".to_string(),
+    })
+}
+
 /// Verify a QR code for emergency access
 #[post("/api/nfc/verify-qr")]
 pub async fn verify_qr_code(

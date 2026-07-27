@@ -12,7 +12,9 @@ import {
   syncApiClientUserId,
   getApiClient,
   getApiErrorMessage,
-  issueJwt
+  issueJwt,
+  enterWorkContext,
+  initPushNotifications
 } from '@medichain/shared';
 import { connectRealWallet, signMessage } from '@medichain/shared';
 import type { Role as WalletRole } from '@medichain/shared';
@@ -98,11 +100,31 @@ async function acquireJwtTokens(
     const resp = await issueJwt({ wallet_address: walletAddress, signature, timestamp });
     if (resp?.access_token) {
       getApiClient().setTokens(resp.access_token, resp.refresh_token);
+      // Phase 1: professional screens run with a work-context token. If the
+      // backend is still completing legacy identity migration, retain the
+      // verified legacy JWT rather than breaking an existing login.
+      try {
+        const context = await enterWorkContext();
+        getApiClient().setTokens(context.access_token);
+      } catch (contextError) {
+        debugLog('authStore', 'Work context unavailable; using legacy JWT:', contextError);
+      }
       debugLog('authStore', `JWT acquired (mfa_required=${resp.mfa_required})`);
     }
   } catch (e) {
     debugLog('authStore', 'JWT acquisition failed; continuing with X-User-Id:', e);
   }
+}
+
+/**
+ * Request push-notification permission and register the device token
+ * (Phase 5.2). Non-fatal and silently a no-op without a configured Firebase
+ * project — see `push.ts` in `@medichain/shared` for the full explanation.
+ */
+function initPush(): void {
+  void initPushNotifications().catch((e) => {
+    debugLog('authStore', 'Push notification init failed:', e);
+  });
 }
 
 /**
@@ -152,6 +174,7 @@ export const useAuthStore = create<AuthState>()(
           if (ok) {
             // Upgrade to a signature-backed JWT (valid even with REQUIRE_SIGNATURES=true).
             await acquireJwtTokens(walletAddress, (message) => signMessage(walletAddress, message));
+            initPush();
           }
           return ok;
         } catch (error) {
@@ -212,6 +235,7 @@ export const useAuthStore = create<AuthState>()(
 
             // Acquire JWT tokens (demo path / unsigned; loginWithExtension upgrades with a signature).
             await acquireJwtTokens(user.walletAddress);
+            initPush();
 
             debugLog('authStore', 'Logged in with wallet:', walletAddress);
             return true;
@@ -315,6 +339,7 @@ export const useAuthStore = create<AuthState>()(
 
           // Demo wallets cannot sign; rely on demo-mode (unsigned) JWT issuance.
           await acquireJwtTokens(user.walletAddress);
+          initPush();
 
           debugLog('authStore', 'Created and registered demo wallet:', { walletAddress: user.walletAddress, role: user.role });
           return true;
@@ -404,6 +429,7 @@ export const useAuthStore = create<AuthState>()(
             });
             // Re-acquire JWTs (tokens are not persisted to storage).
             await acquireJwtTokens(storedAuth.address);
+            initPush();
             debugLog('authStore', 'Session validated and restored');
             return true;
           }
@@ -441,6 +467,7 @@ export const useAuthStore = create<AuthState>()(
             });
             // Re-acquire JWTs (tokens are not persisted to storage).
             await acquireJwtTokens(demoUser.wallet_address || storedAuth.address);
+            initPush();
             debugLog('authStore', 'Session re-registered successfully');
             return true;
           }

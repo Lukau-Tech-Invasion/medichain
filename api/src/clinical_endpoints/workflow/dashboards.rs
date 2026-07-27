@@ -30,10 +30,12 @@ pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest)
     };
 
     // Get patient profile from repository
-    let patient_profile = match data.repositories.patients.get_by_id(&current_user_id).await {
-        Ok(p) => Some(p),
-        Err(_) => None,
-    };
+    let patient_profile = data
+        .repositories
+        .patients
+        .get_by_id(&current_user_id)
+        .await
+        .ok();
 
     // Get recent lab results (approved only for patients) from repository
     let pagination = Pagination::new(0, 10);
@@ -64,15 +66,12 @@ pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest)
     };
 
     // Get latest vital signs from repository
-    let vital_signs = match data
+    let vital_signs = data
         .repositories
         .vital_signs
         .get_latest_by_patient(&current_user_id)
         .await
-    {
-        Ok(v) => v,
-        Err(_) => None,
-    };
+        .unwrap_or_default();
 
     // Get SOAP notes (Progress notes) from repository
     let pagination = Pagination::new(0, 5);

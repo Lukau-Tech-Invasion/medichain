@@ -18,15 +18,9 @@ pub async fn create_family_group(
     http_req: HttpRequest,
     req: web::Json<CreateFamilyGroupRequest>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Only the primary contact can create their family group
@@ -101,15 +95,9 @@ pub async fn add_family_member(
 ) -> impl Responder {
     let group_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     let stored = data
@@ -216,15 +204,9 @@ pub async fn get_family_group(
 ) -> impl Responder {
     let group_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     let stored = data
@@ -274,20 +256,18 @@ pub async fn get_family_group(
 }
 
 /// Get my family groups
-#[get("/api/family/groups")]
+// Path fixed 2026-07-22: the shared client (`endpoints.ts`'s `getMyFamilyGroups`)
+// has always called `/api/family/my-groups` — this handler was registered one
+// segment off and has been 404ing.
+#[get("/api/family/my-groups")]
 pub async fn get_my_family_groups(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
+    query: web::Query<crate::pagination::CursorQuery>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Repository list_all() (was: data.family_groups HashMap)
@@ -297,22 +277,26 @@ pub async fn get_my_family_groups(
         .list_all()
         .await
         .unwrap_or_default();
-    let my_groups: Vec<crate::clinical::FamilyGroup> = all_records
+    let matching_records: Vec<_> = all_records
         .into_iter()
-        .filter_map(|rec| {
-            let g: crate::clinical::FamilyGroup = serde_json::from_value(rec.data).ok()?;
-            if g.members.iter().any(|m| m.patient_id == current_user_id) {
-                Some(g)
-            } else {
-                None
-            }
+        .filter(|rec| {
+            serde_json::from_value::<crate::clinical::FamilyGroup>(rec.data.clone())
+                .map(|g| g.members.iter().any(|m| m.patient_id == current_user_id))
+                .unwrap_or(false)
         })
+        .collect();
+    let (page, next_cursor) =
+        crate::pagination::paginate_cursor(&matching_records, query.cursor.as_deref(), query.limit);
+    let my_groups: Vec<crate::clinical::FamilyGroup> = page
+        .into_iter()
+        .filter_map(|rec| serde_json::from_value(rec.data).ok())
         .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "groups": my_groups,
-        "count": my_groups.len()
+        "count": my_groups.len(),
+        "next_cursor": next_cursor
     }))
 }
 
@@ -325,15 +309,9 @@ pub async fn remove_family_member(
 ) -> impl Responder {
     let (group_id, patient_id) = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     let stored = data

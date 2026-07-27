@@ -23,14 +23,6 @@ impl MemoryNursingCarePlanRepository {
             data: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-    /// Create with existing data
-    #[allow(dead_code)]
-    pub fn with_data(data: HashMap<String, NursingCarePlanEntity>) -> Self {
-        Self {
-            data: Arc::new(RwLock::new(data)),
-        }
-    }
 }
 
 #[async_trait]
@@ -76,7 +68,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
             .cloned()
             .collect();
 
-        plans.sort_by(|a, b| b.start_date.cmp(&a.start_date));
+        plans.sort_by_key(|b| std::cmp::Reverse(b.start_date));
 
         let total = plans.len() as u64;
         let offset = pagination.offset() as usize;
@@ -158,7 +150,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
             .cloned()
             .collect();
 
-        plans.sort_by(|a, b| b.start_date.cmp(&a.start_date));
+        plans.sort_by_key(|b| std::cmp::Reverse(b.start_date));
 
         let total = plans.len() as u64;
         let offset = pagination.offset() as usize;
@@ -177,7 +169,7 @@ impl NursingCarePlanRepository for MemoryNursingCarePlanRepository {
         let mut plans: Vec<NursingCarePlanEntity> =
             storage.values().filter(|p| p.is_active).cloned().collect();
 
-        plans.sort_by(|a, b| b.start_date.cmp(&a.start_date));
+        plans.sort_by_key(|b| std::cmp::Reverse(b.start_date));
 
         let total = plans.len() as u64;
         let offset = pagination.offset() as usize;

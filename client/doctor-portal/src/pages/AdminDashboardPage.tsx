@@ -143,7 +143,7 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       const response = await getAdminDashboard();
-      setData(response as AdminDashboardData);
+      setData(response as unknown as AdminDashboardData);
     } catch (error) {
       console.error('Failed to load admin dashboard:', error);
     } finally {

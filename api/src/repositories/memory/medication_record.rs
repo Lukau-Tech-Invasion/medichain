@@ -114,7 +114,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
             .cloned()
             .collect();
 
-        records.sort_by(|a, b| b.record_date.cmp(&a.record_date));
+        records.sort_by_key(|b| std::cmp::Reverse(b.record_date));
 
         let total = records.len() as u64;
         let offset = pagination.offset() as usize;
@@ -171,7 +171,7 @@ impl MedicationRecordRepository for MemoryMedicationRecordRepository {
         let mut records: Vec<MedicationRecordEntity> =
             storage.values().filter(|r| r.is_active).cloned().collect();
 
-        records.sort_by(|a, b| b.record_date.cmp(&a.record_date));
+        records.sort_by_key(|b| std::cmp::Reverse(b.record_date));
 
         let total = records.len() as u64;
         let offset = pagination.offset() as usize;

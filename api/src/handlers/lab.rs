@@ -64,7 +64,7 @@ pub async fn submit_lab_results(
                 });
             }
         };
-        match patient_entity_to_profile(&entity, &data.encryption_key) {
+        match patient_entity_to_profile(&entity, &data.encryption_keyring) {
             Some(p) => p.full_name,
             None => {
                 return HttpResponse::NotFound().json(ErrorResponse {
@@ -524,6 +524,25 @@ pub async fn review_lab_results_impl(
             current_user_id,
             patient_id
         );
+
+        // FCM push: lab results are now visible to the patient.
+        {
+            let repos = data.repositories.clone();
+            let recipient = patient_id.clone();
+            let test_name = submission.test_name.clone();
+            tokio::spawn(async move {
+                let _ = crate::notifications::send_push_to_user(
+                    &repos,
+                    crate::notifications::PushNotification {
+                        user_id: recipient,
+                        title: "Lab Results Ready".to_string(),
+                        body: format!("Your {} results are now available.", test_name),
+                        data: Some([("type".to_string(), "lab_results_ready".to_string())].into()),
+                    },
+                )
+                .await;
+            });
+        }
     } else {
         submission.status = LabResultStatus::Rejected;
         submission.reviewed_by = Some(current_user_id.clone());

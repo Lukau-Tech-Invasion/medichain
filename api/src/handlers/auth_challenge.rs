@@ -605,6 +605,11 @@ pub async fn get_user_details(
 
 /// Update user profile (Admin or self)
 #[put("/api/users/{wallet_address}")]
+// The `users` RwLock write guard is explicitly `drop()`-ed before this handler's
+// await point; clippy's await_holding_lock doesn't recognize manual drops here.
+// readonly_write_lock is also a false positive: `user.email`/`user.phone`/etc are
+// mutated in place through the `&mut User` below before being cloned out.
+#[allow(clippy::await_holding_lock, clippy::readonly_write_lock)]
 pub async fn update_user_profile(
     data: web::Data<AppState>,
     req: HttpRequest,
@@ -681,6 +686,16 @@ pub async fn update_user_profile(
     if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
         user.name = name.to_string();
     }
+    let updated_user = user.clone();
+    drop(users);
+
+    if let Err(e) = data.persist_user(&updated_user).await {
+        log::error!(
+            "Failed to persist profile update for {}: {}",
+            wallet_address,
+            e
+        );
+    }
 
     log::info!(
         "User profile updated: {} by {}",
@@ -733,7 +748,7 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
             .unwrap_or(&current_user.wallet_address);
 
         match data.repositories.patients.get_by_id(patient_id).await {
-            Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_key) {
+            Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
                 Some(profile) => HttpResponse::Ok().json(profile),
                 None => HttpResponse::NotFound().json(ErrorResponse {
                     success: false,
@@ -758,7 +773,7 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
             .unwrap_or_default();
         let all: Vec<PatientProfile> = entities
             .iter()
-            .filter_map(|e| patient_entity_to_profile(e, &data.encryption_key))
+            .filter_map(|e| patient_entity_to_profile(e, &data.encryption_keyring))
             .collect();
         HttpResponse::Ok().json(all)
     }

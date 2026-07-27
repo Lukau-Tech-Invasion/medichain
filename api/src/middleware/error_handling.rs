@@ -5,109 +5,6 @@
 //!
 //! © 2025-2026 Trustware. All rights reserved.
 
-use actix_web::{http::StatusCode, HttpResponse};
-use serde::Serialize;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-/// Standard API error response format
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct ApiError {
-    pub success: bool,
-    pub error: String,
-    pub code: String,
-    pub details: Option<String>,
-    pub request_id: Option<String>,
-}
-
-impl Serialize for ApiError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        // Phase 9.5: emit the canonical error envelope. `details` and
-        // `request_id` (when present) are folded into the nested `details` object.
-        let details = match (&self.details, &self.request_id) {
-            (None, None) => None,
-            (d, r) => {
-                let mut obj = serde_json::Map::new();
-                if let Some(d) = d {
-                    obj.insert("details".to_string(), serde_json::Value::String(d.clone()));
-                }
-                if let Some(r) = r {
-                    obj.insert(
-                        "request_id".to_string(),
-                        serde_json::Value::String(r.clone()),
-                    );
-                }
-                Some(serde_json::Value::Object(obj))
-            }
-        };
-        error_envelope_json(&self.code, &self.error, details).serialize(serializer)
-    }
-}
-
-#[allow(dead_code)]
-impl ApiError {
-    /// Create a new API error
-    pub fn new(code: &str, error: &str) -> Self {
-        Self {
-            success: false,
-            error: error.to_string(),
-            code: code.to_string(),
-            details: None,
-            request_id: None,
-        }
-    }
-
-    /// Add details to the error
-    pub fn with_details(mut self, details: &str) -> Self {
-        self.details = Some(details.to_string());
-        self
-    }
-
-    /// Add request ID for tracing
-    pub fn with_request_id(mut self, request_id: &str) -> Self {
-        self.request_id = Some(request_id.to_string());
-        self
-    }
-
-    /// Convert to HttpResponse with specified status code
-    pub fn into_response(self, status: StatusCode) -> HttpResponse {
-        HttpResponse::build(status).json(self)
-    }
-
-    /// Create a 400 Bad Request response
-    pub fn bad_request(self) -> HttpResponse {
-        self.into_response(StatusCode::BAD_REQUEST)
-    }
-
-    /// Create a 401 Unauthorized response
-    pub fn unauthorized(self) -> HttpResponse {
-        self.into_response(StatusCode::UNAUTHORIZED)
-    }
-
-    /// Create a 403 Forbidden response
-    pub fn forbidden(self) -> HttpResponse {
-        self.into_response(StatusCode::FORBIDDEN)
-    }
-
-    /// Create a 404 Not Found response
-    pub fn not_found(self) -> HttpResponse {
-        self.into_response(StatusCode::NOT_FOUND)
-    }
-
-    /// Create a 500 Internal Server Error response
-    pub fn internal_error(self) -> HttpResponse {
-        self.into_response(StatusCode::INTERNAL_SERVER_ERROR)
-    }
-
-    /// Create a 503 Service Unavailable response
-    pub fn service_unavailable(self) -> HttpResponse {
-        self.into_response(StatusCode::SERVICE_UNAVAILABLE)
-    }
-}
-
 /// Common error codes
 #[allow(dead_code)]
 pub mod error_codes {
@@ -144,75 +41,6 @@ pub fn error_envelope_json(
         err["details"] = detail;
     }
     serde_json::json!({ "error": err })
-}
-
-/// Extension trait for safe RwLock access
-#[allow(dead_code)]
-pub trait SafeRwLock<T> {
-    /// Safely acquire a read lock, returning an error response on poison
-    fn safe_read(&self) -> Result<RwLockReadGuard<'_, T>, HttpResponse>;
-
-    /// Safely acquire a write lock, returning an error response on poison
-    fn safe_write(&self) -> Result<RwLockWriteGuard<'_, T>, HttpResponse>;
-}
-
-impl<T> SafeRwLock<T> for RwLock<T> {
-    fn safe_read(&self) -> Result<RwLockReadGuard<'_, T>, HttpResponse> {
-        self.read().map_err(|e| {
-            log::error!("RwLock read poison error: {}", e);
-            ApiError::new(error_codes::LOCK_ERROR, "Internal server error")
-                .with_details("Lock poisoned during read operation")
-                .internal_error()
-        })
-    }
-
-    fn safe_write(&self) -> Result<RwLockWriteGuard<'_, T>, HttpResponse> {
-        self.write().map_err(|e| {
-            log::error!("RwLock write poison error: {}", e);
-            ApiError::new(error_codes::LOCK_ERROR, "Internal server error")
-                .with_details("Lock poisoned during write operation")
-                .internal_error()
-        })
-    }
-}
-
-/// Macro for safe lock acquisition with early return
-///
-/// Usage:
-/// ```rust
-/// let users = safe_read!(data.users)?;
-/// ```
-#[macro_export]
-macro_rules! safe_read {
-    ($lock:expr) => {
-        $lock.read().map_err(|e| {
-            log::error!("RwLock read poison error: {}", e);
-            actix_web::HttpResponse::InternalServerError().json(
-                $crate::middleware::error_handling::error_envelope_json(
-                    $crate::middleware::error_handling::error_codes::LOCK_ERROR,
-                    "Internal server error",
-                    None,
-                ),
-            )
-        })
-    };
-}
-
-/// Macro for safe write lock acquisition with early return
-#[macro_export]
-macro_rules! safe_write {
-    ($lock:expr) => {
-        $lock.write().map_err(|e| {
-            log::error!("RwLock write poison error: {}", e);
-            actix_web::HttpResponse::InternalServerError().json(
-                $crate::middleware::error_handling::error_envelope_json(
-                    $crate::middleware::error_handling::error_codes::LOCK_ERROR,
-                    "Internal server error",
-                    None,
-                ),
-            )
-        })
-    };
 }
 
 /// Secure token generation for access IDs and emergency tokens
@@ -372,14 +200,6 @@ pub mod validation {
 mod tests {
     use super::validation::*;
     use super::*;
-
-    #[test]
-    fn test_api_error_creation() {
-        let error = ApiError::new("TEST_ERROR", "Test error message");
-        assert!(!error.success);
-        assert_eq!(error.code, "TEST_ERROR");
-        assert_eq!(error.error, "Test error message");
-    }
 
     #[test]
     fn test_error_envelope_shape() {

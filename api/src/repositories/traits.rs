@@ -208,6 +208,17 @@ pub struct PatientEntity {
     #[serde(skip_serializing)]
     #[serde(default)]
     pub profile_extras_encrypted: Option<Vec<u8>>,
+
+    /// Which `ENCRYPTION_KEYS` version the encrypted fields above were sealed
+    /// with (Phase 6.3 — key rotation). Rows written before this column existed
+    /// default to `1`. New writes stamp the keyring's current version; reads
+    /// decrypt with whichever version the row carries.
+    #[serde(default = "default_key_version")]
+    pub key_version: i32,
+}
+
+fn default_key_version() -> i32 {
+    1
 }
 
 /// Allergy entity (database model)

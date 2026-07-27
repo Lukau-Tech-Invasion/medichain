@@ -39,6 +39,7 @@ interface PatientState {
   currentEmergency: EmergencyInfo | null;
   emergencyAccessId: string | null;
   emergencyTimestamp: Date | null;
+  emergencyExpiresAt: Date | null;
 
   // Patient search
   searchQuery: string;
@@ -49,7 +50,7 @@ interface PatientState {
   recentPatients: EmergencyInfo[];
 
   // Actions
-  setEmergencyAccess: (info: EmergencyInfo, accessId: string) => void;
+  setEmergencyAccess: (info: EmergencyInfo, accessId: string, expiresAt: string) => void;
   clearEmergencyAccess: () => void;
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: EmergencyInfo[]) => void;
@@ -62,6 +63,7 @@ interface PatientState {
  * Maximum recent patients to store
  */
 const MAX_RECENT_PATIENTS = 10;
+let emergencyExpiryTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
  * Patient store
@@ -70,27 +72,46 @@ export const usePatientStore = create<PatientState>()((set, get) => ({
   currentEmergency: null,
   emergencyAccessId: null,
   emergencyTimestamp: null,
+  emergencyExpiresAt: null,
   searchQuery: '',
   searchResults: [],
   isSearching: false,
   recentPatients: [],
 
-  setEmergencyAccess: (info: EmergencyInfo, accessId: string) => {
+  setEmergencyAccess: (info: EmergencyInfo, accessId: string, expiresAt: string) => {
+    const expiry = new Date(expiresAt);
+    if (Number.isNaN(expiry.getTime()) || expiry <= new Date()) {
+      get().clearEmergencyAccess();
+      return;
+    }
+    if (emergencyExpiryTimer) {
+      clearTimeout(emergencyExpiryTimer);
+    }
     set({
       currentEmergency: info,
       emergencyAccessId: accessId,
       emergencyTimestamp: new Date(),
+      emergencyExpiresAt: expiry,
     });
+
+    emergencyExpiryTimer = setTimeout(() => {
+      get().clearEmergencyAccess();
+    }, expiry.getTime() - Date.now());
 
     // Also add to recent patients
     get().addToRecentPatients(info);
   },
 
   clearEmergencyAccess: () => {
+    if (emergencyExpiryTimer) {
+      clearTimeout(emergencyExpiryTimer);
+      emergencyExpiryTimer = undefined;
+    }
     set({
       currentEmergency: null,
       emergencyAccessId: null,
       emergencyTimestamp: null,
+      emergencyExpiresAt: null,
     });
   },
 

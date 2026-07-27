@@ -233,6 +233,9 @@ pub enum InsuranceCoverageType {
     /// Employer-provided insurance
     Employer,
     /// National Health Insurance Scheme
+    // Renaming this would change the serde wire format ("NHIS" -> "Nhis") with no
+    // #[serde(rename)] override present — a breaking change for stored/FHIR JSON.
+    #[allow(clippy::upper_case_acronyms)]
     NHIS,
     /// Community-based health insurance
     Community,
@@ -447,11 +450,14 @@ pub fn enc_patient_field(
         .map(|e| e.to_bytes())
 }
 
-/// Convert a rich `PatientProfile` into a database `PatientEntity`, encrypting PHI.
+/// Convert a rich `PatientProfile` into a database `PatientEntity`, encrypting PHI
+/// with the keyring's *current* version and stamping that version onto the row
+/// (Phase 6.3 — key rotation).
 pub(crate) fn patient_profile_to_entity(
     profile: &PatientProfile,
-    key: &medichain_crypto::EncryptionKey,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
 ) -> crate::repositories::traits::PatientEntity {
+    let key = keyring.current();
     // Split full_name into first/last for the typed columns (full value preserved in blob).
     let (first, last) = match profile.full_name.split_once(' ') {
         Some((f, l)) => (f.to_string(), l.to_string()),
@@ -501,17 +507,21 @@ pub(crate) fn patient_profile_to_entity(
         is_verified: false,
         is_active: true,
         profile_extras_encrypted: extras_encrypted,
+        key_version: keyring.current_version() as i32,
     }
 }
 
 /// Reconstruct the rich `PatientProfile` from a stored entity by decrypting the
-/// `profile_extras_encrypted` blob. Returns `None` if the blob is missing or cannot
-/// be decrypted/parsed (e.g. a row created before this column existed).
+/// `profile_extras_encrypted` blob with whichever keyring version the row was
+/// originally encrypted under (Phase 6.3 — key rotation). Returns `None` if the
+/// blob is missing, the row's key version isn't in the keyring, or the blob
+/// cannot be decrypted/parsed (e.g. a row created before this column existed).
 pub(crate) fn patient_entity_to_profile(
     entity: &crate::repositories::traits::PatientEntity,
-    key: &medichain_crypto::EncryptionKey,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
 ) -> Option<PatientProfile> {
     let blob = entity.profile_extras_encrypted.as_ref()?;
+    let key = keyring.get(entity.key_version as u32)?;
     let ed = medichain_crypto::EncryptedData::from_bytes(blob).ok()?;
     let bytes = medichain_crypto::decrypt(key, &ed).ok()?;
     serde_json::from_slice::<PatientProfile>(&bytes).ok()

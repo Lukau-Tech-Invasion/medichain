@@ -50,6 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(parsed.user);
           apiClient.setUserId(parsed.user.walletAddress);
           apiClient.setTokens(parsed.tokens);
+          apiClient.initOfflineQueue();
         }
       } catch {
         // ignore corrupt session
@@ -79,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
       setUser(u);
       setUnlocked(true);
+      apiClient.initOfflineQueue();
       await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify({ user: u, tokens }));
       return true;
     } catch (e) {

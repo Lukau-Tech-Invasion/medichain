@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, XCircle, Calendar, Loader2 } from 'lucide-react';
 
 type MetricPeriod = 'today' | 'week' | 'month' | 'year';
@@ -36,6 +36,7 @@ interface PatientFlowData {
  * Page for hospital operations analytics and dashboards.
  */
 const AnalyticsPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [selectedPeriod, setSelectedPeriod] = useState<MetricPeriod>('today');
   const [metrics, setMetrics] = useState<MetricCard[]>([]);
@@ -116,7 +117,7 @@ const AnalyticsPage: React.FC = () => {
 
         setMetrics([
           {
-            title: 'Total Patients',
+            title: t('docAnalytics.metricTotalPatients'),
             value: patientMetrics.total_patients || 0,
             change: patientMetrics.new_patients ? `+${patientMetrics.new_patients}` : '0',
             trend: (patientMetrics.new_patients || 0) > 0 ? 'up' : 'stable',
@@ -124,25 +125,25 @@ const AnalyticsPage: React.FC = () => {
             color: 'blue',
           },
           {
-            title: 'Appointments',
+            title: t('docAnalytics.metricAppointments'),
             value: appointmentMetrics.total_appointments || 0,
-            change: appointmentMetrics.completed_appointments ? `${appointmentMetrics.completed_appointments} completed` : '0',
+            change: appointmentMetrics.completed_appointments ? t('docAnalytics.changeCompleted', { count: appointmentMetrics.completed_appointments }) : '0',
             trend: 'stable',
             icon: <Clock className="w-6 h-6" />,
             color: 'green',
           },
           {
-            title: 'Telehealth %',
+            title: t('docAnalytics.metricTelehealthPct'),
             value: `${(appointmentMetrics.telehealth_percentage || 0).toFixed(1)}%`,
-            change: 'of appointments',
+            change: t('docAnalytics.changeOfAppointments'),
             trend: 'stable',
             icon: <Activity className="w-6 h-6" />,
             color: 'purple',
           },
           {
-            title: 'CDS Alerts',
+            title: t('docAnalytics.metricCDSAlerts'),
             value: cdsMetrics.total_alerts || 0,
-            change: cdsMetrics.alerts_accepted ? `${cdsMetrics.alerts_accepted} accepted` : '0',
+            change: cdsMetrics.alerts_accepted ? t('docAnalytics.changeAccepted', { count: cdsMetrics.alerts_accepted }) : '0',
             trend: (cdsMetrics.total_alerts || 0) > 10 ? 'up' : 'down',
             icon: <AlertCircle className="w-6 h-6" />,
             color: 'red',
@@ -178,7 +179,7 @@ const AnalyticsPage: React.FC = () => {
 
       } catch (err) {
         console.error('Error fetching analytics:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load analytics');
+        setError(err instanceof Error ? err.message : t('docAnalytics.errorTitle'));
         setMetrics([]);
         setDepartmentData([]);
         setPatientFlow([]);
@@ -208,17 +209,17 @@ const AnalyticsPage: React.FC = () => {
   const getDepartmentName = (dept: DepartmentType) => {
     switch (dept) {
       case 'emergency':
-        return 'Emergency Department';
+        return t('docAnalytics.dept_emergency');
       case 'surgery':
-        return 'Surgery';
+        return t('docAnalytics.dept_surgery');
       case 'medicine':
-        return 'Internal Medicine';
+        return t('docAnalytics.dept_medicine');
       case 'pediatrics':
-        return 'Pediatrics';
+        return t('docAnalytics.dept_pediatrics');
       case 'radiology':
-        return 'Radiology';
+        return t('docAnalytics.dept_radiology');
       case 'laboratory':
-        return 'Laboratory';
+        return t('docAnalytics.dept_laboratory');
       default:
         return dept;
     }
@@ -244,10 +245,10 @@ const AnalyticsPage: React.FC = () => {
   };
 
   const getOccupancyStatus = (occupancy: number) => {
-    if (occupancy >= 90) return { color: 'red', label: 'Critical' };
-    if (occupancy >= 75) return { color: 'orange', label: 'High' };
-    if (occupancy >= 50) return { color: 'green', label: 'Optimal' };
-    return { color: 'blue', label: 'Low' };
+    if (occupancy >= 90) return { color: 'red', label: t('docAnalytics.occupancy_Critical') };
+    if (occupancy >= 75) return { color: 'orange', label: t('docAnalytics.occupancy_High') };
+    if (occupancy >= 50) return { color: 'green', label: t('docAnalytics.occupancy_Optimal') };
+    return { color: 'blue', label: t('docAnalytics.occupancy_Low') };
   };
 
   if (loading) {
@@ -255,7 +256,7 @@ const AnalyticsPage: React.FC = () => {
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-          <span className="ml-2 text-gray-600">Loading analytics...</span>
+          <span className="ml-2 text-gray-600">{t('docAnalytics.loading')}</span>
         </div>
       </div>
     );
@@ -265,7 +266,7 @@ const AnalyticsPage: React.FC = () => {
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          <p className="font-medium">Error loading analytics</p>
+          <p className="font-medium">{t('docAnalytics.errorTitle')}</p>
           <p className="text-sm">{error}</p>
         </div>
       </div>
@@ -278,8 +279,8 @@ const AnalyticsPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <BarChart3 className="w-10 h-10" />
           <div>
-            <h1 className="text-3xl font-bold">Analytics Dashboard</h1>
-            <p className="text-purple-50 mt-1">Hospital operations metrics and performance indicators</p>
+            <h1 className="text-3xl font-bold">{t('docAnalytics.title')}</h1>
+            <p className="text-purple-50 mt-1">{t('docAnalytics.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -293,7 +294,7 @@ const AnalyticsPage: React.FC = () => {
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
           }`}
         >
-          Today
+          {t('docAnalytics.periodToday')}
         </button>
         <button
           onClick={() => setSelectedPeriod('week')}
@@ -303,7 +304,7 @@ const AnalyticsPage: React.FC = () => {
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
           }`}
         >
-          This Week
+          {t('docAnalytics.periodWeek')}
         </button>
         <button
           onClick={() => setSelectedPeriod('month')}
@@ -313,7 +314,7 @@ const AnalyticsPage: React.FC = () => {
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
           }`}
         >
-          This Month
+          {t('docAnalytics.periodMonth')}
         </button>
         <button
           onClick={() => setSelectedPeriod('year')}
@@ -323,7 +324,7 @@ const AnalyticsPage: React.FC = () => {
               : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
           }`}
         >
-          This Year
+          {t('docAnalytics.periodYear')}
         </button>
       </div>
 
@@ -358,7 +359,7 @@ const AnalyticsPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
             <Users className="w-6 h-6 text-purple-600" />
-            Department Performance
+            {t('docAnalytics.departmentPerformance')}
           </h2>
           <div className="space-y-4">
             {departmentData.map((dept) => {
@@ -377,22 +378,22 @@ const AnalyticsPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <Users className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm text-gray-600">{dept.staffOnDuty} staff</span>
+                      <span className="text-sm text-gray-600">{t('docAnalytics.staffCount', { count: dept.staffOnDuty })}</span>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-3 gap-3 text-sm">
                     <div className="bg-blue-50 rounded p-2">
-                      <div className="text-blue-700 font-medium">Patients</div>
+                      <div className="text-blue-700 font-medium">{t('docAnalytics.lblPatients')}</div>
                       <div className="text-blue-900 text-lg font-bold">{dept.patients}</div>
                     </div>
                     <div className="bg-green-50 rounded p-2">
-                      <div className="text-green-700 font-medium">Wait Time</div>
-                      <div className="text-green-900 text-lg font-bold">{dept.avgWaitTime} min</div>
+                      <div className="text-green-700 font-medium">{t('docAnalytics.lblWaitTime')}</div>
+                      <div className="text-green-900 text-lg font-bold">{t('docAnalytics.minutesSuffix', { count: dept.avgWaitTime })}</div>
                     </div>
                     {dept.bedOccupancy > 0 ? (
                       <div className={`bg-${occupancyStatus.color}-50 rounded p-2`}>
-                        <div className={`text-${occupancyStatus.color}-700 font-medium`}>Occupancy</div>
+                        <div className={`text-${occupancyStatus.color}-700 font-medium`}>{t('docAnalytics.lblOccupancy')}</div>
                         <div className={`text-${occupancyStatus.color}-900 text-lg font-bold flex items-center gap-1`}>
                           {dept.bedOccupancy}%
                           <span className="text-xs font-normal">({occupancyStatus.label})</span>
@@ -400,7 +401,7 @@ const AnalyticsPage: React.FC = () => {
                       </div>
                     ) : (
                       <div className="bg-gray-50 rounded p-2">
-                        <div className="text-gray-700 font-medium">N/A</div>
+                        <div className="text-gray-700 font-medium">{t('docAnalytics.naLabel')}</div>
                         <div className="text-gray-900 text-lg font-bold">—</div>
                       </div>
                     )}
@@ -414,21 +415,21 @@ const AnalyticsPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-purple-600" />
-            Patient Flow (24h)
+            {t('docAnalytics.patientFlowTitle')}
           </h2>
           <div className="space-y-3">
             <div className="flex items-center gap-4 pb-2 border-b border-gray-200">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <span className="text-sm text-gray-700">Admissions</span>
+                <span className="text-sm text-gray-700">{t('docAnalytics.legendAdmissions')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                <span className="text-sm text-gray-700">Discharges</span>
+                <span className="text-sm text-gray-700">{t('docAnalytics.legendDischarges')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                <span className="text-sm text-gray-700">Transfers</span>
+                <span className="text-sm text-gray-700">{t('docAnalytics.legendTransfers')}</span>
               </div>
             </div>
             
@@ -482,23 +483,23 @@ const AnalyticsPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-green-600" />
-            Top Performing Metrics
+            {t('docAnalytics.topPerformingTitle')}
           </h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-              <span className="text-sm text-gray-700">Patient Satisfaction</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_patientSatisfaction')}</span>
               <span className="text-lg font-bold text-green-700">94%</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-              <span className="text-sm text-gray-700">Discharge Efficiency</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_dischargeEfficiency')}</span>
               <span className="text-lg font-bold text-green-700">89%</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-              <span className="text-sm text-gray-700">Staff Utilization</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_staffUtilization')}</span>
               <span className="text-lg font-bold text-green-700">87%</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-              <span className="text-sm text-gray-700">Medication Safety</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_medicationSafety')}</span>
               <span className="text-lg font-bold text-green-700">98%</span>
             </div>
           </div>
@@ -507,23 +508,23 @@ const AnalyticsPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
             <AlertCircle className="w-5 h-5 text-orange-600" />
-            Areas Needing Attention
+            {t('docAnalytics.areasNeedingAttentionTitle')}
           </h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-              <span className="text-sm text-gray-700">ED Wait Times</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_edWaitTimes')}</span>
               <span className="text-lg font-bold text-orange-700">32 min</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-              <span className="text-sm text-gray-700">Lab Turnaround</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_labTurnaround')}</span>
               <span className="text-lg font-bold text-orange-700">45 min</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-              <span className="text-sm text-gray-700">Bed Availability</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_bedAvailability')}</span>
               <span className="text-lg font-bold text-orange-700">13%</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-              <span className="text-sm text-gray-700">Radiology Queue</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_radiologyQueue')}</span>
               <span className="text-lg font-bold text-orange-700">18 cases</span>
             </div>
           </div>
@@ -532,23 +533,23 @@ const AnalyticsPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
             <XCircle className="w-5 h-5 text-red-600" />
-            Critical Issues
+            {t('docAnalytics.criticalIssuesTitle')}
           </h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-              <span className="text-sm text-gray-700">ED Overcapacity</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_edOvercapacity')}</span>
               <span className="text-lg font-bold text-red-700">112%</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-              <span className="text-sm text-gray-700">Ventilator Shortage</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_ventilatorShortage')}</span>
               <span className="text-lg font-bold text-red-700">2 left</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-              <span className="text-sm text-gray-700">Staff Shortage</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_staffShortage')}</span>
               <span className="text-lg font-bold text-red-700">-5</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-              <span className="text-sm text-gray-700">Critical Meds Low</span>
+              <span className="text-sm text-gray-700">{t('docAnalytics.metric_criticalMedsLow')}</span>
               <span className="text-lg font-bold text-red-700">3 items</span>
             </div>
           </div>
@@ -558,17 +559,17 @@ const AnalyticsPage: React.FC = () => {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
           <Calendar className="w-6 h-6 text-purple-600" />
-          Recent Activity Summary
+          {t('docAnalytics.recentActivityTitle')}
         </h2>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Time</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Event</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Department</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Impact</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colTime')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colEvent')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colDepartment')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colImpact')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colStatus')}</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">

@@ -11,6 +11,8 @@
 
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
+import { getOfflineQueue, OfflineQueue } from '../../services/offlineQueue';
 
 /** Resolve the API base URL from env / emulator defaults. */
 export function getApiBaseUrl(): string {
@@ -27,14 +29,39 @@ export interface JwtTokens {
   refreshToken: string;
 }
 
+/** Thrown by write methods when the request was queued for later sync instead of sent. */
+export class OfflineQueuedError extends Error {
+  constructor(endpoint: string) {
+    super(`No connection — queued "${endpoint}" to sync when back online`);
+    this.name = 'OfflineQueuedError';
+  }
+}
+
 export class MobileApiClient {
   private baseUrl: string;
   private userId?: string;
   private accessToken?: string;
   private refreshToken?: string;
+  private offlineQueue?: OfflineQueue;
 
   constructor(baseUrl?: string) {
     this.baseUrl = (baseUrl ?? getApiBaseUrl()).replace(/\/$/, '');
+  }
+
+  /** Start offline-queue monitoring (safe to call once auth is established). */
+  initOfflineQueue(): OfflineQueue {
+    if (!this.offlineQueue) {
+      this.offlineQueue = getOfflineQueue({
+        apiBaseUrl: this.baseUrl,
+        getAuthHeaders: async () => this.headers(),
+      });
+      this.offlineQueue.initialize();
+    }
+    return this.offlineQueue;
+  }
+
+  getOfflineQueueStats() {
+    return this.offlineQueue?.getStats() ?? { pending: 0, isProcessing: false, isOnline: true };
   }
 
   setUserId(userId?: string): void {
@@ -104,14 +131,34 @@ export class MobileApiClient {
     return resp.json() as Promise<T>;
   }
 
-  async post<T>(path: string, body: unknown): Promise<T> {
-    const resp = await fetch(`${this.baseUrl}${path}`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
-    if (!resp.ok) throw new Error(`POST ${path} failed: ${resp.status}`);
-    return resp.json() as Promise<T>;
+  async post<T>(path: string, body: unknown, opts?: { description?: string }): Promise<T> {
+    const netState = await NetInfo.fetch();
+    if (netState.isConnected === false) {
+      await this.enqueueOffline(path, body, opts?.description);
+    }
+
+    try {
+      const resp = await fetch(`${this.baseUrl}${path}`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) throw new Error(`POST ${path} failed: ${resp.status}`);
+      return resp.json() as Promise<T>;
+    } catch (err) {
+      // Network-level failure (not an HTTP error status) — queue for retry on reconnect.
+      if (err instanceof TypeError) {
+        await this.enqueueOffline(path, body, opts?.description);
+      }
+      throw err;
+    }
+  }
+
+  private async enqueueOffline(path: string, body: unknown, description?: string): Promise<never> {
+    if (this.offlineQueue) {
+      await this.offlineQueue.enqueue({ method: 'POST', endpoint: path, body, priority: 5, description: description ?? path });
+    }
+    throw new OfflineQueuedError(path);
   }
 
   private async refresh(): Promise<boolean> {

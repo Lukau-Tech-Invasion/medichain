@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { 
   Pill, Droplets, ClipboardList, Plus, Save, Clock, 
   AlertCircle, CheckCircle, User, Calendar, Loader2,
@@ -95,6 +95,7 @@ interface NursingCarePlan {
 type TabType = 'mar' | 'io' | 'careplan';
 
 function NursingPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabType>('mar');
@@ -178,7 +179,7 @@ function NursingPage() {
       }
       setError(null);
     } catch (err) {
-      setError('Failed to fetch nursing data. Ensure API is running.');
+      setError(t('docNursing.errorFetch'));
     } finally {
       setLoading(false);
     }
@@ -206,13 +207,13 @@ function NursingPage() {
       });
 
       if (response.ok) {
-        setSuccess('Medication administered successfully');
+        setSuccess(t('docNursing.successAdminister'));
         fetchData();
       } else {
-        setError('Failed to record medication administration');
+        setError(t('docNursing.errorAdminister'));
       }
     } catch (err) {
-      setError('API connection failed');
+      setError(t('docNursing.errorApiConnection'));
     } finally {
       setSaving(false);
       setTimeout(() => setSuccess(null), 3000);
@@ -230,7 +231,7 @@ function NursingPage() {
   const recordFluid = async () => {
     if (!user) return;
     if (!selectedPatient || newFluidEntry.amount <= 0) {
-      setError('Select patient and enter valid amount');
+      setError(t('docNursing.errorSelectPatientAmount'));
       return;
     }
 
@@ -254,14 +255,14 @@ function NursingPage() {
       });
 
       if (response.ok) {
-        setSuccess('Fluid entry recorded');
+        setSuccess(t('docNursing.successFluidRecorded'));
         setNewFluidEntry({ type: 'intake', fluidType: 'Oral', amount: 0, notes: '' });
         fetchData();
       } else {
-        setError('Failed to record fluid entry');
+        setError(t('docNursing.errorRecordFluid'));
       }
     } catch (err) {
-      setError('API connection failed');
+      setError(t('docNursing.errorApiConnection'));
     } finally {
       setSaving(false);
       setTimeout(() => { setSuccess(null); setError(null); }, 3000);
@@ -288,8 +289,8 @@ function NursingPage() {
     <div className="p-8">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Nursing Documentation</h1>
-        <p className="text-gray-500">MAR, Intake/Output, and Care Plans</p>
+        <h1 className="text-2xl font-bold text-gray-900">{t('docNursing.title')}</h1>
+        <p className="text-gray-500">{t('docNursing.subtitle')}</p>
       </div>
 
       {/* Alerts */}
@@ -317,29 +318,29 @@ function NursingPage() {
           }`}
         >
           <Pill size={20} />
-          Medication Administration
+          {t('docNursing.tabMar')}
         </button>
         <button
           onClick={() => setActiveTab('io')}
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === 'io' 
-              ? 'bg-primary-600 text-white' 
+            activeTab === 'io'
+              ? 'bg-primary-600 text-white'
               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
           }`}
         >
           <Droplets size={20} />
-          Intake/Output
+          {t('docNursing.tabIo')}
         </button>
         <button
           onClick={() => setActiveTab('careplan')}
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === 'careplan' 
-              ? 'bg-primary-600 text-white' 
+            activeTab === 'careplan'
+              ? 'bg-primary-600 text-white'
               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
           }`}
         >
           <ClipboardList size={20} />
-          Care Plans
+          {t('docNursing.tabCarePlans')}
         </button>
       </div>
 
@@ -355,8 +356,8 @@ function NursingPage() {
               {marRecords.length === 0 ? (
                 <div className="bg-white rounded-xl shadow p-8 text-center">
                   <Pill className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p className="text-gray-500">No medication records found</p>
-                  <p className="text-sm text-gray-400">Records will appear when medications are ordered</p>
+                  <p className="text-gray-500">{t('docNursing.noMedicationRecords')}</p>
+                  <p className="text-sm text-gray-400">{t('docNursing.noMedicationRecordsHint')}</p>
                 </div>
               ) : (
                 marRecords.map((mar) => (
@@ -369,19 +370,19 @@ function NursingPage() {
                           {mar.date}
                         </p>
                       </div>
-                      <span className="text-sm text-gray-400">MAR ID: {mar.mar_id}</span>
+                      <span className="text-sm text-gray-400">{t('docNursing.marIdLine', { id: mar.mar_id })}</span>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                           <tr>
-                            <th className="px-4 py-3 text-left">Medication</th>
-                            <th className="px-4 py-3 text-left">Dose</th>
-                            <th className="px-4 py-3 text-left">Route</th>
-                            <th className="px-4 py-3 text-left">Frequency</th>
-                            <th className="px-4 py-3 text-center">Scheduled</th>
-                            <th className="px-4 py-3 text-center">Status</th>
-                            <th className="px-4 py-3 text-center">Action</th>
+                            <th className="px-4 py-3 text-left">{t('docNursing.tableMedication')}</th>
+                            <th className="px-4 py-3 text-left">{t('docNursing.tableDose')}</th>
+                            <th className="px-4 py-3 text-left">{t('docNursing.tableRoute')}</th>
+                            <th className="px-4 py-3 text-left">{t('docNursing.tableFrequency')}</th>
+                            <th className="px-4 py-3 text-center">{t('docNursing.tableScheduled')}</th>
+                            <th className="px-4 py-3 text-center">{t('docNursing.tableStatus')}</th>
+                            <th className="px-4 py-3 text-center">{t('docNursing.tableAction')}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -404,7 +405,7 @@ function NursingPage() {
                                 </td>
                                 <td className="px-4 py-3 text-center">
                                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(dose.status)}`}>
-                                    {dose.status}
+                                    {t(`docNursing.doseStatus_${dose.status}`)}
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 text-center">
@@ -414,7 +415,7 @@ function NursingPage() {
                                       disabled={saving}
                                       className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
                                     >
-                                      Give
+                                      {t('docNursing.giveButton')}
                                     </button>
                                   )}
                                   {dose.status === 'given' && dose.administered_by && (
@@ -443,37 +444,37 @@ function NursingPage() {
               <div className="bg-white rounded-xl shadow p-6">
                 <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <Plus size={20} />
-                  Quick Entry
+                  {t('docNursing.quickEntryHeading')}
                 </h3>
                 <div className="grid grid-cols-5 gap-4">
                   <div>
-                    <label htmlFor="nursing-patient-select" className="sr-only">Select Patient</label>
+                    <label htmlFor="nursing-patient-select" className="sr-only">{t('docNursing.selectPatientLabel')}</label>
                     <select
                       id="nursing-patient-select"
                       value={selectedPatient}
                       onChange={(e) => setSelectedPatient(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg"
                     >
-                      <option value="">Select Patient</option>
+                      <option value="">{t('docNursing.selectPatientLabel')}</option>
                     {patients.map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="nursing-entry-type" className="sr-only">Entry Type</label>
+                    <label htmlFor="nursing-entry-type" className="sr-only">{t('docNursing.entryTypeLabel')}</label>
                     <select
                       id="nursing-entry-type"
                       value={newFluidEntry.type}
                       onChange={(e) => setNewFluidEntry({ ...newFluidEntry, type: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg"
                     >
-                      <option value="intake">Intake</option>
-                      <option value="output">Output</option>
+                      <option value="intake">{t('docNursing.intakeOption')}</option>
+                      <option value="output">{t('docNursing.outputOption')}</option>
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="nursing-fluid-type" className="sr-only">Fluid Type</label>
+                    <label htmlFor="nursing-fluid-type" className="sr-only">{t('docNursing.fluidTypeLabel')}</label>
                     <select
                       id="nursing-fluid-type"
                       value={newFluidEntry.fluidType}
@@ -482,32 +483,32 @@ function NursingPage() {
                     >
                       {newFluidEntry.type === 'intake' ? (
                       <>
-                        <option value="Oral">Oral</option>
-                        <option value="IV">IV Fluids</option>
-                        <option value="NG Tube">NG Tube</option>
-                        <option value="Blood Products">Blood Products</option>
+                        <option value="Oral">{t('docNursing.fluidType_oral')}</option>
+                        <option value="IV">{t('docNursing.fluidType_iv')}</option>
+                        <option value="NG Tube">{t('docNursing.fluidType_ngTube')}</option>
+                        <option value="Blood Products">{t('docNursing.fluidType_bloodProducts')}</option>
                       </>
                     ) : (
                       <>
-                        <option value="Urine">Urine</option>
-                        <option value="Emesis">Emesis</option>
-                        <option value="Stool">Stool</option>
-                        <option value="Drainage">Drainage</option>
-                        <option value="Blood Loss">Blood Loss</option>
+                        <option value="Urine">{t('docNursing.fluidType_urine')}</option>
+                        <option value="Emesis">{t('docNursing.fluidType_emesis')}</option>
+                        <option value="Stool">{t('docNursing.fluidType_stool')}</option>
+                        <option value="Drainage">{t('docNursing.fluidType_drainage')}</option>
+                        <option value="Blood Loss">{t('docNursing.fluidType_bloodLoss')}</option>
                       </>
                     )}
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="nursing-amount" className="sr-only">Amount (mL)</label>
+                    <label htmlFor="nursing-amount" className="sr-only">{t('docNursing.amountMlPh')}</label>
                     <input
                       id="nursing-amount"
                       type="number"
                       value={newFluidEntry.amount}
                       onChange={(e) => setNewFluidEntry({ ...newFluidEntry, amount: parseInt(e.target.value) || 0 })}
-                      placeholder="Amount (mL)"
+                      placeholder={t('docNursing.amountMlPh')}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg"
-                      aria-label="Amount in milliliters"
+                      aria-label={t('docNursing.amountMlAriaLabel')}
                     />
                   </div>
                   <button
@@ -516,7 +517,7 @@ function NursingPage() {
                     className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                    Record
+                    {t('docNursing.recordButton')}
                   </button>
                 </div>
               </div>
@@ -525,7 +526,7 @@ function NursingPage() {
               {ioRecords.length === 0 ? (
                 <div className="bg-white rounded-xl shadow p-8 text-center">
                   <Droplets className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p className="text-gray-500">No intake/output records found</p>
+                  <p className="text-gray-500">{t('docNursing.noIoRecords')}</p>
                 </div>
               ) : (
                 ioRecords.map((record) => (
@@ -534,12 +535,12 @@ function NursingPage() {
                       <div>
                         <h3 className="font-semibold text-gray-900">{record.patient_name}</h3>
                         <p className="text-sm text-gray-500">
-                          {record.date} - {record.shift.charAt(0).toUpperCase() + record.shift.slice(1)} Shift
+                          {t('docNursing.dateShiftLine', { date: record.date, shift: t(`docNursing.shift_${record.shift}`) })}
                         </p>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <p className="text-sm text-gray-500">Balance</p>
+                          <p className="text-sm text-gray-500">{t('docNursing.balanceLabel')}</p>
                           <div className="flex items-center gap-1">
                             {getBalanceIcon(record.fluid_balance)}
                             <span className={`font-bold ${
@@ -557,7 +558,7 @@ function NursingPage() {
                       <div className="p-4">
                         <h4 className="font-medium text-green-700 mb-3 flex items-center gap-2">
                           <TrendingUp size={16} />
-                          Intake: {record.total_intake} mL
+                          {t('docNursing.intakeTotalLine', { total: record.total_intake })}
                         </h4>
                         <div className="space-y-2">
                           {record.intake.map((entry, idx) => (
@@ -572,7 +573,7 @@ function NursingPage() {
                       <div className="p-4">
                         <h4 className="font-medium text-red-700 mb-3 flex items-center gap-2">
                           <TrendingDown size={16} />
-                          Output: {record.total_output} mL
+                          {t('docNursing.outputTotalLine', { total: record.total_output })}
                         </h4>
                         <div className="space-y-2">
                           {record.output.map((entry, idx) => (
@@ -596,32 +597,32 @@ function NursingPage() {
               {carePlans.length === 0 ? (
                 <div className="bg-white rounded-xl shadow p-8 text-center">
                   <ClipboardList className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p className="text-gray-500">No care plans found</p>
+                  <p className="text-gray-500">{t('docNursing.noCarePlans')}</p>
                 </div>
               ) : (
                 carePlans.map((plan) => (
                   <div key={plan.plan_id} className="bg-white rounded-xl shadow overflow-hidden">
                     <div className="p-4 bg-gray-50 border-b">
                       <h3 className="font-semibold text-gray-900">{plan.patient_name}</h3>
-                      <p className="text-sm text-gray-500">Last updated: {plan.last_updated}</p>
+                      <p className="text-sm text-gray-500">{t('docNursing.lastUpdatedLine', { date: plan.last_updated })}</p>
                     </div>
                     <div className="p-4 space-y-4">
                       {/* Diagnoses */}
                       <div>
-                        <h4 className="font-medium text-gray-700 mb-2">Nursing Diagnoses</h4>
+                        <h4 className="font-medium text-gray-700 mb-2">{t('docNursing.nursingDiagnosesHeading')}</h4>
                         {plan.diagnoses.map((dx, idx) => (
                           <div key={idx} className="ml-4 p-3 bg-blue-50 rounded-lg mb-2">
                             <p className="font-medium text-blue-900">{dx.diagnosis}</p>
-                            <p className="text-sm text-blue-700">Related to: {dx.related_to}</p>
+                            <p className="text-sm text-blue-700">{t('docNursing.relatedToLine', { text: dx.related_to })}</p>
                             <p className="text-sm text-blue-600">
-                              AEB: {dx.evidenced_by.join(', ')}
+                              {t('docNursing.aebLine', { list: dx.evidenced_by.join(', ') })}
                             </p>
                           </div>
                         ))}
                       </div>
                       {/* Interventions */}
                       <div>
-                        <h4 className="font-medium text-gray-700 mb-2">Interventions</h4>
+                        <h4 className="font-medium text-gray-700 mb-2">{t('docNursing.interventionsHeading')}</h4>
                         <div className="ml-4 space-y-2">
                           {plan.interventions.map((int, idx) => (
                             <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
@@ -634,7 +635,7 @@ function NursingPage() {
                                 int.status === 'completed' ? 'bg-blue-100 text-blue-700' :
                                 'bg-gray-100 text-gray-700'
                               }`}>
-                                {int.status}
+                                {t(`docNursing.interventionStatus_${int.status}`)}
                               </span>
                             </div>
                           ))}
@@ -642,7 +643,7 @@ function NursingPage() {
                       </div>
                       {/* Outcomes */}
                       <div>
-                        <h4 className="font-medium text-gray-700 mb-2">Expected Outcomes</h4>
+                        <h4 className="font-medium text-gray-700 mb-2">{t('docNursing.expectedOutcomesHeading')}</h4>
                         <div className="ml-4 space-y-2">
                           {plan.outcomes.map((out, idx) => (
                             <div key={idx} className="p-2 bg-gray-50 rounded">
@@ -653,10 +654,10 @@ function NursingPage() {
                                   out.status === 'partially_met' ? 'bg-yellow-100 text-yellow-700' :
                                   'bg-red-100 text-red-700'
                                 }`}>
-                                  {out.status.replace('_', ' ')}
+                                  {t(`docNursing.outcomeStatus_${out.status}`)}
                                 </span>
                               </div>
-                              <p className="text-xs text-gray-500">Target: {out.target_date}</p>
+                              <p className="text-xs text-gray-500">{t('docNursing.targetLine', { date: out.target_date })}</p>
                             </div>
                           ))}
                         </div>

@@ -22,6 +22,8 @@ import enUS from './locales/en-US';
 import frFR from './locales/fr-FR';
 import swKE from './locales/sw-KE';
 import amET from './locales/am-ET';
+import zuZA from './locales/zu-ZA';
+import haNG from './locales/ha-NG';
 
 /** Locales we ship translations for (others fall back to English). */
 const BUNDLES: Partial<Record<SupportedLocale, TranslationRecord>> = {
@@ -29,10 +31,12 @@ const BUNDLES: Partial<Record<SupportedLocale, TranslationRecord>> = {
   'fr-FR': frFR,
   'sw-KE': swKE,
   'am-ET': amET,
+  'zu-ZA': zuZA,
+  'ha-NG': haNG,
 };
 
 /** Locales offered in the switcher (target markets + English). */
-export const ACTIVE_LOCALES: SupportedLocale[] = ['en-US', 'fr-FR', 'sw-KE', 'am-ET'];
+export const ACTIVE_LOCALES: SupportedLocale[] = ['en-US', 'fr-FR', 'sw-KE', 'am-ET', 'zu-ZA', 'ha-NG'];
 
 /** Deep-merge `override` onto `base` (objects merged, scalars overridden). */
 function deepMerge(base: TranslationRecord, override: TranslationRecord): TranslationRecord {

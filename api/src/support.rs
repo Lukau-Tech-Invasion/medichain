@@ -211,13 +211,6 @@ pub fn get_current_claims(req: &HttpRequest) -> Option<crate::security::jwt::Cla
 
 /// Whether the current request was made with an MFA-satisfied JWT (Phase 11.3).
 ///
-/// A request authenticated only by `X-User-Id` (no JWT) returns `false`, so
-/// `require_mfa`-gated endpoints reject it.
-#[allow(dead_code)]
-pub fn request_has_mfa(req: &HttpRequest) -> bool {
-    get_current_claims(req).map(|c| c.mfa).unwrap_or(false)
-}
-
 /// Get user by wallet address from app state.
 ///
 /// RBAC invariant: a caller's ROLE is authoritative ONLY when read from this
@@ -228,19 +221,6 @@ pub fn request_has_mfa(req: &HttpRequest) -> bool {
 /// spoofable. No handler in this codebase derives authorization from such a header.
 pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User> {
     data.users.read().ok()?.get(wallet_address).cloned()
-}
-
-/// Compute a consent/access expiry timestamp with overflow protection (Phase 12.2).
-///
-/// `granted_at_secs` is a unix timestamp; `duration_secs` is the grant lifetime.
-/// Returns `None` instead of wrapping if the duration is too large to represent
-/// (rather than producing a bogus past/wrapped expiry that could silently extend
-/// or revoke access).
-#[allow(dead_code)]
-pub fn checked_consent_expiry(granted_at_secs: i64, duration_secs: u64) -> Option<i64> {
-    i64::try_from(duration_secs)
-        .ok()
-        .and_then(|d| granted_at_secs.checked_add(d))
 }
 
 /// Validate SS58 wallet address format (basic validation)

@@ -552,7 +552,7 @@ pub mod signature {
         // Verify checksum if present (35 bytes total)
         if decoded.len() >= 35 {
             let checksum_data = [
-                &[b'S', b'S', b'5', b'8', b'P', b'R', b'E'][..],
+                &b"SS58PRE"[..],
                 &decoded[..33],
             ]
             .concat();

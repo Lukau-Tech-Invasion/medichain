@@ -65,7 +65,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
             .cloned()
             .collect();
 
-        histories.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        histories.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
 
         let total = histories.len() as u64;
         let offset = pagination.offset() as usize;
@@ -128,7 +128,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
             .cloned()
             .collect();
 
-        histories.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        histories.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
 
         let total = histories.len() as u64;
         let offset = pagination.offset() as usize;
@@ -142,7 +142,7 @@ impl HistoryPhysicalRepository for MemoryHistoryPhysicalRepository {
         let storage = self.data.read().unwrap();
         let mut histories: Vec<HistoryPhysicalEntity> =
             storage.values().filter(|h| h.is_active).cloned().collect();
-        histories.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        histories.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
         Ok(histories)
     }
 }

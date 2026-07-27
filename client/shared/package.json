@@ -19,11 +19,12 @@
     "typescript": "^5.4.0"
   },
   "dependencies": {
-    "lucide-react": "^0.312.0",
-    "clsx": "^2.1.0",
     "@polkadot/extension-dapp": "^0.46.0",
     "@polkadot/util": "^12.6.0",
-    "@polkadot/util-crypto": "^12.6.0"
+    "@polkadot/util-crypto": "^12.6.0",
+    "clsx": "^2.1.0",
+    "firebase": "^12.16.0",
+    "lucide-react": "^0.312.0"
   },
   "license": "MIT",
   "author": "Trustware"

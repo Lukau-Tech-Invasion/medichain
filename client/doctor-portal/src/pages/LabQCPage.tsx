@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { listLabQc, createLabQc } from '@medichain/shared';
+import { listLabQc, createLabQc, useTranslation } from '@medichain/shared';
 import { CheckCircle, XCircle, AlertTriangle, Activity, FileText, Search, Plus, Beaker, ThermometerSun, RefreshCw } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 
@@ -58,6 +58,7 @@ interface Calibration {
 }
 
 const LabQCPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [qcTests, setQcTests] = useState<QCTest[]>([]);
@@ -140,7 +141,7 @@ const LabQCPage: React.FC = () => {
       
       setCalibrations(mappedCalibrations);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch QC data');
+      setError(err instanceof Error ? err.message : t('docLabQC.errorFetch'));
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +154,7 @@ const LabQCPage: React.FC = () => {
   const handleSubmitQC = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!instrument || !analyte || !observedValue || !expectedMean || !expectedSD) {
-      showWarning('Please fill in all required fields');
+      showWarning(t('docLabQC.warningRequiredFields'));
       return;
     }
 
@@ -168,10 +169,10 @@ const LabQCPage: React.FC = () => {
 
     if (zScore > 3) {
       result = 'fail';
-      violatedRules.push('1-3s (Out of Control)');
+      violatedRules.push(t('docLabQC.violatedRule13s'));
     } else if (zScore > 2) {
       result = 'warning';
-      violatedRules.push('1-2s (Warning)');
+      violatedRules.push(t('docLabQC.violatedRule12s'));
     }
 
     const newTest: QCTest = {
@@ -197,9 +198,9 @@ const LabQCPage: React.FC = () => {
     // Persist to the backend (was: local state only)
     try {
       await createLabQc(newTest);
-      showSuccess(`QC test ${newTest.testId} recorded - Result: ${result.toUpperCase()}`);
+      showSuccess(t('docLabQC.qcRecordedSuccess', { id: newTest.testId, result: result.toUpperCase() }));
     } catch {
-      showWarning(`QC test ${newTest.testId} recorded locally; failed to sync to server.`);
+      showWarning(t('docLabQC.qcRecordedLocally', { id: newTest.testId }));
     }
     setQcTests([...qcTests, newTest]);
 
@@ -221,7 +222,7 @@ const LabQCPage: React.FC = () => {
   const handleSubmitCalibration = (e: React.FormEvent) => {
     e.preventDefault();
     if (!calInstrument || !calibratorLot || !calExpiryDate) {
-      showWarning('Please fill in all required fields');
+      showWarning(t('docLabQC.warningRequiredFields'));
       return;
     }
 
@@ -239,7 +240,7 @@ const LabQCPage: React.FC = () => {
     };
 
     setCalibrations([...calibrations, newCalibration]);
-    showSuccess(`Calibration ${newCalibration.calibrationId} recorded successfully`);
+    showSuccess(t('docLabQC.calibrationRecordedSuccess', { id: newCalibration.calibrationId }));
 
     // Reset form
     setCalInstrument('');
@@ -295,12 +296,12 @@ const LabQCPage: React.FC = () => {
           <div className="flex items-center space-x-3">
             <Beaker className="h-8 w-8" />
             <div>
-              <h1 className="text-3xl font-bold">Laboratory Quality Control</h1>
-              <p className="text-green-100">Daily QC testing and instrument calibration</p>
+              <h1 className="text-3xl font-bold">{t('docLabQC.title')}</h1>
+              <p className="text-green-100">{t('docLabQC.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-green-100">Logged in as</p>
+            <p className="text-sm text-green-100">{t('docLabQC.loggedInAs')}</p>
             <p className="font-semibold">{user?.userId || 'Unknown'}</p>
           </div>
         </div>
@@ -317,7 +318,7 @@ const LabQCPage: React.FC = () => {
           }`}
         >
           <FileText className="inline h-4 w-4 mr-2" />
-          QC Tests
+          {t('docLabQC.tabQcTests')}
         </button>
         <button
           onClick={() => setActiveTab('newQC')}
@@ -328,7 +329,7 @@ const LabQCPage: React.FC = () => {
           }`}
         >
           <Plus className="inline h-4 w-4 mr-2" />
-          New QC Test
+          {t('docLabQC.tabNewQC')}
         </button>
         <button
           onClick={() => setActiveTab('calibrations')}
@@ -339,7 +340,7 @@ const LabQCPage: React.FC = () => {
           }`}
         >
           <ThermometerSun className="inline h-4 w-4 mr-2" />
-          Calibrations
+          {t('docLabQC.tabCalibrations')}
         </button>
         <button
           onClick={() => setActiveTab('newCalibration')}
@@ -350,7 +351,7 @@ const LabQCPage: React.FC = () => {
           }`}
         >
           <Plus className="inline h-4 w-4 mr-2" />
-          New Calibration
+          {t('docLabQC.tabNewCalibration')}
         </button>
       </div>
 
@@ -363,43 +364,43 @@ const LabQCPage: React.FC = () => {
               <div>
                 <label htmlFor="labqc-search" className="block text-sm font-medium text-gray-700 mb-1">
                   <Search className="inline h-4 w-4 mr-1" />
-                  Search
+                  {t('docLabQC.searchLabel')}
                 </label>
                 <input
                   id="labqc-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Test ID, instrument, analyte..."
+                  placeholder={t('docLabQC.searchPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
               <div>
-                <label htmlFor="labqc-instrument-filter" className="block text-sm font-medium text-gray-700 mb-1">Instrument</label>
+                <label htmlFor="labqc-instrument-filter" className="block text-sm font-medium text-gray-700 mb-1">{t('docLabQC.instrumentLabel')}</label>
                 <select
                   id="labqc-instrument-filter"
                   value={instrumentFilter}
                   onChange={(e) => setInstrumentFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="all">All Instruments</option>
+                  <option value="all">{t('docLabQC.allInstruments')}</option>
                   {uniqueInstruments.map((inst) => (
                     <option key={inst} value={inst}>{inst}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label htmlFor="labqc-result-filter" className="block text-sm font-medium text-gray-700 mb-1">Result</label>
+                <label htmlFor="labqc-result-filter" className="block text-sm font-medium text-gray-700 mb-1">{t('docLabQC.resultLabel')}</label>
                 <select
                   id="labqc-result-filter"
                   value={resultFilter}
                   onChange={(e) => setResultFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="all">All Results</option>
-                  <option value="pass">Pass</option>
-                  <option value="warning">Warning</option>
-                  <option value="fail">Fail</option>
+                  <option value="all">{t('docLabQC.allResults')}</option>
+                  <option value="pass">{t('docLabQC.result_pass')}</option>
+                  <option value="warning">{t('docLabQC.result_warning')}</option>
+                  <option value="fail">{t('docLabQC.result_fail')}</option>
                 </select>
               </div>
             </div>
@@ -411,14 +412,14 @@ const LabQCPage: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Test ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Instrument</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Analyte</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Level</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Values</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Performed By</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableResult')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableTestId')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableInstrument')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableAnalyte')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableLevel')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableValues')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tablePerformedBy')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableDetails')}</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -431,7 +432,7 @@ const LabQCPage: React.FC = () => {
                         <div className="flex items-center space-x-2">
                           {getResultIcon(test.result)}
                           <span className={`px-2 py-1 text-xs font-semibold rounded ${getResultBadge(test.result)}`}>
-                            {test.result.toUpperCase()}
+                            {t(`docLabQC.result_${test.result}`).toUpperCase()}
                           </span>
                         </div>
                       </td>
@@ -442,22 +443,22 @@ const LabQCPage: React.FC = () => {
                       <td className="px-4 py-3 text-sm text-gray-900">{test.instrument}</td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-gray-900">{test.analyte}</div>
-                        <div className="text-xs text-gray-500">Lot: {test.lotNumber}</div>
+                        <div className="text-xs text-gray-500">{t('docLabQC.lotLine', { lot: test.lotNumber })}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{test.level}</td>
                       <td className="px-4 py-3">
                         <div className="text-sm">
-                          <div className="font-medium text-gray-900">Obs: {test.observedValue} {test.unit}</div>
-                          <div className="text-xs text-gray-500">Mean: {test.expectedMean} ± {test.expectedSD}</div>
+                          <div className="font-medium text-gray-900">{t('docLabQC.obsLine', { value: test.observedValue, unit: test.unit })}</div>
+                          <div className="text-xs text-gray-500">{t('docLabQC.meanSdLine', { mean: test.expectedMean, sd: test.expectedSD })}</div>
                           <div className="text-xs text-gray-500">
-                            Z-score: {((test.observedValue - test.expectedMean) / test.expectedSD).toFixed(2)}
+                            {t('docLabQC.zScoreLine', { score: ((test.observedValue - test.expectedMean) / test.expectedSD).toFixed(2) })}
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-900">{test.performedBy}</div>
                         {test.reviewedBy && (
-                          <div className="text-xs text-gray-500">Rev: {test.reviewedBy}</div>
+                          <div className="text-xs text-gray-500">{t('docLabQC.revLine', { name: test.reviewedBy })}</div>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -474,7 +475,7 @@ const LabQCPage: React.FC = () => {
                         {test.correctiveAction && (
                           <div className="text-xs text-blue-600 mb-1">
                             <Activity className="inline h-3 w-3 mr-1" />
-                            Action taken
+                            {t('docLabQC.actionTaken')}
                           </div>
                         )}
                         {test.comments && (
@@ -482,7 +483,7 @@ const LabQCPage: React.FC = () => {
                         )}
                         {test.correctiveAction && (
                           <div className="text-xs text-gray-700 mt-1 bg-blue-50 p-2 rounded">
-                            <strong>Corrective Action:</strong> {test.correctiveAction}
+                            <strong>{t('docLabQC.correctiveActionPrefix')}</strong> {test.correctiveAction}
                           </div>
                         )}
                       </td>
@@ -498,13 +499,13 @@ const LabQCPage: React.FC = () => {
       {/* New QC Test Tab */}
       {activeTab === 'newQC' && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4">New QC Test</h2>
+          <h2 className="text-xl font-bold mb-4">{t('docLabQC.newQcTestHeading')}</h2>
           <form onSubmit={handleSubmitQC}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Instrument */}
               <div>
                 <label htmlFor="labqc-instrument" className="block text-sm font-medium text-gray-700 mb-1">
-                  Instrument <span className="text-red-500">*</span>
+                  {t('docLabQC.instrumentRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="labqc-instrument"
@@ -513,7 +514,7 @@ const LabQCPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="">Select instrument...</option>
+                  <option value="">{t('docLabQC.selectInstrumentPh')}</option>
                   <option value="Chemistry Analyzer - Cobas c502">Chemistry Analyzer - Cobas c502</option>
                   <option value="Hematology Analyzer - Sysmex XN-1000">Hematology Analyzer - Sysmex XN-1000</option>
                   <option value="Coagulation Analyzer - ACL Top 750">Coagulation Analyzer - ACL Top 750</option>
@@ -525,14 +526,14 @@ const LabQCPage: React.FC = () => {
               {/* Analyte */}
               <div>
                 <label htmlFor="labqc-analyte" className="block text-sm font-medium text-gray-700 mb-1">
-                  Analyte <span className="text-red-500">*</span>
+                  {t('docLabQC.analyteRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-analyte"
                   type="text"
                   value={analyte}
                   onChange={(e) => setAnalyte(e.target.value)}
-                  placeholder="e.g., Glucose, WBC, PT"
+                  placeholder={t('docLabQC.analytePh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -541,7 +542,7 @@ const LabQCPage: React.FC = () => {
               {/* QC Level */}
               <div>
                 <label htmlFor="labqc-level" className="block text-sm font-medium text-gray-700 mb-1">
-                  QC Level <span className="text-red-500">*</span>
+                  {t('docLabQC.qcLevelRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="labqc-level"
@@ -550,23 +551,23 @@ const LabQCPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="Level 1">Level 1 (Low)</option>
-                  <option value="Level 2">Level 2 (Normal)</option>
-                  <option value="Level 3">Level 3 (High)</option>
+                  <option value="Level 1">{t('docLabQC.level1')}</option>
+                  <option value="Level 2">{t('docLabQC.level2')}</option>
+                  <option value="Level 3">{t('docLabQC.level3')}</option>
                 </select>
               </div>
 
               {/* Lot Number */}
               <div>
                 <label htmlFor="labqc-lot-number" className="block text-sm font-medium text-gray-700 mb-1">
-                  Lot Number <span className="text-red-500">*</span>
+                  {t('docLabQC.lotNumberRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-lot-number"
                   type="text"
                   value={lotNumber}
                   onChange={(e) => setLotNumber(e.target.value)}
-                  placeholder="QC material lot number"
+                  placeholder={t('docLabQC.lotNumberPh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -575,7 +576,7 @@ const LabQCPage: React.FC = () => {
               {/* Expiry Date */}
               <div>
                 <label htmlFor="labqc-expiry-date" className="block text-sm font-medium text-gray-700 mb-1">
-                  Expiry Date <span className="text-red-500">*</span>
+                  {t('docLabQC.expiryDateRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-expiry-date"
@@ -590,7 +591,7 @@ const LabQCPage: React.FC = () => {
               {/* Observed Value */}
               <div>
                 <label htmlFor="labqc-observed-value" className="block text-sm font-medium text-gray-700 mb-1">
-                  Observed Value <span className="text-red-500">*</span>
+                  {t('docLabQC.observedValueRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-observed-value"
@@ -598,7 +599,7 @@ const LabQCPage: React.FC = () => {
                   step="0.01"
                   value={observedValue}
                   onChange={(e) => setObservedValue(e.target.value)}
-                  placeholder="Measured value"
+                  placeholder={t('docLabQC.observedValuePh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -607,7 +608,7 @@ const LabQCPage: React.FC = () => {
               {/* Expected Mean */}
               <div>
                 <label htmlFor="labqc-expected-mean" className="block text-sm font-medium text-gray-700 mb-1">
-                  Expected Mean <span className="text-red-500">*</span>
+                  {t('docLabQC.expectedMeanRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-expected-mean"
@@ -615,7 +616,7 @@ const LabQCPage: React.FC = () => {
                   step="0.01"
                   value={expectedMean}
                   onChange={(e) => setExpectedMean(e.target.value)}
-                  placeholder="Target value"
+                  placeholder={t('docLabQC.expectedMeanPh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -624,7 +625,7 @@ const LabQCPage: React.FC = () => {
               {/* Expected SD */}
               <div>
                 <label htmlFor="labqc-expected-sd" className="block text-sm font-medium text-gray-700 mb-1">
-                  Expected SD <span className="text-red-500">*</span>
+                  {t('docLabQC.expectedSdRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-expected-sd"
@@ -632,7 +633,7 @@ const LabQCPage: React.FC = () => {
                   step="0.01"
                   value={expectedSD}
                   onChange={(e) => setExpectedSD(e.target.value)}
-                  placeholder="Standard deviation"
+                  placeholder={t('docLabQC.expectedSdPh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -641,14 +642,14 @@ const LabQCPage: React.FC = () => {
               {/* Unit */}
               <div>
                 <label htmlFor="labqc-unit" className="block text-sm font-medium text-gray-700 mb-1">
-                  Unit <span className="text-red-500">*</span>
+                  {t('docLabQC.unitRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-unit"
                   type="text"
                   value={unit}
                   onChange={(e) => setUnit(e.target.value)}
-                  placeholder="e.g., mg/dL, 10^9/L"
+                  placeholder={t('docLabQC.unitPh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -657,27 +658,27 @@ const LabQCPage: React.FC = () => {
               {/* Corrective Action */}
               <div className="md:col-span-2">
                 <label htmlFor="labqc-corrective-action" className="block text-sm font-medium text-gray-700 mb-1">
-                  Corrective Action (if out of range)
+                  {t('docLabQC.correctiveActionLabel')}
                 </label>
                 <textarea
                   id="labqc-corrective-action"
                   value={correctiveAction}
                   onChange={(e) => setCorrectiveAction(e.target.value)}
                   rows={2}
-                  placeholder="Document any actions taken if QC failed..."
+                  placeholder={t('docLabQC.correctiveActionPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
 
               {/* Comments */}
               <div className="md:col-span-2">
-                <label htmlFor="labqc-comments" className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
+                <label htmlFor="labqc-comments" className="block text-sm font-medium text-gray-700 mb-1">{t('docLabQC.commentsLabel')}</label>
                 <textarea
                   id="labqc-comments"
                   value={qcComments}
                   onChange={(e) => setQcComments(e.target.value)}
                   rows={2}
-                  placeholder="Additional notes..."
+                  placeholder={t('docLabQC.commentsPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
@@ -685,11 +686,11 @@ const LabQCPage: React.FC = () => {
 
             {/* Westgard Rules Info */}
             <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-medium text-blue-900 mb-2">Westgard Rules Applied</h3>
+              <h3 className="font-medium text-blue-900 mb-2">{t('docLabQC.westgardRulesHeading')}</h3>
               <div className="text-sm text-blue-800 space-y-1">
-                <p>• <strong>1-2s</strong>: One control exceeds ±2SD (Warning)</p>
-                <p>• <strong>1-3s</strong>: One control exceeds ±3SD (Reject/Out of Control)</p>
-                <p>• System automatically calculates Z-score and evaluates rules</p>
+                <p>• <strong>1-2s</strong>: {t('docLabQC.westgardRule12s')}</p>
+                <p>• <strong>1-3s</strong>: {t('docLabQC.westgardRule13s')}</p>
+                <p>• {t('docLabQC.westgardAutoNote')}</p>
               </div>
             </div>
 
@@ -700,14 +701,14 @@ const LabQCPage: React.FC = () => {
                 onClick={() => setActiveTab('qcTests')}
                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('docLabQC.cancelButton')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Record QC Test
+                {t('docLabQC.recordQcTestButton')}
               </button>
             </div>
           </form>
@@ -721,14 +722,14 @@ const LabQCPage: React.FC = () => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Calibration ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date/Time</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Instrument</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Calibrator Lot</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Performed By</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableResult')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableCalibrationId')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableDateTime')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableInstrument')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableType')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableCalibratorLot')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tablePerformedBy')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docLabQC.tableDetails')}</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -738,7 +739,7 @@ const LabQCPage: React.FC = () => {
                       <div className="flex items-center space-x-2">
                         {getResultIcon(cal.result)}
                         <span className={`px-2 py-1 text-xs font-semibold rounded ${getResultBadge(cal.result)}`}>
-                          {cal.result.toUpperCase()}
+                          {t(`docLabQC.result_${cal.result}`).toUpperCase()}
                         </span>
                       </div>
                     </td>
@@ -750,17 +751,17 @@ const LabQCPage: React.FC = () => {
                     <td className="px-4 py-3 text-sm text-gray-900">{cal.instrument}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 text-xs font-semibold rounded bg-purple-100 text-purple-800">
-                        {cal.calibrationType.toUpperCase()}
+                        {t(`docLabQC.calTypeBadge_${cal.calibrationType}`).toUpperCase()}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-900">{cal.calibratorLot}</div>
-                      <div className="text-xs text-gray-500">Exp: {cal.expiryDate}</div>
+                      <div className="text-xs text-gray-500">{t('docLabQC.expLine', { date: cal.expiryDate })}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-900">{cal.performedBy}</div>
                       {cal.reviewedBy && (
-                        <div className="text-xs text-gray-500">Rev: {cal.reviewedBy}</div>
+                        <div className="text-xs text-gray-500">{t('docLabQC.revLine', { name: cal.reviewedBy })}</div>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -768,11 +769,11 @@ const LabQCPage: React.FC = () => {
                         <div className="text-xs space-y-1">
                           {cal.parameters.slice(0, 2).map((param, idx) => (
                             <div key={idx} className="text-gray-700">
-                              <strong>{param.analyte}:</strong> R²={param.r2}
+                              <strong>{param.analyte}:</strong> {t('docLabQC.rSquaredLine', { value: param.r2 })}
                             </div>
                           ))}
                           {cal.parameters.length > 2 && (
-                            <div className="text-gray-500">+{cal.parameters.length - 2} more</div>
+                            <div className="text-gray-500">{t('docLabQC.moreCountLine', { count: cal.parameters.length - 2 })}</div>
                           )}
                         </div>
                       )}
@@ -791,13 +792,13 @@ const LabQCPage: React.FC = () => {
       {/* New Calibration Tab */}
       {activeTab === 'newCalibration' && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4">New Calibration</h2>
+          <h2 className="text-xl font-bold mb-4">{t('docLabQC.newCalibrationHeading')}</h2>
           <form onSubmit={handleSubmitCalibration}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Instrument */}
               <div>
                 <label htmlFor="labqc-cal-instrument" className="block text-sm font-medium text-gray-700 mb-1">
-                  Instrument <span className="text-red-500">*</span>
+                  {t('docLabQC.instrumentRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="labqc-cal-instrument"
@@ -806,7 +807,7 @@ const LabQCPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="">Select instrument...</option>
+                  <option value="">{t('docLabQC.selectInstrumentPh')}</option>
                   <option value="Chemistry Analyzer - Cobas c502">Chemistry Analyzer - Cobas c502</option>
                   <option value="Hematology Analyzer - Sysmex XN-1000">Hematology Analyzer - Sysmex XN-1000</option>
                   <option value="Coagulation Analyzer - ACL Top 750">Coagulation Analyzer - ACL Top 750</option>
@@ -818,7 +819,7 @@ const LabQCPage: React.FC = () => {
               {/* Calibration Type */}
               <div>
                 <label htmlFor="labqc-cal-type" className="block text-sm font-medium text-gray-700 mb-1">
-                  Calibration Type <span className="text-red-500">*</span>
+                  {t('docLabQC.calibrationTypeRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="labqc-cal-type"
@@ -827,23 +828,23 @@ const LabQCPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="full">Full Calibration</option>
-                  <option value="verification">Calibration Verification</option>
-                  <option value="linearity">Linearity Check</option>
+                  <option value="full">{t('docLabQC.calType_full')}</option>
+                  <option value="verification">{t('docLabQC.calType_verification')}</option>
+                  <option value="linearity">{t('docLabQC.calType_linearity')}</option>
                 </select>
               </div>
 
               {/* Calibrator Lot */}
               <div>
                 <label htmlFor="labqc-cal-lot" className="block text-sm font-medium text-gray-700 mb-1">
-                  Calibrator Lot Number <span className="text-red-500">*</span>
+                  {t('docLabQC.calibratorLotRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-cal-lot"
                   type="text"
                   value={calibratorLot}
                   onChange={(e) => setCalibratorLot(e.target.value)}
-                  placeholder="Calibrator lot number"
+                  placeholder={t('docLabQC.calibratorLotPh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -852,7 +853,7 @@ const LabQCPage: React.FC = () => {
               {/* Expiry Date */}
               <div>
                 <label htmlFor="labqc-cal-expiry-date" className="block text-sm font-medium text-gray-700 mb-1">
-                  Expiry Date <span className="text-red-500">*</span>
+                  {t('docLabQC.expiryDateRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="labqc-cal-expiry-date"
@@ -867,7 +868,7 @@ const LabQCPage: React.FC = () => {
               {/* Result */}
               <div>
                 <label htmlFor="labqc-cal-result" className="block text-sm font-medium text-gray-700 mb-1">
-                  Result <span className="text-red-500">*</span>
+                  {t('docLabQC.resultRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="labqc-cal-result"
@@ -876,20 +877,20 @@ const LabQCPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="pass">Pass</option>
-                  <option value="fail">Fail</option>
+                  <option value="pass">{t('docLabQC.result_pass')}</option>
+                  <option value="fail">{t('docLabQC.result_fail')}</option>
                 </select>
               </div>
 
               {/* Comments */}
               <div className="md:col-span-2">
-                <label htmlFor="labqc-cal-comments" className="block text-sm font-medium text-gray-700 mb-1">Comments</label>
+                <label htmlFor="labqc-cal-comments" className="block text-sm font-medium text-gray-700 mb-1">{t('docLabQC.commentsLabel')}</label>
                 <textarea
                   id="labqc-cal-comments"
                   value={calComments}
                   onChange={(e) => setCalComments(e.target.value)}
                   rows={3}
-                  placeholder="Document calibration parameters, linearity data, or any issues..."
+                  placeholder={t('docLabQC.calCommentsPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
@@ -897,12 +898,12 @@ const LabQCPage: React.FC = () => {
 
             {/* Info Panel */}
             <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
-              <h3 className="font-medium text-green-900 mb-2">Calibration Guidelines</h3>
+              <h3 className="font-medium text-green-900 mb-2">{t('docLabQC.calibrationGuidelinesHeading')}</h3>
               <ul className="text-sm text-green-800 space-y-1">
-                <li>• Full calibration required after reagent change or maintenance</li>
-                <li>• Verification calibration required after new lot of calibrator</li>
-                <li>• Linearity checks should be performed per manufacturer specifications</li>
-                <li>• Run QC immediately after calibration to verify accuracy</li>
+                <li>• {t('docLabQC.guideline_full')}</li>
+                <li>• {t('docLabQC.guideline_verification')}</li>
+                <li>• {t('docLabQC.guideline_linearity')}</li>
+                <li>• {t('docLabQC.guideline_qcAfter')}</li>
               </ul>
             </div>
 
@@ -913,14 +914,14 @@ const LabQCPage: React.FC = () => {
                 onClick={() => setActiveTab('calibrations')}
                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('docLabQC.cancelButton')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Record Calibration
+                {t('docLabQC.recordCalibrationButton')}
               </button>
             </div>
           </form>

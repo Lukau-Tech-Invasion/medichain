@@ -24,14 +24,6 @@ impl MemoryFallRiskAssessmentRepository {
         }
     }
 
-    /// Create with existing data
-    #[allow(dead_code)]
-    pub fn with_data(data: HashMap<String, FallRiskAssessmentEntity>) -> Self {
-        Self {
-            data: Arc::new(RwLock::new(data)),
-        }
-    }
-
     /// Calculate risk level based on Morse Fall Scale score
     fn calculate_risk_level(score: i32) -> String {
         match score {
@@ -95,7 +87,7 @@ impl FallRiskAssessmentRepository for MemoryFallRiskAssessmentRepository {
             .cloned()
             .collect();
 
-        assessments.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+        assessments.sort_by_key(|b| std::cmp::Reverse(b.assessed_at));
 
         let total = assessments.len() as u64;
         let offset = pagination.offset() as usize;

@@ -435,6 +435,21 @@ export interface EmergencyAccessResponse {
   message: string;
 }
 
+/** Strict emergency path: all authorisation bindings are enforced server-side. */
+export interface GrantBoundEmergencyAccessRequest {
+  nfc_tag_id: string;
+  device_id: string;
+  work_context_id: string;
+  reason_code: string;
+  reason_text?: string;
+}
+
+export interface GrantBoundEmergencyAccessResponse {
+  grant_id: string;
+  expires_at: string;
+  emergency_info: EmergencyInfo;
+}
+
 export interface NFCCardInfo {
   card_id: string;
   patient_id: string;
@@ -798,6 +813,8 @@ export interface PharmacistDashboardResponse {
 // ============================================================================
 
 export type ApiResponse<T> = T | ApiError;
+
+export * from './clinical';
 
 export function isApiError(response: ApiResponse<unknown>): response is ApiError {
   return typeof response === 'object' && response !== null && (response as ApiError).success === false && 'error' in (response as object);

@@ -411,6 +411,9 @@ pub async fn get_patient_triage_assessments(
 /// Get triage queue - all pending triage assessments sorted by ESI level
 /// Requires: Doctor, Nurse, or Admin role
 #[get("/api/clinical/triage/queue")]
+// The `users` RwLock guard is explicitly `drop()`-ed before this handler's await
+// point; clippy's await_holding_lock doesn't recognize manual drops here.
+#[allow(clippy::await_holding_lock)]
 pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
@@ -442,6 +445,7 @@ pub async fn get_triage_queue(data: web::Data<AppState>, http_req: HttpRequest) 
             code: "FORBIDDEN".to_string(),
         });
     }
+    drop(users);
 
     match data
         .repositories

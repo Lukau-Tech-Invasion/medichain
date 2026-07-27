@@ -94,7 +94,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
             None => Vec::new(),
         };
 
-        records.sort_by(|a, b| b.record_date.cmp(&a.record_date));
+        records.sort_by_key(|b| std::cmp::Reverse(b.record_date));
 
         let total = records.len() as u64;
         let offset = pagination.offset() as usize;
@@ -125,7 +125,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
             None => Vec::new(),
         };
 
-        records.sort_by(|a, b| b.record_date.cmp(&a.record_date));
+        records.sort_by_key(|b| std::cmp::Reverse(b.record_date));
 
         let total = records.len() as u64;
         let offset = pagination.offset() as usize;
@@ -230,7 +230,7 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
             None => Vec::new(),
         };
 
-        records.sort_by(|a, b| b.record_date.cmp(&a.record_date));
+        records.sort_by_key(|b| std::cmp::Reverse(b.record_date));
 
         let total = records.len() as u64;
         let offset = pagination.offset() as usize;

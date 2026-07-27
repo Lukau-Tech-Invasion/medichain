@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Wind, AlertTriangle, CheckCircle, Plus, Clock, User, Stethoscope } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, createIntubation } from '@medichain/shared';
+import { getPatients, createIntubation, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 
@@ -45,18 +45,23 @@ interface IntubationRecord {
   notes: string;
 }
 
-const mallampatiDescriptions: Record<MallampatiClass, string> = {
-  'I': 'Soft palate, uvula, fauces, pillars visible',
-  'II': 'Soft palate, uvula, fauces visible',
-  'III': 'Soft palate, base of uvula visible',
-  'IV': 'Hard palate only visible'
-};
-
 const intubationIndications = [
   'Respiratory failure', 'Airway protection', 'Altered mental status',
   'Anticipated clinical course', 'Trauma', 'Cardiac arrest',
   'Procedural sedation', 'Status epilepticus', 'Shock'
 ];
+
+const INDICATION_KEYS: Record<string, string> = {
+  'Respiratory failure': 'respiratoryFailure',
+  'Airway protection': 'airwayProtection',
+  'Altered mental status': 'alteredMentalStatus',
+  'Anticipated clinical course': 'anticipatedClinicalCourse',
+  'Trauma': 'trauma',
+  'Cardiac arrest': 'cardiacArrest',
+  'Procedural sedation': 'proceduralSedation',
+  'Status epilepticus': 'statusEpilepticus',
+  'Shock': 'shock',
+};
 
 const rsiMedications = [
   { name: 'Etomidate', doses: ['20mg', '0.3mg/kg'] },
@@ -74,7 +79,22 @@ const complications = [
   'Laryngospasm', 'Pneumothorax', 'Cardiac arrest'
 ];
 
+const COMPLICATION_KEYS: Record<string, string> = {
+  'None': 'none',
+  'Esophageal intubation': 'esophageal',
+  'Right mainstem': 'rightMainstem',
+  'Hypoxia': 'hypoxia',
+  'Hypotension': 'hypotension',
+  'Bradycardia': 'bradycardia',
+  'Dental trauma': 'dentalTrauma',
+  'Aspiration': 'aspiration',
+  'Laryngospasm': 'laryngospasm',
+  'Pneumothorax': 'pneumothorax',
+  'Cardiac arrest': 'cardiacArrest',
+};
+
 const IntubationPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -148,7 +168,7 @@ const IntubationPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!selectedPatient || !formData.indication) {
-      showWarning('Please select a patient and indication');
+      showWarning(t('docIntubation.warningSelectPatientIndication'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
@@ -181,7 +201,7 @@ const IntubationPage: React.FC = () => {
       console.error('Failed to save intubation record:', err);
     }
     setRecords([newRecord, ...records]);
-    showSuccess('Intubation documented successfully!');
+    showSuccess(t('docIntubation.successDocumented'));
   };
 
   return (
@@ -191,8 +211,8 @@ const IntubationPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <Wind className="w-8 h-8" />
           <div>
-            <h1 className="text-2xl font-bold">Intubation & Airway Management</h1>
-            <p className="text-cyan-100">RSI documentation and airway assessment</p>
+            <h1 className="text-2xl font-bold">{t('docIntubation.title')}</h1>
+            <p className="text-cyan-100">{t('docIntubation.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -208,7 +228,7 @@ const IntubationPage: React.FC = () => {
                 ? 'text-cyan-600 border-b-2 border-cyan-600'
                 : 'text-gray-500 hover:text-gray-700'}`}
             >
-              {tab === 'new' ? 'New Intubation' : 'History'}
+              {tab === 'new' ? t('docIntubation.tabNew') : t('docIntubation.tabHistory')}
             </button>
           ))}
         </div>
@@ -220,14 +240,14 @@ const IntubationPage: React.FC = () => {
             {/* Patient Selection */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <User className="w-5 h-5" /> Patient Selection
+                <User className="w-5 h-5" /> {t('docIntubation.patientSelectionHeading')}
               </h2>
               <select
                 value={selectedPatient}
                 onChange={e => setSelectedPatient(e.target.value)}
                 className="w-full border rounded p-2"
               >
-                <option value="">Select patient...</option>
+                <option value="">{t('docIntubation.selectPatientPh')}</option>
                 {patients.map(p => (
                   <option key={p.patient_id} value={p.patient_id}>{p.full_name}</option>
                 ))}
@@ -237,16 +257,16 @@ const IntubationPage: React.FC = () => {
             {/* Airway Assessment */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <Stethoscope className="w-5 h-5" /> Airway Assessment (LEMON)
+                <Stethoscope className="w-5 h-5" /> {t('docIntubation.airwayAssessmentHeading')}
                 {airway.predictedDifficult && (
                   <span className="ml-2 px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" /> Difficult Airway Predicted
+                    <AlertTriangle className="w-3 h-3" /> {t('docIntubation.difficultAirwayBadge')}
                   </span>
                 )}
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="intubation-mallampati" className="text-sm text-gray-600">Mallampati Class</label>
+                  <label htmlFor="intubation-mallampati" className="text-sm text-gray-600">{t('docIntubation.mallampatiClassLabel')}</label>
                   <select
                     id="intubation-mallampati"
                     value={airway.mallampati}
@@ -254,13 +274,13 @@ const IntubationPage: React.FC = () => {
                     className="w-full border rounded p-2"
                   >
                     {(['I', 'II', 'III', 'IV'] as MallampatiClass[]).map(c => (
-                      <option key={c} value={c}>Class {c}</option>
+                      <option key={c} value={c}>{t('docIntubation.classOption', { c })}</option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">{mallampatiDescriptions[airway.mallampati]}</p>
+                  <p className="text-xs text-gray-500 mt-1">{t(`docIntubation.mallampati_${airway.mallampati}`)}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-mouth-opening" className="text-sm text-gray-600">Mouth Opening (cm)</label>
+                  <label htmlFor="intubation-mouth-opening" className="text-sm text-gray-600">{t('docIntubation.mouthOpeningLabel')}</label>
                   <input
                     id="intubation-mouth-opening"
                     type="number"
@@ -269,10 +289,10 @@ const IntubationPage: React.FC = () => {
                     className="w-full border rounded p-2"
                     step="0.5"
                   />
-                  <p className="text-xs text-gray-500">&lt;3cm = difficult</p>
+                  <p className="text-xs text-gray-500">{t('docIntubation.mouthOpeningHint')}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-thyromental" className="text-sm text-gray-600">Thyromental (cm)</label>
+                  <label htmlFor="intubation-thyromental" className="text-sm text-gray-600">{t('docIntubation.thyromentalLabel')}</label>
                   <input
                     id="intubation-thyromental"
                     type="number"
@@ -281,33 +301,33 @@ const IntubationPage: React.FC = () => {
                     className="w-full border rounded p-2"
                     step="0.5"
                   />
-                  <p className="text-xs text-gray-500">&lt;6cm = difficult</p>
+                  <p className="text-xs text-gray-500">{t('docIntubation.thyromentalHint')}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-neck-mobility" className="text-sm text-gray-600">Neck Mobility</label>
+                  <label htmlFor="intubation-neck-mobility" className="text-sm text-gray-600">{t('docIntubation.neckMobilityLabel')}</label>
                   <select
                     id="intubation-neck-mobility"
                     value={airway.neckMobility}
                     onChange={e => setAirway({ ...airway, neckMobility: e.target.value as 'full' | 'limited' | 'immobile' })}
                     className="w-full border rounded p-2"
                   >
-                    <option value="full">Full</option>
-                    <option value="limited">Limited</option>
-                    <option value="immobile">Immobile (C-spine)</option>
+                    <option value="full">{t('docIntubation.neckMobility_full')}</option>
+                    <option value="limited">{t('docIntubation.neckMobility_limited')}</option>
+                    <option value="immobile">{t('docIntubation.neckMobility_immobile')}</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intubation-dentition" className="text-sm text-gray-600">Dentition</label>
+                  <label htmlFor="intubation-dentition" className="text-sm text-gray-600">{t('docIntubation.dentitionLabel')}</label>
                   <select
                     id="intubation-dentition"
                     value={airway.dentition}
                     onChange={e => setAirway({ ...airway, dentition: e.target.value as 'normal' | 'loose' | 'dentures' | 'edentulous' })}
                     className="w-full border rounded p-2"
                   >
-                    <option value="normal">Normal</option>
-                    <option value="loose">Loose teeth</option>
-                    <option value="dentures">Dentures</option>
-                    <option value="edentulous">Edentulous</option>
+                    <option value="normal">{t('docIntubation.dentition_normal')}</option>
+                    <option value="loose">{t('docIntubation.dentition_loose')}</option>
+                    <option value="dentures">{t('docIntubation.dentition_dentures')}</option>
+                    <option value="edentulous">{t('docIntubation.dentition_edentulous')}</option>
                   </select>
                 </div>
                 <div className="flex items-center gap-4 col-span-2">
@@ -318,7 +338,7 @@ const IntubationPage: React.FC = () => {
                       checked={airway.beardPresent}
                       onChange={e => setAirway({ ...airway, beardPresent: e.target.checked })}
                     />
-                    <span className="text-sm">Beard present</span>
+                    <span className="text-sm">{t('docIntubation.beardPresentCheckbox')}</span>
                   </label>
                   <label htmlFor="intub-obese-neck" className="flex items-center gap-2">
                     <input
@@ -327,13 +347,13 @@ const IntubationPage: React.FC = () => {
                       checked={airway.obeseNeck}
                       onChange={e => setAirway({ ...airway, obeseNeck: e.target.checked })}
                     />
-                    <span className="text-sm">Obese neck</span>
+                    <span className="text-sm">{t('docIntubation.obeseNeckCheckbox')}</span>
                   </label>
                 </div>
                 <div className="bg-gray-50 p-3 rounded">
-                  <span className="text-sm font-medium">LEMON Score: </span>
+                  <span className="text-sm font-medium">{t('docIntubation.lemonScoreLabel')}</span>
                   <span className={`font-bold ${airway.lemonScore >= 3 ? 'text-red-600' : 'text-green-600'}`}>
-                    {airway.lemonScore}/6
+                    {airway.lemonScore}{t('docIntubation.lemonScoreSuffix')}
                   </span>
                 </div>
               </div>
@@ -341,52 +361,52 @@ const IntubationPage: React.FC = () => {
 
             {/* Procedure Details */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Procedure Details</h2>
+              <h2 className="font-semibold mb-3">{t('docIntubation.procedureDetailsHeading')}</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="intub-indication" className="text-sm text-gray-600">Indication</label>
+                  <label htmlFor="intub-indication" className="text-sm text-gray-600">{t('docIntubation.indicationLabel')}</label>
                   <select
                     id="intub-indication"
                     value={formData.indication}
                     onChange={e => setFormData({ ...formData, indication: e.target.value })}
                     className="w-full border rounded p-2"
                   >
-                    <option value="">Select...</option>
+                    <option value="">{t('docIntubation.selectEllipsis')}</option>
                     {intubationIndications.map(i => (
-                      <option key={i} value={i}>{i}</option>
+                      <option key={i} value={i}>{t(`docIntubation.indication_${INDICATION_KEYS[i]}`)}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-method" className="text-sm text-gray-600">Method</label>
+                  <label htmlFor="intub-method" className="text-sm text-gray-600">{t('docIntubation.methodLabel')}</label>
                   <select
                     id="intub-method"
                     value={formData.method}
                     onChange={e => setFormData({ ...formData, method: e.target.value as IntubationMethod })}
                     className="w-full border rounded p-2"
                   >
-                    <option value="oral">Oral</option>
-                    <option value="nasal">Nasal</option>
-                    <option value="video">Video-assisted</option>
-                    <option value="surgical">Surgical airway</option>
+                    <option value="oral">{t('docIntubation.method_oral')}</option>
+                    <option value="nasal">{t('docIntubation.method_nasal')}</option>
+                    <option value="video">{t('docIntubation.method_video')}</option>
+                    <option value="surgical">{t('docIntubation.method_surgical')}</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-blade-type" className="text-sm text-gray-600">Blade Type</label>
+                  <label htmlFor="intub-blade-type" className="text-sm text-gray-600">{t('docIntubation.bladeTypeLabel')}</label>
                   <select
                     id="intub-blade-type"
                     value={formData.bladeType}
                     onChange={e => setFormData({ ...formData, bladeType: e.target.value as BladeType })}
                     className="w-full border rounded p-2"
                   >
-                    <option value="mac">Macintosh</option>
-                    <option value="miller">Miller</option>
-                    <option value="video">Video</option>
-                    <option value="glidescope">GlideScope</option>
+                    <option value="mac">{t('docIntubation.bladeType_mac')}</option>
+                    <option value="miller">{t('docIntubation.bladeType_miller')}</option>
+                    <option value="video">{t('docIntubation.bladeType_video')}</option>
+                    <option value="glidescope">{t('docIntubation.bladeType_glidescope')}</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-blade-size" className="text-sm text-gray-600">Blade Size</label>
+                  <label htmlFor="intub-blade-size" className="text-sm text-gray-600">{t('docIntubation.bladeSizeLabel')}</label>
                   <select
                     id="intub-blade-size"
                     value={formData.bladeSize}
@@ -399,7 +419,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-ett-size" className="text-sm text-gray-600">ETT Size (mm)</label>
+                  <label htmlFor="intub-ett-size" className="text-sm text-gray-600">{t('docIntubation.ettSizeLabel')}</label>
                   <select
                     id="intub-ett-size"
                     value={formData.tubeSize}
@@ -412,7 +432,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-depth-at-lip" className="text-sm text-gray-600">Depth at Lip (cm)</label>
+                  <label htmlFor="intub-depth-at-lip" className="text-sm text-gray-600">{t('docIntubation.depthAtLipLabel')}</label>
                   <input
                     id="intub-depth-at-lip"
                     type="number"
@@ -422,7 +442,7 @@ const IntubationPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="intub-cuff-pressure" className="text-sm text-gray-600">Cuff Pressure (cmH2O)</label>
+                  <label htmlFor="intub-cuff-pressure" className="text-sm text-gray-600">{t('docIntubation.cuffPressureLabel')}</label>
                   <input
                     id="intub-cuff-pressure"
                     type="number"
@@ -432,7 +452,7 @@ const IntubationPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="intub-attempts" className="text-sm text-gray-600">Attempts</label>
+                  <label htmlFor="intub-attempts" className="text-sm text-gray-600">{t('docIntubation.attemptsLabel')}</label>
                   <select
                     id="intub-attempts"
                     value={formData.attempts}
@@ -453,7 +473,7 @@ const IntubationPage: React.FC = () => {
                     checked={formData.preOxygenation}
                     onChange={e => setFormData({ ...formData, preOxygenation: e.target.checked })}
                   />
-                  <span>Pre-oxygenation performed</span>
+                  <span>{t('docIntubation.preOxygenationCheckbox')}</span>
                 </label>
                 <label htmlFor="intub-rsi-used" className="flex items-center gap-2">
                   <input
@@ -462,7 +482,7 @@ const IntubationPage: React.FC = () => {
                     checked={formData.rsiUsed}
                     onChange={e => setFormData({ ...formData, rsiUsed: e.target.checked })}
                   />
-                  <span>RSI used</span>
+                  <span>{t('docIntubation.rsiUsedCheckbox')}</span>
                 </label>
               </div>
             </div>
@@ -470,7 +490,7 @@ const IntubationPage: React.FC = () => {
             {/* RSI Medications */}
             {formData.rsiUsed && (
               <div className="bg-white rounded-lg shadow p-4">
-                <h2 className="font-semibold mb-3">RSI Medications</h2>
+                <h2 className="font-semibold mb-3">{t('docIntubation.rsiMedicationsHeading')}</h2>
                 <div className="flex flex-wrap gap-2 mb-4">
                   {rsiMedications.map(med => (
                     <div key={med.name} className="flex items-center gap-1">
@@ -489,7 +509,7 @@ const IntubationPage: React.FC = () => {
                 </div>
                 {medications.length > 0 && (
                   <div className="border rounded p-2">
-                    <h3 className="text-sm font-medium mb-2">Medications Given:</h3>
+                    <h3 className="text-sm font-medium mb-2">{t('docIntubation.medicationsGivenLabel')}</h3>
                     {medications.map((med, i) => (
                       <div key={i} className="flex items-center gap-2 text-sm">
                         <Clock className="w-4 h-4 text-gray-400" />
@@ -506,7 +526,7 @@ const IntubationPage: React.FC = () => {
             {/* Verification */}
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5" /> Tube Placement Verification
+                <CheckCircle className="w-5 h-5" /> {t('docIntubation.verificationHeading')}
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {Object.entries(verification).map(([key, val]) => (
@@ -516,11 +536,7 @@ const IntubationPage: React.FC = () => {
                       checked={val}
                       onChange={e => setVerification({ ...verification, [key]: e.target.checked })}
                     />
-                    <span className="capitalize">
-                      {key === 'etco2' ? 'ETCO2 confirmed' :
-                        key === 'chestRise' ? 'Bilateral chest rise' :
-                          key === 'breathSounds' ? 'Breath sounds equal' : 'CXR confirmed'}
-                    </span>
+                    <span>{t(`docIntubation.verification_${key}`)}</span>
                   </label>
                 ))}
               </div>
@@ -528,11 +544,11 @@ const IntubationPage: React.FC = () => {
 
             {/* Complications */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Complications</h2>
+              <h2 className="font-semibold mb-3">{t('docIntubation.complicationsHeading')}</h2>
               <div className="flex flex-wrap gap-2">
                 {complications.map(c => (
                   <label key={c} className={`px-3 py-2 rounded border cursor-pointer ${
-                    selectedComplications.includes(c) 
+                    selectedComplications.includes(c)
                       ? c === 'None' ? 'bg-green-100 border-green-300' : 'bg-red-100 border-red-300'
                       : 'bg-gray-50'
                   }`}>
@@ -549,7 +565,7 @@ const IntubationPage: React.FC = () => {
                       }}
                       className="mr-2"
                     />
-                    {c}
+                    {t(`docIntubation.complication_${COMPLICATION_KEYS[c]}`)}
                   </label>
                 ))}
               </div>
@@ -557,12 +573,12 @@ const IntubationPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-semibold mb-3">Notes</h2>
+              <h2 className="font-semibold mb-3">{t('docIntubation.notesHeading')}</h2>
               <textarea
                 value={formData.notes}
                 onChange={e => setFormData({ ...formData, notes: e.target.value })}
                 className="w-full border rounded p-2 h-24"
-                placeholder="Additional notes..."
+                placeholder={t('docIntubation.notesPh')}
               />
             </div>
 
@@ -571,13 +587,13 @@ const IntubationPage: React.FC = () => {
               onClick={handleSubmit}
               className="w-full py-3 bg-cyan-600 text-white rounded-lg font-semibold hover:bg-cyan-700 flex items-center justify-center gap-2"
             >
-              <Plus className="w-5 h-5" /> Document Intubation
+              <Plus className="w-5 h-5" /> {t('docIntubation.documentIntubationButton')}
             </button>
           </div>
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">No intubation records yet</div>
+              <div className="text-center py-8 text-gray-500">{t('docIntubation.noRecordsYet')}</div>
             ) : (
               records.map(r => (
                 <div key={r.id} className="bg-white rounded-lg shadow p-4">
@@ -587,18 +603,18 @@ const IntubationPage: React.FC = () => {
                       <p className="text-sm text-gray-500">{new Date(r.performedAt).toLocaleString()}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${r.successful ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {r.successful ? 'Successful' : 'Unsuccessful'}
+                      {r.successful ? t('docIntubation.successfulBadge') : t('docIntubation.unsuccessfulBadge')}
                     </span>
                   </div>
                   <div className="grid grid-cols-4 gap-4 text-sm">
-                    <div><span className="text-gray-500">Indication:</span> {r.indication}</div>
-                    <div><span className="text-gray-500">Method:</span> {r.method}</div>
-                    <div><span className="text-gray-500">ETT Size:</span> {r.tubeSize}mm</div>
-                    <div><span className="text-gray-500">Attempts:</span> {r.attempts}</div>
+                    <div><span className="text-gray-500">{t('docIntubation.indicationColLabel')}</span> {INDICATION_KEYS[r.indication] ? t(`docIntubation.indication_${INDICATION_KEYS[r.indication]}`) : r.indication}</div>
+                    <div><span className="text-gray-500">{t('docIntubation.methodColLabel')}</span> {t(`docIntubation.method_${r.method}`)}</div>
+                    <div><span className="text-gray-500">{t('docIntubation.ettSizeColLabel')}</span> {r.tubeSize}mm</div>
+                    <div><span className="text-gray-500">{t('docIntubation.attemptsColLabel')}</span> {r.attempts}</div>
                   </div>
                   {r.complications.length > 0 && (
                     <div className="mt-2 text-sm text-red-600">
-                      Complications: {r.complications.join(', ')}
+                      {t('docIntubation.complicationsLine', { list: r.complications.map(c => COMPLICATION_KEYS[c] ? t(`docIntubation.complication_${COMPLICATION_KEYS[c]}`) : c).join(', ') })}
                     </div>
                   )}
                 </div>

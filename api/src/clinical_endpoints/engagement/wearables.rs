@@ -21,15 +21,9 @@ pub async fn register_wearable_device(
     http_req: HttpRequest,
     req: web::Json<RegisterWearableRequest>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     let device_type = match req.device_type.as_str() {
@@ -114,15 +108,9 @@ pub async fn get_wearable_devices(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Repository list_all() (was: data.wearable_devices HashMap)
@@ -219,15 +207,9 @@ pub async fn submit_wearable_reading(
     http_req: HttpRequest,
     req: web::Json<SubmitWearableReadingRequest>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Verify device ownership
@@ -396,15 +378,9 @@ pub async fn get_wearable_readings(
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let device_id = path.into_inner();
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Repository list_all() (was: data.wearable_readings HashMap)
@@ -441,7 +417,7 @@ pub async fn get_wearable_readings(
     }
 
     // Sort by recorded_at descending
-    readings.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at));
+    readings.sort_by_key(|b| std::cmp::Reverse(b.recorded_at));
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -468,15 +444,9 @@ pub async fn create_wearable_alert_rule(
     http_req: HttpRequest,
     req: web::Json<CreateAlertRuleRequest>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     let rule_id = format!("RULE-{}", uuid::Uuid::new_v4());
@@ -534,15 +504,9 @@ pub async fn get_wearable_alerts(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Repository list_all() (was: data.wearable_alerts HashMap)
@@ -567,7 +531,7 @@ pub async fn get_wearable_alerts(
     };
 
     // Sort by created_at descending
-    user_alerts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    user_alerts.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,

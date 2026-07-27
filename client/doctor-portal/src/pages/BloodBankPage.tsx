@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { getPatients, listBloodBank, createBloodTypeScreen, createTransfusion } from '@medichain/shared';
+import { getPatients, listBloodBank, createBloodTypeScreen, createTransfusion, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { Droplets, AlertTriangle, CheckCircle, FileText, Search, Plus, Activity, RefreshCw } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
@@ -74,6 +74,7 @@ interface BloodOrder {
 }
 
 const BloodBankPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -128,7 +129,7 @@ const BloodBankPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching blood bank orders:', err);
-      setError('Failed to load blood bank orders');
+      setError(t('docBloodBank.errorLoadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -146,7 +147,7 @@ const BloodBankPage: React.FC = () => {
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !indication) {
-      showError('Please fill in all required fields');
+      showError(t('docBloodBank.errorRequiredFields'));
       return;
     }
 
@@ -174,7 +175,7 @@ const BloodBankPage: React.FC = () => {
       const response = await createBloodTypeScreen(newOrder) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setOrders([newOrder, ...orders]);
-        showSuccess(`Blood bank order ${newOrder.orderId} submitted successfully`);
+        showSuccess(t('docBloodBank.successOrderSubmitted', { orderId: newOrder.orderId }));
         setSelectedPatientId('');
         setProduct('RBC');
         setUnits(1);
@@ -182,11 +183,11 @@ const BloodBankPage: React.FC = () => {
         setPriority('routine');
         setActiveTab('orders');
       } else {
-        setError(response.error || 'Failed to submit blood bank order');
+        setError(response.error || t('docBloodBank.errorSubmitFailed'));
       }
     } catch (err) {
       console.error('Error submitting blood bank order:', err);
-      setError('An error occurred while submitting the blood bank order');
+      setError(t('docBloodBank.errorGenericSubmit'));
     } finally {
       setIsLoading(false);
     }
@@ -214,12 +215,12 @@ const BloodBankPage: React.FC = () => {
   const handleSubmitTransfusion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrder || !startTime || !administeredBy || !witnessedBy) {
-      showError('Please fill in all required fields');
+      showError(t('docBloodBank.errorRequiredFields'));
       return;
     }
 
     if (!preBP || !preHR || !preTemp || !preRR) {
-      showError('Pre-transfusion vitals are required');
+      showError(t('docBloodBank.errorPreVitalsRequired'));
       return;
     }
 
@@ -254,15 +255,15 @@ const BloodBankPage: React.FC = () => {
       const response = await createTransfusion(updatedOrder) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setOrders(orders.map(o => o.orderId === selectedOrder.orderId ? updatedOrder : o));
-        showSuccess(`Transfusion record ${endTime ? 'completed' : 'started'} successfully`);
+        showSuccess(endTime ? t('docBloodBank.successTransfusionCompleted') : t('docBloodBank.successTransfusionStarted'));
         setActiveTab('orders');
         setSelectedOrder(null);
       } else {
-        setError(response.error || 'Failed to save transfusion record');
+        setError(response.error || t('docBloodBank.errorSaveTransfusionFailed'));
       }
     } catch (err) {
       console.error('Error saving transfusion record:', err);
-      setError('An error occurred while saving the transfusion record');
+      setError(t('docBloodBank.errorGenericTransfusion'));
     } finally {
       setIsLoading(false);
     }
@@ -318,12 +319,12 @@ const BloodBankPage: React.FC = () => {
           <div className="flex items-center space-x-3">
             <Droplets className="h-8 w-8" />
             <div>
-              <h1 className="text-3xl font-bold">Blood Bank</h1>
-              <p className="text-red-100">Transfusion Medicine Services</p>
+              <h1 className="text-3xl font-bold">{t('docBloodBank.title')}</h1>
+              <p className="text-red-100">{t('docBloodBank.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-red-100">Logged in as</p>
+            <p className="text-sm text-red-100">{t('docBloodBank.loggedInAs')}</p>
             <p className="font-semibold">{user?.userId || 'Unknown'}</p>
           </div>
         </div>
@@ -340,7 +341,7 @@ const BloodBankPage: React.FC = () => {
           }`}
         >
           <FileText className="inline h-4 w-4 mr-2" />
-          Orders
+          {t('docBloodBank.tabOrders')}
         </button>
         <button
           onClick={() => setActiveTab('newOrder')}
@@ -351,7 +352,7 @@ const BloodBankPage: React.FC = () => {
           }`}
         >
           <Plus className="inline h-4 w-4 mr-2" />
-          New Order
+          {t('docBloodBank.tabNewOrder')}
         </button>
         {selectedOrder && (
           <button
@@ -363,7 +364,7 @@ const BloodBankPage: React.FC = () => {
             }`}
           >
             <Activity className="inline h-4 w-4 mr-2" />
-            Transfusion: {selectedOrder.orderId}
+            {t('docBloodBank.tabTransfusion', { orderId: selectedOrder.orderId })}
           </button>
         )}
       </div>
@@ -377,33 +378,33 @@ const BloodBankPage: React.FC = () => {
               <div>
                 <label htmlFor="bloodbank-search" className="block text-sm font-medium text-gray-700 mb-1">
                   <Search className="inline h-4 w-4 mr-1" />
-                  Search
+                  {t('docBloodBank.searchLabel')}
                 </label>
                 <input
                   id="bloodbank-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Order ID, patient, product..."
+                  placeholder={t('docBloodBank.searchPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
               <div>
-                <label htmlFor="bloodbank-status-filter" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <label htmlFor="bloodbank-status-filter" className="block text-sm font-medium text-gray-700 mb-1">{t('docBloodBank.statusLabel')}</label>
                 <select
                   id="bloodbank-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="ordered">Ordered</option>
-                  <option value="type-screen">Type & Screen</option>
-                  <option value="crossmatch">Crossmatch</option>
-                  <option value="ready">Ready</option>
-                  <option value="issued">Issued</option>
-                  <option value="transfusing">Transfusing</option>
-                  <option value="completed">Completed</option>
+                  <option value="all">{t('docBloodBank.filterAllStatuses')}</option>
+                  <option value="ordered">{t('docBloodBank.status_ordered')}</option>
+                  <option value="type-screen">{t('docBloodBank.status_type-screen')}</option>
+                  <option value="crossmatch">{t('docBloodBank.status_crossmatch')}</option>
+                  <option value="ready">{t('docBloodBank.status_ready')}</option>
+                  <option value="issued">{t('docBloodBank.status_issued')}</option>
+                  <option value="transfusing">{t('docBloodBank.status_transfusing')}</option>
+                  <option value="completed">{t('docBloodBank.status_completed')}</option>
                 </select>
               </div>
             </div>
@@ -415,14 +416,14 @@ const BloodBankPage: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patient</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Blood Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product/Units</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indication</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colPriority')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colOrderId')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colPatient')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colBloodType')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colProductUnits')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colIndication')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colStatus')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docBloodBank.colActions')}</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -433,7 +434,7 @@ const BloodBankPage: React.FC = () => {
                     >
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 text-xs font-semibold rounded ${getPriorityBadge(order.priority)}`}>
-                          {order.priority.toUpperCase()}
+                          {t(`docBloodBank.priority_${order.priority}`).toUpperCase()}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -449,23 +450,23 @@ const BloodBankPage: React.FC = () => {
                         {order.typeScreen?.antibodyScreen === 'positive' && (
                           <div className="text-xs text-red-600 flex items-center">
                             <AlertTriangle className="h-3 w-3 mr-1" />
-                            Ab+
+                            {t('docBloodBank.abPositive')}
                           </div>
                         )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-gray-900">{order.product}</div>
-                        <div className="text-xs text-gray-500">{order.units} unit{order.units > 1 ? 's' : ''}</div>
+                        <div className="text-xs text-gray-500">{order.units > 1 ? t('docBloodBank.unitCountPlural', { count: order.units }) : t('docBloodBank.unitCountSingular', { count: order.units })}</div>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{order.indication}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusBadge(order.status)}`}>
-                          {order.status}
+                          {t(`docBloodBank.status_${order.status}`)}
                         </span>
                         {order.crossmatch && !order.crossmatch.compatible && (
                           <div className="text-xs text-red-600 mt-1 flex items-center">
                             <AlertTriangle className="h-3 w-3 mr-1" />
-                            Incompatible
+                            {t('docBloodBank.incompatible')}
                           </div>
                         )}
                       </td>
@@ -476,7 +477,7 @@ const BloodBankPage: React.FC = () => {
                             className="text-red-600 hover:text-red-800 text-sm font-medium flex items-center"
                           >
                             <Activity className="h-4 w-4 mr-1" />
-                            {order.status === 'transfusing' ? 'Update' : 'Start Transfusion'}
+                            {order.status === 'transfusing' ? t('docBloodBank.updateAction') : t('docBloodBank.startTransfusionBtn')}
                           </button>
                         )}
                       </td>
@@ -492,13 +493,13 @@ const BloodBankPage: React.FC = () => {
       {/* New Order Tab */}
       {activeTab === 'newOrder' && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4">New Blood Product Order</h2>
+          <h2 className="text-xl font-bold mb-4">{t('docBloodBank.newOrderTitle')}</h2>
           <form onSubmit={handleSubmitOrder}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Patient Selection */}
               <div>
                 <label htmlFor="bloodbank-patient" className="block text-sm font-medium text-gray-700 mb-1">
-                  Patient <span className="text-red-500">*</span>
+                  {t('docBloodBank.patientLabel')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="bloodbank-patient"
@@ -507,7 +508,7 @@ const BloodBankPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docBloodBank.selectPatientPh')}</option>
                   {patients.map((patient) => (
                     <option key={patient.patient_id} value={patient.patient_id}>
                       {patient.full_name} ({patient.patient_id})
@@ -519,7 +520,7 @@ const BloodBankPage: React.FC = () => {
               {/* Product */}
               <div>
                 <label htmlFor="bloodbank-product" className="block text-sm font-medium text-gray-700 mb-1">
-                  Blood Product <span className="text-red-500">*</span>
+                  {t('docBloodBank.bloodProductLabel')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="bloodbank-product"
@@ -528,18 +529,18 @@ const BloodBankPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="RBC">Packed Red Blood Cells (RBC)</option>
-                  <option value="Platelets">Platelets</option>
-                  <option value="FFP">Fresh Frozen Plasma (FFP)</option>
-                  <option value="Cryoprecipitate">Cryoprecipitate</option>
-                  <option value="Whole Blood">Whole Blood</option>
+                  <option value="RBC">{t('docBloodBank.product_RBC')}</option>
+                  <option value="Platelets">{t('docBloodBank.product_Platelets')}</option>
+                  <option value="FFP">{t('docBloodBank.product_FFP')}</option>
+                  <option value="Cryoprecipitate">{t('docBloodBank.product_Cryoprecipitate')}</option>
+                  <option value="Whole Blood">{t('docBloodBank.product_Whole Blood')}</option>
                 </select>
               </div>
 
               {/* Units */}
               <div>
                 <label htmlFor="bloodbank-units" className="block text-sm font-medium text-gray-700 mb-1">
-                  Number of Units <span className="text-red-500">*</span>
+                  {t('docBloodBank.unitsLabel')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="bloodbank-units"
@@ -556,7 +557,7 @@ const BloodBankPage: React.FC = () => {
               {/* Priority */}
               <div>
                 <label htmlFor="bloodbank-priority" className="block text-sm font-medium text-gray-700 mb-1">
-                  Priority <span className="text-red-500">*</span>
+                  {t('docBloodBank.priorityLabel')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="bloodbank-priority"
@@ -565,23 +566,23 @@ const BloodBankPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="routine">Routine</option>
-                  <option value="urgent">Urgent (within 1 hour)</option>
-                  <option value="emergency">Emergency (immediate)</option>
+                  <option value="routine">{t('docBloodBank.priority_routine')}</option>
+                  <option value="urgent">{t('docBloodBank.priority_urgent')}</option>
+                  <option value="emergency">{t('docBloodBank.priority_emergency')}</option>
                 </select>
               </div>
 
               {/* Indication */}
               <div className="md:col-span-2">
                 <label htmlFor="bloodbank-indication" className="block text-sm font-medium text-gray-700 mb-1">
-                  Clinical Indication <span className="text-red-500">*</span>
+                  {t('docBloodBank.indicationLabel')} <span className="text-red-500">*</span>
                 </label>
                 <textarea
                   id="bloodbank-indication"
                   value={indication}
                   onChange={(e) => setIndication(e.target.value)}
                   rows={3}
-                  placeholder="e.g., Anemia - Hgb 7.2 g/dL, symptomatic"
+                  placeholder={t('docBloodBank.indicationPh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -590,13 +591,13 @@ const BloodBankPage: React.FC = () => {
 
             {/* Information Panel */}
             <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-medium text-blue-900 mb-2">Order Processing Workflow</h3>
+              <h3 className="font-medium text-blue-900 mb-2">{t('docBloodBank.workflowTitle')}</h3>
               <ol className="text-sm text-blue-800 space-y-1">
-                <li>1. Type & Screen will be performed (if not recent)</li>
-                <li>2. Crossmatch will be completed for compatible units</li>
-                <li>3. Blood bank will notify when products are ready</li>
-                <li>4. Products must be picked up within 30 minutes of release</li>
-                <li>5. Transfusion must start within 30 minutes of pickup</li>
+                <li>{t('docBloodBank.workflow1')}</li>
+                <li>{t('docBloodBank.workflow2')}</li>
+                <li>{t('docBloodBank.workflow3')}</li>
+                <li>{t('docBloodBank.workflow4')}</li>
+                <li>{t('docBloodBank.workflow5')}</li>
               </ol>
             </div>
 
@@ -607,14 +608,14 @@ const BloodBankPage: React.FC = () => {
                 onClick={() => setActiveTab('orders')}
                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('docBloodBank.cancelBtn')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Submit Order
+                {t('docBloodBank.submitOrderBtn')}
               </button>
             </div>
           </form>
@@ -626,32 +627,32 @@ const BloodBankPage: React.FC = () => {
         <div className="space-y-6">
           {/* Order Information */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Transfusion Record</h2>
+            <h2 className="text-xl font-bold mb-4">{t('docBloodBank.transfusionRecordTitle')}</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <span className="font-medium text-gray-700">Order ID:</span>
+                <span className="font-medium text-gray-700">{t('docBloodBank.lblOrderId')}</span>
                 <p className="text-gray-900">{selectedOrder.orderId}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Patient:</span>
+                <span className="font-medium text-gray-700">{t('docBloodBank.lblPatient')}</span>
                 <p className="text-gray-900">{selectedOrder.patientName}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Blood Type:</span>
+                <span className="font-medium text-gray-700">{t('docBloodBank.lblBloodType')}</span>
                 <p className="text-red-700 font-bold">{selectedOrder.bloodType}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Product:</span>
-                <p className="text-gray-900">{selectedOrder.product} ({selectedOrder.units} unit{selectedOrder.units > 1 ? 's' : ''})</p>
+                <span className="font-medium text-gray-700">{t('docBloodBank.lblProduct')}</span>
+                <p className="text-gray-900">{selectedOrder.product} ({selectedOrder.units > 1 ? t('docBloodBank.unitCountPlural', { count: selectedOrder.units }) : t('docBloodBank.unitCountSingular', { count: selectedOrder.units })})</p>
               </div>
               {selectedOrder.releaseInfo && (
                 <>
                   <div className="md:col-span-2">
-                    <span className="font-medium text-gray-700">Unit Number(s):</span>
+                    <span className="font-medium text-gray-700">{t('docBloodBank.lblUnitNumbers')}</span>
                     <p className="text-gray-900">{selectedOrder.releaseInfo.unitNumbers.join(', ')}</p>
                   </div>
                   <div className="md:col-span-2">
-                    <span className="font-medium text-gray-700">Expiry Date(s):</span>
+                    <span className="font-medium text-gray-700">{t('docBloodBank.lblExpiryDates')}</span>
                     <p className="text-gray-900">{selectedOrder.releaseInfo.expiryDates.join(', ')}</p>
                   </div>
                 </>
@@ -663,11 +664,11 @@ const BloodBankPage: React.FC = () => {
           <form onSubmit={handleSubmitTransfusion}>
             {/* Pre-Transfusion Vitals */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h3 className="text-lg font-bold mb-3">Pre-Transfusion Vital Signs</h3>
+              <h3 className="text-lg font-bold mb-3">{t('docBloodBank.preVitalsTitle')}</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label htmlFor="bloodbank-pre-bp" className="block text-sm font-medium text-gray-700 mb-1">
-                    Blood Pressure <span className="text-red-500">*</span>
+                    {t('docBloodBank.bpLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="bloodbank-pre-bp"
@@ -681,21 +682,21 @@ const BloodBankPage: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="bloodbank-pre-hr" className="block text-sm font-medium text-gray-700 mb-1">
-                    Heart Rate <span className="text-red-500">*</span>
+                    {t('docBloodBank.hrLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="bloodbank-pre-hr"
                     type="number"
                     value={preHR}
                     onChange={(e) => setPreHR(e.target.value)}
-                    placeholder="bpm"
+                    placeholder={t('docBloodBank.bpmPh')}
                     className="w-full px-3 py-2 border rounded-md"
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="bloodbank-pre-temp" className="block text-sm font-medium text-gray-700 mb-1">
-                    Temperature <span className="text-red-500">*</span>
+                    {t('docBloodBank.tempLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="bloodbank-pre-temp"
@@ -703,21 +704,21 @@ const BloodBankPage: React.FC = () => {
                     step="0.1"
                     value={preTemp}
                     onChange={(e) => setPreTemp(e.target.value)}
-                    placeholder="°C"
+                    placeholder={t('docBloodBank.celsiusPh')}
                     className="w-full px-3 py-2 border rounded-md"
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="bloodbank-pre-rr" className="block text-sm font-medium text-gray-700 mb-1">
-                    Respiratory Rate <span className="text-red-500">*</span>
+                    {t('docBloodBank.rrLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="bloodbank-pre-rr"
                     type="number"
                     value={preRR}
                     onChange={(e) => setPreRR(e.target.value)}
-                    placeholder="breaths/min"
+                    placeholder={t('docBloodBank.breathsPh')}
                     className="w-full px-3 py-2 border rounded-md"
                     required
                   />
@@ -727,11 +728,11 @@ const BloodBankPage: React.FC = () => {
 
             {/* Transfusion Times */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h3 className="text-lg font-bold mb-3">Transfusion Times</h3>
+              <h3 className="text-lg font-bold mb-3">{t('docBloodBank.timesTitle')}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="bloodbank-start-time" className="block text-sm font-medium text-gray-700 mb-1">
-                    Start Time <span className="text-red-500">*</span>
+                    {t('docBloodBank.startTimeLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="bloodbank-start-time"
@@ -743,7 +744,7 @@ const BloodBankPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="bloodbank-end-time" className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                  <label htmlFor="bloodbank-end-time" className="block text-sm font-medium text-gray-700 mb-1">{t('docBloodBank.endTimeLabel')}</label>
                   <input
                     id="bloodbank-end-time"
                     type="time"
@@ -757,49 +758,49 @@ const BloodBankPage: React.FC = () => {
 
             {/* Staff */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h3 className="text-lg font-bold mb-3">Staff</h3>
+              <h3 className="text-lg font-bold mb-3">{t('docBloodBank.staffTitle')}</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="bloodbank-administered-by" className="block text-sm font-medium text-gray-700 mb-1">
-                    Administered By <span className="text-red-500">*</span>
+                    {t('docBloodBank.administeredByLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="bloodbank-administered-by"
                     type="text"
                     value={administeredBy}
                     onChange={(e) => setAdministeredBy(e.target.value)}
-                    placeholder="Nurse name/ID"
+                    placeholder={t('docBloodBank.administeredByPh')}
                     className="w-full px-3 py-2 border rounded-md"
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="bloodbank-witnessed-by" className="block text-sm font-medium text-gray-700 mb-1">
-                    Witnessed By <span className="text-red-500">*</span>
+                    {t('docBloodBank.witnessedByLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="bloodbank-witnessed-by"
                     type="text"
                     value={witnessedBy}
                     onChange={(e) => setWitnessedBy(e.target.value)}
-                    placeholder="Second nurse name/ID"
+                    placeholder={t('docBloodBank.witnessedByPh')}
                     className="w-full px-3 py-2 border rounded-md"
                     required
                   />
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                Two nurses must verify patient ID, blood type, and unit numbers before transfusion
+                {t('docBloodBank.twoNurseNote')}
               </p>
             </div>
 
             {/* Post-Transfusion Vitals (if ended) */}
             {endTime && (
               <div className="bg-white rounded-lg shadow p-6 mb-6">
-                <h3 className="text-lg font-bold mb-3">Post-Transfusion Vital Signs</h3>
+                <h3 className="text-lg font-bold mb-3">{t('docBloodBank.postVitalsTitle')}</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
-                    <label htmlFor="bloodbank-post-bp" className="block text-sm font-medium text-gray-700 mb-1">Blood Pressure</label>
+                    <label htmlFor="bloodbank-post-bp" className="block text-sm font-medium text-gray-700 mb-1">{t('docBloodBank.bpLabel')}</label>
                     <input
                       id="bloodbank-post-bp"
                       type="text"
@@ -810,36 +811,36 @@ const BloodBankPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label htmlFor="bloodbank-post-hr" className="block text-sm font-medium text-gray-700 mb-1">Heart Rate</label>
+                    <label htmlFor="bloodbank-post-hr" className="block text-sm font-medium text-gray-700 mb-1">{t('docBloodBank.hrLabel')}</label>
                     <input
                       id="bloodbank-post-hr"
                       type="number"
                       value={postHR}
                       onChange={(e) => setPostHR(e.target.value)}
-                      placeholder="bpm"
+                      placeholder={t('docBloodBank.bpmPh')}
                       className="w-full px-3 py-2 border rounded-md"
                     />
                   </div>
                   <div>
-                    <label htmlFor="bloodbank-post-temp" className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+                    <label htmlFor="bloodbank-post-temp" className="block text-sm font-medium text-gray-700 mb-1">{t('docBloodBank.tempLabel')}</label>
                     <input
                       id="bloodbank-post-temp"
                       type="number"
                       step="0.1"
                       value={postTemp}
                       onChange={(e) => setPostTemp(e.target.value)}
-                      placeholder="°C"
+                      placeholder={t('docBloodBank.celsiusPh')}
                       className="w-full px-3 py-2 border rounded-md"
                     />
                   </div>
                   <div>
-                    <label htmlFor="bloodbank-post-rr" className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
+                    <label htmlFor="bloodbank-post-rr" className="block text-sm font-medium text-gray-700 mb-1">{t('docBloodBank.rrLabel')}</label>
                     <input
                       id="bloodbank-post-rr"
                       type="number"
                       value={postRR}
                       onChange={(e) => setPostRR(e.target.value)}
-                      placeholder="breaths/min"
+                      placeholder={t('docBloodBank.breathsPh')}
                       className="w-full px-3 py-2 border rounded-md"
                     />
                   </div>
@@ -849,7 +850,7 @@ const BloodBankPage: React.FC = () => {
 
             {/* Transfusion Reactions */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h3 className="text-lg font-bold mb-3">Transfusion Reactions</h3>
+              <h3 className="text-lg font-bold mb-3">{t('docBloodBank.reactionsTitle')}</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {[
                   'None',
@@ -880,7 +881,7 @@ const BloodBankPage: React.FC = () => {
                 <div className="mt-4 bg-red-50 border border-red-200 rounded p-3">
                   <p className="text-sm text-red-800 font-medium flex items-center">
                     <AlertTriangle className="h-4 w-4 mr-2" />
-                    Transfusion reaction documented - notify physician immediately and stop transfusion if severe
+                    {t('docBloodBank.reactionWarning')}
                   </p>
                 </div>
               )}
@@ -888,13 +889,13 @@ const BloodBankPage: React.FC = () => {
 
             {/* Notes */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <label htmlFor="bloodbank-transfusion-notes" className="block text-sm font-medium text-gray-700 mb-2">Additional Notes</label>
+              <label htmlFor="bloodbank-transfusion-notes" className="block text-sm font-medium text-gray-700 mb-2">{t('docBloodBank.notesLabel')}</label>
               <textarea
                 id="bloodbank-transfusion-notes"
                 value={transfusionNotes}
                 onChange={(e) => setTransfusionNotes(e.target.value)}
                 rows={4}
-                placeholder="Document any additional observations or patient response..."
+                placeholder={t('docBloodBank.notesPh')}
                 className="w-full px-3 py-2 border rounded-md"
               />
             </div>
@@ -909,14 +910,14 @@ const BloodBankPage: React.FC = () => {
                 }}
                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('docBloodBank.cancelBtn')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
-                {endTime ? 'Complete Transfusion' : 'Start Transfusion'}
+                {endTime ? t('docBloodBank.completeTransfusionBtn') : t('docBloodBank.startTransfusionBtn')}
               </button>
             </div>
           </form>

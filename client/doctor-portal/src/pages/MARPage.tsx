@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createMar, getPatients, getMar, apiUrl } from '@medichain/shared';
+import { createMar, getPatients, listMar, apiUrl, IS_DEMO, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Pill,
@@ -25,6 +25,25 @@ import {
 
 type MedicationStatus = 'scheduled' | 'given' | 'held' | 'refused' | 'not-given';
 type MedicationRoute = 'PO' | 'IV' | 'IM' | 'SC' | 'SL' | 'PR' | 'INH' | 'TD' | 'TOP' | 'OPTH' | 'OTIC';
+
+/** Shape of a `ScheduledMedication` entry as returned by `GET /api/emergency/mar/list`. */
+interface BackendScheduledMedication {
+  medication_id: string;
+  name: string;
+  dose: string;
+  route: string;
+  frequency: string;
+  instructions?: string | null;
+}
+
+/** Shape of a `PRNMedication` entry as returned by `GET /api/emergency/mar/list`. */
+interface BackendPrnMedication {
+  medication_id: string;
+  name: string;
+  dose: string;
+  route: string;
+  indication: string;
+}
 
 interface ScheduledMedication {
   id: string;
@@ -58,6 +77,7 @@ interface MedicationOrder {
 }
 
 export default function MARPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
@@ -134,25 +154,50 @@ export default function MARPage() {
     // Try to load medications from API first
     try {
       const today = new Date().toISOString().split('T')[0];
-      const marData = await getMar(patientId, today) as { entries?: MedicationOrder[] };
-      
-      if (marData && marData.entries && marData.entries.length > 0) {
-        // Use real API data
-        const orders: MedicationOrder[] = marData.entries.map((entry: MedicationOrder) => ({
-          id: entry.id || `MO-${Math.random().toString(36).substr(2, 9)}`,
-          medicationName: entry.medicationName,
-          dose: entry.dose,
-          route: (entry.route || 'PO') as MedicationRoute,
-          frequency: entry.frequency || 'Daily',
-          startDate: entry.startDate || today,
-          orderedBy: entry.orderedBy || 'Unknown',
-          prn: entry.prn || false,
-          highAlert: entry.highAlert || false,
-          instructions: entry.instructions,
-        }));
-        
+      // The backend has no "get MAR for patient+date" lookup (only a composite
+      // patient_id+medication_id get, and a list-all) — list and filter client-side.
+      const records = (await listMar()) as Array<{
+        patient_id?: string;
+        record_date?: string;
+        scheduled_medications?: BackendScheduledMedication[];
+        prn_medications?: BackendPrnMedication[];
+      }>;
+      const patientRecords = records.filter(r => r.patient_id === patientId);
+      const scheduledMeds = patientRecords.flatMap(r => r.scheduled_medications ?? []);
+      const prnMeds = patientRecords.flatMap(r => r.prn_medications ?? []);
+
+      if (scheduledMeds.length > 0 || prnMeds.length > 0) {
+        // Use real API data. The backend doesn't track a "high alert" flag, so it
+        // defaults to false here rather than being guessed at.
+        const orders: MedicationOrder[] = [
+          ...scheduledMeds.map(m => ({
+            id: m.medication_id,
+            medicationName: m.name,
+            dose: m.dose,
+            route: m.route as MedicationRoute,
+            frequency: m.frequency,
+            startDate: today,
+            orderedBy: 'Unknown',
+            prn: false,
+            highAlert: false,
+            instructions: m.instructions ?? undefined,
+          })),
+          ...prnMeds.map(m => ({
+            id: m.medication_id,
+            medicationName: m.name,
+            dose: m.dose,
+            route: m.route as MedicationRoute,
+            frequency: m.indication,
+            startDate: today,
+            orderedBy: 'Unknown',
+            prn: true,
+            highAlert: false,
+            instructions: undefined,
+          })),
+        ];
+
         setMedicationOrders(orders);
-        
+
         // Generate scheduled medications for the day
         const scheduled: ScheduledMedication[] = [];
         orders.forEach(order => {
@@ -178,10 +223,18 @@ export default function MARPage() {
         return;
       }
     } catch (err) {
-      console.warn('No MAR data from API, using demo data:', err);
+      console.warn('No MAR data from API:', err);
     }
-    
-    // Fallback to demo data if API returns nothing
+
+    // No API data. In production, show an empty state rather than sample
+    // patients; demo data is only for IS_DEMO.
+    if (!IS_DEMO) {
+      setMedicationOrders([]);
+      setScheduledMeds([]);
+      return;
+    }
+
+    // Fallback to demo data (demo mode only)
     const sampleOrders: MedicationOrder[] = [
       {
         id: 'MO-001',
@@ -366,7 +419,7 @@ export default function MARPage() {
 
     setShowAdminModal(false);
     setSelectedMed(null);
-    setSuccess(`${selectedMed.medicationName} documented successfully`);
+    setSuccess(t('docMAR.documentedSuccess', { name: selectedMed.medicationName }));
     setTimeout(() => setSuccess(''), 3000);
   };
 
@@ -376,11 +429,11 @@ export default function MARPage() {
       // In real implementation, verify barcode matches patient and medication
       const verified = barcodeInput.includes('MED') || barcodeInput.includes('PAT');
       if (verified) {
-        setSuccess('Barcode verified successfully');
+        setSuccess(t('docMAR.barcodeVerifiedSuccess'));
         setBarcodeInput('');
         setScanMode(false);
       } else {
-        setError('Barcode verification failed - please verify manually');
+        setError(t('docMAR.barcodeVerifiedError'));
       }
       setTimeout(() => { setSuccess(''); setError(''); }, 3000);
     }
@@ -417,10 +470,10 @@ export default function MARPage() {
       };
 
       await createMar(marData);
-      setSuccess('MAR saved successfully!');
+      setSuccess(t('docMAR.marSavedSuccess'));
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
-      setError('Failed to save MAR. Please try again.');
+      setError(t('docMAR.marSaveError'));
       console.error('Failed to save MAR', err);
     } finally {
       setIsSubmitting(false);
@@ -438,8 +491,8 @@ export default function MARPage() {
                 <Pill className="h-8 w-8 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">Medication Administration Record</h1>
-                <p className="text-purple-100">Document and track medication administrations</p>
+                <h1 className="text-2xl font-bold text-white">{t('docMAR.title')}</h1>
+                <p className="text-purple-100">{t('docMAR.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -471,7 +524,7 @@ export default function MARPage() {
             <div className="bg-white rounded-lg shadow p-4">
               <h2 className="font-bold text-gray-900 mb-4 flex items-center">
                 <User className="h-5 w-5 mr-2 text-purple-500" />
-                Select Patient
+                {t('docMAR.selectPatientHeading')}
               </h2>
               <div className="relative mb-4">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -479,7 +532,7 @@ export default function MARPage() {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search patients..."
+                  placeholder={t('docMAR.searchPatientsPh')}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                 />
               </div>
@@ -508,14 +561,14 @@ export default function MARPage() {
             <div className="bg-white rounded-lg shadow p-4 mt-4">
               <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                 <Scan className="h-5 w-5 mr-2 text-purple-500" />
-                Barcode Scan
+                {t('docMAR.barcodeScanHeading')}
               </h3>
               <div className="space-y-3">
                 <input
                   type="text"
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
-                  placeholder="Scan or enter barcode..."
+                  placeholder={t('docMAR.barcodeScanPh')}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   onKeyDown={(e) => e.key === 'Enter' && handleBarcodeSccan()}
                 />
@@ -524,7 +577,7 @@ export default function MARPage() {
                   className="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 flex items-center justify-center"
                 >
                   <Scan className="h-4 w-4 mr-2" />
-                  Verify Barcode
+                  {t('docMAR.verifyBarcodeButton')}
                 </button>
               </div>
             </div>
@@ -563,7 +616,7 @@ export default function MARPage() {
 
                 {/* Medication Orders */}
                 <div className="p-4">
-                  <h3 className="font-bold text-gray-900 mb-4">Active Medication Orders</h3>
+                  <h3 className="font-bold text-gray-900 mb-4">{t('docMAR.activeMedicationOrdersHeading')}</h3>
                   <div className="space-y-3">
                     {medicationOrders.map(order => (
                       <div key={order.id} className={`p-4 rounded-lg border-l-4 ${
@@ -576,10 +629,10 @@ export default function MARPage() {
                               <div className="flex items-center space-x-2">
                                 <span className="font-bold text-gray-900">{order.medicationName}</span>
                                 {order.highAlert && (
-                                  <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded">HIGH ALERT</span>
+                                  <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.highAlertBadge')}</span>
                                 )}
                                 {order.prn && (
-                                  <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded">PRN</span>
+                                  <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.prnBadge')}</span>
                                 )}
                               </div>
                               <p className="text-sm text-gray-600">
@@ -590,7 +643,7 @@ export default function MARPage() {
                               )}
                             </div>
                           </div>
-                          <p className="text-sm text-gray-500">Ordered by {order.orderedBy}</p>
+                          <p className="text-sm text-gray-500">{t('docMAR.orderedByLine', { name: order.orderedBy })}</p>
                         </div>
                       </div>
                     ))}
@@ -599,18 +652,18 @@ export default function MARPage() {
 
                 {/* Scheduled Administrations */}
                 <div className="p-4 border-t">
-                  <h3 className="font-bold text-gray-900 mb-4">Scheduled Administrations</h3>
+                  <h3 className="font-bold text-gray-900 mb-4">{t('docMAR.scheduledAdministrationsHeading')}</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="bg-gray-100">
-                          <th className="p-3 text-left font-medium text-gray-700">Medication</th>
-                          <th className="p-3 text-left font-medium text-gray-700">Dose/Route</th>
-                          <th className="p-3 text-left font-medium text-gray-700">Scheduled</th>
-                          <th className="p-3 text-left font-medium text-gray-700">Status</th>
-                          <th className="p-3 text-left font-medium text-gray-700">Given</th>
-                          <th className="p-3 text-left font-medium text-gray-700">By</th>
-                          <th className="p-3 text-center font-medium text-gray-700">Action</th>
+                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableMedication')}</th>
+                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableDoseRoute')}</th>
+                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableScheduled')}</th>
+                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableStatus')}</th>
+                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableGiven')}</th>
+                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableBy')}</th>
+                          <th className="p-3 text-center font-medium text-gray-700">{t('docMAR.tableAction')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -634,7 +687,7 @@ export default function MARPage() {
                             <td className="p-3">
                               <span className={`inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(med.status)}`}>
                                 {getStatusIcon(med.status)}
-                                <span className="ml-1">{med.status.toUpperCase()}</span>
+                                <span className="ml-1">{t(`docMAR.status_${med.status}`).toUpperCase()}</span>
                               </span>
                             </td>
                             <td className="p-3 font-mono">{med.administeredTime || '-'}</td>
@@ -645,14 +698,14 @@ export default function MARPage() {
                                   onClick={() => openAdminModal(med)}
                                   className="bg-purple-600 text-white px-3 py-1 rounded-lg hover:bg-purple-700 text-sm"
                                 >
-                                  Document
+                                  {t('docMAR.documentButton')}
                                 </button>
                               ) : (
                                 <button
                                   onClick={() => openAdminModal(med)}
                                   className="text-purple-600 hover:text-purple-700 text-sm underline"
                                 >
-                                  Edit
+                                  {t('docMAR.editButton')}
                                 </button>
                               )}
                             </td>
@@ -667,7 +720,7 @@ export default function MARPage() {
                 <div className="p-4 border-t bg-blue-50">
                   <h3 className="font-bold text-gray-900 mb-4 flex items-center">
                     <ThermometerSun className="h-5 w-5 mr-2 text-blue-500" />
-                    PRN Medications Available
+                    {t('docMAR.prnMedicationsAvailableHeading')}
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {medicationOrders.filter(o => o.prn).map(order => (
@@ -709,12 +762,12 @@ export default function MARPage() {
                     {isSubmitting ? (
                       <>
                         <RefreshCw className="animate-spin h-4 w-4 mr-2" />
-                        Saving...
+                        {t('docMAR.saving')}
                       </>
                     ) : (
                       <>
                         <Save className="h-4 w-4 mr-2" />
-                        Save MAR
+                        {t('docMAR.saveMarButton')}
                       </>
                     )}
                   </button>
@@ -723,8 +776,8 @@ export default function MARPage() {
             ) : (
               <div className="bg-white rounded-lg shadow p-12 text-center">
                 <Pill className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                <h2 className="text-xl font-bold text-gray-700 mb-2">Select a Patient</h2>
-                <p className="text-gray-500">Choose a patient from the list to view and document their medications.</p>
+                <h2 className="text-xl font-bold text-gray-700 mb-2">{t('docMAR.selectPatientEmptyTitle')}</h2>
+                <p className="text-gray-500">{t('docMAR.selectPatientEmptyMessage')}</p>
               </div>
             )}
           </div>
@@ -738,31 +791,31 @@ export default function MARPage() {
             <div className={`p-4 rounded-t-lg ${selectedMed.highAlert ? 'bg-red-600' : 'bg-purple-600'}`}>
               <h3 className="text-lg font-bold text-white flex items-center">
                 {selectedMed.highAlert && <AlertTriangle className="h-5 w-5 mr-2" />}
-                Document Administration
+                {t('docMAR.documentAdministrationHeading')}
               </h3>
             </div>
             <div className="p-6">
               <div className="mb-6 p-4 bg-gray-100 rounded-lg">
                 <p className="font-bold text-gray-900">{selectedMed.medicationName}</p>
-                <p className="text-gray-600">{selectedMed.dose} via {selectedMed.route}</p>
-                <p className="text-sm text-gray-500">Scheduled: {selectedMed.scheduledTime}</p>
+                <p className="text-gray-600">{t('docMAR.doseViaRouteLine', { dose: selectedMed.dose, route: selectedMed.route })}</p>
+                <p className="text-sm text-gray-500">{t('docMAR.scheduledLine', { time: selectedMed.scheduledTime })}</p>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('docMAR.statusLabel')}</label>
                   <div className="grid grid-cols-4 gap-2">
                     {(['given', 'held', 'refused', 'not-given'] as MedicationStatus[]).map(status => (
                       <button
                         key={status}
                         onClick={() => setAdminForm({ ...adminForm, status })}
-                        className={`p-2 rounded-lg text-sm font-medium capitalize ${
+                        className={`p-2 rounded-lg text-sm font-medium ${
                           adminForm.status === status
                             ? getStatusColor(status)
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         }`}
                       >
-                        {status.replace('-', ' ')}
+                        {t(`docMAR.status_${status}`)}
                       </button>
                     ))}
                   </div>
@@ -770,7 +823,7 @@ export default function MARPage() {
 
                 {adminForm.status === 'given' && (
                   <div>
-                    <label htmlFor="mar-time-administered" className="block text-sm font-medium text-gray-700 mb-1">Time Administered</label>
+                    <label htmlFor="mar-time-administered" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.timeAdministeredLabel')}</label>
                     <input
                       id="mar-time-administered"
                       type="time"
@@ -783,48 +836,48 @@ export default function MARPage() {
 
                 {adminForm.status === 'held' && (
                   <div>
-                    <label htmlFor="mar-hold-reason" className="block text-sm font-medium text-gray-700 mb-1">Hold Reason</label>
+                    <label htmlFor="mar-hold-reason" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.holdReasonLabel')}</label>
                     <select
                       id="mar-hold-reason"
                       value={adminForm.holdReason}
                       onChange={(e) => setAdminForm({ ...adminForm, holdReason: e.target.value })}
                       className="w-full p-2 border border-gray-300 rounded-lg"
                     >
-                      <option value="">Select reason</option>
-                      <option value="NPO">NPO Status</option>
-                      <option value="Low BP">Low Blood Pressure</option>
-                      <option value="Low HR">Low Heart Rate</option>
-                      <option value="Procedure">Pending Procedure</option>
-                      <option value="Lab Values">Abnormal Lab Values</option>
-                      <option value="MD Order">Physician Order</option>
-                      <option value="Other">Other</option>
+                      <option value="">{t('docMAR.selectReasonPh')}</option>
+                      <option value="NPO">{t('docMAR.holdReason_npo')}</option>
+                      <option value="Low BP">{t('docMAR.holdReason_lowBp')}</option>
+                      <option value="Low HR">{t('docMAR.holdReason_lowHr')}</option>
+                      <option value="Procedure">{t('docMAR.holdReason_procedure')}</option>
+                      <option value="Lab Values">{t('docMAR.holdReason_labValues')}</option>
+                      <option value="MD Order">{t('docMAR.holdReason_mdOrder')}</option>
+                      <option value="Other">{t('docMAR.holdReason_other')}</option>
                     </select>
                   </div>
                 )}
 
                 {selectedMed.prn && (
                   <div>
-                    <label htmlFor="mar-prn-reason" className="block text-sm font-medium text-gray-700 mb-1">PRN Reason</label>
+                    <label htmlFor="mar-prn-reason" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.prnReasonLabel')}</label>
                     <input
                       id="mar-prn-reason"
                       type="text"
                       value={adminForm.prnReason}
                       onChange={(e) => setAdminForm({ ...adminForm, prnReason: e.target.value })}
-                      placeholder="e.g., Pain 7/10, Nausea"
+                      placeholder={t('docMAR.prnReasonPh')}
                       className="w-full p-2 border border-gray-300 rounded-lg"
                     />
                   </div>
                 )}
 
                 <div>
-                  <label htmlFor="mar-notes" className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                  <label htmlFor="mar-notes" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.notesLabel')}</label>
                   <textarea
                     id="mar-notes"
                     value={adminForm.notes}
                     onChange={(e) => setAdminForm({ ...adminForm, notes: e.target.value })}
                     rows={2}
                     className="w-full p-2 border border-gray-300 rounded-lg"
-                    placeholder="Additional notes..."
+                    placeholder={t('docMAR.notesPh')}
                   />
                 </div>
               </div>
@@ -834,7 +887,7 @@ export default function MARPage() {
                 onClick={() => setShowAdminModal(false)}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
               >
-                Cancel
+                {t('docMAR.cancelButton')}
               </button>
               <button
                 onClick={handleAdminister}
@@ -842,7 +895,7 @@ export default function MARPage() {
                   selectedMed.highAlert ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-600 hover:bg-purple-700'
                 }`}
               >
-                Confirm
+                {t('docMAR.confirmButton')}
               </button>
             </div>
           </div>

@@ -29,6 +29,8 @@ use crate::middleware::versioning::ApiVersionMiddleware;
 
 // Database modules (PostgreSQL integration)
 mod db;
+mod encryption_keyring;
+mod federation_identity;
 mod models;
 mod repositories;
 mod services;
@@ -37,10 +39,17 @@ mod blockchain;
 mod clinical;
 mod clinical_endpoints;
 mod ipfs;
+mod key_management;
 mod middleware;
 mod national_id;
 mod nfc_simulator;
 mod notifications;
+mod organization_keys;
+mod device_lifecycle;
+mod emergency_grants;
+mod mobile_records;
+mod telehealth_retention;
+mod audit_outbox;
 mod pagination;
 mod pdf;
 mod security;
@@ -75,6 +84,18 @@ pub(crate) use types::*;
 /// `LOG_FORMAT=json` installs a `tracing` JSON subscriber and bridges existing
 /// `log::` records into it (structured logs for aggregation). Otherwise the
 /// human-readable `env_logger` is used. Both honor `RUST_LOG`.
+///
+/// Built with `--features tokio-console` (and `RUSTFLAGS="--cfg tokio_unstable"`,
+/// required for tokio's task-tracking instrumentation), this installs the
+/// `tokio-console` subscriber instead so async task state can be inspected live
+/// with the `tokio-console` CLI (Phase 12.1) — mutually exclusive with the two
+/// paths above, since only one global `tracing` subscriber can be active.
+#[cfg(feature = "tokio-console")]
+fn init_logging() {
+    console_subscriber::init();
+}
+
+#[cfg(not(feature = "tokio-console"))]
 fn init_logging() {
     let json = std::env::var("LOG_FORMAT")
         .map(|v| v == "json")
@@ -114,7 +135,7 @@ async fn main() -> std::io::Result<()> {
     // secrets; warn (but continue) in demo mode. (Phase 6.1)
     if let Err(msg) = validate_production_secrets() {
         eprintln!("\n[ERROR] STARTUP ABORTED: {}\n", msg);
-        return Err(std::io::Error::new(std::io::ErrorKind::Other, msg));
+        return Err(std::io::Error::other(msg));
     }
 
     // Try to connect to PostgreSQL if DATABASE_URL is set
@@ -229,6 +250,20 @@ async fn main() -> std::io::Result<()> {
             }
         });
         println!("  [INFO] Medication reminder task started (checks every 60s)");
+    }
+
+    // Start appointment reminder background task (Phase 5.2 FCM)
+    {
+        let reminder_state = app_state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                crate::clinical_endpoints::check_and_send_appointment_reminders(&reminder_state)
+                    .await;
+            }
+        });
+        println!("  [INFO] Appointment reminder task started (checks every 5m)");
     }
 
     println!();

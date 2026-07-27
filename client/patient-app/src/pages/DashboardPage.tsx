@@ -238,7 +238,7 @@ export function DashboardPage() {
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? t('dashboard.live') : t('dashboard.demo')}
           </div>
-          <button className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors">
+          <button className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors" aria-label="Notifications">
             <Bell className="w-6 h-6" />
             {(patientData?.unreadMessages || 0) > 0 && (
               <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-400 text-white text-xs rounded-full flex items-center justify-center">

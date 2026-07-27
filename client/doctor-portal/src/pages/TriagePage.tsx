@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store';
-import { apiUrl, getApiErrorMessage } from '@medichain/shared';
+import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -19,65 +19,6 @@ import {
   Loader2,
   Plus,
 } from 'lucide-react';
-
-// ESI Level configuration
-const ESI_LEVELS = [
-  {
-    level: 1,
-    name: 'Resuscitation',
-    color: 'bg-red-600',
-    textColor: 'text-red-600',
-    bgLight: 'bg-red-50',
-    borderColor: 'border-red-500',
-    description: 'Immediate life-saving intervention required',
-    wait: 'Immediate (0 minutes)',
-    examples: 'Cardiac arrest, severe respiratory distress, major trauma',
-  },
-  {
-    level: 2,
-    name: 'Emergent',
-    color: 'bg-orange-500',
-    textColor: 'text-orange-600',
-    bgLight: 'bg-orange-50',
-    borderColor: 'border-orange-500',
-    description: 'High-risk, confused/lethargic, severe pain/distress',
-    wait: 'Immediate to 10 minutes',
-    examples: 'Chest pain, altered mental status, severe allergic reaction',
-  },
-  {
-    level: 3,
-    name: 'Urgent',
-    color: 'bg-yellow-500',
-    textColor: 'text-yellow-600',
-    bgLight: 'bg-yellow-50',
-    borderColor: 'border-yellow-500',
-    description: 'Stable, multiple resources needed',
-    wait: 'Up to 30 minutes',
-    examples: 'Abdominal pain needing labs + imaging, high fever',
-  },
-  {
-    level: 4,
-    name: 'Less Urgent',
-    color: 'bg-green-500',
-    textColor: 'text-green-600',
-    bgLight: 'bg-green-50',
-    borderColor: 'border-green-500',
-    description: 'Stable, one resource needed',
-    wait: 'Up to 60 minutes',
-    examples: 'Simple laceration, UTI symptoms, medication refill',
-  },
-  {
-    level: 5,
-    name: 'Non-Urgent',
-    color: 'bg-blue-500',
-    textColor: 'text-blue-600',
-    bgLight: 'bg-blue-50',
-    borderColor: 'border-blue-500',
-    description: 'Stable, no resources needed',
-    wait: 'Up to 120 minutes or next available',
-    examples: 'Prescription refill, minor complaint, suture removal',
-  },
-];
 
 interface VitalSigns {
   heart_rate: number | null;
@@ -113,8 +54,67 @@ interface Patient {
 
 function TriagePage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { user, isAuthenticated } = useAuthStore();
-  
+
+  const ESI_LEVELS = [
+    {
+      level: 1,
+      name: t('docTriage.esi1_name'),
+      color: 'bg-red-600',
+      textColor: 'text-red-600',
+      bgLight: 'bg-red-50',
+      borderColor: 'border-red-500',
+      description: t('docTriage.esi1_description'),
+      wait: t('docTriage.esi1_wait'),
+      examples: t('docTriage.esi1_examples'),
+    },
+    {
+      level: 2,
+      name: t('docTriage.esi2_name'),
+      color: 'bg-orange-500',
+      textColor: 'text-orange-600',
+      bgLight: 'bg-orange-50',
+      borderColor: 'border-orange-500',
+      description: t('docTriage.esi2_description'),
+      wait: t('docTriage.esi2_wait'),
+      examples: t('docTriage.esi2_examples'),
+    },
+    {
+      level: 3,
+      name: t('docTriage.esi3_name'),
+      color: 'bg-yellow-500',
+      textColor: 'text-yellow-600',
+      bgLight: 'bg-yellow-50',
+      borderColor: 'border-yellow-500',
+      description: t('docTriage.esi3_description'),
+      wait: t('docTriage.esi3_wait'),
+      examples: t('docTriage.esi3_examples'),
+    },
+    {
+      level: 4,
+      name: t('docTriage.esi4_name'),
+      color: 'bg-green-500',
+      textColor: 'text-green-600',
+      bgLight: 'bg-green-50',
+      borderColor: 'border-green-500',
+      description: t('docTriage.esi4_description'),
+      wait: t('docTriage.esi4_wait'),
+      examples: t('docTriage.esi4_examples'),
+    },
+    {
+      level: 5,
+      name: t('docTriage.esi5_name'),
+      color: 'bg-blue-500',
+      textColor: 'text-blue-600',
+      bgLight: 'bg-blue-50',
+      borderColor: 'border-blue-500',
+      description: t('docTriage.esi5_description'),
+      wait: t('docTriage.esi5_wait'),
+      examples: t('docTriage.esi5_examples'),
+    },
+  ];
+
   const [activeTab, setActiveTab] = useState<'new' | 'queue'>('new');
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [patientSearch, setPatientSearch] = useState('');
@@ -229,15 +229,15 @@ function TriagePage() {
     e.preventDefault();
     
     if (!selectedPatientId) {
-      setError('Please select a patient');
+      setError(t('docTriage.errorSelectPatient'));
       return;
     }
     if (selectedESI === null) {
-      setError('Please select an ESI level');
+      setError(t('docTriage.errorSelectESI'));
       return;
     }
     if (!chiefComplaint.trim()) {
-      setError('Please enter the chief complaint');
+      setError(t('docTriage.errorChiefComplaint'));
       return;
     }
     
@@ -268,7 +268,7 @@ function TriagePage() {
       const data = await response.json();
 
       if (response.ok) {
-        setSuccess(`Triage assessment created successfully! ID: ${data.assessment_id}. ESI Level ${data.esi_level} - ${data.expected_wait}`);
+        setSuccess(t('docTriage.successMessage', { id: data.assessment_id, level: data.esi_level, wait: data.expected_wait }));
         // Reset form
         setSelectedPatientId('');
         setPatientSearch('');
@@ -288,10 +288,10 @@ function TriagePage() {
           weight_kg: null,
         });
       } else {
-        setError(getApiErrorMessage(data, 'Failed to create triage assessment'));
+        setError(getApiErrorMessage(data, t('docTriage.errorCreateFailed')));
       }
     } catch (err) {
-      setError('Failed to connect to API server');
+      setError(t('docTriage.errorConnection'));
     } finally {
       setSubmitting(false);
     }
@@ -310,10 +310,10 @@ function TriagePage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <AlertTriangle className="text-orange-500" />
-            ESI Triage Assessment
+            {t('docTriage.title')}
           </h1>
           <p className="text-gray-500 mt-1">
-            Emergency Severity Index (ESI) 5-level triage system
+            {t('docTriage.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -321,7 +321,7 @@ function TriagePage() {
             apiConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
           }`}>
             <span className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-            {apiConnected ? 'API Connected' : 'API Disconnected'}
+            {apiConnected ? t('docTriage.apiConnected') : t('docTriage.apiDisconnected')}
           </span>
         </div>
       </div>
@@ -337,7 +337,7 @@ function TriagePage() {
           }`}
         >
           <Plus size={16} className="inline mr-1" />
-          New Assessment
+          {t('docTriage.tabNewAssessment')}
         </button>
         <button
           onClick={() => setActiveTab('queue')}
@@ -348,7 +348,7 @@ function TriagePage() {
           }`}
         >
           <Clock size={16} className="inline mr-1" />
-          Triage Queue
+          {t('docTriage.tabTriageQueue')}
         </button>
       </div>
 
@@ -372,7 +372,7 @@ function TriagePage() {
           <div className="bg-white rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <User size={20} />
-              Patient Selection
+              {t('docTriage.patientSelectionTitle')}
             </h2>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
@@ -384,7 +384,7 @@ function TriagePage() {
                   setShowPatientDropdown(true);
                 }}
                 onFocus={() => setShowPatientDropdown(true)}
-                placeholder="Search patient by name, ID, or Health ID..."
+                placeholder={t('docTriage.searchPatientPlaceholder')}
                 className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
               />
               {showPatientDropdown && filteredPatients.length > 0 && (
@@ -404,7 +404,7 @@ function TriagePage() {
                     >
                       <p className="font-medium text-gray-900">{patient.full_name}</p>
                       <p className="text-sm text-gray-500">
-                        {patient.patient_id} • Health ID: {patient.health_id}
+                        {patient.patient_id} • {t('docTriage.healthIdPrefix', { id: patient.health_id })}
                       </p>
                     </button>
                   ))}
@@ -414,7 +414,7 @@ function TriagePage() {
             {selectedPatientId && (
               <p className="mt-2 text-sm text-green-600 flex items-center gap-1">
                 <CheckCircle size={16} />
-                Patient selected: {selectedPatientId}
+                {t('docTriage.patientSelected', { id: selectedPatientId })}
               </p>
             )}
           </div>
@@ -423,7 +423,7 @@ function TriagePage() {
           <div className="bg-white rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <AlertTriangle size={20} />
-              ESI Level
+              {t('docTriage.esiLevelTitle')}
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               {ESI_LEVELS.map((esi) => (
@@ -454,7 +454,7 @@ function TriagePage() {
             {selectedESI !== null && (
               <div className={`mt-4 p-3 rounded-lg ${ESI_LEVELS[selectedESI - 1].bgLight}`}>
                 <p className="text-sm text-gray-700">
-                  <strong>Examples:</strong> {ESI_LEVELS[selectedESI - 1].examples}
+                  <strong>{t('docTriage.examplesLabel')}</strong> {ESI_LEVELS[selectedESI - 1].examples}
                 </p>
               </div>
             )}
@@ -462,11 +462,11 @@ function TriagePage() {
 
           {/* Chief Complaint */}
           <div className="bg-white rounded-xl shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Chief Complaint</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('docTriage.chiefComplaintTitle')}</h2>
             <textarea
               value={chiefComplaint}
               onChange={(e) => setChiefComplaint(e.target.value)}
-              placeholder="Enter the patient's main reason for visit..."
+              placeholder={t('docTriage.chiefComplaintPlaceholder')}
               rows={3}
               className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
               required
@@ -477,10 +477,10 @@ function TriagePage() {
           <div className="bg-white rounded-xl shadow p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <Activity size={20} />
-              Vital Signs
+              {t('docTriage.vitalSignsTitle')}
               {hasCriticalVitals() && (
                 <span className="ml-2 px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full animate-pulse">
-                  Critical Values Detected
+                  {t('docTriage.criticalValuesDetected')}
                 </span>
               )}
             </h2>
@@ -489,7 +489,7 @@ function TriagePage() {
               <div>
                 <label htmlFor="triage-heart-rate" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Heart size={14} className="text-red-500" />
-                  Heart Rate (bpm)
+                  {t('docTriage.heartRateLabel')}
                 </label>
                 <input
                   id="triage-heart-rate"
@@ -509,7 +509,7 @@ function TriagePage() {
               <div>
                 <label htmlFor="triage-respiratory-rate" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Wind size={14} className="text-blue-500" />
-                  Resp. Rate (bpm)
+                  {t('docTriage.respRateLabel')}
                 </label>
                 <input
                   id="triage-respiratory-rate"
@@ -529,7 +529,7 @@ function TriagePage() {
               <div>
                 <label htmlFor="triage-bp-systolic" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Activity size={14} className="text-purple-500" />
-                  BP Systolic (mmHg)
+                  {t('docTriage.bpSystolicLabel')}
                 </label>
                 <input
                   id="triage-bp-systolic"
@@ -547,7 +547,7 @@ function TriagePage() {
               
               <div>
                 <label htmlFor="triage-bp-diastolic" className="block text-sm font-medium text-gray-700 mb-1">
-                  BP Diastolic (mmHg)
+                  {t('docTriage.bpDiastolicLabel')}
                 </label>
                 <input
                   id="triage-bp-diastolic"
@@ -563,7 +563,7 @@ function TriagePage() {
               <div>
                 <label htmlFor="triage-temperature" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Thermometer size={14} className="text-orange-500" />
-                  Temperature (°C)
+                  {t('docTriage.temperatureLabel')}
                 </label>
                 <input
                   id="triage-temperature"
@@ -584,7 +584,7 @@ function TriagePage() {
               <div>
                 <label htmlFor="triage-oxygen-saturation" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
                   <Droplet size={14} className="text-cyan-500" />
-                  O2 Saturation (%)
+                  {t('docTriage.o2SatLabel')}
                 </label>
                 <input
                   id="triage-oxygen-saturation"
@@ -603,7 +603,7 @@ function TriagePage() {
               {/* Pain Scale */}
               <div>
                 <label htmlFor="triage-pain-scale" className="block text-sm font-medium text-gray-700 mb-1">
-                  Pain Scale (0-10)
+                  {t('docTriage.painScaleLabel')}
                 </label>
                 <input
                   id="triage-pain-scale"
@@ -620,7 +620,7 @@ function TriagePage() {
               {/* GCS */}
               <div>
                 <label htmlFor="triage-gcs-score" className="block text-sm font-medium text-gray-700 mb-1">
-                  GCS Score (3-15)
+                  {t('docTriage.gcsLabel')}
                 </label>
                 <input
                   id="triage-gcs-score"
@@ -629,7 +629,7 @@ function TriagePage() {
                   max="15"
                   value={vitalSigns.gcs_score ?? ''}
                   onChange={(e) => updateVitalSign('gcs_score', e.target.value)}
-                  placeholder="15 = fully alert"
+                  placeholder={t('docTriage.gcsPlaceholder')}
                   className={`w-full px-3 py-2 border rounded-lg ${
                     vitalSigns.gcs_score && vitalSigns.gcs_score < 9
                       ? 'border-red-500 bg-red-50'
@@ -641,7 +641,7 @@ function TriagePage() {
               {/* Blood Glucose */}
               <div>
                 <label htmlFor="triage-blood-glucose" className="block text-sm font-medium text-gray-700 mb-1">
-                  Blood Glucose (mg/dL)
+                  {t('docTriage.bloodGlucoseLabel')}
                 </label>
                 <input
                   id="triage-blood-glucose"
@@ -656,7 +656,7 @@ function TriagePage() {
               {/* Weight */}
               <div>
                 <label htmlFor="triage-weight" className="block text-sm font-medium text-gray-700 mb-1">
-                  Weight (kg)
+                  {t('docTriage.weightLabel')}
                 </label>
                 <input
                   id="triage-weight"
@@ -664,7 +664,7 @@ function TriagePage() {
                   step="0.1"
                   value={vitalSigns.weight_kg ?? ''}
                   onChange={(e) => updateVitalSign('weight_kg', e.target.value)}
-                  placeholder="Weight"
+                  placeholder={t('docTriage.weightPlaceholder')}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg"
                 />
               </div>
@@ -673,11 +673,11 @@ function TriagePage() {
 
           {/* Notes */}
           <div className="bg-white rounded-xl shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Additional Notes</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('docTriage.notesTitle')}</h2>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Additional observations, pertinent negatives, or relevant history..."
+              placeholder={t('docTriage.notesPlaceholder')}
               rows={3}
               className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
             />
@@ -689,7 +689,7 @@ function TriagePage() {
               to="/dashboard"
               className="px-6 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              Cancel
+              {t('docTriage.cancel')}
             </Link>
             <button
               type="submit"
@@ -699,12 +699,12 @@ function TriagePage() {
               {submitting ? (
                 <>
                   <Loader2 className="animate-spin" size={20} />
-                  Creating Assessment...
+                  {t('docTriage.creatingAssessment')}
                 </>
               ) : (
                 <>
                   <CheckCircle size={20} />
-                  Complete Triage Assessment
+                  {t('docTriage.completeTriageAssessment')}
                 </>
               )}
             </button>
@@ -714,14 +714,14 @@ function TriagePage() {
         /* Triage Queue Tab */
         <div className="bg-white rounded-xl shadow">
           <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">Current Triage Queue</h2>
-            <p className="text-sm text-gray-500">Patients sorted by ESI level and arrival time</p>
+            <h2 className="font-semibold text-gray-900">{t('docTriage.currentQueueTitle')}</h2>
+            <p className="text-sm text-gray-500">{t('docTriage.queueSubtitle')}</p>
           </div>
 
           {loading ? (
             <div className="p-12 text-center">
               <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-              <p className="text-gray-500">Loading triage queue...</p>
+              <p className="text-gray-500">{t('docTriage.loadingQueue')}</p>
             </div>
           ) : triageQueue.length > 0 ? (
             <div className="divide-y divide-gray-100">
@@ -761,7 +761,7 @@ function TriagePage() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${esiConfig?.bgLight} ${esiConfig?.textColor}`}>
-                            ESI {level}: {esiConfig?.name}
+                            {t('docTriage.esiBadge', { level, name: esiConfig?.name })}
                           </span>
                           <p className="text-xs text-gray-400 mt-1">{esiConfig?.wait}</p>
                         </div>
@@ -774,12 +774,12 @@ function TriagePage() {
           ) : (
             <div className="p-12 text-center">
               <Clock className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">No patients in triage queue</p>
+              <p className="text-gray-500">{t('docTriage.noPatientsInQueue')}</p>
               <button
                 onClick={() => setActiveTab('new')}
                 className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
               >
-                Start New Triage
+                {t('docTriage.startNewTriage')}
               </button>
             </div>
           )}

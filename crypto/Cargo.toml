@@ -16,3 +16,14 @@ sp-core = { version = "38.0.0", default-features = false, features = ["std"] }
 ss58-registry = "1.50.0"
 bs58 = "0.5"
 blake2 = "0.10"
+
+[dev-dependencies]
+# Benchmarking (Phase 12.1) — no OS sampling profiler needed (unlike
+# cargo-flamegraph/samply, both environment-blocked here; see
+# IMPLEMENTATION_PLAN.md 12.1). Measures the actual hot path directly:
+# ChaCha20-Poly1305 encrypt/decrypt is on every PHI read/write.
+criterion = "0.5"
+
+[[bench]]
+name = "encryption_benchmarks"
+harness = false

@@ -43,6 +43,11 @@ pub async fn assign_role(
         });
     }
 
+    // Sensitive action: enforce MFA step-up for JWT-authenticated admins.
+    if let Some(resp) = enforce_mfa_step_up(&req) {
+        return resp;
+    }
+
     // Parse role
     let role = match parse_role(&body.role) {
         Ok(r) => r,
@@ -95,7 +100,14 @@ pub async fn assign_role(
     data.users
         .write()
         .unwrap()
-        .insert(body.wallet_address.clone(), user);
+        .insert(body.wallet_address.clone(), user.clone());
+    if let Err(e) = data.persist_user(&user).await {
+        log::error!(
+            "Failed to persist role assignment for {}: {}",
+            body.wallet_address,
+            e
+        );
+    }
 
     log::info!(
         "Role {} assigned to wallet {} by admin {}",
@@ -151,6 +163,11 @@ pub async fn revoke_role(
         });
     }
 
+    // Sensitive action: enforce MFA step-up for JWT-authenticated admins.
+    if let Some(resp) = enforce_mfa_step_up(&req) {
+        return resp;
+    }
+
     // Cannot revoke own role
     if body.wallet_address == current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -169,6 +186,13 @@ pub async fn revoke_role(
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
+    }
+    if let Err(e) = data.deactivate_user_in_db(&body.wallet_address).await {
+        log::error!(
+            "Failed to persist role revocation for {}: {}",
+            body.wallet_address,
+            e
+        );
     }
 
     log::info!(

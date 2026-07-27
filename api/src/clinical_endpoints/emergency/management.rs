@@ -18,6 +18,28 @@ pub async fn create_mar(
 
     let record = req.into_inner();
     let id = format!("MAR-{}-{}", record.patient_id, record.date);
+
+    // CDS: administered meds + the patient's real conditions/medications can trigger
+    // condition-only rules (e.g. NSAID-in-renal-impairment, anticoagulant+fall-risk)
+    // that don't need a vitals/labs snapshot at all.
+    {
+        let (conditions, mut medications) =
+            crate::clinical_endpoints::patient_conditions_and_meds(&data, &record.patient_id).await;
+        medications.extend(record.scheduled_medications.iter().map(|m| m.name.clone()));
+        medications.extend(record.prn_medications.iter().map(|m| m.name.clone()));
+        medications.extend(record.infusions.iter().map(|m| m.name.clone()));
+        crate::clinical_endpoints::run_and_persist_cds_alerts(
+            &data,
+            &record.patient_id,
+            None,
+            None,
+            &conditions,
+            &medications,
+            None,
+        )
+        .await;
+    }
+
     let entity =
         medication_record_entity(id.clone(), &record, current_user_id, json_value(&record));
     match data.repositories.medication_records.create(entity).await {
@@ -384,5 +406,116 @@ pub async fn get_fall_risk(
     match data.repositories.fall_risk_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
         Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+#[cfg(test)]
+mod cds_wiring_tests {
+    use super::*;
+    use actix_web::test;
+
+    fn test_patient(
+        id: &str,
+        conditions: Vec<String>,
+        medications: Vec<String>,
+    ) -> crate::PatientProfile {
+        let now = chrono::Utc::now();
+        crate::PatientProfile {
+            patient_id: id.to_string(),
+            full_name: "Test Patient".to_string(),
+            date_of_birth: "1980-01-01".to_string(),
+            national_id: format!("NID-{id}"),
+            phone: "+27000000000".to_string(),
+            emergency_info: crate::EmergencyInfo {
+                patient_id: id.to_string(),
+                blood_type: crate::BloodType::OPositive,
+                allergies: Vec::new(),
+                current_medications: medications,
+                chronic_conditions: conditions,
+                emergency_contacts: Vec::new(),
+                organ_donor: false,
+                dnr_status: false,
+                dnr_verified_by: None,
+                dnr_verified_at: None,
+                dnr_document_ref: None,
+                languages: vec!["en".to_string()],
+                last_updated: now,
+            },
+            address: None,
+            insurance: None,
+            primary_doctor: None,
+            community_health_worker: None,
+            preferences: crate::PatientPreferences::default(),
+            advanced_directives: Vec::new(),
+            family_notifications: None,
+            created_at: now,
+            last_updated: now,
+        }
+    }
+
+    /// Creating a MAR entry that administers an NSAID to a patient with a documented
+    /// renal condition should trigger the CDS rules engine's "NSAID Use in Renal
+    /// Impairment" rule — proving `create_mar` really merges the record's own
+    /// medications into the CDS evaluation, not just the patient's stored list.
+    #[actix_web::test]
+    async fn create_mar_triggers_condition_and_medication_cds_rule() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-CDS-MAR-1";
+        let profile = test_patient(
+            patient_id,
+            vec!["Chronic Kidney Disease".to_string()],
+            vec![],
+        );
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+
+        let app_state = web::Data::new(state);
+        let app = actix_web::App::new()
+            .app_data(app_state.clone())
+            .service(create_mar);
+        let app = test::init_service(app).await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/emergency/mar")
+            .insert_header(("x-user-id", "nurse_wallet"))
+            .set_json(serde_json::json!({
+                "patient_id": patient_id,
+                "date": "2026-07-22",
+                "scheduled_medications": [{
+                    "medication_id": "MED-1",
+                    "name": "Ibuprofen",
+                    "dose": "400mg",
+                    "route": "Oral",
+                    "frequency": "TID",
+                    "scheduled_times": ["08:00"],
+                    "administrations": [],
+                    "instructions": null,
+                    "allergies_verified": true
+                }],
+                "prn_medications": [],
+                "infusions": []
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        let alerts = app_state
+            .repositories
+            .cds_alerts
+            .get_by_patient(patient_id, true)
+            .await
+            .unwrap_or_default();
+        assert!(
+            alerts.iter().any(|a| a.alert_title.contains("NSAID")),
+            "expected an NSAID-in-renal-impairment CDS alert, got: {:?}",
+            alerts.iter().map(|a| &a.alert_title).collect::<Vec<_>>()
+        );
     }
 }

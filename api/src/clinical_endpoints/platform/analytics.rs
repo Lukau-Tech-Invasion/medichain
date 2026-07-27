@@ -93,11 +93,8 @@ pub async fn get_appointment_analytics(
         return HttpResponse::Unauthorized().finish();
     }
 
-    let appointments: Vec<crate::clinical::Appointment> = data
-        .appointments
-        .read()
-        .map(|appointments| appointments.values().cloned().collect())
-        .unwrap_or_default();
+    let appointments: Vec<crate::clinical::Appointment> =
+        crate::clinical_endpoints::fetch_all_appointments(&data).await;
 
     let mut status_counts = std::collections::HashMap::new();
     for a in &appointments {

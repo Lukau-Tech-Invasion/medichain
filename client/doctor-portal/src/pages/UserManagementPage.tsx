@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { getUsers, assignRole } from '@medichain/shared';
+import { getUsers, assignRole, useTranslation } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'radiologist' | 'patient';
@@ -32,6 +32,7 @@ interface Permission {
 }
 
 const UserManagementPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user: _user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [users, setUsers] = useState<SystemUser[]>([]);
@@ -57,19 +58,19 @@ const UserManagementPage: React.FC = () => {
   });
 
   const availablePermissions: Permission[] = [
-    { id: 'view_patients', name: 'View Patients', description: 'View patient demographics and records', category: 'clinical' },
-    { id: 'edit_patients', name: 'Edit Patients', description: 'Modify patient information', category: 'clinical' },
-    { id: 'prescribe_medications', name: 'Prescribe Medications', description: 'Order and prescribe medications', category: 'clinical' },
-    { id: 'order_labs', name: 'Order Labs', description: 'Request laboratory tests', category: 'clinical' },
-    { id: 'order_imaging', name: 'Order Imaging', description: 'Request radiology studies', category: 'clinical' },
-    { id: 'view_lab_results', name: 'View Lab Results', description: 'Access laboratory findings', category: 'clinical' },
-    { id: 'document_notes', name: 'Document Notes', description: 'Create clinical documentation', category: 'clinical' },
-    { id: 'emergency_access', name: 'Emergency Access', description: 'Break-glass access to restricted records', category: 'clinical' },
-    { id: 'manage_users', name: 'Manage Users', description: 'Create, edit, and delete users', category: 'administrative' },
-    { id: 'manage_roles', name: 'Manage Roles', description: 'Configure role permissions', category: 'administrative' },
-    { id: 'view_audit_logs', name: 'View Audit Logs', description: 'Access system activity logs', category: 'administrative' },
-    { id: 'manage_settings', name: 'Manage Settings', description: 'Configure system settings', category: 'system' },
-    { id: 'system_admin', name: 'System Administrator', description: 'Full system access', category: 'system' },
+    { id: 'view_patients', name: t('docUserManagement.permission_view_patients_name'), description: t('docUserManagement.permission_view_patients_desc'), category: 'clinical' },
+    { id: 'edit_patients', name: t('docUserManagement.permission_edit_patients_name'), description: t('docUserManagement.permission_edit_patients_desc'), category: 'clinical' },
+    { id: 'prescribe_medications', name: t('docUserManagement.permission_prescribe_medications_name'), description: t('docUserManagement.permission_prescribe_medications_desc'), category: 'clinical' },
+    { id: 'order_labs', name: t('docUserManagement.permission_order_labs_name'), description: t('docUserManagement.permission_order_labs_desc'), category: 'clinical' },
+    { id: 'order_imaging', name: t('docUserManagement.permission_order_imaging_name'), description: t('docUserManagement.permission_order_imaging_desc'), category: 'clinical' },
+    { id: 'view_lab_results', name: t('docUserManagement.permission_view_lab_results_name'), description: t('docUserManagement.permission_view_lab_results_desc'), category: 'clinical' },
+    { id: 'document_notes', name: t('docUserManagement.permission_document_notes_name'), description: t('docUserManagement.permission_document_notes_desc'), category: 'clinical' },
+    { id: 'emergency_access', name: t('docUserManagement.permission_emergency_access_name'), description: t('docUserManagement.permission_emergency_access_desc'), category: 'clinical' },
+    { id: 'manage_users', name: t('docUserManagement.permission_manage_users_name'), description: t('docUserManagement.permission_manage_users_desc'), category: 'administrative' },
+    { id: 'manage_roles', name: t('docUserManagement.permission_manage_roles_name'), description: t('docUserManagement.permission_manage_roles_desc'), category: 'administrative' },
+    { id: 'view_audit_logs', name: t('docUserManagement.permission_view_audit_logs_name'), description: t('docUserManagement.permission_view_audit_logs_desc'), category: 'administrative' },
+    { id: 'manage_settings', name: t('docUserManagement.permission_manage_settings_name'), description: t('docUserManagement.permission_manage_settings_desc'), category: 'system' },
+    { id: 'system_admin', name: t('docUserManagement.permission_system_admin_name'), description: t('docUserManagement.permission_system_admin_desc'), category: 'system' },
   ];
 
   // Fetch users from API
@@ -106,7 +107,7 @@ const UserManagementPage: React.FC = () => {
       setUsers(mappedUsers);
     } catch (err) {
       console.error('Failed to fetch users:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load users');
+      setError(err instanceof Error ? err.message : t('docUserManagement.loadUsersError'));
     } finally {
       setIsLoading(false);
     }
@@ -118,7 +119,7 @@ const UserManagementPage: React.FC = () => {
 
   const handleCreateUser = () => {
     if (!newUser.name || !newUser.email || !newUser.phone) {
-      showWarning('Please fill in required fields');
+      showWarning(t('docUserManagement.warnRequiredFields'));
       return;
     }
 
@@ -173,7 +174,7 @@ const UserManagementPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('users');
-    showSuccess(`User ${newSystemUser.userId} created successfully`);
+    showSuccess(t('docUserManagement.userCreatedSuccess', { id: newSystemUser.userId }));
   };
 
   const handleUpdateUser = () => {
@@ -182,13 +183,13 @@ const UserManagementPage: React.FC = () => {
     setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u)));
     setShowEditModal(false);
     setSelectedUser(null);
-    showSuccess('User updated successfully');
+    showSuccess(t('docUserManagement.userUpdatedSuccess'));
   };
 
   const handleDeleteUser = (userId: string) => {
-    if (confirm('Are you sure you want to delete this user?')) {
+    if (confirm(t('docUserManagement.confirmDeleteUser'))) {
       setUsers(users.filter((u) => u.userId !== userId));
-      showSuccess('User deleted successfully');
+      showSuccess(t('docUserManagement.userDeletedSuccess'));
     }
   };
 
@@ -205,7 +206,7 @@ const UserManagementPage: React.FC = () => {
 
   const handleStatusChange = (userId: string, newStatus: UserStatus) => {
     setUsers(users.map((u) => (u.userId === userId ? { ...u, status: newStatus } : u)));
-    showSuccess(`User status changed to ${newStatus}`);
+    showSuccess(t('docUserManagement.statusChangedSuccess', { status: t(`docUserManagement.status_${newStatus}`) }));
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -275,8 +276,8 @@ const UserManagementPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="bg-gradient-to-r from-purple-600 to-indigo-500 text-white rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold mb-2">User Management</h1>
-        <p className="text-purple-100">System user administration and role-based access control</p>
+        <h1 className="text-3xl font-bold mb-2">{t('docUserManagement.title')}</h1>
+        <p className="text-purple-100">{t('docUserManagement.subtitle')}</p>
       </div>
 
       <div className="flex gap-2 mb-6 border-b">
@@ -286,7 +287,7 @@ const UserManagementPage: React.FC = () => {
             activeTab === 'users' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-gray-600 hover:text-purple-700'
           }`}
         >
-          All Users ({users.length})
+          {t('docUserManagement.tabAllUsers', { count: users.length })}
         </button>
         <button
           onClick={() => setActiveTab('new-user')}
@@ -294,7 +295,7 @@ const UserManagementPage: React.FC = () => {
             activeTab === 'new-user' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-gray-600 hover:text-purple-700'
           }`}
         >
-          New User
+          {t('docUserManagement.tabNewUser')}
         </button>
         <button
           onClick={() => setActiveTab('roles')}
@@ -302,7 +303,7 @@ const UserManagementPage: React.FC = () => {
             activeTab === 'roles' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-gray-600 hover:text-purple-700'
           }`}
         >
-          Roles & Permissions
+          {t('docUserManagement.tabRolesPermissions')}
         </button>
       </div>
 
@@ -311,7 +312,7 @@ const UserManagementPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label htmlFor="user-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="user-search" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.searchLabel')}</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -319,41 +320,41 @@ const UserManagementPage: React.FC = () => {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search users..."
+                    placeholder={t('docUserManagement.searchPlaceholder')}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="user-role-filter" className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
+                <label htmlFor="user-role-filter" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.roleLabel')}</label>
                 <select
                   id="user-role-filter"
                   value={roleFilter}
                   onChange={(e) => setRoleFilter(e.target.value as UserRole | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="all">All Roles</option>
-                  <option value="admin">Administrator</option>
-                  <option value="doctor">Doctor</option>
-                  <option value="nurse">Nurse</option>
-                  <option value="lab-technician">Lab Technician</option>
-                  <option value="pharmacist">Pharmacist</option>
-                  <option value="radiologist">Radiologist</option>
+                  <option value="all">{t('docUserManagement.allRoles')}</option>
+                  <option value="admin">{t('docUserManagement.role_admin')}</option>
+                  <option value="doctor">{t('docUserManagement.role_doctor')}</option>
+                  <option value="nurse">{t('docUserManagement.role_nurse')}</option>
+                  <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
+                  <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
+                  <option value="radiologist">{t('docUserManagement.role_radiologist')}</option>
                 </select>
               </div>
               <div>
-                <label htmlFor="user-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="user-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.statusLabel')}</label>
                 <select
                   id="user-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as UserStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="suspended">Suspended</option>
-                  <option value="pending">Pending</option>
+                  <option value="all">{t('docUserManagement.allStatuses')}</option>
+                  <option value="active">{t('docUserManagement.status_active')}</option>
+                  <option value="inactive">{t('docUserManagement.status_inactive')}</option>
+                  <option value="suspended">{t('docUserManagement.status_suspended')}</option>
+                  <option value="pending">{t('docUserManagement.status_pending')}</option>
                 </select>
               </div>
             </div>
@@ -371,11 +372,11 @@ const UserManagementPage: React.FC = () => {
                       <div className="flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-bold text-gray-900">{systemUser.name}</h3>
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getRoleBadge(systemUser.role)}`}>
-                          {systemUser.role.toUpperCase().replace('-', ' ')}
+                          {t(`docUserManagement.role_${systemUser.role}`).toUpperCase()}
                         </span>
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 ${getStatusBadge(systemUser.status)}`}>
                           {getStatusIcon(systemUser.status)}
-                          {systemUser.status.toUpperCase()}
+                          {t(`docUserManagement.status_${systemUser.status}`).toUpperCase()}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 flex items-center gap-1">
@@ -395,7 +396,7 @@ const UserManagementPage: React.FC = () => {
                         setShowEditModal(true);
                       }}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Edit User"
+                      title={t('docUserManagement.editUserTitle')}
                     >
                       <Edit className="w-5 h-5" />
                     </button>
@@ -405,14 +406,14 @@ const UserManagementPage: React.FC = () => {
                         setShowPermissionsModal(true);
                       }}
                       className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                      title="Manage Permissions"
+                      title={t('docUserManagement.managePermissionsTitle')}
                     >
                       <Shield className="w-5 h-5" />
                     </button>
                     <button
                       onClick={() => handleDeleteUser(systemUser.userId)}
                       className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Delete User"
+                      title={t('docUserManagement.deleteUserTitle')}
                     >
                       <Trash2 className="w-5 h-5" />
                     </button>
@@ -421,55 +422,55 @@ const UserManagementPage: React.FC = () => {
 
                 <div className="grid grid-cols-4 gap-4 mb-4 bg-purple-50 rounded-lg p-4">
                   <div>
-                    <p className="text-sm text-purple-900 font-semibold mb-1">User ID</p>
+                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.userIdLabel')}</p>
                     <p className="font-semibold text-gray-900">{systemUser.userId}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-purple-900 font-semibold mb-1">Department</p>
-                    <p className="text-sm text-gray-900">{systemUser.department || 'Not assigned'}</p>
+                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.departmentLabel')}</p>
+                    <p className="text-sm text-gray-900">{systemUser.department || t('docUserManagement.notAssigned')}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-purple-900 font-semibold mb-1">License Number</p>
-                    <p className="text-sm text-gray-900">{systemUser.licenseNumber || 'N/A'}</p>
+                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.licenseNumberLabel')}</p>
+                    <p className="text-sm text-gray-900">{systemUser.licenseNumber || t('docUserManagement.na')}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-purple-900 font-semibold mb-1">Specialization</p>
-                    <p className="text-sm text-gray-900">{systemUser.specialization || 'N/A'}</p>
+                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.specializationLabel')}</p>
+                    <p className="text-sm text-gray-900">{systemUser.specialization || t('docUserManagement.na')}</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-blue-900 mb-1">Created</p>
+                    <p className="text-sm font-semibold text-blue-900 mb-1">{t('docUserManagement.createdLabel')}</p>
                     <p className="text-sm text-blue-800">{formatDate(systemUser.createdAt)}</p>
                   </div>
                   <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-green-900 mb-1">Last Login</p>
-                    <p className="text-sm text-green-800">{systemUser.lastLogin ? formatDate(systemUser.lastLogin) : 'Never'}</p>
+                    <p className="text-sm font-semibold text-green-900 mb-1">{t('docUserManagement.lastLoginLabel')}</p>
+                    <p className="text-sm text-green-800">{systemUser.lastLogin ? formatDate(systemUser.lastLogin) : t('docUserManagement.never')}</p>
                   </div>
                 </div>
 
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
                   <p className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
                     <Shield className="w-4 h-4" />
-                    Permissions ({systemUser.permissions.length})
+                    {t('docUserManagement.permissionsCount', { count: systemUser.permissions.length })}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {systemUser.permissions.length > 0 ? (
                       systemUser.permissions.map((perm) => (
                         <span key={perm} className="px-2 py-1 bg-white border border-gray-300 rounded text-xs text-gray-700">
-                          {perm.replace('_', ' ')}
+                          {t(`docUserManagement.permission_${perm}_name`)}
                         </span>
                       ))
                     ) : (
-                      <span className="text-sm text-gray-500">No permissions assigned</span>
+                      <span className="text-sm text-gray-500">{t('docUserManagement.noPermissionsAssigned')}</span>
                     )}
                   </div>
                 </div>
 
                 {systemUser.notes && (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-yellow-900 mb-1">Notes</p>
+                    <p className="text-sm font-semibold text-yellow-900 mb-1">{t('docUserManagement.notesLabel')}</p>
                     <p className="text-sm text-yellow-800">{systemUser.notes}</p>
                   </div>
                 )}
@@ -481,7 +482,7 @@ const UserManagementPage: React.FC = () => {
                       className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <XCircle className="w-4 h-4" />
-                      Deactivate
+                      {t('docUserManagement.deactivateButton')}
                     </button>
                   )}
                   {systemUser.status === 'inactive' && (
@@ -490,7 +491,7 @@ const UserManagementPage: React.FC = () => {
                       className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <CheckCircle className="w-4 h-4" />
-                      Activate
+                      {t('docUserManagement.activateButton')}
                     </button>
                   )}
                   {systemUser.status === 'pending' && (
@@ -499,7 +500,7 @@ const UserManagementPage: React.FC = () => {
                       className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <CheckCircle className="w-4 h-4" />
-                      Approve
+                      {t('docUserManagement.approveButton')}
                     </button>
                   )}
                   {systemUser.status !== 'suspended' && (
@@ -508,7 +509,7 @@ const UserManagementPage: React.FC = () => {
                       className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <Lock className="w-4 h-4" />
-                      Suspend
+                      {t('docUserManagement.suspendButton')}
                     </button>
                   )}
                   {systemUser.status === 'suspended' && (
@@ -517,7 +518,7 @@ const UserManagementPage: React.FC = () => {
                       className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <Unlock className="w-4 h-4" />
-                      Unsuspend
+                      {t('docUserManagement.unsuspendButton')}
                     </button>
                   )}
                 </div>
@@ -527,7 +528,7 @@ const UserManagementPage: React.FC = () => {
             {filteredUsers.length === 0 && (
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
                 <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600">No users found</p>
+                <p className="text-gray-600">{t('docUserManagement.noUsersFound')}</p>
               </div>
             )}
           </div>
@@ -536,27 +537,27 @@ const UserManagementPage: React.FC = () => {
 
       {activeTab === 'new-user' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Create New User</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docUserManagement.createNewUserTitle')}</h2>
 
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="new-user-name" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Full Name <span className="text-red-600">*</span>
+                  {t('docUserManagement.fullNameLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="new-user-name"
                   type="text"
                   value={newUser.name}
                   onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                  placeholder="e.g., Dr. John Doe"
+                  placeholder={t('docUserManagement.fullNamePlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   required
                 />
               </div>
               <div>
                 <label htmlFor="new-user-role" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Role <span className="text-red-600">*</span>
+                  {t('docUserManagement.roleLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="new-user-role"
@@ -565,12 +566,12 @@ const UserManagementPage: React.FC = () => {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   required
                 >
-                  <option value="doctor">Doctor</option>
-                  <option value="nurse">Nurse</option>
-                  <option value="lab-technician">Lab Technician</option>
-                  <option value="pharmacist">Pharmacist</option>
-                  <option value="radiologist">Radiologist</option>
-                  <option value="admin">Administrator</option>
+                  <option value="doctor">{t('docUserManagement.role_doctor')}</option>
+                  <option value="nurse">{t('docUserManagement.role_nurse')}</option>
+                  <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
+                  <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
+                  <option value="radiologist">{t('docUserManagement.role_radiologist')}</option>
+                  <option value="admin">{t('docUserManagement.role_admin')}</option>
                 </select>
               </div>
             </div>
@@ -578,28 +579,28 @@ const UserManagementPage: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="new-user-email" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Email <span className="text-red-600">*</span>
+                  {t('docUserManagement.emailLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="new-user-email"
                   type="email"
                   value={newUser.email}
                   onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                  placeholder="john.doe@hospital.za"
+                  placeholder={t('docUserManagement.emailPlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   required
                 />
               </div>
               <div>
                 <label htmlFor="new-user-phone" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Phone <span className="text-red-600">*</span>
+                  {t('docUserManagement.phoneLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="new-user-phone"
                   type="tel"
                   value={newUser.phone}
                   onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
-                  placeholder="+27 11 123 4567"
+                  placeholder={t('docUserManagement.phonePlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   required
                 />
@@ -608,24 +609,24 @@ const UserManagementPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="new-user-department" className="block text-sm font-semibold text-gray-700 mb-2">Department</label>
+                <label htmlFor="new-user-department" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.departmentLabel')}</label>
                 <input
                   id="new-user-department"
                   type="text"
                   value={newUser.department}
                   onChange={(e) => setNewUser({ ...newUser, department: e.target.value })}
-                  placeholder="e.g., Emergency Medicine"
+                  placeholder={t('docUserManagement.departmentPlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
               <div>
-                <label htmlFor="new-user-license" className="block text-sm font-semibold text-gray-700 mb-2">License Number</label>
+                <label htmlFor="new-user-license" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.licenseNumberLabel')}</label>
                 <input
                   id="new-user-license"
                   type="text"
                   value={newUser.licenseNumber}
                   onChange={(e) => setNewUser({ ...newUser, licenseNumber: e.target.value })}
-                  placeholder="e.g., MP-12345"
+                  placeholder={t('docUserManagement.licenseNumberPlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
@@ -633,36 +634,36 @@ const UserManagementPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="new-user-specialization" className="block text-sm font-semibold text-gray-700 mb-2">Specialization</label>
+                <label htmlFor="new-user-specialization" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.specializationLabel')}</label>
                 <input
                   id="new-user-specialization"
                   type="text"
                   value={newUser.specialization}
                   onChange={(e) => setNewUser({ ...newUser, specialization: e.target.value })}
-                  placeholder="e.g., Cardiology"
+                  placeholder={t('docUserManagement.specializationPlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
               <div>
-                <label htmlFor="new-user-emergency-contact" className="block text-sm font-semibold text-gray-700 mb-2">Emergency Contact</label>
+                <label htmlFor="new-user-emergency-contact" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.emergencyContactLabel')}</label>
                 <input
                   id="new-user-emergency-contact"
                   type="tel"
                   value={newUser.emergencyContact}
                   onChange={(e) => setNewUser({ ...newUser, emergencyContact: e.target.value })}
-                  placeholder="+27 11 987 6543"
+                  placeholder={t('docUserManagement.emergencyContactPlaceholder')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="new-user-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+              <label htmlFor="new-user-notes" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.notesLabel')}</label>
               <textarea
                 id="new-user-notes"
                 value={newUser.notes}
                 onChange={(e) => setNewUser({ ...newUser, notes: e.target.value })}
-                placeholder="Additional notes..."
+                placeholder={t('docUserManagement.notesPlaceholder')}
                 rows={3}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
               />
@@ -673,7 +674,7 @@ const UserManagementPage: React.FC = () => {
               className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
-              Create User
+              {t('docUserManagement.createUserButton')}
             </button>
           </div>
         </div>
@@ -681,9 +682,9 @@ const UserManagementPage: React.FC = () => {
       {activeTab === 'roles' && (
         <div className="space-y-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">Role-Based Permissions</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docUserManagement.roleBasedPermissionsTitle')}</h2>
             <p className="text-sm text-gray-600 mb-6">
-              Each role has predefined permissions that determine what actions users with that role can perform in the system.
+              {t('docUserManagement.roleBasedPermissionsDesc')}
             </p>
 
             <div className="space-y-6">
@@ -692,15 +693,15 @@ const UserManagementPage: React.FC = () => {
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <Shield className="w-6 h-6 text-purple-600" />
-                      <h3 className="text-lg font-bold text-gray-900">{role.toUpperCase().replace('-', ' ')}</h3>
+                      <h3 className="text-lg font-bold text-gray-900">{t(`docUserManagement.role_${role}`).toUpperCase()}</h3>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getRoleBadge(role)}`}>
-                        {users.filter((u) => u.role === role).length} users
+                        {t('docUserManagement.usersCountSuffix', { count: users.filter((u) => u.role === role).length })}
                       </span>
                     </div>
                   </div>
 
                   <div className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm font-semibold text-gray-900 mb-3">Default Permissions</p>
+                    <p className="text-sm font-semibold text-gray-900 mb-3">{t('docUserManagement.defaultPermissionsLabel')}</p>
                     <div className="grid grid-cols-3 gap-3">
                       {getRolePermissions(role).map((perm) => (
                         <div key={perm.id} className="bg-white border border-gray-200 rounded-lg p-3">
@@ -715,7 +716,7 @@ const UserManagementPage: React.FC = () => {
                                 : 'bg-red-100 text-red-800'
                             }`}
                           >
-                            {perm.category}
+                            {t(`docUserManagement.category_${perm.category}`)}
                           </span>
                         </div>
                       ))}
@@ -727,12 +728,12 @@ const UserManagementPage: React.FC = () => {
           </div>
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">All Available Permissions</h2>
-            
+            <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docUserManagement.allAvailablePermissionsTitle')}</h2>
+
             <div className="space-y-6">
               {(['clinical', 'administrative', 'system'] as const).map((category) => (
                 <div key={category} className="border border-gray-300 rounded-lg p-6">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 capitalize">{category} Permissions</h3>
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 capitalize">{t('docUserManagement.categoryPermissionsHeading', { category: t(`docUserManagement.category_${category}`) })}</h3>
                   <div className="grid grid-cols-2 gap-4">
                     {availablePermissions
                       .filter((p) => p.category === category)
@@ -759,7 +760,7 @@ const UserManagementPage: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900">Edit User</h2>
+              <h2 className="text-xl font-bold text-gray-900">{t('docUserManagement.editUserTitle')}</h2>
               <button
                 onClick={() => {
                   setShowEditModal(false);
@@ -774,7 +775,7 @@ const UserManagementPage: React.FC = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="usermgmt-full-name" className="block text-sm font-semibold text-gray-700 mb-2">Full Name</label>
+                  <label htmlFor="usermgmt-full-name" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.fullNameLabel')}</label>
                   <input
                     id="usermgmt-full-name"
                     type="text"
@@ -784,26 +785,26 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="usermgmt-role" className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
+                  <label htmlFor="usermgmt-role" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.roleLabel')}</label>
                   <select
                     id="usermgmt-role"
                     value={selectedUser.role}
                     onChange={(e) => setSelectedUser({ ...selectedUser, role: e.target.value as UserRole })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   >
-                    <option value="admin">Administrator</option>
-                    <option value="doctor">Doctor</option>
-                    <option value="nurse">Nurse</option>
-                    <option value="lab-technician">Lab Technician</option>
-                    <option value="pharmacist">Pharmacist</option>
-                    <option value="radiologist">Radiologist</option>
+                    <option value="admin">{t('docUserManagement.role_admin')}</option>
+                    <option value="doctor">{t('docUserManagement.role_doctor')}</option>
+                    <option value="nurse">{t('docUserManagement.role_nurse')}</option>
+                    <option value="lab-technician">{t('docUserManagement.role_lab-technician')}</option>
+                    <option value="pharmacist">{t('docUserManagement.role_pharmacist')}</option>
+                    <option value="radiologist">{t('docUserManagement.role_radiologist')}</option>
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="usermgmt-email" className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+                  <label htmlFor="usermgmt-email" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.emailLabel')}</label>
                   <input
                     id="usermgmt-email"
                     type="email"
@@ -813,7 +814,7 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="usermgmt-phone" className="block text-sm font-semibold text-gray-700 mb-2">Phone</label>
+                  <label htmlFor="usermgmt-phone" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.phoneLabel')}</label>
                   <input
                     id="usermgmt-phone"
                     type="tel"
@@ -826,7 +827,7 @@ const UserManagementPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="usermgmt-department" className="block text-sm font-semibold text-gray-700 mb-2">Department</label>
+                  <label htmlFor="usermgmt-department" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.departmentLabel')}</label>
                   <input
                     id="usermgmt-department"
                     type="text"
@@ -836,7 +837,7 @@ const UserManagementPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="usermgmt-license-number" className="block text-sm font-semibold text-gray-700 mb-2">License Number</label>
+                  <label htmlFor="usermgmt-license-number" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.licenseNumberLabel')}</label>
                   <input
                     id="usermgmt-license-number"
                     type="text"
@@ -848,7 +849,7 @@ const UserManagementPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="usermgmt-specialization" className="block text-sm font-semibold text-gray-700 mb-2">Specialization</label>
+                <label htmlFor="usermgmt-specialization" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.specializationLabel')}</label>
                 <input
                   id="usermgmt-specialization"
                   type="text"
@@ -859,7 +860,7 @@ const UserManagementPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="usermgmt-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label htmlFor="usermgmt-notes" className="block text-sm font-semibold text-gray-700 mb-2">{t('docUserManagement.notesLabel')}</label>
                 <textarea
                   id="usermgmt-notes"
                   value={selectedUser.notes || ''}
@@ -874,7 +875,7 @@ const UserManagementPage: React.FC = () => {
                   onClick={handleUpdateUser}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 rounded-lg transition-colors"
                 >
-                  Update User
+                  {t('docUserManagement.updateUserButton')}
                 </button>
                 <button
                   onClick={() => {
@@ -883,7 +884,7 @@ const UserManagementPage: React.FC = () => {
                   }}
                   className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-lg transition-colors"
                 >
-                  Cancel
+                  {t('docUserManagement.cancelButton')}
                 </button>
               </div>
             </div>
@@ -895,7 +896,7 @@ const UserManagementPage: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900">Manage Permissions: {selectedUser.name}</h2>
+              <h2 className="text-xl font-bold text-gray-900">{t('docUserManagement.managePermissionsModalTitle', { name: selectedUser.name })}</h2>
               <button
                 onClick={() => {
                   setShowPermissionsModal(false);
@@ -910,17 +911,17 @@ const UserManagementPage: React.FC = () => {
 
             <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
               <p className="text-sm text-purple-900">
-                <strong>Current Role:</strong> {selectedUser.role.toUpperCase().replace('-', ' ')}
+                <strong>{t('docUserManagement.currentRoleLabel')}</strong> {t(`docUserManagement.role_${selectedUser.role}`).toUpperCase()}
               </p>
               <p className="text-sm text-purple-800 mt-1">
-                Selected: {selectedUser.permissions.length} / {availablePermissions.length} permissions
+                {t('docUserManagement.selectedPermissionsCount', { selected: selectedUser.permissions.length, total: availablePermissions.length })}
               </p>
             </div>
 
             <div className="space-y-6">
               {(['clinical', 'administrative', 'system'] as const).map((category) => (
                 <div key={category} className="border border-gray-300 rounded-lg p-4">
-                  <h3 className="text-lg font-bold text-gray-900 mb-4 capitalize">{category} Permissions</h3>
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 capitalize">{t('docUserManagement.categoryPermissionsHeading', { category: t(`docUserManagement.category_${category}`) })}</h3>
                   <div className="space-y-3">
                     {availablePermissions
                       .filter((p) => p.category === category)
@@ -944,12 +945,12 @@ const UserManagementPage: React.FC = () => {
                             {selectedUser.permissions.includes(perm.id) ? (
                               <span className="flex items-center gap-2">
                                 <CheckCircle className="w-4 h-4" />
-                                Enabled
+                                {t('docUserManagement.enabledLabel')}
                               </span>
                             ) : (
                               <span className="flex items-center gap-2">
                                 <XCircle className="w-4 h-4" />
-                                Disabled
+                                {t('docUserManagement.disabledLabel')}
                               </span>
                             )}
                           </button>
@@ -966,11 +967,11 @@ const UserManagementPage: React.FC = () => {
                   setShowPermissionsModal(false);
                   setUsers(users.map((u) => (u.userId === selectedUser.userId ? selectedUser : u)));
                   setSelectedUser(null);
-                  showSuccess('Permissions updated successfully');
+                  showSuccess(t('docUserManagement.permissionsUpdatedSuccess'));
                 }}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-colors"
               >
-                Save Permissions
+                {t('docUserManagement.savePermissionsButton')}
               </button>
             </div>
           </div>

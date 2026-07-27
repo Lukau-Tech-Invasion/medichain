@@ -279,11 +279,9 @@ pub async fn create_appointment(
     let appointment = req.into_inner();
     let id = appointment.appointment_id.clone();
 
-    match data.appointments.write() {
-        Ok(mut appointments) => {
-            appointments.insert(id.clone(), appointment);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
-        }
+    let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
+    match data.repositories.appointments.create(entity).await {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,
             error: e.to_string(),
@@ -300,12 +298,12 @@ pub async fn get_appointment(
     path: web::Path<String>,
 ) -> impl Responder {
     let id = path.into_inner();
-    match data.appointments.read() {
-        Ok(appointments) => appointments
-            .get(&id)
-            .map(|appointment| HttpResponse::Ok().json(appointment))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data.repositories.appointments.get_by_id(&id).await {
+        Ok(entity) => {
+            let appointment: Appointment = entity.into();
+            HttpResponse::Ok().json(appointment)
+        }
+        Err(_) => HttpResponse::NotFound().finish(),
     }
 }
 
@@ -374,6 +372,10 @@ pub async fn get_death_certificate(
 }
 
 /// Create autopsy request
+// Persisted via `data.repositories.autopsy_requests` (was: the legacy
+// `data.autopsy_requests` HashMap, which the admin list view at
+// `/api/platform/list/autopsy` never read from — creates were invisible to
+// that list and lost on restart).
 #[post("/api/surgical/autopsy")]
 pub async fn create_autopsy_request(
     data: web::Data<AppState>,
@@ -407,11 +409,16 @@ pub async fn create_autopsy_request(
         )
         .await;
 
-    match data.autopsy_requests.write() {
-        Ok(mut requests) => {
-            requests.insert(id.clone(), request);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
-        }
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: request.patient_id.clone(),
+        data: serde_json::to_value(&request).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    };
+    match data.repositories.autopsy_requests.create(entity).await {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
             success: false,
             error: e.to_string(),
@@ -428,11 +435,81 @@ pub async fn get_autopsy_request(
     path: web::Path<String>,
 ) -> impl Responder {
     let id = path.into_inner();
-    match data.autopsy_requests.read() {
-        Ok(requests) => requests
-            .get(&id)
-            .map(|request| HttpResponse::Ok().json(request))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
+    match data.repositories.autopsy_requests.get_by_id(&id).await {
+        Ok(Some(rec)) => match serde_json::from_value::<AutopsyRequest>(rec.data) {
+            Ok(request) => HttpResponse::Ok().json(request),
+            Err(_) => HttpResponse::InternalServerError().finish(),
+        },
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
+/// Create autopsy report
+#[post("/api/surgical/autopsy/report")]
+pub async fn create_autopsy_report(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    req: web::Json<AutopsyReport>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+
+    let report = req.into_inner();
+    let id = report.report_id.clone();
+
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            crate::AccessLogEntry {
+                access_id: uuid::Uuid::new_v4().to_string(),
+                patient_id: report.patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: "doctor".to_string(),
+                access_type: "create_autopsy_report".to_string(),
+                location: None,
+                timestamp: chrono::Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
+
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: report.patient_id.clone(),
+        data: serde_json::to_value(&report).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    };
+    match data.repositories.autopsy_reports.create(entity).await {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
+        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: e.to_string(),
+            code: "DATABASE_ERROR".to_string(),
+        }),
+    }
+}
+
+/// Get autopsy report
+#[get("/api/surgical/autopsy/report/{id}")]
+pub async fn get_autopsy_report(
+    data: web::Data<AppState>,
+    _http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let id = path.into_inner();
+    match data.repositories.autopsy_reports.get_by_id(&id).await {
+        Ok(Some(rec)) => match serde_json::from_value::<AutopsyReport>(rec.data) {
+            Ok(report) => HttpResponse::Ok().json(report),
+            Err(_) => HttpResponse::InternalServerError().finish(),
+        },
+        Ok(None) => HttpResponse::NotFound().finish(),
         Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }

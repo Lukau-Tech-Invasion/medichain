@@ -74,7 +74,7 @@ impl CodeBlueRepository for MemoryCodeBlueRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -117,7 +117,7 @@ impl CodeBlueRepository for MemoryCodeBlueRepository {
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<_> = data.values().cloned().collect();
-        items.sort_by(|a, b| b.code_called_at.cmp(&a.code_called_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.code_called_at));
         Ok(items)
     }
 }
@@ -190,7 +190,7 @@ impl TraumaAssessmentRepository for MemoryTraumaAssessmentRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -299,7 +299,7 @@ impl StrokeAssessmentRepository for MemoryStrokeAssessmentRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -405,7 +405,7 @@ impl CardiacEventRepository for MemoryCardiacEventRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -511,7 +511,7 @@ impl SepsisAssessmentRepository for MemorySepsisAssessmentRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());

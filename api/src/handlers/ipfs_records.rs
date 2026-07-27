@@ -120,7 +120,7 @@ pub async fn upload_medical_record(
     // Upload to IPFS with encryption
     let upload_result = match data
         .ipfs_client
-        .upload_encrypted(&content, metadata, &data.encryption_key)
+        .upload_encrypted(&content, metadata, &data.encryption_keyring)
         .await
     {
         Ok(r) => r,
@@ -272,7 +272,11 @@ pub async fn download_medical_record(
     // Download and decrypt from IPFS
     let download_result = match data
         .ipfs_client
-        .download_decrypted(&req.content_hash, &req.metadata_hash, &data.encryption_key)
+        .download_decrypted(
+            &req.content_hash,
+            &req.metadata_hash,
+            &data.encryption_keyring,
+        )
         .await
     {
         Ok(r) => r,

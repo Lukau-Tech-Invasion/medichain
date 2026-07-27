@@ -7,6 +7,13 @@
 // ============================================================================
 
 /// Known development/demo secret values that MUST NOT survive into production.
+///
+/// `ENCRYPTION_KEYS` has no single "demo value" to compare against (each
+/// deployment's key is unique), so it uses a sentinel that can never actually
+/// match a real env value — this relies on the unset-var branch below to flag
+/// it, not the demo-value-equality branch. Unset means the API falls back to
+/// an ephemeral, non-persistent key (see `encryption_keyring.rs`), which is
+/// unsafe in production the same way a demo JWT/session secret is.
 pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
     (
         "JWT_SECRET",
@@ -16,6 +23,7 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
         "SESSION_SECRET",
         "medichain-dev-secret-change-in-production",
     ),
+    ("ENCRYPTION_KEYS", "\0__unset_sentinel_never_matches__\0"),
 ];
 
 /// Validate that the running configuration is not using demo/default secrets.

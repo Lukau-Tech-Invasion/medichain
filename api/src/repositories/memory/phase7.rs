@@ -59,7 +59,7 @@ impl JsonRecordRepository for MemoryJsonRecordRepository {
             .filter(|r| r.owner_id == owner_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         Ok(items)
     }
 
@@ -69,7 +69,7 @@ impl JsonRecordRepository for MemoryJsonRecordRepository {
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<_> = data.values().cloned().collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         Ok(items)
     }
 

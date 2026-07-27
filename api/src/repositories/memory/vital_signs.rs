@@ -124,7 +124,7 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
             None => Vec::new(),
         };
 
-        vitals.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at));
+        vitals.sort_by_key(|b| std::cmp::Reverse(b.recorded_at));
 
         let total = vitals.len() as u64;
         let offset = pagination.offset() as usize;
@@ -172,7 +172,7 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
             None => Vec::new(),
         };
 
-        vitals.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at));
+        vitals.sort_by_key(|b| std::cmp::Reverse(b.recorded_at));
         Ok(vitals)
     }
 
@@ -190,7 +190,7 @@ impl VitalSignsRepository for MemoryVitalSignsRepository {
             .cloned()
             .collect();
 
-        critical.sort_by(|a, b| b.recorded_at.cmp(&a.recorded_at));
+        critical.sort_by_key(|b| std::cmp::Reverse(b.recorded_at));
         Ok(critical)
     }
 }

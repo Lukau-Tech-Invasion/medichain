@@ -14,7 +14,8 @@ src/
     LoginScreen.tsx      Wallet sign-in
     EmergencyCardScreen.tsx  Blood type / allergies / conditions / contact (headline feature)
     MyRecordsScreen.tsx  Patient record list + sign-out + re-verify
-  MediChainApp.tsx       Root: Login → biometric gate → Emergency/Records tabs
+    FamilyScreen.tsx     My QR code + scan-to-add family members (see below)
+  MediChainApp.tsx       Root: Login → biometric gate → Emergency/Records/Family tabs
 ```
 
 **Activate it** (the diagnostic `App.tsx` is intentionally preserved):
@@ -26,18 +27,32 @@ export default MediChainApp;
 ```
 
 It uses only dependencies already declared in `package.json` (`expo-secure-store`,
-`expo-local-authentication`, async-storage) — no navigation library — so the
-starter stays self-contained.
+`expo-local-authentication`, `expo-barcode-scanner`, async-storage) — no
+navigation library — so the starter stays self-contained.
 
-> **Status / verification:** This code is delivered **unverified in CI** — the
-> mobile project's `node_modules` are not installed in the build environment, so
-> `npm run typecheck` was not run here. Run `npm install && npm run typecheck`
-> before use.
+> **Status / verification:** `npm install && npm run typecheck` were both run
+> in-repo and pass clean (this project's `node_modules` are installed here).
+> Building to a device/simulator still requires a native step beyond
+> `npm install` since `ios/`/`android/` are checked-in bare-workflow projects,
+> not managed Expo: run `npx pod-install` (iOS) after adding/upgrading any
+> native module such as `expo-barcode-scanner`, or a Gradle sync (Android)
+> before invoking `npm run ios` / `npm run android`.
 >
-> **Remaining native features** (require device hardware / extra Expo modules):
-> NFC card scanning (`react-native-nfc-manager`), QR scanning
-> (`expo-barcode-scanner`), and offline-first sync (wire the existing
-> `services/offlineQueue.ts`). Biometric auth is wired via `expo-local-authentication`.
+> **QR scanning (`expo-barcode-scanner`) — implemented, scoped to patient-only
+> use** (`FamilyScreen.tsx`): this app has no provider role, so QR here is NOT
+> the web `NFCTapSimulator`'s provider-only emergency-access lookup. Instead:
+> a patient can display their own Medical ID QR (reusing the existing,
+> already-self-scoped `GET /api/medical-id/{patient_id}/qr`), and a family
+> group's primary contact can scan another patient's own QR to add them to
+> the group via the existing `/api/family/groups/*` endpoints. Camera
+> permission strings are already declared in `Info.plist` /
+> `AndroidManifest.xml`.
+>
+> **Remaining native feature:** NFC card scanning (`react-native-nfc-manager`,
+> needs device hardware to verify). Biometric auth (`expo-local-authentication`)
+> and offline-first sync (`services/offlineQueue.ts`, wired into
+> `MobileApiClient.post()` with a pending-sync banner in the app shell) are
+> both already implemented.
 
 ## 🚀 Quick Start
 

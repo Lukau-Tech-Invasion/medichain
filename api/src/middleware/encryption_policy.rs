@@ -10,6 +10,27 @@ use actix_web::{
 use futures_util::future::LocalBoxFuture;
 use std::future::{ready, Ready};
 
+/// Routes exempt from the encryption-required check: infra probes hit directly
+/// by container orchestration (bypassing the TLS-terminating reverse proxy) and
+/// the pre-auth challenge endpoint, mirroring `signature_auth::BYPASS_ROUTES`.
+///
+/// Deliberately a small deny-list rather than an allow-list of "sensitive"
+/// prefixes: an allow-list silently stops covering new clinical routes unless
+/// remembered on every addition (which is exactly how this policy previously
+/// missed `/api/surgical`, `/api/platform`, `/api/patients`, `/api/fhir`,
+/// `/api/lab*`, `/api/wearables`, `/api/insurance`, `/api/telehealth`,
+/// `/api/e-prescriptions`, `/api/family`, `/api/records`, `/api/medical-id`,
+/// and `/api/consent` — all PHI-bearing). Defaulting to "requires encryption"
+/// means newly-added routes are covered automatically.
+const HTTP_EXEMPT_PREFIXES: &[&str] = &[
+    "/health",
+    "/api/health",
+    "/api/metrics",
+    "/api/version",
+    "/api/auth/challenge",
+    "/api/fhir/r4/metadata",
+];
+
 pub struct EncryptionPolicyMiddleware {
     enabled: bool,
 }
@@ -72,9 +93,11 @@ where
             return Box::pin(async move { fut.await.map(ServiceResponse::map_into_left_body) });
         }
 
-        // List of endpoints that REQUIRE encryption (usually POST/PUT for clinical data)
+        // Every /api/ route carries PHI or auth material unless explicitly
+        // exempted above — see HTTP_EXEMPT_PREFIXES for why this is a deny-list.
         let path = req.path();
-        let is_sensitive = path.starts_with("/api/clinical") || path.starts_with("/api/emergency");
+        let is_sensitive =
+            path.starts_with("/api/") && !HTTP_EXEMPT_PREFIXES.iter().any(|p| path.starts_with(p));
 
         if is_sensitive && req.connection_info().scheme() != "https" {
             // In development, we might allow http, so we check an env var
@@ -97,5 +120,96 @@ where
 
         let fut = self.service.call(req);
         Box::pin(async move { fut.await.map(ServiceResponse::map_into_left_body) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{http::StatusCode, test, web, App, HttpResponse};
+
+    async fn ok_handler() -> HttpResponse {
+        HttpResponse::Ok().finish()
+    }
+
+    #[actix_web::test]
+    async fn exempt_routes_bypass_the_https_check() {
+        let app = test::init_service(
+            App::new()
+                .wrap(EncryptionPolicyMiddleware::enabled())
+                .route("/api/health", web::get().to(ok_handler))
+                .route("/health", web::get().to(ok_handler)),
+        )
+        .await;
+
+        for path in ["/api/health", "/health"] {
+            let req = test::TestRequest::get().uri(path).to_request();
+            let resp = test::call_service(&app, req).await;
+            assert!(
+                resp.status().is_success(),
+                "{path} should bypass the policy"
+            );
+        }
+    }
+
+    /// These prefixes carry PHI but were NOT covered by the old allow-list
+    /// (`/api/clinical`, `/api/emergency` only) — this is the bug this pass fixes.
+    #[actix_web::test]
+    async fn previously_uncovered_phi_prefixes_now_require_https() {
+        let app = test::init_service(
+            App::new()
+                .wrap(EncryptionPolicyMiddleware::enabled())
+                .route("/api/surgical/notes", web::get().to(ok_handler))
+                .route("/api/patients/{id}", web::get().to(ok_handler))
+                .route("/api/fhir/r4/Patient", web::get().to(ok_handler)),
+        )
+        .await;
+
+        for path in [
+            "/api/surgical/notes",
+            "/api/patients/123",
+            "/api/fhir/r4/Patient",
+        ] {
+            let req = test::TestRequest::get().uri(path).to_request();
+            let resp = test::call_service(&app, req).await;
+            assert_eq!(
+                resp.status(),
+                StatusCode::FORBIDDEN,
+                "{path} must require HTTPS now that the policy defaults to requiring encryption"
+            );
+        }
+    }
+
+    #[actix_web::test]
+    async fn forwarded_https_requests_are_allowed_through() {
+        let app = test::init_service(
+            App::new()
+                .wrap(EncryptionPolicyMiddleware::enabled())
+                .route("/api/patients/{id}", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/patients/123")
+            .insert_header(("X-Forwarded-Proto", "https"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+    }
+
+    #[actix_web::test]
+    async fn disabled_policy_allows_everything() {
+        let app = test::init_service(
+            App::new()
+                .wrap(EncryptionPolicyMiddleware::new(false))
+                .route("/api/patients/{id}", web::get().to(ok_handler)),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/patients/123")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
     }
 }

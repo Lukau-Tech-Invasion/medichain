@@ -23,7 +23,6 @@ pub struct AppState {
     /// Provides access to PatientRepository, AllergyRepository, etc.
     /// Uses memory backend by default, PostgreSQL when MEDICHAIN_STORAGE=postgres
     pub repositories: RepositoryContainer,
-    pub patients: RwLock<HashMap<String, PatientProfile>>,
     pub nfc_tags: RwLock<HashMap<String, NfcTagData>>,
     pub access_logs: RwLock<Vec<AccessLogEntry>>,
     pub users: RwLock<HashMap<String, User>>,
@@ -37,10 +36,31 @@ pub struct AppState {
     pub substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
     /// WebSocket/SSE session manager for push notifications
     pub ws_manager: crate::websocket::WsSessionManager,
-    /// Encryption key for medical records (in production: per-patient keys from HSM)
+    /// Encryption key for medical records — the *current* version's key, for callers
+    /// that don't need version-aware decryption (IPFS content, MFA secrets, etc.).
+    /// Sourced from `encryption_keyring`'s current version, so it persists across
+    /// restarts rather than being freshly randomized every process start.
     pub encryption_key: medichain_crypto::EncryptionKey,
+    /// Versioned keyring backing `encryption_key` (Phase 6.3 — key rotation). New
+    /// patient-PHI writes stamp `keyring.current_version()`; reads decrypt with
+    /// whichever version the row was originally encrypted under.
+    pub encryption_keyring: std::sync::Arc<crate::encryption_keyring::EncryptionKeyring>,
     /// Security subsystem: MFA enrollments + breach/anomaly detection state (Phase 11.3/11.4)
     pub security: crate::security::SecurityState,
+    /// Phase 1 compatibility bridge for explicit professional/patient contexts.
+    pub identity_contexts: crate::federation_identity::IdentityContextStore,
+    /// Phase 2 public organisation-key directory; never contains private keys.
+    pub organization_keys: crate::organization_keys::OrganizationKeyRegistry,
+    /// Phase 4 device lifecycle; separate from clinician identities and NFC cards.
+    pub device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore,
+    /// Phase 5 server-side grants; expires independently of any frontend timer.
+    pub emergency_grants: crate::emergency_grants::EmergencyGrantStore,
+    /// Phase 6 patient-owned mobile devices and ciphertext access capabilities.
+    pub mobile_records: crate::mobile_records::MobileRecordStore,
+    /// Phase 7 policy metadata for sensitive telehealth artifact retention.
+    pub telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore,
+    /// Phase 8 local audit events for retryable chain anchoring and governance.
+    pub audit_outbox: crate::audit_outbox::AuditOutbox,
     /// NFC Card registry for demo
     pub card_registry: CardRegistry,
     // ============================================================================
@@ -56,8 +76,6 @@ pub struct AppState {
     pub gcs_assessments: RwLock<HashMap<String, GlasgowComaScale>>,
     /// Vital signs flowsheets (patient_id -> VitalSignsFlowsheet)
     pub vital_signs: RwLock<HashMap<String, VitalSignsFlowsheet>>,
-    /// Lab panel templates (panel_name -> LabPanelTemplate)
-    pub lab_panels: RwLock<HashMap<String, LabPanelTemplate>>,
     // ============================================================================
     // Clinical Documentation Storage (Phase 2-8) - New Types
     // ============================================================================
@@ -107,8 +125,6 @@ pub struct AppState {
     pub pediatric_assessments: RwLock<HashMap<String, PediatricAssessment>>,
     /// Obstetric emergencies (assessment_id -> ObstetricEmergency)
     pub obstetric_emergencies: RwLock<HashMap<String, ObstetricEmergency>>,
-    /// Specimen collections (collection_id -> SpecimenCollection)
-    pub specimen_collections: RwLock<HashMap<String, SpecimenCollection>>,
     /// Chain of custody records (form_id -> ChainOfCustody)
     pub chain_of_custody: RwLock<HashMap<String, ChainOfCustody>>,
     /// Lab QC records (qc_id -> LabQCRecord)
@@ -162,8 +178,6 @@ pub struct AppState {
     pub transfusion_records: RwLock<HashMap<String, TransfusionRecord>>,
     /// Electronic prescriptions (rx_id -> ElectronicPrescription)
     pub e_prescriptions: RwLock<HashMap<String, ElectronicPrescription>>,
-    /// Appointments (appointment_id -> Appointment)
-    pub appointments: RwLock<HashMap<String, Appointment>>,
     /// Death certificates (certificate_id -> DeathCertificate)
     pub death_certificates: RwLock<HashMap<String, DeathCertificate>>,
     /// Autopsy requests (request_id -> AutopsyRequest)
@@ -245,15 +259,11 @@ impl AppState {
     /// Create new AppState with optional PostgreSQL pool
     /// If pool is provided, demo users will be loaded from database
     pub fn new_with_pool(db_pool: Option<sqlx::PgPool>) -> Self {
-        // In production, keys would be managed by HSM/key vault
-        let encryption_key =
-            medichain_crypto::EncryptionKey::generate().expect("Failed to generate encryption key");
-
-        // Initialize lab panels from standard templates
-        let mut lab_panels_map = HashMap::new();
-        for panel in crate::clinical::get_standard_lab_panels() {
-            lab_panels_map.insert(panel.name.clone(), panel);
-        }
+        // Loaded from ENCRYPTION_KEYS so it survives restarts (see encryption_keyring.rs);
+        // falls back to an ephemeral key with a loud warning if unset.
+        let encryption_keyring =
+            std::sync::Arc::new(crate::encryption_keyring::EncryptionKeyring::from_env());
+        let encryption_key = encryption_keyring.current().clone();
 
         // Use new_with_pool_async for PostgreSQL backend support
         let repositories = RepositoryContainer::new_memory();
@@ -264,7 +274,6 @@ impl AppState {
         Self {
             db_pool,
             repositories,
-            patients: RwLock::new(HashMap::new()),
             nfc_tags: RwLock::new(HashMap::new()),
             access_logs: RwLock::new(Vec::new()),
             users: RwLock::new(HashMap::new()),
@@ -274,7 +283,15 @@ impl AppState {
             substrate_client: None, // Use new_with_pool_async for blockchain support
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
+            encryption_keyring,
             security,
+            identity_contexts: crate::federation_identity::IdentityContextStore::new(),
+            organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
+            device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
+            emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            mobile_records: crate::mobile_records::MobileRecordStore::new(),
+            telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
+            audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
             triage_assessments: RwLock::new(HashMap::new()),
@@ -282,7 +299,6 @@ impl AppState {
             sample_histories: RwLock::new(HashMap::new()),
             gcs_assessments: RwLock::new(HashMap::new()),
             vital_signs: RwLock::new(HashMap::new()),
-            lab_panels: RwLock::new(lab_panels_map),
             // Clinical documentation storage (Phase 2-8)
             code_blue_records: RwLock::new(HashMap::new()),
             trauma_assessments: RwLock::new(HashMap::new()),
@@ -307,7 +323,6 @@ impl AppState {
             splint_cast_records: RwLock::new(HashMap::new()),
             pediatric_assessments: RwLock::new(HashMap::new()),
             obstetric_emergencies: RwLock::new(HashMap::new()),
-            specimen_collections: RwLock::new(HashMap::new()),
             chain_of_custody: RwLock::new(HashMap::new()),
             lab_qc_records: RwLock::new(HashMap::new()),
             critical_values: RwLock::new(HashMap::new()),
@@ -334,7 +349,6 @@ impl AppState {
             crossmatch_records: RwLock::new(HashMap::new()),
             transfusion_records: RwLock::new(HashMap::new()),
             e_prescriptions: RwLock::new(HashMap::new()),
-            appointments: RwLock::new(HashMap::new()),
             death_certificates: RwLock::new(HashMap::new()),
             autopsy_requests: RwLock::new(HashMap::new()),
             autopsy_reports: RwLock::new(HashMap::new()),
@@ -377,15 +391,11 @@ impl AppState {
         db_pool: Option<sqlx::PgPool>,
         substrate_client: Option<std::sync::Arc<crate::blockchain::SubstrateClient>>,
     ) -> Self {
-        // In production, keys would be managed by HSM/key vault
-        let encryption_key =
-            medichain_crypto::EncryptionKey::generate().expect("Failed to generate encryption key");
-
-        // Initialize lab panels from standard templates
-        let mut lab_panels_map = HashMap::new();
-        for panel in crate::clinical::get_standard_lab_panels() {
-            lab_panels_map.insert(panel.name.clone(), panel);
-        }
+        // Loaded from ENCRYPTION_KEYS so it survives restarts (see encryption_keyring.rs);
+        // falls back to an ephemeral key with a loud warning if unset.
+        let encryption_keyring =
+            std::sync::Arc::new(crate::encryption_keyring::EncryptionKeyring::from_env());
+        let encryption_key = encryption_keyring.current().clone();
 
         // Storage backend selection: set MEDICHAIN_STORAGE=postgres to enable PostgreSQL
         // The postgres feature is enabled by default in Cargo.toml
@@ -423,7 +433,6 @@ impl AppState {
         Self {
             db_pool,
             repositories,
-            patients: RwLock::new(HashMap::new()),
             nfc_tags: RwLock::new(HashMap::new()),
             access_logs: RwLock::new(Vec::new()),
             users: RwLock::new(HashMap::new()),
@@ -433,7 +442,15 @@ impl AppState {
             substrate_client,
             ws_manager: crate::websocket::WsSessionManager::new(),
             encryption_key,
+            encryption_keyring,
             security,
+            identity_contexts: crate::federation_identity::IdentityContextStore::new(),
+            organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
+            device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
+            emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            mobile_records: crate::mobile_records::MobileRecordStore::new(),
+            telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
+            audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
             triage_assessments: RwLock::new(HashMap::new()),
@@ -441,7 +458,6 @@ impl AppState {
             sample_histories: RwLock::new(HashMap::new()),
             gcs_assessments: RwLock::new(HashMap::new()),
             vital_signs: RwLock::new(HashMap::new()),
-            lab_panels: RwLock::new(lab_panels_map.clone()),
             // Clinical documentation storage (Phase 2-8)
             code_blue_records: RwLock::new(HashMap::new()),
             trauma_assessments: RwLock::new(HashMap::new()),
@@ -466,7 +482,6 @@ impl AppState {
             splint_cast_records: RwLock::new(HashMap::new()),
             pediatric_assessments: RwLock::new(HashMap::new()),
             obstetric_emergencies: RwLock::new(HashMap::new()),
-            specimen_collections: RwLock::new(HashMap::new()),
             chain_of_custody: RwLock::new(HashMap::new()),
             lab_qc_records: RwLock::new(HashMap::new()),
             critical_values: RwLock::new(HashMap::new()),
@@ -493,7 +508,6 @@ impl AppState {
             crossmatch_records: RwLock::new(HashMap::new()),
             transfusion_records: RwLock::new(HashMap::new()),
             e_prescriptions: RwLock::new(HashMap::new()),
-            appointments: RwLock::new(HashMap::new()),
             death_certificates: RwLock::new(HashMap::new()),
             autopsy_requests: RwLock::new(HashMap::new()),
             autopsy_reports: RwLock::new(HashMap::new()),
@@ -595,6 +609,75 @@ impl AppState {
             }
             Err(e) => Err(format!("Failed to load users from database: {}", e)),
         }
+    }
+
+    /// Upsert a user into the persistent `users` table. No-op when no DB pool
+    /// is configured (memory-only demo mode).
+    ///
+    /// Added 2026-07-22: `wallet_register`/`assign_role`/`update_user_profile`
+    /// previously only wrote to the in-memory `self.users` map — every
+    /// admin-registered user (and every profile edit) was silently lost on
+    /// restart even with `MEDICHAIN_STORAGE=postgres` configured, since
+    /// `load_demo_users_from_db` only re-seeds from what was actually
+    /// persisted here.
+    pub async fn persist_user(&self, user: &User) -> Result<(), String> {
+        let pool = match &self.db_pool {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+
+        let role = user.role.to_string();
+        let is_active = user.status != "inactive";
+
+        sqlx::query(
+            "INSERT INTO users (
+                wallet_address, role, name, username, email, linked_patient_id,
+                is_active, created_by, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (wallet_address) DO UPDATE SET
+                role = EXCLUDED.role,
+                name = EXCLUDED.name,
+                username = EXCLUDED.username,
+                email = EXCLUDED.email,
+                linked_patient_id = EXCLUDED.linked_patient_id,
+                is_active = EXCLUDED.is_active,
+                updated_at = NOW()",
+        )
+        .bind(&user.wallet_address)
+        .bind(&role)
+        .bind(&user.name)
+        .bind(&user.username)
+        .bind(&user.email)
+        .bind(&user.linked_patient_id)
+        .bind(is_active)
+        .bind(&user.created_by)
+        .bind(user.created_at)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    /// Soft-delete a user in the persistent `users` table (revoke access
+    /// without destroying the audit record). No-op when no DB pool is
+    /// configured. See `persist_user` for why this exists.
+    pub async fn deactivate_user_in_db(&self, wallet_address: &str) -> Result<(), String> {
+        let pool = match &self.db_pool {
+            Some(p) => p,
+            None => return Ok(()),
+        };
+
+        sqlx::query(
+            "UPDATE users SET is_active = false, updated_at = NOW() WHERE wallet_address = $1",
+        )
+        .bind(wallet_address)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(())
     }
 
     /// Load persisted MFA enrollments (decrypting secrets) and recent security
@@ -707,8 +790,12 @@ impl AppState {
         Ok(())
     }
 
-    /// Load demo patients from PostgreSQL into in-memory store
+    /// Load demo patients from PostgreSQL into the patient repository
     /// Called at startup when DATABASE_URL is configured
+    // The `nfc_tags` guard is explicitly `drop()`-ed before the repository-sync
+    // loop's await points; clippy's await_holding_lock doesn't recognize manual
+    // drops here.
+    #[allow(clippy::await_holding_lock)]
     pub async fn load_patients_from_db(&self) -> Result<usize, String> {
         let pool = match &self.db_pool {
             Some(p) => p,
@@ -745,7 +832,6 @@ impl AppState {
             .await
             .map_err(|e| format!("Failed to load patients: {}", e))?;
 
-        let mut patients = self.patients.write().map_err(|e| e.to_string())?;
         let mut nfc_tags = self.nfc_tags.write().map_err(|e| e.to_string())?;
         let mut count = 0;
         let mut to_repo: Vec<(PatientProfile, NfcTagData)> = Vec::new();
@@ -842,8 +928,6 @@ impl AppState {
                 last_updated: Utc::now(),
             };
 
-            patients.insert(patient_id.clone(), patient.clone());
-
             // Also create NFC tag entry
             let nfc_tag_id = format!("NFC-{}", patient_id.replace("PAT-", ""));
             let hash = generate_nfc_hash(&patient_id, &nfc_tag_id);
@@ -858,7 +942,6 @@ impl AppState {
 
             count += 1;
         }
-        drop(patients);
         drop(nfc_tags);
 
         // In the memory-backend demo config (DATABASE_URL set but MEDICHAIN_STORAGE
@@ -870,7 +953,7 @@ impl AppState {
             crate::repositories::StorageBackend::Memory
         ) {
             for (profile, tag) in to_repo {
-                let entity = patient_profile_to_entity(&profile, &self.encryption_key);
+                let entity = patient_profile_to_entity(&profile, &self.encryption_keyring);
                 let _ = self.repositories.patients.create(entity).await;
                 let _ = self.repositories.nfc_tags.create(tag.into()).await;
             }

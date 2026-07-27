@@ -459,7 +459,7 @@ const SymptomCheckerPage: React.FC = () => {
                     className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full"
                   >
                     {symptomLabel(s)}
-                    <button onClick={() => handleSymptomSelect(s)}>
+                    <button onClick={() => handleSymptomSelect(s)} aria-label={`Remove ${symptomLabel(s)}`}>
                       <X className="w-3 h-3" />
                     </button>
                   </span>

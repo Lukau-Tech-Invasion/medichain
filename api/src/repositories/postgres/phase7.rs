@@ -139,3 +139,6 @@ pg_json_repo!(PgSoapNoteRecordRepository, "soap_note_records");
 // Phase 4.3: per-facility CDS thresholds + CDS audit trail.
 pg_json_repo!(PgCdsThresholdConfigRepository, "cds_threshold_configs");
 pg_json_repo!(PgCdsAuditEntryRepository, "cds_audit_entries");
+
+// Phase 33: offline-sync device registry.
+pg_json_repo!(PgSyncDeviceRepository, "sync_devices");

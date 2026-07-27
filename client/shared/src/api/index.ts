@@ -31,11 +31,14 @@ export {
 export {
   useApiData,
   usePaginatedApi,
+  useCursorPaginatedApi,
   useApiMutation,
   type UseApiDataOptions,
   type UseApiDataResult,
   type UsePaginatedApiOptions,
   type UsePaginatedApiResult,
+  type UseCursorPaginatedApiOptions,
+  type UseCursorPaginatedApiResult,
   type UseApiMutationOptions,
   type UseApiMutationResult,
 } from './hooks';

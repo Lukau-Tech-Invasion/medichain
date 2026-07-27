@@ -18,7 +18,8 @@
 //! - `upload_encrypted` additionally refuses to persist content whose ciphertext
 //!   equals its plaintext (a broken/no-op cipher), as a defense-in-depth check.
 
-use medichain_crypto::{decrypt, encrypt, CryptoError, EncryptionKey};
+use crate::encryption_keyring::EncryptionKeyring;
+use medichain_crypto::{decrypt, encrypt, CryptoError};
 use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -196,16 +197,17 @@ impl IpfsClient {
     ///
     /// # Arguments
     /// * `content` - Raw file content
-    /// * `metadata` - Document metadata
-    /// * `encryption_key` - Key for encrypting the content
+    /// * `metadata` - Document metadata (its `key_version` is overwritten with the
+    ///   keyring's current version — callers don't need to set it themselves)
+    /// * `keyring` - Versioned keyring (Phase 6.3); encrypts with the current version
     ///
     /// # Returns
     /// Upload result containing IPFS hashes
     pub async fn upload_encrypted(
         &self,
         content: &[u8],
-        metadata: EncryptedMetadata,
-        encryption_key: &EncryptionKey,
+        mut metadata: EncryptedMetadata,
+        keyring: &EncryptionKeyring,
     ) -> Result<UploadResult, IpfsError> {
         // Validate file size
         if content.len() > MAX_FILE_SIZE {
@@ -214,6 +216,9 @@ impl IpfsClient {
                 max: MAX_FILE_SIZE,
             });
         }
+
+        let encryption_key = keyring.current();
+        metadata.key_version = keyring.current_version().to_string();
 
         let original_size = content.len();
 
@@ -258,7 +263,10 @@ impl IpfsClient {
     /// # Arguments
     /// * `content_hash` - IPFS hash of the encrypted content
     /// * `metadata_hash` - IPFS hash of the encrypted metadata
-    /// * `encryption_key` - Key for decrypting the content
+    /// * `keyring` - Versioned keyring (Phase 6.3). The metadata's own encryption
+    ///   version isn't known until it's decrypted, so this tries each configured
+    ///   version (current/highest first) until one succeeds, then uses that same
+    ///   version for the content — both are always encrypted under the same key.
     ///
     /// # Returns
     /// Decrypted content and metadata
@@ -266,7 +274,7 @@ impl IpfsClient {
         &self,
         content_hash: &str,
         metadata_hash: &str,
-        encryption_key: &EncryptionKey,
+        keyring: &EncryptionKeyring,
     ) -> Result<DownloadResult, IpfsError> {
         // Validate hash format
         Self::validate_hash(content_hash)?;
@@ -277,11 +285,16 @@ impl IpfsClient {
         let encrypted_metadata: medichain_crypto::EncryptedData =
             serde_json::from_slice(&metadata_bytes)
                 .map_err(|e| IpfsError::ParseError(e.to_string()))?;
-        let metadata_json = decrypt(encryption_key, &encrypted_metadata)?;
-        let metadata: EncryptedMetadata = serde_json::from_slice(&metadata_json)
-            .map_err(|e| IpfsError::ParseError(e.to_string()))?;
+        let (metadata, encryption_key) = keyring
+            .versions_newest_first()
+            .find_map(|(_, k)| {
+                let json = decrypt(k, &encrypted_metadata).ok()?;
+                let metadata: EncryptedMetadata = serde_json::from_slice(&json).ok()?;
+                Some((metadata, k))
+            })
+            .ok_or(IpfsError::CryptoError(CryptoError::DecryptionFailed))?;
 
-        // Download and decrypt content
+        // Download and decrypt content (encrypted under the same version as the metadata)
         let content_bytes = self.download_raw(content_hash).await?;
         let encrypted_content: medichain_crypto::EncryptedData =
             serde_json::from_slice(&content_bytes)
@@ -414,6 +427,7 @@ pub struct MedicalRecordReference {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use medichain_crypto::EncryptionKey;
 
     #[test]
     fn test_validate_hash_cidv0() {

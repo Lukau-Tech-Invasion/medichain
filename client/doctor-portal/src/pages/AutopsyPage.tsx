@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listAutopsy, createAutopsyReport } from '@medichain/shared';
+import { getPatients, listAutopsy, createAutopsyReport, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import {
@@ -88,6 +88,7 @@ interface AutopsyReport {
 }
 
 const AutopsyPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [autopsies, setAutopsies] = useState<AutopsyReport[]>([]);
@@ -145,7 +146,7 @@ const AutopsyPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching autopsy reports:', err);
-      setError('Failed to load autopsy reports');
+      setError(t('docAutopsy.errorLoadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -165,7 +166,7 @@ const AutopsyPage: React.FC = () => {
 
   const handleCreateAutopsy = async () => {
     if (!newAutopsy.patientId || !newAutopsy.dateOfDeath || !newAutopsy.causeOfDeath) {
-      alert('Please fill in required fields');
+      alert(t('docAutopsy.errorRequiredFields'));
       return;
     }
 
@@ -262,13 +263,13 @@ const AutopsyPage: React.FC = () => {
           notes: '',
         });
         setActiveTab('reports');
-        alert('Autopsy report created successfully');
+        alert(t('docAutopsy.successCreated'));
       } else {
-        setError(response.error || 'Failed to create autopsy report');
+        setError(response.error || t('docAutopsy.errorCreateFailed'));
       }
     } catch (err) {
       console.error('Error creating autopsy report:', err);
-      setError('An error occurred while creating the autopsy report');
+      setError(t('docAutopsy.errorGeneric'));
     } finally {
       setIsLoading(false);
     }
@@ -314,8 +315,8 @@ const AutopsyPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="bg-gradient-to-r from-orange-600 to-red-500 text-white rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold mb-2">Autopsy Reports</h1>
-        <p className="text-orange-100">Post-mortem examination documentation and findings</p>
+        <h1 className="text-3xl font-bold mb-2">{t('docAutopsy.title')}</h1>
+        <p className="text-orange-100">{t('docAutopsy.subtitle')}</p>
       </div>
 
       <div className="flex gap-2 mb-6 border-b">
@@ -325,7 +326,7 @@ const AutopsyPage: React.FC = () => {
             activeTab === 'reports' ? 'text-orange-700 border-b-2 border-orange-700' : 'text-gray-600 hover:text-orange-700'
           }`}
         >
-          All Reports ({autopsies.length})
+          {t('docAutopsy.tabAllReports', { count: autopsies.length })}
         </button>
         <button
           onClick={() => setActiveTab('new-report')}
@@ -333,7 +334,7 @@ const AutopsyPage: React.FC = () => {
             activeTab === 'new-report' ? 'text-orange-700 border-b-2 border-orange-700' : 'text-gray-600 hover:text-orange-700'
           }`}
         >
-          New Report
+          {t('docAutopsy.tabNewReport')}
         </button>
         <button
           onClick={() => setActiveTab('pending')}
@@ -341,7 +342,7 @@ const AutopsyPage: React.FC = () => {
             activeTab === 'pending' ? 'text-orange-700 border-b-2 border-orange-700' : 'text-gray-600 hover:text-orange-700'
           }`}
         >
-          Pending ({pendingAutopsies.length})
+          {t('docAutopsy.tabPending', { count: pendingAutopsies.length })}
         </button>
       </div>
 
@@ -350,30 +351,30 @@ const AutopsyPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.searchLabel')}</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search reports..."
+                    placeholder={t('docAutopsy.searchPh')}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.statusLabel')}</label>
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as AutopsyStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="in-progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="reviewed">Reviewed</option>
+                  <option value="all">{t('docAutopsy.filterAllStatuses')}</option>
+                  <option value="pending">{t('docAutopsy.status_pending')}</option>
+                  <option value="in-progress">{t('docAutopsy.status_in-progress')}</option>
+                  <option value="completed">{t('docAutopsy.status_completed')}</option>
+                  <option value="reviewed">{t('docAutopsy.status_reviewed')}</option>
                 </select>
               </div>
             </div>
@@ -387,92 +388,92 @@ const AutopsyPage: React.FC = () => {
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="text-lg font-bold text-gray-900">{autopsy.autopsyId}</h3>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(autopsy.status)}`}>
-                        {autopsy.status.toUpperCase()}
+                        {t(`docAutopsy.status_${autopsy.status}`).toUpperCase()}
                       </span>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getMannerBadge(autopsy.mannerOfDeath)}`}>
-                        {autopsy.mannerOfDeath.toUpperCase()}
+                        {t(`docAutopsy.manner_${autopsy.mannerOfDeath}`).toUpperCase()}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600">Case: {autopsy.caseNumber || 'Not assigned'}</p>
+                    <p className="text-sm text-gray-600">{t('docAutopsy.caseLabel', { value: autopsy.caseNumber || t('docAutopsy.caseNotAssigned') })}</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 mb-4 bg-orange-50 rounded-lg p-4">
                   <div>
-                    <p className="text-sm text-orange-900 font-semibold mb-1">Deceased</p>
+                    <p className="text-sm text-orange-900 font-semibold mb-1">{t('docAutopsy.lblDeceased')}</p>
                     <p className="font-semibold text-gray-900">{autopsy.patientName}</p>
                     <p className="text-sm text-gray-600">{autopsy.patientId}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-orange-900 font-semibold mb-1">Date of Death</p>
+                    <p className="text-sm text-orange-900 font-semibold mb-1">{t('docAutopsy.lblDateOfDeath')}</p>
                     <p className="text-sm text-gray-900">{autopsy.dateOfDeath}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-orange-900 font-semibold mb-1">Autopsy Date</p>
-                    <p className="text-sm text-gray-900">{autopsy.dateOfAutopsy} at {autopsy.timeOfAutopsy}</p>
+                    <p className="text-sm text-orange-900 font-semibold mb-1">{t('docAutopsy.lblAutopsyDate')}</p>
+                    <p className="text-sm text-gray-900">{t('docAutopsy.autopsyDateTime', { date: autopsy.dateOfAutopsy, time: autopsy.timeOfAutopsy })}</p>
                   </div>
                 </div>
 
                 <div className="space-y-3">
                   <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-red-900 mb-1">Cause of Death</p>
+                    <p className="text-sm font-semibold text-red-900 mb-1">{t('docAutopsy.lblCauseOfDeath')}</p>
                     <p className="text-sm text-red-800 font-semibold">{autopsy.causeOfDeath}</p>
                     {autopsy.contributingFactors && (
-                      <p className="text-sm text-red-700 mt-2">Contributing: {autopsy.contributingFactors}</p>
+                      <p className="text-sm text-red-700 mt-2">{t('docAutopsy.contributingPrefix', { value: autopsy.contributingFactors })}</p>
                     )}
                   </div>
 
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-yellow-900 mb-1">Circumstances</p>
+                    <p className="text-sm font-semibold text-yellow-900 mb-1">{t('docAutopsy.lblCircumstances')}</p>
                     <p className="text-sm text-yellow-800">{autopsy.circumstances}</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                      <p className="text-sm font-semibold text-gray-700 mb-1">Clinical History</p>
+                      <p className="text-sm font-semibold text-gray-700 mb-1">{t('docAutopsy.lblClinicalHistory')}</p>
                       <p className="text-sm text-gray-900">{autopsy.clinicalHistory}</p>
                     </div>
                     <div className="bg-gray-50 border border-gray-200 rounded p-3">
-                      <p className="text-sm font-semibold text-gray-700 mb-1">Location</p>
+                      <p className="text-sm font-semibold text-gray-700 mb-1">{t('docAutopsy.lblLocation')}</p>
                       <p className="text-sm text-gray-900">{autopsy.location}</p>
-                      <p className="text-sm text-gray-600 mt-1">Prosector: {autopsy.prosector}</p>
-                      {autopsy.assistant && <p className="text-sm text-gray-600">Assistant: {autopsy.assistant}</p>}
+                      <p className="text-sm text-gray-600 mt-1">{t('docAutopsy.prosectorPrefix', { value: autopsy.prosector })}</p>
+                      {autopsy.assistant && <p className="text-sm text-gray-600">{t('docAutopsy.assistantPrefix', { value: autopsy.assistant })}</p>}
                     </div>
                   </div>
 
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-sm font-semibold text-blue-900 mb-3">External Examination</p>
+                    <p className="text-sm font-semibold text-blue-900 mb-3">{t('docAutopsy.externalExamTitle')}</p>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <span className="text-blue-800 font-semibold">Length:</span> {autopsy.externalExam.bodyLength} cm
+                        <span className="text-blue-800 font-semibold">{t('docAutopsy.lblLength')}</span> {t('docAutopsy.cmSuffix', { value: autopsy.externalExam.bodyLength })}
                       </div>
                       <div>
-                        <span className="text-blue-800 font-semibold">Weight:</span> {autopsy.externalExam.bodyWeight} kg
+                        <span className="text-blue-800 font-semibold">{t('docAutopsy.lblWeight')}</span> {t('docAutopsy.kgSuffix', { value: autopsy.externalExam.bodyWeight })}
                       </div>
                       <div className="col-span-2">
-                        <span className="text-blue-800 font-semibold">Habitus:</span> {autopsy.externalExam.bodyHabitus}
+                        <span className="text-blue-800 font-semibold">{t('docAutopsy.lblHabitus')}</span> {autopsy.externalExam.bodyHabitus}
                       </div>
                       <div className="col-span-2">
-                        <span className="text-blue-800 font-semibold">Rigor Mortis:</span> {autopsy.externalExam.rigorMortis}
+                        <span className="text-blue-800 font-semibold">{t('docAutopsy.lblRigorMortis')}</span> {autopsy.externalExam.rigorMortis}
                       </div>
                       <div className="col-span-2">
-                        <span className="text-blue-800 font-semibold">Livor Mortis:</span> {autopsy.externalExam.livorMortis}
+                        <span className="text-blue-800 font-semibold">{t('docAutopsy.lblLivorMortis')}</span> {autopsy.externalExam.livorMortis}
                       </div>
                       {autopsy.externalExam.externalInjuries && (
                         <div className="col-span-2">
-                          <span className="text-blue-800 font-semibold">External Injuries:</span> {autopsy.externalExam.externalInjuries}
+                          <span className="text-blue-800 font-semibold">{t('docAutopsy.lblExternalInjuries')}</span> {autopsy.externalExam.externalInjuries}
                         </div>
                       )}
                     </div>
                   </div>
 
                   <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                    <p className="text-sm font-semibold text-purple-900 mb-3">Internal Examination</p>
+                    <p className="text-sm font-semibold text-purple-900 mb-3">{t('docAutopsy.internalExamTitle')}</p>
                     <div className="space-y-2 text-sm">
                       {autopsy.internalExam.cardiovascular && (
                         <div>
                           <span className="text-purple-800 font-semibold flex items-center gap-1">
-                            <Heart className="w-4 h-4" /> Cardiovascular:
+                            <Heart className="w-4 h-4" /> {t('docAutopsy.lblCardiovascular')}
                           </span>
                           <p className="text-purple-900 ml-5">{autopsy.internalExam.cardiovascular}</p>
                         </div>
@@ -480,21 +481,21 @@ const AutopsyPage: React.FC = () => {
                       {autopsy.internalExam.respiratory && (
                         <div>
                           <span className="text-purple-800 font-semibold flex items-center gap-1">
-                            <Activity className="w-4 h-4" /> Respiratory:
+                            <Activity className="w-4 h-4" /> {t('docAutopsy.lblRespiratory')}
                           </span>
                           <p className="text-purple-900 ml-5">{autopsy.internalExam.respiratory}</p>
                         </div>
                       )}
                       {autopsy.internalExam.gastrointestinal && (
                         <div>
-                          <span className="text-purple-800 font-semibold">Gastrointestinal:</span>
+                          <span className="text-purple-800 font-semibold">{t('docAutopsy.lblGastrointestinal')}</span>
                           <p className="text-purple-900 ml-5">{autopsy.internalExam.gastrointestinal}</p>
                         </div>
                       )}
                       {autopsy.internalExam.nervous && (
                         <div>
                           <span className="text-purple-800 font-semibold flex items-center gap-1">
-                            <Brain className="w-4 h-4" /> Nervous System:
+                            <Brain className="w-4 h-4" /> {t('docAutopsy.lblNervousSystemColon')}
                           </span>
                           <p className="text-purple-900 ml-5">{autopsy.internalExam.nervous}</p>
                         </div>
@@ -504,13 +505,13 @@ const AutopsyPage: React.FC = () => {
 
                   {autopsy.histology && autopsy.histology.length > 0 && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <p className="text-sm font-semibold text-green-900 mb-3">Histology Results</p>
+                      <p className="text-sm font-semibold text-green-900 mb-3">{t('docAutopsy.histologyResultsTitle')}</p>
                       <div className="space-y-2">
                         {autopsy.histology.map((h, idx) => (
                           <div key={idx} className="text-sm bg-white rounded p-2">
                             <p className="font-semibold text-green-900">{h.organ}</p>
-                            <p className="text-green-800">Findings: {h.findings}</p>
-                            <p className="text-green-700">Diagnosis: {h.diagnosis}</p>
+                            <p className="text-green-800">{t('docAutopsy.findingsPrefix', { value: h.findings })}</p>
+                            <p className="text-green-700">{t('docAutopsy.diagnosisPrefix', { value: h.diagnosis })}</p>
                           </div>
                         ))}
                       </div>
@@ -518,11 +519,11 @@ const AutopsyPage: React.FC = () => {
                   )}
 
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                    <p className="text-sm font-semibold text-gray-900 mb-2">Conclusions</p>
+                    <p className="text-sm font-semibold text-gray-900 mb-2">{t('docAutopsy.conclusionsTitle')}</p>
                     <p className="text-sm text-gray-800 whitespace-pre-line">{autopsy.conclusions}</p>
                     {autopsy.recommendations && (
                       <div className="mt-3 pt-3 border-t">
-                        <p className="text-sm font-semibold text-gray-900 mb-1">Recommendations</p>
+                        <p className="text-sm font-semibold text-gray-900 mb-1">{t('docAutopsy.recommendationsTitle')}</p>
                         <p className="text-sm text-gray-700">{autopsy.recommendations}</p>
                       </div>
                     )}
@@ -532,7 +533,7 @@ const AutopsyPage: React.FC = () => {
                 {autopsy.reviewedBy && (
                   <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
                     <p className="text-sm font-semibold text-purple-900">
-                      Reviewed by {autopsy.reviewedBy} on {formatDate(autopsy.reviewDate!)}
+                      {t('docAutopsy.reviewedByLine', { name: autopsy.reviewedBy, date: formatDate(autopsy.reviewDate!) })}
                     </p>
                   </div>
                 )}
@@ -542,7 +543,7 @@ const AutopsyPage: React.FC = () => {
             {(activeTab === 'pending' ? pendingAutopsies : filteredAutopsies).length === 0 && (
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
                 <FileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600">No autopsy reports found</p>
+                <p className="text-gray-600">{t('docAutopsy.noReports')}</p>
               </div>
             )}
           </div>
@@ -551,13 +552,13 @@ const AutopsyPage: React.FC = () => {
 
       {activeTab === 'new-report' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Create New Autopsy Report</h2>
+          <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docAutopsy.createTitle')}</h2>
 
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Patient <span className="text-red-600">*</span>
+                  {t('docAutopsy.patientLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   value={newAutopsy.patientId}
@@ -565,7 +566,7 @@ const AutopsyPage: React.FC = () => {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   required
                 >
-                  <option value="">Select Patient</option>
+                  <option value="">{t('docAutopsy.selectPatient')}</option>
                   {patients.map((p) => (
                     <option key={p.patient_id} value={p.patient_id}>
                       {p.full_name} ({p.patient_id})
@@ -574,25 +575,25 @@ const AutopsyPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Autopsy Type</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.autopsyTypeLabel')}</label>
                 <select
                   value={newAutopsy.autopsyType}
                   onChange={(e) => setNewAutopsy({ ...newAutopsy, autopsyType: e.target.value as AutopsyType })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="hospital">Hospital</option>
-                  <option value="forensic">Forensic</option>
-                  <option value="clinical">Clinical</option>
+                  <option value="hospital">{t('docAutopsy.type_hospital')}</option>
+                  <option value="forensic">{t('docAutopsy.type_forensic')}</option>
+                  <option value="clinical">{t('docAutopsy.type_clinical')}</option>
                 </select>
               </div>
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Death Information</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAutopsy.deathInfoTitle')}</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Date of Death <span className="text-red-600">*</span>
+                    {t('docAutopsy.dateOfDeathLabel')} <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="date"
@@ -603,7 +604,7 @@ const AutopsyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Date of Autopsy</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.dateOfAutopsyLabel')}</label>
                   <input
                     type="date"
                     value={newAutopsy.dateOfAutopsy}
@@ -612,7 +613,7 @@ const AutopsyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Time of Autopsy</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.timeOfAutopsyLabel')}</label>
                   <input
                     type="time"
                     value={newAutopsy.timeOfAutopsy}
@@ -623,22 +624,22 @@ const AutopsyPage: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Location</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.locationLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.location}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, location: e.target.value })}
-                    placeholder="e.g., Forensic Pathology Unit"
+                    placeholder={t('docAutopsy.locationPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Assistant</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.assistantLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.assistant}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, assistant: e.target.value })}
-                    placeholder="Assistant name"
+                    placeholder={t('docAutopsy.assistantPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
@@ -646,24 +647,24 @@ const AutopsyPage: React.FC = () => {
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Background</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAutopsy.backgroundTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Circumstances of Death</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.circumstancesLabel')}</label>
                   <textarea
                     value={newAutopsy.circumstances}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, circumstances: e.target.value })}
-                    placeholder="Describe the circumstances..."
+                    placeholder={t('docAutopsy.circumstancesPh')}
                     rows={3}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Clinical History</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.clinicalHistoryLabel')}</label>
                   <textarea
                     value={newAutopsy.clinicalHistory}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, clinicalHistory: e.target.value })}
-                    placeholder="Relevant medical history..."
+                    placeholder={t('docAutopsy.clinicalHistoryPh')}
                     rows={3}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
@@ -672,86 +673,86 @@ const AutopsyPage: React.FC = () => {
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">External Examination</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAutopsy.externalExamTitle')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Body Length (cm)</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.bodyLengthLabel')}</label>
                   <input
                     type="number"
                     value={newAutopsy.bodyLength}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, bodyLength: e.target.value })}
-                    placeholder="e.g., 170"
+                    placeholder={t('docAutopsy.bodyLengthPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Body Weight (kg)</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.bodyWeightLabel')}</label>
                   <input
                     type="number"
                     value={newAutopsy.bodyWeight}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, bodyWeight: e.target.value })}
-                    placeholder="e.g., 70"
+                    placeholder={t('docAutopsy.bodyWeightPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Body Habitus</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.bodyHabitusLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.bodyHabitus}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, bodyHabitus: e.target.value })}
-                    placeholder="e.g., Well-developed, well-nourished"
+                    placeholder={t('docAutopsy.bodyHabitusPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Rigor Mortis</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.rigorMortisLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.rigorMortis}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, rigorMortis: e.target.value })}
-                    placeholder="e.g., Present in all extremities"
+                    placeholder={t('docAutopsy.rigorMortisPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Livor Mortis</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.livorMortisLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.livorMortis}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, livorMortis: e.target.value })}
-                    placeholder="e.g., Posterior and fixed"
+                    placeholder={t('docAutopsy.livorMortisPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Decomposition</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.decompositionLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.decomposition}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, decomposition: e.target.value })}
-                    placeholder="e.g., None, early, moderate, advanced"
+                    placeholder={t('docAutopsy.decompositionPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">External Injuries</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.externalInjuriesLabel')}</label>
                   <textarea
                     value={newAutopsy.externalInjuries}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, externalInjuries: e.target.value })}
-                    placeholder="Describe any external injuries..."
+                    placeholder={t('docAutopsy.externalInjuriesPh')}
                     rows={3}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Identifying Marks</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.identifyingMarksLabel')}</label>
                   <textarea
                     value={newAutopsy.identifyingMarks}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, identifyingMarks: e.target.value })}
-                    placeholder="Scars, tattoos, birthmarks..."
+                    placeholder={t('docAutopsy.identifyingMarksPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
@@ -760,84 +761,84 @@ const AutopsyPage: React.FC = () => {
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Internal Examination</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAutopsy.internalExamTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Cardiovascular System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.cardioSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.cardiovascular}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, cardiovascular: e.target.value })}
-                    placeholder="Heart, great vessels findings..."
+                    placeholder={t('docAutopsy.cardioPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Respiratory System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.respSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.respiratory}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, respiratory: e.target.value })}
-                    placeholder="Lungs, airways findings..."
+                    placeholder={t('docAutopsy.respPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Gastrointestinal System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.giSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.gastrointestinal}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, gastrointestinal: e.target.value })}
-                    placeholder="Stomach, intestines findings..."
+                    placeholder={t('docAutopsy.giPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Hepatobiliary System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.hepatoSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.hepatobiliary}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, hepatobiliary: e.target.value })}
-                    placeholder="Liver, gallbladder, pancreas findings..."
+                    placeholder={t('docAutopsy.hepatoPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Genitourinary System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.guSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.genitourinary}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, genitourinary: e.target.value })}
-                    placeholder="Kidneys, bladder findings..."
+                    placeholder={t('docAutopsy.guPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Endocrine System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.endoSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.endocrine}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, endocrine: e.target.value })}
-                    placeholder="Thyroid, adrenals findings..."
+                    placeholder={t('docAutopsy.endoPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Musculoskeletal System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.mskSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.musculoskeletal}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, musculoskeletal: e.target.value })}
-                    placeholder="Bones, muscles, joints findings..."
+                    placeholder={t('docAutopsy.mskPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Nervous System</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.nervousSystemLabel')}</label>
                   <textarea
                     value={newAutopsy.nervous}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, nervous: e.target.value })}
-                    placeholder="Brain, spinal cord findings..."
+                    placeholder={t('docAutopsy.nervousPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
@@ -846,24 +847,24 @@ const AutopsyPage: React.FC = () => {
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Additional Findings</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAutopsy.additionalFindingsTitle')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Microbiology Findings</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.microFindingsLabel')}</label>
                   <textarea
                     value={newAutopsy.microbiologyFindings}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, microbiologyFindings: e.target.value })}
-                    placeholder="Culture results, organism identification..."
+                    placeholder={t('docAutopsy.microFindingsPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Radiology Findings</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.radFindingsLabel')}</label>
                   <textarea
                     value={newAutopsy.radiologyFindings}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, radiologyFindings: e.target.value })}
-                    placeholder="X-ray, CT findings..."
+                    placeholder={t('docAutopsy.radFindingsPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
@@ -872,62 +873,62 @@ const AutopsyPage: React.FC = () => {
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Conclusions</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAutopsy.conclusionsTitle')}</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Cause of Death <span className="text-red-600">*</span>
+                    {t('docAutopsy.lblCauseOfDeath')} <span className="text-red-600">*</span>
                   </label>
                   <textarea
                     value={newAutopsy.causeOfDeath}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, causeOfDeath: e.target.value })}
-                    placeholder="Primary cause of death..."
+                    placeholder={t('docAutopsy.causeOfDeathPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Manner of Death</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.mannerOfDeathLabel')}</label>
                   <select
                     value={newAutopsy.mannerOfDeath}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, mannerOfDeath: e.target.value as MannerOfDeath })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   >
-                    <option value="natural">Natural</option>
-                    <option value="accident">Accident</option>
-                    <option value="suicide">Suicide</option>
-                    <option value="homicide">Homicide</option>
-                    <option value="undetermined">Undetermined</option>
-                    <option value="pending">Pending Investigation</option>
+                    <option value="natural">{t('docAutopsy.manner_natural')}</option>
+                    <option value="accident">{t('docAutopsy.manner_accident')}</option>
+                    <option value="suicide">{t('docAutopsy.manner_suicide')}</option>
+                    <option value="homicide">{t('docAutopsy.manner_homicide')}</option>
+                    <option value="undetermined">{t('docAutopsy.manner_undetermined')}</option>
+                    <option value="pending">{t('docAutopsy.mannerOption_pending')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Contributing Factors</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.contributingFactorsLabel')}</label>
                   <textarea
                     value={newAutopsy.contributingFactors}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, contributingFactors: e.target.value })}
-                    placeholder="Other significant conditions..."
+                    placeholder={t('docAutopsy.contributingFactorsPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Conclusions</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.conclusionsTitle')}</label>
                   <textarea
                     value={newAutopsy.conclusions}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, conclusions: e.target.value })}
-                    placeholder="Summary conclusions..."
+                    placeholder={t('docAutopsy.conclusionsPh')}
                     rows={4}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Recommendations</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.recommendationsTitle')}</label>
                   <textarea
                     value={newAutopsy.recommendations}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, recommendations: e.target.value })}
-                    placeholder="Further actions, notifications..."
+                    placeholder={t('docAutopsy.recommendationsPh')}
                     rows={2}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
@@ -936,35 +937,35 @@ const AutopsyPage: React.FC = () => {
             </div>
 
             <div className="border-t pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Administrative</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAutopsy.administrativeTitle')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Case Number</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.caseNumberLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.caseNumber}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, caseNumber: e.target.value })}
-                    placeholder="e.g., 2024-FOR-001"
+                    placeholder={t('docAutopsy.caseNumberPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Legal Notification</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.legalNotificationLabel')}</label>
                   <input
                     type="text"
                     value={newAutopsy.legalNotification}
                     onChange={(e) => setNewAutopsy({ ...newAutopsy, legalNotification: e.target.value })}
-                    placeholder="Police reference, coroner..."
+                    placeholder={t('docAutopsy.legalNotificationPh')}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">{t('docAutopsy.notesLabel')}</label>
                 <textarea
                   value={newAutopsy.notes}
                   onChange={(e) => setNewAutopsy({ ...newAutopsy, notes: e.target.value })}
-                  placeholder="Additional notes..."
+                  placeholder={t('docAutopsy.notesPh')}
                   rows={3}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
@@ -976,7 +977,7 @@ const AutopsyPage: React.FC = () => {
               className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
-              Create Autopsy Report
+              {t('docAutopsy.createBtn')}
             </button>
           </div>
         </div>

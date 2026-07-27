@@ -87,7 +87,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
             None => Vec::new(),
         };
 
-        logs.sort_by(|a, b| b.accessed_at.cmp(&a.accessed_at));
+        logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 
         let total = logs.len() as u64;
         let offset = pagination.offset() as usize;
@@ -121,7 +121,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
             None => Vec::new(),
         };
 
-        logs.sort_by(|a, b| b.accessed_at.cmp(&a.accessed_at));
+        logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 
         let total = logs.len() as u64;
         let offset = pagination.offset() as usize;
@@ -160,7 +160,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
             .cloned()
             .collect();
 
-        logs.sort_by(|a, b| b.accessed_at.cmp(&a.accessed_at));
+        logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 
         let total = logs.len() as u64;
         let offset = pagination.offset() as usize;
@@ -186,7 +186,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
             .cloned()
             .collect();
 
-        logs.sort_by(|a, b| b.accessed_at.cmp(&a.accessed_at));
+        logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 
         let total = logs.len() as u64;
         let offset = pagination.offset() as usize;
@@ -208,7 +208,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
 
         let mut logs: Vec<AccessLogEntity> = storage.values().cloned().collect();
 
-        logs.sort_by(|a, b| b.accessed_at.cmp(&a.accessed_at));
+        logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 
         let total = logs.len() as u64;
         let offset = pagination.offset() as usize;
@@ -246,7 +246,7 @@ impl AccessLogRepository for MemoryAccessLogRepository {
             .cloned()
             .collect();
 
-        logs.sort_by(|a, b| b.accessed_at.cmp(&a.accessed_at));
+        logs.sort_by_key(|b| std::cmp::Reverse(b.accessed_at));
 
         let total = logs.len() as u64;
         let offset = pagination.offset() as usize;

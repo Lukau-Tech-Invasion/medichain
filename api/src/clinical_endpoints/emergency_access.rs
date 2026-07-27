@@ -49,16 +49,6 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Issue a time-limited, server-signed emergency access token for `patient_id`.
-///
-/// Format: `"<expiry_unix>.<hex_mac>"`. Intended to be minted for an
-/// authenticated first responder, then presented to the emergency endpoint.
-#[allow(dead_code)]
-pub fn issue_emergency_token(patient_id: &str, ttl_secs: i64) -> String {
-    let expiry = chrono::Utc::now().timestamp() + ttl_secs;
-    format!("{}.{}", expiry, mac_tag(patient_id, expiry))
-}
-
 /// Verify a signed emergency token for `patient_id`.
 ///
 /// Returns `true` only when the token is well-formed, unexpired, and its MAC
@@ -93,6 +83,14 @@ pub fn nfc_hash_matches(provided: &str, tags: &[NfcTagEntity]) -> bool {
 mod tests {
     use super::*;
     use chrono::Utc;
+
+    /// Test-only helper mirroring what a real emergency-token issuer would produce
+    /// (format: `"<expiry_unix>.<hex_mac>"`), so `verify_emergency_token`'s
+    /// round-trip and expiry/binding behavior can be exercised without a live issuer.
+    fn issue_emergency_token(patient_id: &str, ttl_secs: i64) -> String {
+        let expiry = chrono::Utc::now().timestamp() + ttl_secs;
+        format!("{}.{}", expiry, mac_tag(patient_id, expiry))
+    }
 
     fn tag(uid: &str, active: bool) -> NfcTagEntity {
         NfcTagEntity {

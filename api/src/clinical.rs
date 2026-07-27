@@ -752,10 +752,9 @@ fn parse_blood_type(s: &str) -> Option<(&'static str, bool)> {
     let s = s.trim().to_uppercase();
     let (abo, rh_positive) = if let Some(stripped) = s.strip_suffix('+') {
         (stripped.to_string(), true)
-    } else if let Some(stripped) = s.strip_suffix('-') {
-        (stripped.to_string(), false)
     } else {
-        return None;
+        let stripped = s.strip_suffix('-')?;
+        (stripped.to_string(), false)
     };
     let abo_static = match abo.as_str() {
         "O" => "O",
@@ -877,7 +876,7 @@ impl VitalSignsFlowsheet {
     pub fn add_reading(&mut self, reading: VitalSignsReading) {
         self.readings.push(reading);
         // Keep readings sorted by timestamp
-        self.readings.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+        self.readings.sort_by_key(|a| a.timestamp);
     }
 
     /// Get latest reading

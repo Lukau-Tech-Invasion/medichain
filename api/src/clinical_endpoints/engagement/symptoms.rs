@@ -21,15 +21,9 @@ pub async fn start_symptom_check(
     http_req: HttpRequest,
     req: web::Json<StartSymptomCheckRequest>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Generate initial follow-up questions based on primary symptom
@@ -158,15 +152,9 @@ pub async fn submit_symptom_answers(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Fetch the session from the repository (was: in-memory data.symptom_sessions)
@@ -322,22 +310,19 @@ fn calculate_triage_result(
     if sym_lower
         .iter()
         .any(|s| s.contains("chest") || s.contains("heart"))
+        && answers.get("shortness_breath").and_then(|v| v.as_bool()) == Some(true)
     {
-        if answers.get("shortness_breath").and_then(|v| v.as_bool()) == Some(true) {
-            level = crate::clinical::TriageLevel::EmergencyRoom;
-            explanation =
-                "Chest or heart symptoms with shortness of breath need emergency evaluation."
-                    .to_string();
-            timeframe = "Immediately".to_string();
-            care_options = vec![crate::clinical::CareOption {
-                option_type: "Emergency services".to_string(),
-                description: "Call emergency services immediately. Do not drive yourself."
-                    .to_string(),
-                available: true,
-                estimated_wait: Some("Immediate".to_string()),
-                cost_estimate: None,
-            }];
-        }
+        level = crate::clinical::TriageLevel::EmergencyRoom;
+        explanation = "Chest or heart symptoms with shortness of breath need emergency evaluation."
+            .to_string();
+        timeframe = "Immediately".to_string();
+        care_options = vec![crate::clinical::CareOption {
+            option_type: "Emergency services".to_string(),
+            description: "Call emergency services immediately. Do not drive yourself.".to_string(),
+            available: true,
+            estimated_wait: Some("Immediate".to_string()),
+            cost_estimate: None,
+        }];
     }
 
     crate::clinical::TriageRecommendation {
@@ -357,15 +342,9 @@ pub async fn get_symptom_session(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     let stored = data
@@ -416,18 +395,13 @@ pub async fn get_symptom_checker_history(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
+    query: web::Query<crate::pagination::CursorQuery>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Auth check
@@ -446,23 +420,27 @@ pub async fn get_symptom_checker_history(
         .list_all()
         .await
         .unwrap_or_default();
-    let history: Vec<crate::clinical::SymptomCheckSession> = all_records
+    let matching_records: Vec<_> = all_records
         .into_iter()
-        .filter_map(|rec| {
-            let s: crate::clinical::SymptomCheckSession = serde_json::from_value(rec.data).ok()?;
-            if s.patient_id == patient_id {
-                Some(s)
-            } else {
-                None
-            }
+        .filter(|rec| {
+            serde_json::from_value::<crate::clinical::SymptomCheckSession>(rec.data.clone())
+                .map(|s| s.patient_id == patient_id)
+                .unwrap_or(false)
         })
+        .collect();
+    let (page, next_cursor) =
+        crate::pagination::paginate_cursor(&matching_records, query.cursor.as_deref(), query.limit);
+    let history: Vec<crate::clinical::SymptomCheckSession> = page
+        .into_iter()
+        .filter_map(|rec| serde_json::from_value(rec.data).ok())
         .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "patient_id": patient_id,
         "sessions": history,
-        "count": history.len()
+        "count": history.len(),
+        "next_cursor": next_cursor
     }))
 }
 
@@ -577,13 +555,13 @@ pub async fn analyze_symptoms(
             if c.contains("diabetes") {
                 condition_interactions
                     .push("Diabetes may mask or alter typical symptom presentations".to_string());
-            } else if c.contains("asthma") || c.contains("copd") {
-                if symptoms.iter().any(|s| s.to_lowercase().contains("cough")) {
-                    condition_interactions.push(
-                        "Coughing in patients with respiratory conditions requires careful monitoring"
-                            .to_string(),
-                    );
-                }
+            } else if (c.contains("asthma") || c.contains("copd"))
+                && symptoms.iter().any(|s| s.to_lowercase().contains("cough"))
+            {
+                condition_interactions.push(
+                    "Coughing in patients with respiratory conditions requires careful monitoring"
+                        .to_string(),
+                );
             }
         }
     }
@@ -593,16 +571,14 @@ pub async fn analyze_symptoms(
     if let Some(meds) = current_medications {
         for med in meds {
             let m = med.to_lowercase();
-            if m.contains("aspirin") || m.contains("warfarin") || m.contains("anticoagulant") {
-                if symptoms
+            if (m.contains("aspirin") || m.contains("warfarin") || m.contains("anticoagulant"))
+                && symptoms
                     .iter()
                     .any(|s| s.to_lowercase().contains("bruising"))
-                {
-                    medication_notes.push(
-                        "Bruising while on blood thinners should be evaluated by a doctor"
-                            .to_string(),
-                    );
-                }
+            {
+                medication_notes.push(
+                    "Bruising while on blood thinners should be evaluated by a doctor".to_string(),
+                );
             }
         }
     }

@@ -113,7 +113,7 @@ interface MedicalIdData {
  */
 export function MedicalIdPage() {
   const navigate = useNavigate();
-  const { locale } = useTranslation();
+  const { t, locale } = useTranslation();
   const { showError, showWarning } = useToastActions();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [data, setData] = useState<MedicalIdData | null>(null);
@@ -224,33 +224,34 @@ export function MedicalIdPage() {
   const handleShare = async () => {
     if (!data) return;
 
-    const text = `
-MEDICAL ID - ${data.name}
-Blood Type: ${data.blood_type}
-Allergies: ${data.allergies.map(a => `${a.name} (${a.severity})`).join(', ')}
-Conditions: ${data.conditions.join(', ')}
-Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contacts[0]?.phone}
-    `.trim();
+    const text = t('medicalId.shareText', {
+      name: data.name,
+      bloodType: data.blood_type,
+      allergies: data.allergies.map(a => `${a.name} (${a.severity})`).join(', '),
+      conditions: data.conditions.join(', '),
+      contactName: data.emergency_contacts[0]?.name || '',
+      contactPhone: data.emergency_contacts[0]?.phone || '',
+    });
 
     if (!navigator.share) {
       const ok = await copyToClipboard(text);
       if (ok) {
-        showWarning('Sharing not supported — copied instead');
+        showWarning(t('medicalId.shareNotSupported'));
       } else {
-        showError('Could not share the Medical ID');
+        showError(t('medicalId.shareFailed'));
       }
       return;
     }
 
     try {
       await navigator.share({
-        title: `Medical ID - ${data.name}`,
+        title: t('medicalId.shareTitle', { name: data.name }),
         text,
       });
     } catch (err) {
       // A user-cancelled share surfaces as AbortError — stay silent for that.
       if (err instanceof Error && err.name === 'AbortError') return;
-      showError('Could not share the Medical ID');
+      showError(t('medicalId.shareFailed'));
     }
   };
 
@@ -269,14 +270,14 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
       <div className="p-6">
         <EmptyState
           icon={<AlertTriangle className="w-12 h-12 text-amber-500" />}
-          title="Unable to load Medical ID"
-          description="We couldn't load your Medical ID. Check your connection and try again."
+          title={t('medicalId.unableToLoadTitle')}
+          description={t('medicalId.unableToLoadDesc')}
           action={
             <button
               onClick={() => loadMedicalId()}
               className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
             >
-              Retry
+              {t('medicalId.retryButton')}
             </button>
           }
         />
@@ -290,19 +291,19 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header with settings */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-neutral-900">Medical ID</h1>
+        <h1 className="text-2xl font-bold text-neutral-900">{t('medicalId.title')}</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowLockScreenPreview(!showLockScreenPreview)}
             className="p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors"
-            title="Lock screen preview"
+            title={t('medicalId.lockScreenPreviewTooltip')}
           >
             <Lock className="w-5 h-5" />
           </button>
           <button
             onClick={handleShare}
             className="p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors"
-            title="Share"
+            title={t('medicalId.shareTooltip')}
           >
             <Share2 className="w-5 h-5" />
           </button>
@@ -321,7 +322,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
                 : 'text-neutral-500 hover:text-neutral-700'
             }`}
           >
-            {view === 'full' ? 'Full ID' : view === 'emergency' ? 'Emergency' : 'Lock Screen'}
+            {view === 'full' ? t('medicalId.view_full') : view === 'emergency' ? t('medicalId.view_emergency') : t('medicalId.view_lockscreen')}
           </button>
         ))}
       </div>
@@ -332,8 +333,8 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           <div className="flex items-center gap-3">
             <Lock className={data.preferences.show_when_locked ? 'text-green-600' : 'text-neutral-400'} />
             <div>
-              <p className="font-medium">Show When Locked</p>
-              <p className="text-sm text-neutral-600">Emergency access from lock screen</p>
+              <p className="font-medium">{t('medicalId.showWhenLocked')}</p>
+              <p className="text-sm text-neutral-600">{t('medicalId.showWhenLockedDesc')}</p>
             </div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -371,14 +372,14 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           <div className="p-4 text-center">
             <Droplet className="w-8 h-8 text-red-500 mx-auto mb-2" />
             <p className="text-3xl font-bold text-neutral-900">{data.blood_type}</p>
-            <p className="text-sm text-neutral-600">Blood Type</p>
+            <p className="text-sm text-neutral-600">{t('medicalId.bloodTypeLabel')}</p>
           </div>
           <div className="p-4 text-center">
             <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-green-500' : 'text-neutral-300'}`} />
             <p className="text-lg font-bold text-neutral-900">
-              {data.organ_donor ? 'Yes' : 'No'}
+              {data.organ_donor ? t('medicalId.organDonorYes') : t('medicalId.organDonorNo')}
             </p>
-            <p className="text-sm text-neutral-600">Organ Donor</p>
+            <p className="text-sm text-neutral-600">{t('medicalId.organDonorLabel')}</p>
           </div>
         </div>
 
@@ -387,8 +388,8 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           <div className="bg-red-50 border-t border-b border-red-200 p-4 flex items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-red-600" />
             <div>
-              <p className="font-bold text-red-800">DNR - Do Not Resuscitate</p>
-              <p className="text-sm text-red-700">Verified advance directive on file</p>
+              <p className="font-bold text-red-800">{t('medicalId.dnrTitle')}</p>
+              <p className="text-sm text-red-700">{t('medicalId.dnrVerifiedDesc')}</p>
             </div>
           </div>
         )}
@@ -396,8 +397,8 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           <div className="bg-amber-50 border-t border-b border-amber-200 p-4 flex items-center gap-3">
             <AlertTriangle className="w-6 h-6 text-amber-600" />
             <div>
-              <p className="font-bold text-amber-800">DNR on file — unverified</p>
-              <p className="text-sm text-amber-700">Verify advance directive before acting</p>
+              <p className="font-bold text-amber-800">{t('medicalId.dnrUnverifiedTitle')}</p>
+              <p className="text-sm text-amber-700">{t('medicalId.dnrUnverifiedDesc')}</p>
             </div>
           </div>
         )}
@@ -406,7 +407,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
         <div className="p-4 border-t border-neutral-100">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-5 h-5 text-red-500" />
-            <h3 className="font-bold text-neutral-900">Allergies & Reactions</h3>
+            <h3 className="font-bold text-neutral-900">{t('medicalId.allergiesTitle')}</h3>
           </div>
           {data.allergies.length > 0 ? (
             <div className="space-y-2">
@@ -423,7 +424,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
               ))}
             </div>
           ) : (
-            <EmptyState compact title="No known allergies" />
+            <EmptyState compact title={t('medicalId.noKnownAllergies')} />
           )}
         </div>
 
@@ -431,7 +432,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
         <div className="p-4 border-t border-neutral-100">
           <div className="flex items-center gap-2 mb-3">
             <Stethoscope className="w-5 h-5 text-blue-500" />
-            <h3 className="font-bold text-neutral-900">Medical Conditions</h3>
+            <h3 className="font-bold text-neutral-900">{t('medicalId.conditionsTitle')}</h3>
           </div>
           {data.conditions.length > 0 ? (
             <div className="flex flex-wrap gap-2">
@@ -442,7 +443,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
               ))}
             </div>
           ) : (
-            <EmptyState compact title="None listed" />
+            <EmptyState compact title={t('medicalId.noneListed')} />
           )}
         </div>
 
@@ -450,7 +451,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
         <div className="p-4 border-t border-neutral-100">
           <div className="flex items-center gap-2 mb-3">
             <Pill className="w-5 h-5 text-purple-500" />
-            <h3 className="font-bold text-neutral-900">Current Medications</h3>
+            <h3 className="font-bold text-neutral-900">{t('medicalId.medicationsTitle')}</h3>
           </div>
           {data.medications.length > 0 ? (
             <ul className="space-y-2">
@@ -462,7 +463,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
               ))}
             </ul>
           ) : (
-            <EmptyState compact title="None listed" />
+            <EmptyState compact title={t('medicalId.noneListed')} />
           )}
         </div>
 
@@ -470,7 +471,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
         <div className="p-4 border-t border-neutral-100 bg-neutral-50">
           <div className="flex items-center gap-2 mb-3">
             <Phone className="w-5 h-5 text-green-500" />
-            <h3 className="font-bold text-neutral-900">Emergency Contacts</h3>
+            <h3 className="font-bold text-neutral-900">{t('medicalId.emergencyContactsTitle')}</h3>
           </div>
           {data.emergency_contacts.map((contact, i) => {
             const normalized = normalizePhone(contact.phone);
@@ -487,17 +488,17 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
                       className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2"
                     >
                       <Phone className="w-4 h-4" />
-                      Call
+                      {t('medicalId.callButton')}
                     </a>
                   ) : (
-                    <span className="text-xs text-amber-700">Unverified number</span>
+                    <span className="text-xs text-amber-700">{t('medicalId.unverifiedNumber')}</span>
                   )}
                 </div>
                 <p className="text-sm text-neutral-600 mt-2">{contact.phone}</p>
                 {contact.can_make_medical_decisions && (
                   <div className="flex items-center gap-1 mt-2 text-green-600 text-sm">
                     <CheckCircle className="w-4 h-4" />
-                    Legal authority to make medical decisions
+                    {t('medicalId.legalAuthorityText')}
                   </div>
                 )}
               </div>
@@ -510,7 +511,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           <div className="p-4 border-t border-neutral-100">
             <div className="flex items-center gap-2 mb-3">
               <Stethoscope className="w-5 h-5 text-blue-500" />
-              <h3 className="font-bold text-neutral-900">Primary Care Provider</h3>
+              <h3 className="font-bold text-neutral-900">{t('medicalId.primaryCareProviderTitle')}</h3>
             </div>
             <div className="bg-blue-50 p-3 rounded-lg">
               <p className="font-medium text-neutral-900">{data.primary_doctor.name}</p>
@@ -532,7 +533,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
                 ) : (
                   <p className="text-sm mt-1 text-neutral-600">
                     {data.primary_doctor.phone}{' '}
-                    <span className="text-amber-700">(unverified number)</span>
+                    <span className="text-amber-700">{t('medicalId.unverifiedNumberParen')}</span>
                   </p>
                 );
               })()}
@@ -545,11 +546,11 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           <div className="p-4 border-t border-neutral-100">
             <div className="flex items-center gap-2 mb-3">
               <Shield className="w-5 h-5 text-indigo-500" />
-              <h3 className="font-bold text-neutral-900">Insurance</h3>
+              <h3 className="font-bold text-neutral-900">{t('medicalId.insuranceTitle')}</h3>
             </div>
             <div className="bg-indigo-50 p-3 rounded-lg">
               <p className="font-medium text-neutral-900">{data.insurance.provider}</p>
-              <p className="text-sm text-neutral-600">Policy: {data.insurance.policy_number}</p>
+              <p className="text-sm text-neutral-600">{t('medicalId.policyPrefix', { number: data.insurance.policy_number })}</p>
             </div>
           </div>
         )}
@@ -558,7 +559,7 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
         <div className="p-4 border-t border-neutral-100">
           <div className="flex items-center gap-2 mb-3">
             <FileText className="w-5 h-5 text-neutral-500" />
-            <h3 className="font-bold text-neutral-900">Languages</h3>
+            <h3 className="font-bold text-neutral-900">{t('medicalId.languagesTitle')}</h3>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.languages.map((lang, i) => (
@@ -574,10 +575,10 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
       <div className="patient-card text-center">
         <div className="flex items-center justify-center gap-2 mb-3">
           <Download className="w-5 h-5 text-neutral-500" />
-          <h3 className="font-bold text-neutral-900">Medical ID QR Code</h3>
+          <h3 className="font-bold text-neutral-900">{t('medicalId.qrCodeTitle')}</h3>
         </div>
         <p className="text-sm text-neutral-500 mb-3">
-          First responders can scan this QR code for emergency access to your medical information.
+          {t('medicalId.qrCodeDesc')}
         </p>
         <a
           href={`/api/medical-id/${data.patient_id}/qr`}
@@ -586,23 +587,23 @@ Emergency Contact: ${data.emergency_contacts[0]?.name} - ${data.emergency_contac
           className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
         >
           <Download className="w-4 h-4" />
-          Download QR Code
+          {t('medicalId.downloadQrCode')}
         </a>
       </div>
 
       {/* Emergency Numbers */}
       <div className="bg-red-50 border border-red-200 rounded-xl p-4">
         <h3 className="flex items-center gap-2 font-bold text-red-800 mb-3">
-          <AlertTriangle className="w-5 h-5" aria-hidden="true" /> Emergency Services
+          <AlertTriangle className="w-5 h-5" aria-hidden="true" /> {t('medicalId.emergencyServicesTitle')}
         </h3>
         <div className="grid grid-cols-2 gap-3">
           <a href="tel:10177" className="bg-white p-3 rounded-lg text-center shadow-sm">
             <p className="text-2xl font-bold text-red-600">10177</p>
-            <p className="text-sm text-neutral-600">Ambulance (SA)</p>
+            <p className="text-sm text-neutral-600">{t('medicalId.ambulanceLabel')}</p>
           </a>
           <a href="tel:10111" className="bg-white p-3 rounded-lg text-center shadow-sm">
             <p className="text-2xl font-bold text-red-600">10111</p>
-            <p className="text-sm text-neutral-600">Police (SA)</p>
+            <p className="text-sm text-neutral-600">{t('medicalId.policeLabel')}</p>
           </a>
         </div>
       </div>

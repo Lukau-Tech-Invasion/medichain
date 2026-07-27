@@ -115,6 +115,24 @@ pub async fn add_vital_signs(
     let critical_alerts = reading.has_critical_values();
     let has_critical = !critical_alerts.is_empty();
 
+    // CDS: evaluate the full rules engine (sepsis/qSOFA, shock, hypertensive crisis,
+    // stroke, AKI, hyperkalemia, etc.) against this reading plus the patient's real
+    // chronic conditions/medications — not just the simple threshold check above.
+    {
+        let (conditions, medications) =
+            crate::clinical_endpoints::patient_conditions_and_meds(&data, &req.patient_id).await;
+        crate::clinical_endpoints::run_and_persist_cds_alerts(
+            &data,
+            &req.patient_id,
+            Some(&reading),
+            None,
+            &conditions,
+            &medications,
+            None,
+        )
+        .await;
+    }
+
     // Persist vital signs via repository
     {
         let entity: crate::repositories::traits::VitalSignsEntity =
@@ -406,5 +424,134 @@ pub async fn get_patient_latest_vitals(
             error: e.to_string(),
             code: "INTERNAL_ERROR".to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod cds_wiring_tests {
+    use super::*;
+    use actix_web::{test, App};
+
+    fn test_patient(
+        id: &str,
+        conditions: Vec<String>,
+        medications: Vec<String>,
+    ) -> crate::PatientProfile {
+        let now = Utc::now();
+        crate::PatientProfile {
+            patient_id: id.to_string(),
+            full_name: "Test Patient".to_string(),
+            date_of_birth: "1980-01-01".to_string(),
+            national_id: format!("NID-{id}"),
+            phone: "+27000000000".to_string(),
+            emergency_info: crate::EmergencyInfo {
+                patient_id: id.to_string(),
+                blood_type: crate::BloodType::OPositive,
+                allergies: Vec::new(),
+                current_medications: medications,
+                chronic_conditions: conditions,
+                emergency_contacts: Vec::new(),
+                organ_donor: false,
+                dnr_status: false,
+                dnr_verified_by: None,
+                dnr_verified_at: None,
+                dnr_document_ref: None,
+                languages: vec!["en".to_string()],
+                last_updated: now,
+            },
+            address: None,
+            insurance: None,
+            primary_doctor: None,
+            community_health_worker: None,
+            preferences: crate::PatientPreferences::default(),
+            advanced_directives: Vec::new(),
+            family_notifications: None,
+            created_at: now,
+            last_updated: now,
+        }
+    }
+
+    fn test_doctor() -> User {
+        User {
+            wallet_address: "doctor_wallet".to_string(),
+            username: None,
+            name: "Dr. Test".to_string(),
+            role: Role::Doctor,
+            created_at: Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    /// Recording vital signs for a patient with a documented renal condition and an
+    /// NSAID on their medication list should trigger the CDS rules engine's
+    /// "NSAID Use in Renal Impairment" rule — this rule needs no vitals/labs at all,
+    /// so any vitals submission is enough to exercise the new wiring end-to-end.
+    #[actix_web::test]
+    async fn add_vital_signs_triggers_condition_and_medication_cds_rule() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-CDS-VITALS-1";
+        let profile = test_patient(
+            patient_id,
+            vec!["Chronic Kidney Disease".to_string()],
+            vec!["Ibuprofen".to_string()],
+        );
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &profile,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .users
+            .write()
+            .unwrap()
+            .insert("doctor_wallet".to_string(), test_doctor());
+
+        let app_state = web::Data::new(state);
+        let app = test::init_service(
+            App::new()
+                .app_data(app_state.clone())
+                .service(add_vital_signs),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/clinical/vitals")
+            .insert_header(("x-user-id", "doctor_wallet"))
+            .set_json(serde_json::json!({
+                "patient_id": patient_id,
+                "heart_rate": 80,
+                "systolic_bp": 120,
+                "diastolic_bp": 80,
+                "respiratory_rate": 16,
+                "oxygen_saturation": 98,
+                "temperature_celsius": 37.0,
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+
+        let alerts = app_state
+            .repositories
+            .cds_alerts
+            .get_by_patient(patient_id, true)
+            .await
+            .unwrap_or_default();
+        assert!(
+            alerts.iter().any(|a| a.alert_title.contains("NSAID")),
+            "expected an NSAID-in-renal-impairment CDS alert, got: {:?}",
+            alerts.iter().map(|a| &a.alert_title).collect::<Vec<_>>()
+        );
     }
 }

@@ -123,6 +123,21 @@ pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> i
     }
 }
 
+/// List all autopsy reports
+#[get("/api/platform/list/autopsy-reports")]
+pub async fn list_autopsy_reports(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if http_req.headers().get("X-User-Id").is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
+    match data.repositories.autopsy_reports.list_all().await {
+        Ok(list) => HttpResponse::Ok().json(list),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
 /// List all consultation notes
 #[get("/api/platform/list/consults")]
 pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
@@ -254,47 +269,59 @@ pub async fn list_progress_notes(
 /// List all clinical incident reports
 #[get("/api/platform/list/incidents")]
 pub async fn list_incident_reports(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
     if http_req.headers().get("X-User-Id").is_none() {
         return HttpResponse::Unauthorized().finish();
     }
-    // Mock incidents
-    let incidents = vec![
-        serde_json::json!({"id": "INC-001", "type": "fall", "severity": "minor", "at": chrono::Utc::now().timestamp() - 86400}),
-    ];
-    HttpResponse::Ok().json(incidents)
+    match data
+        .repositories
+        .incident_reports
+        .list_all(Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
 }
 
 /// List intake/output records
 #[get("/api/platform/list/intake-output")]
 pub async fn list_intake_output(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
     if http_req.headers().get("X-User-Id").is_none() {
         return HttpResponse::Unauthorized().finish();
     }
-    // Mock
-    let io = vec![
-        serde_json::json!({"id": "IO-001", "patient_id": "0xPATIENT1", "type": "intake", "volume_ml": 500, "at": chrono::Utc::now().timestamp() - 3600}),
-    ];
-    HttpResponse::Ok().json(io)
+    match data
+        .repositories
+        .io_records
+        .list_all(Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
 }
 
 /// List discharges Against Medical Advice (AMA)
 #[get("/api/platform/list/ama-discharges")]
 pub async fn list_ama_discharges(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
     if http_req.headers().get("X-User-Id").is_none() {
         return HttpResponse::Unauthorized().finish();
     }
-    // Mock
-    let ama = vec![
-        serde_json::json!({"id": "AMA-001", "patient_id": "0xPATIENT2", "reason": "family emergency", "at": chrono::Utc::now().timestamp() - 172800}),
-    ];
-    HttpResponse::Ok().json(ama)
+    match data
+        .repositories
+        .ama_discharges
+        .list_all(Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
 }

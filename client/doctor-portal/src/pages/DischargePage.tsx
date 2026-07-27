@@ -16,9 +16,10 @@ import {
   Heart,
   Activity,
   Clipboard,
+  Download,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, exportDocumentToPdf, useTranslation } from '@medichain/shared';
 import { usePatientStore } from '../store/patientStore';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -80,6 +81,7 @@ interface Patient {
  * DischargePage - Manage patient discharge documentation
  */
 function DischargePage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
@@ -90,6 +92,7 @@ function DischargePage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [apiConnected, setApiConnected] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending');
   
   const { user, isAuthenticated } = useAuthStore();
@@ -168,11 +171,11 @@ function DischargePage() {
         setApiConnected(true);
       } else {
         setApiConnected(false);
-        setError('Failed to connect to server');
+        setError(t('docDischarge.errorConnectFailed'));
       }
     } catch {
       setApiConnected(false);
-      setError('Failed to fetch discharge summaries. Please ensure the API server is running.');
+      setError(t('docDischarge.errorFetchFailed'));
     } finally {
       setLoading(false);
     }
@@ -204,7 +207,7 @@ function DischargePage() {
     e.preventDefault();
     if (!user) return;
     if (!selectedPatient) {
-      setError('Please select a patient');
+      setError(t('docDischarge.errorSelectPatient'));
       return;
     }
 
@@ -244,16 +247,16 @@ function DischargePage() {
       });
 
       if (response.ok) {
-        setSuccess('Discharge summary created successfully');
+        setSuccess(t('docDischarge.successCreated'));
         setShowForm(false);
         fetchDischarges();
         resetForm();
       } else {
-        setSuccess('Failed to create discharge summary');
+        setSuccess(t('docDischarge.errorCreateFailed'));
       }
     } catch (error) {
       console.error('Error creating discharge summary:', error);
-      setSuccess('Error creating discharge summary');
+      setSuccess(t('docDischarge.errorGenericCreate'));
     } finally {
       setSubmitting(false);
     }
@@ -276,6 +279,51 @@ function DischargePage() {
     setSelectedPatient('');
   };
 
+  const handleExportPdf = async (discharge: DischargeSummary) => {
+    setExportingId(discharge.id);
+    try {
+      await exportDocumentToPdf({
+        title: t('docDischarge.pdfTitle'),
+        subtitle: `${discharge.patient_name} (${discharge.patient_id}) — ${discharge.discharge_date}`,
+        filename: `discharge-summary-${discharge.id}.pdf`,
+        sections: [
+          {
+            heading: t('docDischarge.pdfDiagnosisSection'),
+            lines: [
+              `${t('docDischarge.lblPrimaryDiagnosis')}: ${discharge.primary_diagnosis}`,
+              ...discharge.secondary_diagnoses,
+              ...discharge.procedures_performed.map(p => `${t('docDischarge.pdfProcedurePrefix')}: ${p}`),
+              `${t('docDischarge.lblCondition')}: ${discharge.discharge_condition}`,
+            ],
+          },
+          {
+            heading: t('docDischarge.dischargeMedicationsTitle'),
+            lines: discharge.discharge_medications.map(
+              m => `${m.name} ${m.dosage} — ${m.frequency} (${m.duration})${m.instructions ? `: ${m.instructions}` : ''}`
+            ),
+          },
+          {
+            heading: t('docDischarge.followUpAppointmentsTitle'),
+            lines: discharge.follow_up_appointments.map(a =>
+              t('docDischarge.followUpLine', { specialty: a.specialty, provider: a.provider, date: a.date, time: a.time })
+            ),
+          },
+          ...discharge.discharge_instructions
+            .filter(i => i.instructions.length > 0)
+            .map(i => ({ heading: i.category, lines: i.instructions })),
+          {
+            heading: t('docDischarge.warningSignsTitle'),
+            lines: discharge.warning_signs,
+          },
+        ].filter(section => section.lines.length > 0),
+      });
+    } catch (err) {
+      console.error('Failed to export discharge summary PDF:', err);
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   const approveDischarge = async (id: string) => {
     if (!user) return;
     try {
@@ -286,10 +334,10 @@ function DischargePage() {
           'X-Provider-Role': user.role,
         },
       });
-      setSuccess('Discharge approved');
+      setSuccess(t('docDischarge.successApproved'));
       fetchDischarges();
     } catch {
-      setSuccess('Discharge approved (demo mode)');
+      setSuccess(t('docDischarge.successApprovedDemo'));
     }
   };
 
@@ -323,23 +371,23 @@ function DischargePage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
             <LogOut className="text-primary-600" />
-            Discharge Planning
+            {t('docDischarge.title')}
           </h1>
           <p className="text-gray-500 mt-1">
-            Create and manage patient discharge documentation
+            {t('docDischarge.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${apiConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
             {apiConnected ? <Wifi size={16} /> : <WifiOff size={16} />}
-            {apiConnected ? 'API Connected' : 'Offline Mode'}
+            {apiConnected ? t('docDischarge.apiConnected') : t('docDischarge.offlineMode')}
           </div>
           <button
             onClick={() => setShowForm(true)}
             className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 flex items-center gap-2"
           >
             <FileText size={20} />
-            New Discharge
+            {t('docDischarge.newDischargeBtn')}
           </button>
         </div>
       </div>
@@ -367,7 +415,7 @@ function DischargePage() {
             <Clock className="text-yellow-500" size={24} />
             <div>
               <p className="text-2xl font-bold text-gray-900">{pendingDischarges.length}</p>
-              <p className="text-sm text-gray-500">Pending Discharges</p>
+              <p className="text-sm text-gray-500">{t('docDischarge.statPending')}</p>
             </div>
           </div>
         </div>
@@ -376,7 +424,7 @@ function DischargePage() {
             <CheckCircle className="text-green-500" size={24} />
             <div>
               <p className="text-2xl font-bold text-gray-900">{completedDischarges.length}</p>
-              <p className="text-sm text-gray-500">Completed Today</p>
+              <p className="text-sm text-gray-500">{t('docDischarge.statCompletedToday')}</p>
             </div>
           </div>
         </div>
@@ -385,7 +433,7 @@ function DischargePage() {
             <Home className="text-blue-500" size={24} />
             <div>
               <p className="text-2xl font-bold text-gray-900">{discharges.filter(d => d.discharge_disposition === 'home').length}</p>
-              <p className="text-sm text-gray-500">Discharged Home</p>
+              <p className="text-sm text-gray-500">{t('docDischarge.statDischargedHome')}</p>
             </div>
           </div>
         </div>
@@ -394,7 +442,7 @@ function DischargePage() {
             <Activity className="text-purple-500" size={24} />
             <div>
               <p className="text-2xl font-bold text-gray-900">{recentPatients.length}</p>
-              <p className="text-sm text-gray-500">Recent Patients</p>
+              <p className="text-sm text-gray-500">{t('docDischarge.statRecentPatients')}</p>
             </div>
           </div>
         </div>
@@ -406,13 +454,13 @@ function DischargePage() {
           onClick={() => setActiveTab('pending')}
           className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'pending' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
         >
-          Pending ({pendingDischarges.length})
+          {t('docDischarge.tabPending', { count: pendingDischarges.length })}
         </button>
         <button
           onClick={() => setActiveTab('completed')}
           className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'completed' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
         >
-          Completed ({completedDischarges.length})
+          {t('docDischarge.tabCompleted', { count: completedDischarges.length })}
         </button>
       </div>
 
@@ -420,7 +468,7 @@ function DischargePage() {
       {loading ? (
         <div className="bg-white rounded-xl shadow p-12 text-center">
           <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-          <p className="text-gray-500">Loading discharge summaries...</p>
+          <p className="text-gray-500">{t('docDischarge.loadingDischarges')}</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -434,12 +482,12 @@ function DischargePage() {
                     </div>
                     <div>
                       <h3 className="font-bold text-gray-900">{discharge.patient_name}</h3>
-                      <p className="text-sm text-gray-500">{discharge.patient_id} • Admitted: {discharge.admission_date}</p>
+                      <p className="text-sm text-gray-500">{t('docDischarge.admittedLine', { id: discharge.patient_id, date: discharge.admission_date })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(discharge.status)}`}>
-                      {discharge.status.replace('_', ' ')}
+                      {t(`docDischarge.status_${discharge.status}`)}
                     </span>
                     {discharge.status === 'pending_approval' && (
                       <button
@@ -447,7 +495,7 @@ function DischargePage() {
                         className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
                       >
                         <CheckCircle size={16} />
-                        Approve
+                        {t('docDischarge.approveBtn')}
                       </button>
                     )}
                   </div>
@@ -455,15 +503,15 @@ function DischargePage() {
 
                 <div className="mt-4 grid grid-cols-3 gap-4">
                   <div>
-                    <p className="text-sm text-gray-500">Primary Diagnosis</p>
+                    <p className="text-sm text-gray-500">{t('docDischarge.lblPrimaryDiagnosis')}</p>
                     <p className="font-medium text-gray-900">{discharge.primary_diagnosis}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Discharge Date</p>
+                    <p className="text-sm text-gray-500">{t('docDischarge.lblDischargeDate')}</p>
                     <p className="font-medium text-gray-900">{discharge.discharge_date}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Condition</p>
+                    <p className="text-sm text-gray-500">{t('docDischarge.lblCondition')}</p>
                     <p className={`font-medium capitalize ${getConditionColor(discharge.discharge_condition)}`}>
                       {discharge.discharge_condition}
                     </p>
@@ -475,17 +523,17 @@ function DischargePage() {
                   <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Pill className="text-blue-600" size={16} />
-                      <span className="font-medium text-blue-900">Discharge Medications</span>
+                      <span className="font-medium text-blue-900">{t('docDischarge.dischargeMedicationsTitle')}</span>
                     </div>
                     <div className="space-y-1">
                       {discharge.discharge_medications.slice(0, 3).map((med, i) => (
                         <p key={i} className="text-sm text-blue-800">
                           {med.name} {med.dosage} - {med.frequency}
-                          {med.is_new && <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">NEW</span>}
+                          {med.is_new && <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">{t('docDischarge.newBadge')}</span>}
                         </p>
                       ))}
                       {discharge.discharge_medications.length > 3 && (
-                        <p className="text-sm text-blue-600">+{discharge.discharge_medications.length - 3} more</p>
+                        <p className="text-sm text-blue-600">{t('docDischarge.moreCount', { count: discharge.discharge_medications.length - 3 })}</p>
                       )}
                     </div>
                   </div>
@@ -496,12 +544,12 @@ function DischargePage() {
                   <div className="mt-4 p-3 bg-purple-50 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Calendar className="text-purple-600" size={16} />
-                      <span className="font-medium text-purple-900">Follow-up Appointments</span>
+                      <span className="font-medium text-purple-900">{t('docDischarge.followUpAppointmentsTitle')}</span>
                     </div>
                     <div className="space-y-1">
                       {discharge.follow_up_appointments.map((apt, i) => (
                         <p key={i} className="text-sm text-purple-800">
-                          {apt.specialty} with {apt.provider} - {apt.date} at {apt.time}
+                          {t('docDischarge.followUpLine', { specialty: apt.specialty, provider: apt.provider, date: apt.date, time: apt.time })}
                         </p>
                       ))}
                     </div>
@@ -513,7 +561,7 @@ function DischargePage() {
                   <div className="mt-4 p-3 bg-red-50 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <AlertTriangle className="text-red-600" size={16} />
-                      <span className="font-medium text-red-900">Warning Signs to Watch For</span>
+                      <span className="font-medium text-red-900">{t('docDischarge.warningSignsTitle')}</span>
                     </div>
                     <ul className="text-sm text-red-800 list-disc list-inside">
                       {discharge.warning_signs.map((sign, i) => (
@@ -524,10 +572,20 @@ function DischargePage() {
                 )}
 
                 <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-                  <span>Prepared by: {discharge.prepared_by}</span>
-                  <Link to={`/patients/${discharge.patient_id}`} className="text-primary-600 hover:text-primary-700 flex items-center gap-1">
-                    View Patient <ChevronRight size={16} />
-                  </Link>
+                  <span>{t('docDischarge.preparedByLine', { value: discharge.prepared_by })}</span>
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={() => handleExportPdf(discharge)}
+                      disabled={exportingId === discharge.id}
+                      className="text-primary-600 hover:text-primary-700 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Download size={16} />
+                      {exportingId === discharge.id ? t('docDischarge.exportingPdf') : t('docDischarge.exportPdf')}
+                    </button>
+                    <Link to={`/patients/${discharge.patient_id}`} className="text-primary-600 hover:text-primary-700 flex items-center gap-1">
+                      {t('docDischarge.viewPatientLink')} <ChevronRight size={16} />
+                    </Link>
+                  </div>
                 </div>
               </div>
             </div>
@@ -536,7 +594,7 @@ function DischargePage() {
           {(activeTab === 'pending' ? pendingDischarges : completedDischarges).length === 0 && (
             <div className="bg-white rounded-xl shadow p-12 text-center">
               <LogOut className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">No {activeTab} discharges</p>
+              <p className="text-gray-500">{t('docDischarge.noDischarges', { tab: activeTab })}</p>
             </div>
           )}
         </div>
@@ -547,7 +605,7 @@ function DischargePage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">Create Discharge Summary</h2>
+              <h2 className="text-xl font-bold text-gray-900">{t('docDischarge.createModalTitle')}</h2>
               <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
             </div>
 
@@ -555,7 +613,7 @@ function DischargePage() {
               {/* Patient Selection */}
               <div>
                 <label htmlFor="dc-patient" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                  <User size={16} /> Patient
+                  <User size={16} /> {t('docDischarge.patientLabel')}
                 </label>
                 <select
                   id="dc-patient"
@@ -564,7 +622,7 @@ function DischargePage() {
                   className="w-full p-3 border border-gray-200 rounded-lg"
                   required
                 >
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docDischarge.selectPatientPh')}</option>
                   {patients.map(p => (
                     <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
                   ))}
@@ -575,7 +633,7 @@ function DischargePage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="dc-primary-diagnosis" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                    <Heart size={16} /> Primary Diagnosis
+                    <Heart size={16} /> {t('docDischarge.primaryDiagnosisLabel')}
                   </label>
                   <input
                     id="dc-primary-diagnosis"
@@ -583,13 +641,13 @@ function DischargePage() {
                     value={formData.primary_diagnosis}
                     onChange={(e) => setFormData({ ...formData, primary_diagnosis: e.target.value })}
                     className="w-full p-3 border border-gray-200 rounded-lg"
-                    placeholder="e.g., Community-acquired pneumonia"
+                    placeholder={t('docDischarge.primaryDiagnosisPh')}
                     required
                   />
                 </div>
                 <div>
                   <label htmlFor="dc-discharge-disposition" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                    <Clipboard size={16} /> Discharge Disposition
+                    <Clipboard size={16} /> {t('docDischarge.dischargeDispositionLabel')}
                   </label>
                   <select
                     id="dc-discharge-disposition"
@@ -597,19 +655,19 @@ function DischargePage() {
                     onChange={(e) => setFormData({ ...formData, discharge_disposition: e.target.value })}
                     className="w-full p-3 border border-gray-200 rounded-lg"
                   >
-                    <option value="home">Home</option>
-                    <option value="home_health">Home with Home Health</option>
-                    <option value="snf">Skilled Nursing Facility</option>
-                    <option value="rehab">Rehabilitation Facility</option>
-                    <option value="ltac">Long-term Acute Care</option>
-                    <option value="hospice">Hospice</option>
-                    <option value="ama">Against Medical Advice</option>
+                    <option value="home">{t('docDischarge.disposition_home')}</option>
+                    <option value="home_health">{t('docDischarge.disposition_homeHealth')}</option>
+                    <option value="snf">{t('docDischarge.disposition_snf')}</option>
+                    <option value="rehab">{t('docDischarge.disposition_rehab')}</option>
+                    <option value="ltac">{t('docDischarge.disposition_ltac')}</option>
+                    <option value="hospice">{t('docDischarge.disposition_hospice')}</option>
+                    <option value="ama">{t('docDischarge.disposition_ama')}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="dc-secondary-diagnoses" className="text-sm font-medium text-gray-700 mb-1">Secondary Diagnoses (one per line)</label>
+                <label htmlFor="dc-secondary-diagnoses" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.secondaryDiagnosesLabel')}</label>
                 <textarea
                   id="dc-secondary-diagnoses"
                   value={formData.secondary_diagnoses}
@@ -622,7 +680,7 @@ function DischargePage() {
 
               {/* Discharge Condition */}
               <div>
-                <label id="dc-discharge-condition-label" className="text-sm font-medium text-gray-700 mb-1">Discharge Condition</label>
+                <label id="dc-discharge-condition-label" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.dischargeConditionLabel')}</label>
                 <div className="grid grid-cols-4 gap-2" role="group" aria-labelledby="dc-discharge-condition-label">
                   {['improved', 'stable', 'unchanged', 'declined'].map((condition) => (
                     <button
@@ -631,7 +689,7 @@ function DischargePage() {
                       onClick={() => setFormData({ ...formData, discharge_condition: condition })}
                       className={`p-3 rounded-lg border capitalize ${formData.discharge_condition === condition ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-gray-200 hover:bg-gray-50'}`}
                     >
-                      {condition}
+                      {t(`docDischarge.condition_${condition}`)}
                     </button>
                   ))}
                 </div>
@@ -641,10 +699,10 @@ function DischargePage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                    <Pill size={16} /> Discharge Medications
+                    <Pill size={16} /> {t('docDischarge.dischargeMedicationsLabel')}
                   </label>
                   <button type="button" onClick={addMedication} className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
-                    + Add Medication
+                    {t('docDischarge.addMedicationBtn')}
                   </button>
                 </div>
                 {medications.map((med, i) => (
@@ -657,7 +715,7 @@ function DischargePage() {
                         updated[i].name = e.target.value;
                         setMedications(updated);
                       }}
-                      placeholder="Medication name"
+                      placeholder={t('docDischarge.medNamePh')}
                       className="p-2 border border-gray-200 rounded-lg"
                     />
                     <input
@@ -668,7 +726,7 @@ function DischargePage() {
                         updated[i].dosage = e.target.value;
                         setMedications(updated);
                       }}
-                      placeholder="Dosage"
+                      placeholder={t('docDischarge.dosagePh')}
                       className="p-2 border border-gray-200 rounded-lg"
                     />
                     <input
@@ -679,7 +737,7 @@ function DischargePage() {
                         updated[i].frequency = e.target.value;
                         setMedications(updated);
                       }}
-                      placeholder="Frequency"
+                      placeholder={t('docDischarge.frequencyPh')}
                       className="p-2 border border-gray-200 rounded-lg"
                     />
                     <input
@@ -690,7 +748,7 @@ function DischargePage() {
                         updated[i].duration = e.target.value;
                         setMedications(updated);
                       }}
-                      placeholder="Duration"
+                      placeholder={t('docDischarge.durationPh')}
                       className="p-2 border border-gray-200 rounded-lg"
                     />
                     <button
@@ -698,7 +756,7 @@ function DischargePage() {
                       onClick={() => setMedications(medications.filter((_, idx) => idx !== i))}
                       className="text-red-500 hover:text-red-700"
                     >
-                      Remove
+                      {t('docDischarge.removeBtn')}
                     </button>
                   </div>
                 ))}
@@ -708,10 +766,10 @@ function DischargePage() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
-                    <Calendar size={16} /> Follow-up Appointments
+                    <Calendar size={16} /> {t('docDischarge.followUpAppointmentsLabel')}
                   </label>
                   <button type="button" onClick={addFollowUp} className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
-                    + Add Appointment
+                    {t('docDischarge.addAppointmentBtn')}
                   </button>
                 </div>
                 {followUps.map((apt, i) => (
@@ -724,7 +782,7 @@ function DischargePage() {
                         updated[i].specialty = e.target.value;
                         setFollowUps(updated);
                       }}
-                      placeholder="Specialty"
+                      placeholder={t('docDischarge.specialtyPh')}
                       className="p-2 border border-gray-200 rounded-lg"
                     />
                     <input
@@ -735,7 +793,7 @@ function DischargePage() {
                         updated[i].provider = e.target.value;
                         setFollowUps(updated);
                       }}
-                      placeholder="Provider"
+                      placeholder={t('docDischarge.providerPh')}
                       className="p-2 border border-gray-200 rounded-lg"
                     />
                     <input
@@ -753,7 +811,7 @@ function DischargePage() {
                       onClick={() => setFollowUps(followUps.filter((_, idx) => idx !== i))}
                       className="text-red-500 hover:text-red-700"
                     >
-                      Remove
+                      {t('docDischarge.removeBtn')}
                     </button>
                   </div>
                 ))}
@@ -762,7 +820,7 @@ function DischargePage() {
               {/* Warning Signs */}
               <div>
                 <label htmlFor="dc-warning-signs" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                  <AlertTriangle size={16} /> Warning Signs (one per line)
+                  <AlertTriangle size={16} /> {t('docDischarge.warningSignsLabel')}
                 </label>
                 <textarea
                   id="dc-warning-signs"
@@ -777,7 +835,7 @@ function DischargePage() {
               {/* Diet & Activity */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="dc-diet-instructions" className="text-sm font-medium text-gray-700 mb-1">Diet Instructions</label>
+                  <label htmlFor="dc-diet-instructions" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.dietInstructionsLabel')}</label>
                   <textarea
                     id="dc-diet-instructions"
                     value={formData.diet_instructions}
@@ -787,14 +845,14 @@ function DischargePage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="dc-activity-restrictions" className="text-sm font-medium text-gray-700 mb-1">Activity Restrictions</label>
+                  <label htmlFor="dc-activity-restrictions" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.activityRestrictionsLabel')}</label>
                   <textarea
                     id="dc-activity-restrictions"
                     value={formData.activity_restrictions}
                     onChange={(e) => setFormData({ ...formData, activity_restrictions: e.target.value })}
                     className="w-full p-3 border border-gray-200 rounded-lg"
                     rows={2}
-                    placeholder="One per line..."
+                    placeholder={t('docDischarge.activityRestrictionsPh')}
                   />
                 </div>
               </div>
@@ -806,7 +864,7 @@ function DischargePage() {
                   onClick={() => setShowForm(false)}
                   className="px-6 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  {t('docDischarge.cancelBtn')}
                 </button>
                 <button
                   type="submit"
@@ -814,7 +872,7 @@ function DischargePage() {
                   className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-2"
                 >
                   {submitting ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
-                  Create Discharge Summary
+                  {t('docDischarge.createSummaryBtn')}
                 </button>
               </div>
             </form>

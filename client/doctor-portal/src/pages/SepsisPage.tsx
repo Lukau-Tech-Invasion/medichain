@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createSepsis, getPatients, apiUrl } from '@medichain/shared';
+import { createSepsis, getPatients, apiUrl, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   Thermometer,
@@ -36,8 +36,21 @@ interface LactateReading {
   source: string;
 }
 
+const INFECTION_SOURCE_KEYS: Record<string, string> = {
+  'Pneumonia': 'pneumonia',
+  'UTI': 'uti',
+  'Abdominal': 'abdominal',
+  'Skin/Soft Tissue': 'skin-soft-tissue',
+  'Meningitis': 'meningitis',
+  'Endocarditis': 'endocarditis',
+  'Bone/Joint': 'bone-joint',
+  'Catheter-Related': 'catheter-related',
+  'Unknown': 'unknown'
+};
+
 export default function SepsisPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<string>('');
@@ -237,7 +250,7 @@ export default function SepsisPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatient) {
-      setError('Please select a patient');
+      setError(t('docSepsis.errorSelectPatient'));
       return;
     }
 
@@ -290,7 +303,7 @@ export default function SepsisPage() {
       setSuccess(true);
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
-      setError('Failed to save sepsis protocol. Please try again.');
+      setError(t('docSepsis.errorSaveFailed'));
       console.error('Failed to save sepsis data', err);
     } finally {
       setIsSubmitting(false);
@@ -325,21 +338,21 @@ export default function SepsisPage() {
                 <Thermometer className="h-8 w-8 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">Sepsis Protocol</h1>
-                <p className="text-orange-100">Time-critical sepsis management bundle</p>
+                <h1 className="text-2xl font-bold text-white">{t('docSepsis.title')}</h1>
+                <p className="text-orange-100">{t('docSepsis.subtitle')}</p>
               </div>
             </div>
             <div className="text-right">
               {sepsisStartTime ? (
                 <div className="bg-white/20 rounded-lg p-4">
-                  <p className="text-sm text-orange-100">Protocol Active</p>
+                  <p className="text-sm text-orange-100">{t('docSepsis.protocolActive')}</p>
                   <p className={`text-3xl font-bold ${getTimeColor()} bg-white rounded px-3 py-1`}>
                     {Math.floor(elapsedMinutes / 60)}:{(elapsedMinutes % 60).toString().padStart(2, '0')}
                   </p>
                   <p className="text-xs text-orange-100 mt-1">
                     {elapsedMinutes > 60 ? (
-                      <span className="inline-flex items-center gap-1"><AlertTriangle size={12} aria-hidden="true" /> Exceeds 1-hour target</span>
-                    ) : '✓ Within target'}
+                      <span className="inline-flex items-center gap-1"><AlertTriangle size={12} aria-hidden="true" /> {t('docSepsis.exceedsTarget')}</span>
+                    ) : t('docSepsis.withinTarget')}
                   </p>
                 </div>
               ) : (
@@ -348,7 +361,7 @@ export default function SepsisPage() {
                   className="bg-white text-orange-600 px-6 py-3 rounded-lg font-bold hover:bg-orange-50 flex items-center"
                 >
                   <Timer className="h-5 w-5 mr-2" />
-                  Start Protocol Timer
+                  {t('docSepsis.startProtocolTimer')}
                 </button>
               )}
             </div>
@@ -358,7 +371,7 @@ export default function SepsisPage() {
         {success && (
           <div className="mb-6 bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg flex items-center">
             <CheckCircle className="h-5 w-5 mr-2" />
-            Sepsis protocol documented successfully! Redirecting...
+            {t('docSepsis.successMessage')}
           </div>
         )}
 
@@ -377,21 +390,21 @@ export default function SepsisPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <Search className="h-5 w-5 mr-2 text-orange-500" />
-                  Patient Selection
+                  {t('docSepsis.patientSelection')}
                 </h2>
                 <div className="relative mb-4">
-                  <label htmlFor="sepsis-patient-search" className="sr-only">Search patients</label>
+                  <label htmlFor="sepsis-patient-search" className="sr-only">{t('docSepsis.searchPatients')}</label>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     id="sepsis-patient-search"
                     type="text"
-                    placeholder="Search patients..."
+                    placeholder={t('docSepsis.searchPatientsPlaceholder')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
                 </div>
-                <label htmlFor="sepsis-patient-select" className="sr-only">Select patient</label>
+                <label htmlFor="sepsis-patient-select" className="sr-only">{t('docSepsis.selectPatient')}</label>
                 <select
                   id="sepsis-patient-select"
                   value={selectedPatient}
@@ -399,7 +412,7 @@ export default function SepsisPage() {
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                   required
                 >
-                  <option value="">Select a patient</option>
+                  <option value="">{t('docSepsis.selectAPatient')}</option>
                   {filteredPatients.map(p => (
                     <option key={p.patient_id} value={p.patient_id}>
                       {p.full_name} - {p.patient_id}
@@ -409,17 +422,17 @@ export default function SepsisPage() {
                 {selectedPatient && (
                   <div className="mt-3">
                     <h4 className="text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
-                      <History className="h-3 w-3 text-orange-500" /> Past Emergency Events
+                      <History className="h-3 w-3 text-orange-500" /> {t('docSepsis.pastEmergencyEvents')}
                     </h4>
                     {historyLoading ? (
-                      <p className="text-gray-400 text-xs">Loading...</p>
+                      <p className="text-gray-400 text-xs">{t('docSepsis.loading')}</p>
                     ) : emergencyHistory.length === 0 ? (
-                      <p className="text-gray-400 text-xs italic">No prior events.</p>
+                      <p className="text-gray-400 text-xs italic">{t('docSepsis.noPriorEvents')}</p>
                     ) : (
                       <div className="space-y-1">
                         {emergencyHistory.slice(0, 3).map((ev) => (
                           <div key={ev.event_id} className="text-xs bg-orange-50 rounded p-1.5 flex justify-between">
-                            <span>{ev.event_type || 'Sepsis'}</span>
+                            <span>{ev.event_type || t('docSepsis.defaultEventType')}</span>
                             <span className="text-gray-500">{ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleDateString() : '-'}</span>
                           </div>
                         ))}
@@ -431,13 +444,13 @@ export default function SepsisPage() {
 
               {/* Classification */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Classification</h2>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('docSepsis.classification')}</h2>
                 <div className="space-y-2">
                   {[
-                    { value: 'sirs', label: 'SIRS', color: 'bg-yellow-500' },
-                    { value: 'sepsis', label: 'Sepsis', color: 'bg-orange-500' },
-                    { value: 'severe_sepsis', label: 'Severe Sepsis', color: 'bg-red-500' },
-                    { value: 'septic_shock', label: 'Septic Shock', color: 'bg-red-800' }
+                    { value: 'sirs', label: t('docSepsis.classification_sirs'), color: 'bg-yellow-500' },
+                    { value: 'sepsis', label: t('docSepsis.classification_sepsis'), color: 'bg-orange-500' },
+                    { value: 'severe_sepsis', label: t('docSepsis.classification_severe_sepsis'), color: 'bg-red-500' },
+                    { value: 'septic_shock', label: t('docSepsis.classification_septic_shock'), color: 'bg-red-800' }
                   ].map(cls => (
                     <button
                       key={cls.value}
@@ -459,14 +472,14 @@ export default function SepsisPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <Brain className="h-5 w-5 mr-2 text-orange-500" />
-                  qSOFA Score
+                  {t('docSepsis.qsofaScore')}
                 </h2>
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="sepsis-respiratory-rate" className="flex items-center justify-between">
                       <span className="text-sm text-gray-700">
                         <Wind className="h-4 w-4 inline mr-1" />
-                        RR ≥22 /min
+                        {t('docSepsis.qsofaRR')}
                       </span>
                       <span className={`font-bold ${respiratoryRate >= 22 ? 'text-red-600' : 'text-gray-400'}`}>
                         {respiratoryRate >= 22 ? '1' : '0'}
@@ -481,13 +494,13 @@ export default function SepsisPage() {
                       onChange={(e) => setRespiratoryRate(parseInt(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-gray-500 text-center">{respiratoryRate} /min</p>
+                    <p className="text-xs text-gray-500 text-center">{respiratoryRate} {t('docSepsis.perMin')}</p>
                   </div>
                   <div>
                     <label htmlFor="sepsis-systolic-bp" className="flex items-center justify-between">
                       <span className="text-sm text-gray-700">
                         <Heart className="h-4 w-4 inline mr-1" />
-                        SBP ≤100 mmHg
+                        {t('docSepsis.qsofaSBP')}
                       </span>
                       <span className={`font-bold ${systolicBP <= 100 ? 'text-red-600' : 'text-gray-400'}`}>
                         {systolicBP <= 100 ? '1' : '0'}
@@ -502,13 +515,13 @@ export default function SepsisPage() {
                       onChange={(e) => setSystolicBP(parseInt(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-gray-500 text-center">{systolicBP} mmHg</p>
+                    <p className="text-xs text-gray-500 text-center">{systolicBP} {t('docSepsis.mmHg')}</p>
                   </div>
                   <div>
                     <label htmlFor="sepsis-gcs-score" className="flex items-center justify-between">
                       <span className="text-sm text-gray-700">
                         <Brain className="h-4 w-4 inline mr-1" />
-                        GCS &lt;15
+                        {t('docSepsis.qsofaGCS')}
                       </span>
                       <span className={`font-bold ${gcsScore < 15 ? 'text-red-600' : 'text-gray-400'}`}>
                         {gcsScore < 15 ? '1' : '0'}
@@ -523,19 +536,19 @@ export default function SepsisPage() {
                       onChange={(e) => setGcsScore(parseInt(e.target.value))}
                       className="w-full mt-1"
                     />
-                    <p className="text-xs text-gray-500 text-center">GCS: {gcsScore}</p>
+                    <p className="text-xs text-gray-500 text-center">{t('docSepsis.gcsLabel', { score: gcsScore })}</p>
                   </div>
                 </div>
                 <div className={`mt-4 p-4 rounded-lg text-center ${
                   qsofaScore >= 2 ? 'bg-red-100' : 'bg-green-100'
                 }`}>
-                  <p className="text-sm font-medium text-gray-700">qSOFA Score</p>
+                  <p className="text-sm font-medium text-gray-700">{t('docSepsis.qsofaScore')}</p>
                   <p className={`text-4xl font-bold ${qsofaScore >= 2 ? 'text-red-600' : 'text-green-600'}`}>
                     {qsofaScore}/3
                   </p>
                   {qsofaScore >= 2 && (
                     <p className="flex items-center gap-1 text-xs text-red-600 mt-1">
-                      <AlertTriangle size={12} aria-hidden="true" /> High risk - Consider ICU
+                      <AlertTriangle size={12} aria-hidden="true" /> {t('docSepsis.qsofaHighRisk')}
                     </p>
                   )}
                 </div>
@@ -549,11 +562,11 @@ export default function SepsisPage() {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-gray-900 flex items-center">
                     <Clock className="h-5 w-5 mr-2 text-orange-500" />
-                    SEP-1: Hour-1 Bundle
+                    {t('docSepsis.hour1BundleTitle')}
                   </h2>
                   {hour1Complete ? (
                     <span className="bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">
-                      ✓ COMPLETE
+                      {t('docSepsis.completeBadge')}
                     </span>
                   ) : (
                     <span className="bg-yellow-100 text-yellow-700 text-xs font-bold px-3 py-1 rounded-full">
@@ -584,9 +597,9 @@ export default function SepsisPage() {
                         </div>
                         <div className="flex-1">
                           <p className={`font-medium ${item.completed ? 'text-green-700' : 'text-gray-700'}`}>
-                            {item.label}
+                            {t(`docSepsis.hour1_${item.id}_label`)}
                           </p>
-                          <p className="text-xs text-gray-500">{item.description}</p>
+                          <p className="text-xs text-gray-500">{t(`docSepsis.hour1_${item.id}_desc`)}</p>
                           {item.completedAt && (
                             <p className="text-xs text-green-600 mt-1">
                               ✓ {new Date(item.completedAt).toLocaleTimeString()}
@@ -603,17 +616,17 @@ export default function SepsisPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <TrendingUp className="h-5 w-5 mr-2 text-orange-500" />
-                  Lactate Trending
+                  {t('docSepsis.lactateTrending')}
                 </h2>
                 <div className="flex space-x-2 mb-4">
-                  <label htmlFor="sepsis-lactate" className="sr-only">Lactate (mmol/L)</label>
+                  <label htmlFor="sepsis-lactate" className="sr-only">{t('docSepsis.lactateInputLabel')}</label>
                   <input
                     id="sepsis-lactate"
                     type="number"
                     step="0.1"
                     value={newLactate}
                     onChange={(e) => setNewLactate(e.target.value)}
-                    placeholder="Lactate (mmol/L)"
+                    placeholder={t('docSepsis.lactatePlaceholder')}
                     className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                   />
                   <button
@@ -621,12 +634,12 @@ export default function SepsisPage() {
                     onClick={addLactateReading}
                     className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700"
                   >
-                    Add
+                    {t('docSepsis.add')}
                   </button>
                 </div>
                 <div className="space-y-2">
                   {lactateReadings.length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-4">No lactate readings recorded</p>
+                    <p className="text-sm text-gray-500 text-center py-4">{t('docSepsis.noLactateReadings')}</p>
                   ) : (
                     lactateReadings.map((reading, index) => (
                       <div key={index} className={`p-3 rounded-lg flex justify-between items-center ${
@@ -639,7 +652,7 @@ export default function SepsisPage() {
                             {reading.value} mmol/L
                           </span>
                           {reading.value >= 4 && (
-                            <span className="ml-2 text-xs bg-red-200 text-red-700 px-2 py-0.5 rounded">CRITICAL</span>
+                            <span className="ml-2 text-xs bg-red-200 text-red-700 px-2 py-0.5 rounded">{t('docSepsis.critical')}</span>
                           )}
                         </div>
                         <span className="text-xs text-gray-500">
@@ -652,11 +665,11 @@ export default function SepsisPage() {
                 {lactateReadings.length >= 2 && (
                   <div className="mt-3 p-3 bg-blue-50 rounded-lg">
                     <p className="text-sm text-blue-700">
-                      Trend: {lactateReadings[lactateReadings.length - 1].value < lactateReadings[0].value 
-                        ? '↓ Improving' : '↑ Worsening'}
+                      {t('docSepsis.trendPrefix', { trend: lactateReadings[lactateReadings.length - 1].value < lactateReadings[0].value
+                        ? t('docSepsis.trendImproving') : t('docSepsis.trendWorsening') })}
                     </p>
                     <p className="text-xs text-blue-600">
-                      Target: Decrease by ≥10% every 2 hours
+                      {t('docSepsis.lactateTarget')}
                     </p>
                   </div>
                 )}
@@ -664,25 +677,25 @@ export default function SepsisPage() {
 
               {/* Infection Source */}
               <div className="bg-white rounded-lg shadow p-6">
-                <label htmlFor="sepsis-infection-source" className="text-lg font-semibold text-gray-900 mb-4 block">Infection Source</label>
+                <label htmlFor="sepsis-infection-source" className="text-lg font-semibold text-gray-900 mb-4 block">{t('docSepsis.infectionSource')}</label>
                 <select
                   id="sepsis-infection-source"
                   value={infectionSource}
                   onChange={(e) => setInfectionSource(e.target.value)}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 mb-4"
                 >
-                  <option value="">Select source</option>
+                  <option value="">{t('docSepsis.selectSource')}</option>
                   {infectionSources.map(src => (
-                    <option key={src} value={src}>{src}</option>
+                    <option key={src} value={src}>{t(`docSepsis.source_${INFECTION_SOURCE_KEYS[src]}`)}</option>
                   ))}
                 </select>
-                <label htmlFor="sepsis-suspected-organism" className="sr-only">Suspected organism</label>
+                <label htmlFor="sepsis-suspected-organism" className="sr-only">{t('docSepsis.suspectedOrganismPlaceholder')}</label>
                 <input
                   id="sepsis-suspected-organism"
                   type="text"
                   value={suspectedOrganism}
                   onChange={(e) => setSuspectedOrganism(e.target.value)}
-                  placeholder="Suspected organism (if known)"
+                  placeholder={t('docSepsis.suspectedOrganismPlaceholder')}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                 />
               </div>
@@ -694,7 +707,7 @@ export default function SepsisPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <Syringe className="h-5 w-5 mr-2 text-orange-500" />
-                  Antibiotics Administered
+                  {t('docSepsis.antibioticsAdministered')}
                 </h2>
                 <div className="grid grid-cols-2 gap-2">
                   {antibioticOptions.map(abx => (
@@ -725,12 +738,12 @@ export default function SepsisPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                   <Droplets className="h-5 w-5 mr-2 text-orange-500" />
-                  Fluid Resuscitation
+                  {t('docSepsis.fluidResuscitation')}
                 </h2>
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="sepsis-fluid-volume" className="block text-sm font-medium text-gray-700 mb-1">
-                      Crystalloid Volume (mL)
+                      {t('docSepsis.crystalloidVolume')}
                     </label>
                     <input
                       id="sepsis-fluid-volume"
@@ -742,18 +755,18 @@ export default function SepsisPage() {
                           toggleBundleItem('hour1', 'fluids');
                         }
                       }}
-                      placeholder="e.g., 2000"
+                      placeholder={t('docSepsis.fluidVolumePlaceholder')}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                     {selectedPatientData && fluidVolume > 0 && (
                       <p className="text-xs text-gray-500 mt-1">
-                        Target: 30mL/kg ≈ {Math.round(70 * 30)} mL for average 70kg patient
+                        {t('docSepsis.fluidTarget', { volume: Math.round(70 * 30) })}
                       </p>
                     )}
                   </div>
                   <div>
                     <label htmlFor="sepsis-vasopressor" className="block text-sm font-medium text-gray-700 mb-1">
-                      Vasopressor (if needed)
+                      {t('docSepsis.vasopressorLabel')}
                     </label>
                     <select
                       id="sepsis-vasopressor"
@@ -766,7 +779,7 @@ export default function SepsisPage() {
                       }}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                     >
-                      <option value="">None</option>
+                      <option value="">{t('docSepsis.none')}</option>
                       <option value="norepinephrine">Norepinephrine (1st line)</option>
                       <option value="vasopressin">Vasopressin</option>
                       <option value="epinephrine">Epinephrine</option>
@@ -780,10 +793,10 @@ export default function SepsisPage() {
               {/* 3-Hour Bundle */}
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-gray-900">3-Hour Reassessment</h2>
+                  <h2 className="text-lg font-semibold text-gray-900">{t('docSepsis.hour3Title')}</h2>
                   {hour3Complete ? (
                     <span className="bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">
-                      ✓ COMPLETE
+                      {t('docSepsis.completeBadge')}
                     </span>
                   ) : (
                     <span className="bg-gray-100 text-gray-600 text-xs font-bold px-3 py-1 rounded-full">
@@ -808,7 +821,7 @@ export default function SepsisPage() {
                         ) : (
                           <XCircle className="h-4 w-4 text-gray-300 mr-2" />
                         )}
-                        <span>{item.label}</span>
+                        <span>{t(`docSepsis.hour3_${item.id}_label`)}</span>
                       </div>
                     </div>
                   ))}
@@ -817,12 +830,12 @@ export default function SepsisPage() {
 
               {/* Clinical Narrative */}
               <div className="bg-white rounded-lg shadow p-6">
-                <label htmlFor="sepsis-narrative" className="text-lg font-semibold text-gray-900 mb-4 block">Clinical Narrative</label>
+                <label htmlFor="sepsis-narrative" className="text-lg font-semibold text-gray-900 mb-4 block">{t('docSepsis.clinicalNarrative')}</label>
                 <textarea
                   id="sepsis-narrative"
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value)}
-                  placeholder="Document clinical course, response to treatment, concerns..."
+                  placeholder={t('docSepsis.narrativePlaceholder')}
                   rows={5}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                 />
@@ -837,7 +850,7 @@ export default function SepsisPage() {
               onClick={() => navigate('/dashboard')}
               className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
             >
-              Cancel
+              {t('docSepsis.cancel')}
             </button>
             <button
               type="submit"
@@ -847,12 +860,12 @@ export default function SepsisPage() {
               {isSubmitting ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Saving...
+                  {t('docSepsis.saving')}
                 </>
               ) : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  Save Sepsis Protocol
+                  {t('docSepsis.saveSepsisProtocol')}
                 </>
               )}
             </button>

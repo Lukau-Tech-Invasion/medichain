@@ -357,6 +357,110 @@ export function usePaginatedApi<T>(
 }
 
 /**
+ * Hook for opaque cursor-based pagination (Phase 9.3) — matches the backend's
+ * `?cursor=<opaque>&limit=N` / `{ next_cursor }` contract (`api/src/pagination.rs`).
+ * Unlike `usePaginatedApi` (page-number based), pages here can only be walked
+ * forward one cursor at a time, so there is no page-jump/cache-by-page-number
+ * support — just an initial load plus `loadMore`.
+ *
+ * @example
+ * const { items, loadMore, hasMore, isLoading } = useCursorPaginatedApi(
+ *   'insurance-cards',
+ *   (cursor, limit) => listInsuranceCards(patientId, { cursor, limit })
+ * );
+ */
+export interface UseCursorPaginatedApiOptions {
+  limit?: number;
+  enabled?: boolean;
+}
+
+export interface UseCursorPaginatedApiResult<T> {
+  items: T[];
+  isLoading: boolean;
+  isLoadingMore: boolean;
+  error: Error | null;
+  hasMore: boolean;
+  loadMore: () => Promise<void>;
+  refresh: () => Promise<void>;
+}
+
+export function useCursorPaginatedApi<T>(
+  key: string,
+  fetcher: (
+    cursor: string | null,
+    limit: number
+  ) => Promise<{ items: T[]; next_cursor?: string | null }>,
+  options: UseCursorPaginatedApiOptions = {}
+): UseCursorPaginatedApiResult<T> {
+  const { limit = 20, enabled = true } = options;
+
+  const [items, setItems] = useState<T[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    setIsLoading(true);
+    setError(null);
+    fetcher(null, limit)
+      .then((result) => {
+        if (cancelled) return;
+        setItems(result.items);
+        setCursor(result.next_cursor ?? null);
+        setHasMore(!!result.next_cursor);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, limit, enabled]);
+
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore || !cursor) return;
+    setIsLoadingMore(true);
+    try {
+      const result = await fetcher(cursor, limit);
+      setItems((prev) => [...prev, ...result.items]);
+      setCursor(result.next_cursor ?? null);
+      setHasMore(!!result.next_cursor);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [cursor, limit, isLoadingMore, hasMore, fetcher]);
+
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await fetcher(null, limit);
+      setItems(result.items);
+      setCursor(result.next_cursor ?? null);
+      setHasMore(!!result.next_cursor);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [limit, fetcher]);
+
+  return { items, isLoading, isLoadingMore, error, hasMore, loadMore, refresh };
+}
+
+/**
  * Hook for API mutations (POST, PUT, DELETE) with optimistic updates
  * 
  * @example

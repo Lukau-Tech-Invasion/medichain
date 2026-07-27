@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { createFallRisk, getPatients } from '@medichain/shared';
+import { createFallRisk, getPatients, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import {
   AlertTriangle,
@@ -69,6 +69,7 @@ interface FallRiskAssessment {
 }
 
 export default function FallRiskPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
@@ -261,7 +262,7 @@ export default function FallRiskPage() {
 
   const handleSave = async () => {
     if (!selectedPatient) {
-      setError('Please select a patient');
+      setError(t('docFallRisk.errorSelectPatient'));
       return;
     }
 
@@ -289,10 +290,10 @@ export default function FallRiskPage() {
       };
 
       await createFallRisk(assessmentData);
-      setSuccess('Fall risk assessment saved successfully!');
+      setSuccess(t('docFallRisk.successSaved'));
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (err) {
-      setError('Failed to save fall risk assessment. Please try again.');
+      setError(t('docFallRisk.errorSaveFailed'));
       console.error('Failed to save fall risk assessment', err);
     } finally {
       setIsSubmitting(false);
@@ -310,8 +311,8 @@ export default function FallRiskPage() {
                 <Footprints className="h-8 w-8 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-white">Fall Risk Assessment</h1>
-                <p className="text-orange-100">Morse Fall Scale & Intervention Planning</p>
+                <h1 className="text-2xl font-bold text-white">{t('docFallRisk.title')}</h1>
+                <p className="text-orange-100">{t('docFallRisk.subtitle')}</p>
               </div>
             </div>
             {selectedPatient && (
@@ -348,16 +349,16 @@ export default function FallRiskPage() {
                   {riskLevel === 'low' && <Shield className="h-8 w-8 text-green-500" />}
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold">Morse Fall Scale Score: {totalScore}</h2>
-                  <p className="text-lg font-medium capitalize">{riskLevel} Risk</p>
+                  <h2 className="text-2xl font-bold">{t('docFallRisk.morseScoreTitle', { score: totalScore })}</h2>
+                  <p className="text-lg font-medium capitalize">{t('docFallRisk.riskSuffix', { level: t(`docFallRisk.risk_${riskLevel}`) })}</p>
                 </div>
               </div>
               <div className="text-right">
                 <p className="text-sm">
-                  Low: 0-24 | Moderate: 25-44 | High: ≥45
+                  {t('docFallRisk.scoreRangeNote')}
                 </p>
                 <span className={`mt-2 inline-block px-4 py-2 rounded-full text-lg font-bold ${getRiskBadge(riskLevel)}`}>
-                  {riskLevel.toUpperCase()} RISK
+                  {t('docFallRisk.riskBadge', { level: t(`docFallRisk.risk_${riskLevel}`).toUpperCase() })}
                 </span>
               </div>
             </div>
@@ -376,7 +377,7 @@ export default function FallRiskPage() {
               }`}
             >
               <FileText className="h-5 w-5" />
-              <span>Assessment</span>
+              <span>{t('docFallRisk.tabAssessment')}</span>
             </button>
             <button
               onClick={() => setActiveTab('history')}
@@ -387,7 +388,7 @@ export default function FallRiskPage() {
               }`}
             >
               <History className="h-5 w-5" />
-              <span>Assessment History</span>
+              <span>{t('docFallRisk.tabHistory')}</span>
             </button>
           </div>
         </div>
@@ -399,17 +400,17 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-4">
                 <h2 className="font-bold text-gray-900 mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-orange-500" />
-                  Select Patient
+                  {t('docFallRisk.selectPatientTitle')}
                 </h2>
                 <div className="relative mb-4">
-                  <label htmlFor="fallrisk-patient-search" className="sr-only">Search patients</label>
+                  <label htmlFor="fallrisk-patient-search" className="sr-only">{t('docFallRisk.searchPatientsSr')}</label>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     id="fallrisk-patient-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search patients..."
+                    placeholder={t('docFallRisk.searchPatientsPh')}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
@@ -435,15 +436,15 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-4 mt-4">
                 <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                   <HeartPulse className="h-5 w-5 mr-2 text-orange-500" />
-                  High-Risk Medications
+                  {t('docFallRisk.highRiskMedsTitle')}
                 </h3>
                 <div className="space-y-2">
                   {[
-                    { key: 'sedatives', label: 'Sedatives/Hypnotics' },
-                    { key: 'antihypertensives', label: 'Antihypertensives' },
-                    { key: 'diuretics', label: 'Diuretics' },
-                    { key: 'psychotropics', label: 'Psychotropics' },
-                    { key: 'narcotics', label: 'Narcotics/Opioids' }
+                    { key: 'sedatives', label: t('docFallRisk.med_sedatives') },
+                    { key: 'antihypertensives', label: t('docFallRisk.med_antihypertensives') },
+                    { key: 'diuretics', label: t('docFallRisk.med_diuretics') },
+                    { key: 'psychotropics', label: t('docFallRisk.med_psychotropics') },
+                    { key: 'narcotics', label: t('docFallRisk.med_narcotics') }
                   ].map(({ key, label }) => (
                     <label key={key} className="flex items-center space-x-2 cursor-pointer">
                       <input
@@ -462,15 +463,15 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-4 mt-4">
                 <h3 className="font-bold text-gray-900 mb-3 flex items-center">
                   <Activity className="h-5 w-5 mr-2 text-orange-500" />
-                  Mobility Status
+                  {t('docFallRisk.mobilityStatusTitle')}
                 </h3>
                 <div className="space-y-2">
                   {[
-                    { key: 'bedridden', label: 'Bedridden' },
-                    { key: 'wheelchairBound', label: 'Wheelchair Bound' },
-                    { key: 'usesWalker', label: 'Uses Walker' },
-                    { key: 'usesCane', label: 'Uses Cane' },
-                    { key: 'independent', label: 'Independent' }
+                    { key: 'bedridden', label: t('docFallRisk.mobility_bedridden') },
+                    { key: 'wheelchairBound', label: t('docFallRisk.mobility_wheelchairBound') },
+                    { key: 'usesWalker', label: t('docFallRisk.mobility_usesWalker') },
+                    { key: 'usesCane', label: t('docFallRisk.mobility_usesCane') },
+                    { key: 'independent', label: t('docFallRisk.mobility_independent') }
                   ].map(({ key, label }) => (
                     <label key={key} className="flex items-center space-x-2 cursor-pointer">
                       <input
@@ -492,14 +493,14 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
                   <TrendingUp className="h-6 w-6 mr-2 text-orange-500" />
-                  Morse Fall Scale
+                  {t('docFallRisk.morseScaleTitle')}
                 </h2>
 
                 <div className="space-y-4">
                   {/* Fall History */}
                   <fieldset className="bg-gray-50 rounded-lg p-4">
                     <legend className="block font-medium text-gray-900 mb-2">
-                      1. History of Falling (immediate or within 3 months)
+                      {t('docFallRisk.q1Legend')}
                     </legend>
                     <div className="flex space-x-4">
                       <label htmlFor="fallrisk-fall-history-no" className="flex items-center cursor-pointer">
@@ -511,7 +512,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, fallHistory: 0 }))}
                           className="mr-2"
                         />
-                        <span>No (0 points)</span>
+                        <span>{t('docFallRisk.noPoints')}</span>
                       </label>
                       <label htmlFor="fallrisk-fall-history-yes" className="flex items-center cursor-pointer">
                         <input
@@ -522,7 +523,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, fallHistory: 25 }))}
                           className="mr-2"
                         />
-                        <span>Yes (25 points)</span>
+                        <span>{t('docFallRisk.yesPoints25')}</span>
                       </label>
                     </div>
                   </fieldset>
@@ -530,7 +531,7 @@ export default function FallRiskPage() {
                   {/* Secondary Diagnosis */}
                   <fieldset className="bg-gray-50 rounded-lg p-4">
                     <legend className="block font-medium text-gray-900 mb-2">
-                      2. Secondary Diagnosis (more than one medical diagnosis)
+                      {t('docFallRisk.q2Legend')}
                     </legend>
                     <div className="flex space-x-4">
                       <label htmlFor="fallrisk-secondary-diagnosis-no" className="flex items-center cursor-pointer">
@@ -542,7 +543,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, secondaryDiagnosis: 0 }))}
                           className="mr-2"
                         />
-                        <span>No (0 points)</span>
+                        <span>{t('docFallRisk.noPoints')}</span>
                       </label>
                       <label htmlFor="fallrisk-secondary-diagnosis-yes" className="flex items-center cursor-pointer">
                         <input
@@ -553,7 +554,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, secondaryDiagnosis: 15 }))}
                           className="mr-2"
                         />
-                        <span>Yes (15 points)</span>
+                        <span>{t('docFallRisk.yesPoints15')}</span>
                       </label>
                     </div>
                   </fieldset>
@@ -561,7 +562,7 @@ export default function FallRiskPage() {
                   {/* Ambulatory Aid */}
                   <fieldset className="bg-gray-50 rounded-lg p-4">
                     <legend className="block font-medium text-gray-900 mb-2">
-                      3. Ambulatory Aid
+                      {t('docFallRisk.q3Legend')}
                     </legend>
                     <div className="space-y-2">
                       <label htmlFor="fallrisk-ambulatory-aid-none" className="flex items-center cursor-pointer">
@@ -573,7 +574,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, ambulatoryAid: 0 }))}
                           className="mr-2"
                         />
-                        <span>None / Bed Rest / Nurse Assist (0 points)</span>
+                        <span>{t('docFallRisk.aid_none')}</span>
                       </label>
                       <label htmlFor="fallrisk-ambulatory-aid-crutches" className="flex items-center cursor-pointer">
                         <input
@@ -584,7 +585,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, ambulatoryAid: 15 }))}
                           className="mr-2"
                         />
-                        <span>Crutches / Cane / Walker (15 points)</span>
+                        <span>{t('docFallRisk.aid_crutches')}</span>
                       </label>
                       <label htmlFor="fallrisk-ambulatory-aid-furniture" className="flex items-center cursor-pointer">
                         <input
@@ -595,7 +596,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, ambulatoryAid: 30 }))}
                           className="mr-2"
                         />
-                        <span>Furniture / Wall (30 points)</span>
+                        <span>{t('docFallRisk.aid_furniture')}</span>
                       </label>
                     </div>
                   </fieldset>
@@ -603,7 +604,7 @@ export default function FallRiskPage() {
                   {/* IV Therapy */}
                   <fieldset className="bg-gray-50 rounded-lg p-4">
                     <legend className="block font-medium text-gray-900 mb-2">
-                      4. IV Therapy / Heparin Lock
+                      {t('docFallRisk.q4Legend')}
                     </legend>
                     <div className="flex space-x-4">
                       <label htmlFor="fallrisk-iv-therapy-no" className="flex items-center cursor-pointer">
@@ -615,7 +616,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, ivTherapy: 0 }))}
                           className="mr-2"
                         />
-                        <span>No (0 points)</span>
+                        <span>{t('docFallRisk.noPoints')}</span>
                       </label>
                       <label htmlFor="fallrisk-iv-therapy-yes" className="flex items-center cursor-pointer">
                         <input
@@ -626,7 +627,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, ivTherapy: 20 }))}
                           className="mr-2"
                         />
-                        <span>Yes (20 points)</span>
+                        <span>{t('docFallRisk.yesPoints20')}</span>
                       </label>
                     </div>
                   </fieldset>
@@ -634,7 +635,7 @@ export default function FallRiskPage() {
                   {/* Gait */}
                   <fieldset className="bg-gray-50 rounded-lg p-4">
                     <legend className="block font-medium text-gray-900 mb-2">
-                      5. Gait / Transferring
+                      {t('docFallRisk.q5Legend')}
                     </legend>
                     <div className="space-y-2">
                       <label htmlFor="fallrisk-gait-normal" className="flex items-center cursor-pointer">
@@ -646,7 +647,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, gait: 0 }))}
                           className="mr-2"
                         />
-                        <span>Normal / Bedrest / Immobile (0 points)</span>
+                        <span>{t('docFallRisk.gait_normal')}</span>
                       </label>
                       <label htmlFor="fallrisk-gait-weak" className="flex items-center cursor-pointer">
                         <input
@@ -657,7 +658,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, gait: 10 }))}
                           className="mr-2"
                         />
-                        <span>Weak (10 points)</span>
+                        <span>{t('docFallRisk.gait_weak')}</span>
                       </label>
                       <label htmlFor="fallrisk-gait-impaired" className="flex items-center cursor-pointer">
                         <input
@@ -668,7 +669,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, gait: 20 }))}
                           className="mr-2"
                         />
-                        <span>Impaired (20 points)</span>
+                        <span>{t('docFallRisk.gait_impaired')}</span>
                       </label>
                     </div>
                   </fieldset>
@@ -676,7 +677,7 @@ export default function FallRiskPage() {
                   {/* Mental Status */}
                   <fieldset className="bg-gray-50 rounded-lg p-4">
                     <legend className="block font-medium text-gray-900 mb-2">
-                      6. Mental Status
+                      {t('docFallRisk.q6Legend')}
                     </legend>
                     <div className="flex space-x-4">
                       <label htmlFor="fallrisk-mental-status-oriented" className="flex items-center cursor-pointer">
@@ -688,7 +689,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, mentalStatus: 0 }))}
                           className="mr-2"
                         />
-                        <span>Oriented to own ability (0 points)</span>
+                        <span>{t('docFallRisk.mental_oriented')}</span>
                       </label>
                       <label htmlFor="fallrisk-mental-status-overestimates" className="flex items-center cursor-pointer">
                         <input
@@ -699,7 +700,7 @@ export default function FallRiskPage() {
                           onChange={() => setMorseScale(prev => ({ ...prev, mentalStatus: 15 }))}
                           className="mr-2"
                         />
-                        <span>Overestimates / Forgets limitations (15 points)</span>
+                        <span>{t('docFallRisk.mental_overestimates')}</span>
                       </label>
                     </div>
                   </fieldset>
@@ -710,7 +711,7 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="font-bold text-gray-900 mb-4 flex items-center">
                   <AlertTriangle className="h-5 w-5 mr-2 text-orange-500" />
-                  Recent Fall Documentation
+                  {t('docFallRisk.recentFallTitle')}
                 </h3>
                 <label className="flex items-center space-x-2 mb-4 cursor-pointer">
                   <input
@@ -719,12 +720,12 @@ export default function FallRiskPage() {
                     onChange={() => setRecentFall(prev => ({ ...prev, occurred: !prev.occurred }))}
                     className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                   />
-                  <span className="font-medium">Patient has had a recent fall</span>
+                  <span className="font-medium">{t('docFallRisk.recentFallCheckbox')}</span>
                 </label>
                 {recentFall.occurred && (
                   <div className="space-y-3 pl-6">
                     <div>
-                      <label htmlFor="fallrisk-fall-date" className="block text-sm font-medium text-gray-700 mb-1">Date of Fall</label>
+                      <label htmlFor="fallrisk-fall-date" className="block text-sm font-medium text-gray-700 mb-1">{t('docFallRisk.dateOfFallLabel')}</label>
                       <input
                         id="fallrisk-fall-date"
                         type="date"
@@ -734,24 +735,24 @@ export default function FallRiskPage() {
                       />
                     </div>
                     <div>
-                      <label htmlFor="fallrisk-fall-circumstances" className="block text-sm font-medium text-gray-700 mb-1">Circumstances</label>
+                      <label htmlFor="fallrisk-fall-circumstances" className="block text-sm font-medium text-gray-700 mb-1">{t('docFallRisk.circumstancesLabel')}</label>
                       <textarea
                         id="fallrisk-fall-circumstances"
                         value={recentFall.circumstances}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, circumstances: e.target.value }))}
-                        placeholder="Describe how the fall occurred..."
+                        placeholder={t('docFallRisk.circumstancesPh')}
                         rows={2}
                         className="w-full p-2 border border-gray-300 rounded"
                       />
                     </div>
                     <div>
-                      <label htmlFor="fallrisk-fall-injuries" className="block text-sm font-medium text-gray-700 mb-1">Injuries Sustained</label>
+                      <label htmlFor="fallrisk-fall-injuries" className="block text-sm font-medium text-gray-700 mb-1">{t('docFallRisk.injuriesLabel')}</label>
                       <input
                         id="fallrisk-fall-injuries"
                         type="text"
                         value={recentFall.injuries}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, injuries: e.target.value }))}
-                        placeholder="Any injuries from the fall..."
+                        placeholder={t('docFallRisk.injuriesPh')}
                         className="w-full p-2 border border-gray-300 rounded"
                       />
                     </div>
@@ -763,7 +764,7 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="font-bold text-gray-900 mb-4 flex items-center">
                   <Brain className="h-5 w-5 mr-2 text-orange-500" />
-                  Additional Risk Factors
+                  {t('docFallRisk.additionalRiskFactorsTitle')}
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {additionalFactorOptions.map(factor => (
@@ -787,7 +788,7 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="font-bold text-gray-900 mb-4 flex items-center">
                   <Eye className="h-5 w-5 mr-2 text-orange-500" />
-                  Environmental Hazards
+                  {t('docFallRisk.environmentalHazardsTitle')}
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {environmentalHazardOptions.map(hazard => (
@@ -811,7 +812,7 @@ export default function FallRiskPage() {
               <div className="bg-white rounded-lg shadow p-6">
                 <h3 className="font-bold text-gray-900 mb-4 flex items-center">
                   <Shield className="h-5 w-5 mr-2 text-green-500" />
-                  Fall Prevention Interventions
+                  {t('docFallRisk.preventionInterventionsTitle')}
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
                   {interventionOptions.map(intervention => (
@@ -833,12 +834,12 @@ export default function FallRiskPage() {
 
               {/* Notes */}
               <div className="bg-white rounded-lg shadow p-6">
-                <label htmlFor="fallrisk-additional-notes" className="font-bold text-gray-900 mb-4 block">Additional Notes</label>
+                <label htmlFor="fallrisk-additional-notes" className="font-bold text-gray-900 mb-4 block">{t('docFallRisk.notesLabel')}</label>
                 <textarea
                   id="fallrisk-additional-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Any additional notes or observations..."
+                  placeholder={t('docFallRisk.notesPh')}
                   rows={4}
                   className="w-full p-3 border border-gray-300 rounded-lg"
                 />
@@ -854,12 +855,12 @@ export default function FallRiskPage() {
                   {isSubmitting ? (
                     <>
                       <RefreshCw className="animate-spin h-5 w-5 mr-2" />
-                      Saving...
+                      {t('docFallRisk.saving')}
                     </>
                   ) : (
                     <>
                       <Save className="h-5 w-5 mr-2" />
-                      Save Assessment
+                      {t('docFallRisk.saveAssessment')}
                     </>
                   )}
                 </button>
@@ -872,13 +873,13 @@ export default function FallRiskPage() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
               <History className="h-6 w-6 mr-2 text-orange-500" />
-              Assessment History
+              {t('docFallRisk.assessmentHistoryTitle')}
             </h2>
             {_assessmentHistory.length === 0 ? (
               <div className="text-center py-12 text-gray-500">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>No assessment history available.</p>
-                <p className="text-sm mt-1">Previous assessments will appear here.</p>
+                <p>{t('docFallRisk.noHistory')}</p>
+                <p className="text-sm mt-1">{t('docFallRisk.noHistoryHint')}</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -892,11 +893,11 @@ export default function FallRiskPage() {
                         </p>
                       </div>
                       <span className={`px-3 py-1 rounded text-sm ${getRiskBadge(assessment.riskLevel)}`}>
-                        Score: {assessment.totalScore} - {assessment.riskLevel.toUpperCase()}
+                        {t('docFallRisk.scoreRiskLine', { score: assessment.totalScore, level: t(`docFallRisk.risk_${assessment.riskLevel}`).toUpperCase() })}
                       </span>
                     </div>
                     <p className="text-sm text-gray-600 mt-2">
-                      Interventions: {assessment.interventions.length}
+                      {t('docFallRisk.interventionsCountLine', { count: assessment.interventions.length })}
                     </p>
                   </div>
                 ))}

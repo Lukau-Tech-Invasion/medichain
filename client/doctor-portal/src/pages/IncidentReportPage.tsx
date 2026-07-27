@@ -20,6 +20,7 @@ import {
   apiUrl,
   listIncidentReports,
   createIncidentReport,
+  useTranslation,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -60,6 +61,7 @@ interface Incident {
 }
 
 const IncidentReportPage: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'dashboard'>('list');
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,7 +114,7 @@ const IncidentReportPage: React.FC = () => {
         setIncidents(incidentsWithDates);
       } catch (err) {
         console.error('Error fetching incidents:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load incidents');
+        setError(err instanceof Error ? err.message : t('docIncidentReport.errorLoad'));
         setIncidents([]);
       } finally {
         setLoading(false);
@@ -124,7 +126,7 @@ const IncidentReportPage: React.FC = () => {
 
   const handleSubmitReport = async () => {
     if (!formData.description || !formData.location || !formData.dateTime) {
-      showError('Please complete all required fields');
+      showError(t('docIncidentReport.errorRequiredFields'));
       return;
     }
 
@@ -143,7 +145,7 @@ const IncidentReportPage: React.FC = () => {
       };
 
       await createIncidentReport(payload);
-      showSuccess('Incident report submitted successfully');
+      showSuccess(t('docIncidentReport.successSubmit'));
       
       // Refresh list
       const updatedData = await listIncidentReports();
@@ -158,7 +160,7 @@ const IncidentReportPage: React.FC = () => {
       resetForm();
     } catch (err) {
       console.error('Error submitting report:', err);
-      showError('Failed to submit incident report');
+      showError(t('docIncidentReport.errorSubmit'));
     } finally {
       setIsSubmitting(false);
     }
@@ -195,7 +197,7 @@ const IncidentReportPage: React.FC = () => {
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${bg}`}>
         {icon}
-        {type.replace('-', ' ')}
+        {t(`docIncidentReport.type_${type}`)}
       </span>
     );
   };
@@ -209,8 +211,8 @@ const IncidentReportPage: React.FC = () => {
       'sentinel': 'bg-red-600 text-white'
     };
     return (
-      <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${styles[severity]}`}>
-        {severity.replace('-', ' ')}
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[severity]}`}>
+        {t(`docIncidentReport.severity_${severity}`)}
       </span>
     );
   };
@@ -227,7 +229,7 @@ const IncidentReportPage: React.FC = () => {
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${bg}`}>
         {icon}
-        {status.replace('-', ' ')}
+        {t(`docIncidentReport.status_${status}`)}
       </span>
     );
   };
@@ -254,16 +256,16 @@ const IncidentReportPage: React.FC = () => {
       <div className="bg-gradient-to-r from-rose-700 to-red-600 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <AlertOctagon className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Incident Reporting</h1>
+          <h1 className="text-2xl font-bold">{t('docIncidentReport.title')}</h1>
         </div>
-        <p className="text-rose-200">Document and track safety incidents</p>
+        <p className="text-rose-200">{t('docIncidentReport.subtitle')}</p>
       </div>
 
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-rose-600 animate-spin mb-2" />
-          <p className="text-gray-500">Loading incidents...</p>
+          <p className="text-gray-500">{t('docIncidentReport.loading')}</p>
         </div>
       )}
 
@@ -273,7 +275,7 @@ const IncidentReportPage: React.FC = () => {
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
             <p className="text-sm text-red-700">{error}</p>
-            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+            <p className="text-xs text-red-500 mt-1">{t('docIncidentReport.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -286,19 +288,19 @@ const IncidentReportPage: React.FC = () => {
             <div className="grid grid-cols-4 gap-4">
               <div className="text-center">
                 <p className="text-2xl font-bold text-blue-600">{stats.open}</p>
-                <p className="text-xs text-gray-500">Open</p>
+                <p className="text-xs text-gray-500">{t('docIncidentReport.statOpen')}</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-yellow-600">{stats.investigating}</p>
-                <p className="text-xs text-gray-500">Investigating</p>
+                <p className="text-xs text-gray-500">{t('docIncidentReport.statInvestigating')}</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-gray-600">{stats.thisWeek}</p>
-                <p className="text-xs text-gray-500">This Week</p>
+                <p className="text-xs text-gray-500">{t('docIncidentReport.statThisWeek')}</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-red-600">{stats.sentinel}</p>
-                <p className="text-xs text-gray-500">Sentinel</p>
+                <p className="text-xs text-gray-500">{t('docIncidentReport.statSentinel')}</p>
               </div>
             </div>
           </div>
@@ -314,7 +316,7 @@ const IncidentReportPage: React.FC = () => {
                     activeTab === tab ? 'text-rose-700 border-b-2 border-rose-700' : 'text-gray-500'
                   }`}
                 >
-                  {tab === 'new' ? 'Report Incident' : tab === 'list' ? 'All Incidents' : 'Dashboard'}
+                  {tab === 'new' ? t('docIncidentReport.tabReport') : tab === 'list' ? t('docIncidentReport.tabAll') : t('docIncidentReport.tabDashboard')}
                 </button>
               ))}
             </div>
@@ -330,7 +332,7 @@ const IncidentReportPage: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search incidents..."
+                placeholder={t('docIncidentReport.searchPh')}
                 className="w-full pl-10 pr-4 py-2 border rounded-lg"
               />
             </div>
@@ -339,24 +341,24 @@ const IncidentReportPage: React.FC = () => {
               onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
               className="px-4 py-2 border rounded-lg"
             >
-              <option value="all">All Types</option>
-              <option value="fall">Fall</option>
-              <option value="medication-error">Medication Error</option>
-              <option value="equipment-failure">Equipment Failure</option>
-              <option value="security">Security</option>
-              <option value="behavioral">Behavioral</option>
-              <option value="exposure">Exposure</option>
+              <option value="all">{t('docIncidentReport.allTypes')}</option>
+              <option value="fall">{t('docIncidentReport.type_fall')}</option>
+              <option value="medication-error">{t('docIncidentReport.type_medication-error')}</option>
+              <option value="equipment-failure">{t('docIncidentReport.type_equipment-failure')}</option>
+              <option value="security">{t('docIncidentReport.type_security')}</option>
+              <option value="behavioral">{t('docIncidentReport.type_behavioral')}</option>
+              <option value="exposure">{t('docIncidentReport.type_exposure')}</option>
             </select>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
               className="px-4 py-2 border rounded-lg"
             >
-              <option value="all">All Statuses</option>
-              <option value="open">Open</option>
-              <option value="under-investigation">Under Investigation</option>
-              <option value="pending-review">Pending Review</option>
-              <option value="closed">Closed</option>
+              <option value="all">{t('docIncidentReport.allStatuses')}</option>
+              <option value="open">{t('docIncidentReport.status_open')}</option>
+              <option value="under-investigation">{t('docIncidentReport.status_under-investigation')}</option>
+              <option value="pending-review">{t('docIncidentReport.status_pending-review')}</option>
+              <option value="closed">{t('docIncidentReport.status_closed')}</option>
             </select>
           </div>
 
@@ -379,10 +381,10 @@ const IncidentReportPage: React.FC = () => {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-gray-100 rounded-lg">
+                    <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-gray-100 rounded-lg" aria-label="View incident details">
                       <Eye className="w-5 h-5 text-gray-600" />
                     </button>
-                    <button className="p-2 hover:bg-gray-100 rounded-lg">
+                    <button className="p-2 hover:bg-gray-100 rounded-lg" aria-label="Print incident report">
                       <Printer className="w-5 h-5 text-gray-600" />
                     </button>
                   </div>
@@ -393,13 +395,13 @@ const IncidentReportPage: React.FC = () => {
                 {incident.patientInvolved && (
                   <div className="bg-blue-50 rounded-lg p-3 mb-4 flex items-center gap-2">
                     <User className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm text-blue-700">Patient: {incident.patientName} ({incident.patientId})</span>
+                    <span className="text-sm text-blue-700">{t('docIncidentReport.patientLine', { name: incident.patientName || '', id: incident.patientId || '' })}</span>
                   </div>
                 )}
 
                 {incident.followUpActions.length > 0 && (
                   <div className="border-t pt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Follow-up Actions:</p>
+                    <p className="text-sm font-medium text-gray-700 mb-2">{t('docIncidentReport.followUpActionsLabel')}</p>
                     <div className="flex gap-2 flex-wrap">
                       {incident.followUpActions.map((action, idx) => (
                         <span
@@ -426,7 +428,7 @@ const IncidentReportPage: React.FC = () => {
         <div className="p-6">
           <div className="bg-white rounded-lg shadow p-6 max-w-3xl mx-auto">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold">Report New Incident</h2>
+              <h2 className="text-xl font-semibold">{t('docIncidentReport.reportNewIncidentHeading')}</h2>
               <div className="flex items-center gap-2">
                 {[1, 2, 3].map(step => (
                   <div
@@ -443,70 +445,70 @@ const IncidentReportPage: React.FC = () => {
 
             {formStep === 1 && (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">Incident Details</h3>
+                <h3 className="font-medium text-gray-900">{t('docIncidentReport.step1Heading')}</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="inc-incident-type" className="block text-sm font-medium mb-1">Incident Type *</label>
+                    <label htmlFor="inc-incident-type" className="block text-sm font-medium mb-1">{t('docIncidentReport.incidentTypeRequired')} *</label>
                     <select
                       id="inc-incident-type"
                       value={formData.type}
                       onChange={(e) => setFormData({ ...formData, type: e.target.value as IncidentType })}
                       className="w-full border rounded-lg px-3 py-2"
                     >
-                      <option value="fall">Patient Fall</option>
-                      <option value="medication-error">Medication Error</option>
-                      <option value="equipment-failure">Equipment Failure</option>
-                      <option value="security">Security Incident</option>
-                      <option value="behavioral">Behavioral Incident</option>
-                      <option value="exposure">Exposure/Needlestick</option>
-                      <option value="other">Other</option>
+                      <option value="fall">{t('docIncidentReport.typeOption_fall')}</option>
+                      <option value="medication-error">{t('docIncidentReport.typeOption_medication-error')}</option>
+                      <option value="equipment-failure">{t('docIncidentReport.typeOption_equipment-failure')}</option>
+                      <option value="security">{t('docIncidentReport.typeOption_security')}</option>
+                      <option value="behavioral">{t('docIncidentReport.typeOption_behavioral')}</option>
+                      <option value="exposure">{t('docIncidentReport.typeOption_exposure')}</option>
+                      <option value="other">{t('docIncidentReport.typeOption_other')}</option>
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="inc-severity" className="block text-sm font-medium mb-1">Severity *</label>
+                    <label htmlFor="inc-severity" className="block text-sm font-medium mb-1">{t('docIncidentReport.severityRequired')} *</label>
                     <select
                       id="inc-severity"
                       value={formData.severity}
                       onChange={(e) => setFormData({ ...formData, severity: e.target.value as IncidentSeverity })}
                       className="w-full border rounded-lg px-3 py-2"
                     >
-                      <option value="near-miss">Near Miss</option>
-                      <option value="minor">Minor</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="major">Major</option>
-                      <option value="sentinel">Sentinel Event</option>
+                      <option value="near-miss">{t('docIncidentReport.severityOption_near-miss')}</option>
+                      <option value="minor">{t('docIncidentReport.severityOption_minor')}</option>
+                      <option value="moderate">{t('docIncidentReport.severityOption_moderate')}</option>
+                      <option value="major">{t('docIncidentReport.severityOption_major')}</option>
+                      <option value="sentinel">{t('docIncidentReport.severityOption_sentinel')}</option>
                     </select>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="inc-date-time" className="block text-sm font-medium mb-1">Date & Time *</label>
+                    <label htmlFor="inc-date-time" className="block text-sm font-medium mb-1">{t('docIncidentReport.dateTimeRequired')} *</label>
                     <input id="inc-date-time" type="datetime-local" className="w-full border rounded-lg px-3 py-2" />
                   </div>
                   <div>
-                    <label htmlFor="inc-department" className="block text-sm font-medium mb-1">Department *</label>
+                    <label htmlFor="inc-department" className="block text-sm font-medium mb-1">{t('docIncidentReport.departmentRequired')} *</label>
                     <select id="inc-department" className="w-full border rounded-lg px-3 py-2">
-                      <option>Emergency Department</option>
-                      <option>Medical-Surgical Unit</option>
-                      <option>ICU</option>
-                      <option>Pharmacy</option>
-                      <option>Radiology</option>
+                      <option>{t('docIncidentReport.dept_emergency')}</option>
+                      <option>{t('docIncidentReport.dept_medSurg')}</option>
+                      <option>{t('docIncidentReport.dept_icu')}</option>
+                      <option>{t('docIncidentReport.dept_pharmacy')}</option>
+                      <option>{t('docIncidentReport.dept_radiology')}</option>
                     </select>
                   </div>
                 </div>
                 <div>
-                  <label htmlFor="inc-exact-location" className="block text-sm font-medium mb-1">Exact Location *</label>
-                  <input id="inc-exact-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="e.g., Room 412, Bed A" />
+                  <label htmlFor="inc-exact-location" className="block text-sm font-medium mb-1">{t('docIncidentReport.exactLocationRequired')} *</label>
+                  <input id="inc-exact-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.exactLocationPh')} />
                 </div>
               </div>
             )}
 
             {formStep === 2 && (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">Description & People Involved</h3>
+                <h3 className="font-medium text-gray-900">{t('docIncidentReport.step2Heading')}</h3>
                 <div>
-                  <label htmlFor="inc-description" className="block text-sm font-medium mb-1">Description of Incident *</label>
-                  <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder="Describe what happened..." />
+                  <label htmlFor="inc-description" className="block text-sm font-medium mb-1">{t('docIncidentReport.descriptionRequired')} *</label>
+                  <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.descriptionPh')} />
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <input
@@ -516,41 +518,41 @@ const IncidentReportPage: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, patientInvolved: e.target.checked })}
                     className="w-5 h-5"
                   />
-                  <label htmlFor="inc-patient-involved" className="font-medium">Patient Involved</label>
+                  <label htmlFor="inc-patient-involved" className="font-medium">{t('docIncidentReport.patientInvolvedCheckbox')}</label>
                 </div>
                 {formData.patientInvolved && (
                   <PatientSelect
                     id="inc-patient-id"
-                    label="Patient"
+                    label={t('docIncidentReport.patientSelectLabel')}
                     value={formData.patientId}
                     onChange={(patientId) => setFormData({ ...formData, patientId })}
-                    placeholder="Search and select a patient..."
+                    placeholder={t('docIncidentReport.patientSelectPh')}
                   />
                 )}
                 <div>
-                  <label htmlFor="inc-staff-involved" className="block text-sm font-medium mb-1">Staff Involved</label>
-                  <input id="inc-staff-involved" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="Names of staff involved" />
+                  <label htmlFor="inc-staff-involved" className="block text-sm font-medium mb-1">{t('docIncidentReport.staffInvolvedLabel')}</label>
+                  <input id="inc-staff-involved" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.staffInvolvedPh')} />
                 </div>
                 <div>
-                  <label htmlFor="inc-witnesses" className="block text-sm font-medium mb-1">Witnesses</label>
-                  <input id="inc-witnesses" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="Names of witnesses" />
+                  <label htmlFor="inc-witnesses" className="block text-sm font-medium mb-1">{t('docIncidentReport.witnessesLabel')}</label>
+                  <input id="inc-witnesses" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.witnessesPh')} />
                 </div>
               </div>
             )}
 
             {formStep === 3 && (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">Immediate Actions & Review</h3>
+                <h3 className="font-medium text-gray-900">{t('docIncidentReport.step3Heading')}</h3>
                 <div>
-                  <label htmlFor="inc-immediate-actions" className="block text-sm font-medium mb-1">Immediate Actions Taken *</label>
-                  <textarea id="inc-immediate-actions" className="w-full border rounded-lg px-3 py-2 h-32" placeholder="What actions were taken immediately?" />
+                  <label htmlFor="inc-immediate-actions" className="block text-sm font-medium mb-1">{t('docIncidentReport.immediateActionsRequired')} *</label>
+                  <textarea id="inc-immediate-actions" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.immediateActionsPh')} />
                 </div>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
                     <div className="text-sm text-yellow-800">
-                      <p className="font-medium">Reporting Declaration</p>
-                      <p>I certify that this report is accurate to the best of my knowledge.</p>
+                      <p className="font-medium">{t('docIncidentReport.reportingDeclarationHeading')}</p>
+                      <p>{t('docIncidentReport.reportingDeclarationText')}</p>
                     </div>
                   </div>
                 </div>
@@ -562,20 +564,20 @@ const IncidentReportPage: React.FC = () => {
                 onClick={() => setFormStep(Math.max(1, formStep - 1))}
                 className={`px-4 py-2 border rounded-lg ${formStep === 1 ? 'invisible' : ''}`}
               >
-                Back
+                {t('docIncidentReport.backButton')}
               </button>
               {formStep < 3 ? (
                 <button onClick={() => setFormStep(formStep + 1)} className="px-6 py-2 bg-rose-600 text-white rounded-lg font-medium">
-                  Continue
+                  {t('docIncidentReport.continueButton')}
                 </button>
               ) : (
-                <button 
+                <button
                   onClick={handleSubmitReport}
                   disabled={isSubmitting}
                   className="px-6 py-2 bg-rose-600 text-white rounded-lg font-medium flex items-center gap-2"
                 >
                   {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
-                  Submit Report
+                  {t('docIncidentReport.submitReportButton')}
                 </button>
               )}
             </div>
@@ -588,11 +590,11 @@ const IncidentReportPage: React.FC = () => {
         <div className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="font-semibold mb-4">Incidents by Type (Last 30 Days)</h3>
+              <h3 className="font-semibold mb-4">{t('docIncidentReport.incidentsByTypeHeading')}</h3>
               <div className="space-y-3">
                 {['fall', 'medication-error', 'equipment-failure', 'security'].map(type => (
                   <div key={type} className="flex items-center gap-3">
-                    <div className="w-24 text-sm capitalize">{type.replace('-', ' ')}</div>
+                    <div className="w-24 text-sm">{t(`docIncidentReport.type_${type}`)}</div>
                     <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
                       <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.random() * 80 + 20}%` }} />
                     </div>
@@ -602,12 +604,12 @@ const IncidentReportPage: React.FC = () => {
               </div>
             </div>
             <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="font-semibold mb-4">Severity Distribution</h3>
+              <h3 className="font-semibold mb-4">{t('docIncidentReport.severityDistributionHeading')}</h3>
               <div className="flex justify-around">
                 {['near-miss', 'minor', 'moderate', 'major'].map(sev => (
                   <div key={sev} className="text-center">
                     <div className="text-2xl font-bold text-gray-700">{Math.floor(Math.random() * 10 + 1)}</div>
-                    <div className="text-xs text-gray-500 capitalize">{sev.replace('-', ' ')}</div>
+                    <div className="text-xs text-gray-500">{t(`docIncidentReport.severity_${sev}`)}</div>
                   </div>
                 ))}
               </div>
@@ -632,16 +634,16 @@ const IncidentReportPage: React.FC = () => {
                 {getStatusBadge(selectedIncident.status)}
               </div>
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-medium mb-2">Description</h4>
+                <h4 className="font-medium mb-2">{t('docIncidentReport.descriptionHeading')}</h4>
                 <p className="text-gray-700">{selectedIncident.description}</p>
               </div>
               <div className="bg-gray-50 rounded-lg p-4">
-                <h4 className="font-medium mb-2">Immediate Actions</h4>
+                <h4 className="font-medium mb-2">{t('docIncidentReport.immediateActionsHeading')}</h4>
                 <p className="text-gray-700">{selectedIncident.immediateActions}</p>
               </div>
               {selectedIncident.rootCause && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="font-medium mb-2">Root Cause</h4>
+                  <h4 className="font-medium mb-2">{t('docIncidentReport.rootCauseHeading')}</h4>
                   <p className="text-gray-700">{selectedIncident.rootCause}</p>
                 </div>
               )}

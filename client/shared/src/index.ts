@@ -39,6 +39,9 @@ export * from './types';
 export * from './api/client';
 export * from './api/endpoints';
 
+// Push notifications (Phase 5.2)
+export { initPushNotifications } from './push';
+
 // Hooks
 export * from './hooks';
 

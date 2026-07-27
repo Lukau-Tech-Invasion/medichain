@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, usePatientStore } from '../store';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import { 
   Users, 
   AlertTriangle, 
@@ -142,6 +142,7 @@ function StatCard({
 }
 
 function DashboardPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, isAuthenticated, logout, restoreSession } = useAuthStore();
   const { recentPatients, setRecentPatients } = usePatientStore();
@@ -209,7 +210,7 @@ function DashboardPage() {
           setApiConnected(false);
         }
       } catch (err) {
-        setError('Cannot connect to API server. Make sure the backend is running on port 8080.');
+        setError(t('docDashboard.errorCannotConnect'));
         setApiConnected(false);
       } finally {
         setLoading(false);
@@ -229,19 +230,19 @@ function DashboardPage() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            Welcome back, {user?.username || 'Doctor'}
+            {t('docDashboard.welcomeBack', { name: user?.username || 'Doctor' })}
           </h1>
           <p className="text-gray-500 mt-1">
-            Here's what's happening with your patients today.
+            {t('docDashboard.subtitle')}
           </p>
         </div>
         <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
-          apiConnected 
-            ? 'bg-green-100 text-green-700' 
+          apiConnected
+            ? 'bg-green-100 text-green-700'
             : 'bg-red-100 text-red-700'
         }`}>
           <div className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-          {apiConnected ? 'API Connected' : 'API Disconnected'}
+          {apiConnected ? t('docDashboard.apiConnected') : t('docDashboard.apiDisconnected')}
         </div>
       </div>
 
@@ -249,7 +250,7 @@ function DashboardPage() {
         <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 flex items-center gap-3">
           <AlertCircle size={20} />
           <div>
-            <p className="font-medium">Connection Error</p>
+            <p className="font-medium">{t('docDashboard.connectionErrorTitle')}</p>
             <p className="text-sm">{error}</p>
           </div>
         </div>
@@ -261,14 +262,14 @@ function DashboardPage() {
           <div className="flex items-center gap-3">
             <Siren className="animate-pulse" size={24} />
             <div>
-              <p className="font-bold">Critical Alerts Require Attention</p>
+              <p className="font-bold">{t('docDashboard.criticalAlertsTitle')}</p>
               <p className="text-red-100 text-sm">
-                {dashboard.alerts.critical_values_count} critical values, {dashboard.alerts.code_blues_count} code blues active
+                {t('docDashboard.criticalAlertsSummary', { critical: dashboard.alerts.critical_values_count, codeBlues: dashboard.alerts.code_blues_count })}
               </p>
             </div>
           </div>
           <Link to="/alerts" className="bg-white text-red-600 px-4 py-2 rounded-lg font-medium hover:bg-red-50">
-            View Alerts
+            {t('docDashboard.viewAlertsBtn')}
           </Link>
         </div>
       )}
@@ -277,28 +278,28 @@ function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
           icon={<Users className="text-primary-600" size={24} />}
-          label="Total Patients"
+          label={t('docDashboard.statTotalPatients')}
           value={dashboard?.patients?.total || 0}
           color="bg-primary-100"
           loading={loading}
         />
         <StatCard
           icon={<TestTube className="text-amber-600" size={24} />}
-          label="Pending Lab Reviews"
+          label={t('docDashboard.statPendingLabReviews')}
           value={dashboard?.alerts?.pending_labs_count || 0}
           color="bg-amber-100"
           loading={loading}
         />
         <StatCard
           icon={<AlertTriangle className="text-red-600" size={24} />}
-          label="Critical Values"
+          label={t('docDashboard.statCriticalValues')}
           value={dashboard?.alerts?.critical_values_count || 0}
           color="bg-red-100"
           loading={loading}
         />
         <StatCard
           icon={<ClipboardList className="text-purple-600" size={24} />}
-          label="Active Orders"
+          label={t('docDashboard.statActiveOrders')}
           value={dashboard?.active_orders?.length || 0}
           color="bg-purple-100"
           loading={loading}
@@ -315,10 +316,10 @@ function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
-                <Siren size={20} aria-hidden="true" /> Emergency Access
+                <Siren size={20} aria-hidden="true" /> {t('docDashboard.emergencyAccessTitle')}
               </h3>
               <p className="text-emergency-100 text-sm">
-                Quick NFC tap for emergency patient records
+                {t('docDashboard.emergencyAccessDesc')}
               </p>
             </div>
             <ArrowRight className="group-hover:translate-x-1 transition-transform" size={24} />
@@ -333,10 +334,10 @@ function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
-                <UserPlus size={20} aria-hidden="true" /> Register Patient
+                <UserPlus size={20} aria-hidden="true" /> {t('docDashboard.registerPatientTitle')}
               </h3>
               <p className="text-primary-100 text-sm">
-                Add a new patient to the system
+                {t('docDashboard.registerPatientDesc')}
               </p>
             </div>
             <ArrowRight className="group-hover:translate-x-1 transition-transform" size={24} />
@@ -351,10 +352,10 @@ function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
-                <ClipboardList size={20} aria-hidden="true" /> Triage Assessment
+                <ClipboardList size={20} aria-hidden="true" /> {t('docDashboard.triageAssessmentTitle')}
               </h3>
               <p className="text-amber-100 text-sm">
-                ESI triage for incoming patients
+                {t('docDashboard.triageAssessmentDesc')}
               </p>
             </div>
             <ArrowRight className="group-hover:translate-x-1 transition-transform" size={24} />
@@ -368,9 +369,9 @@ function DashboardPage() {
           <div className="p-4 border-b border-red-200">
             <div className="flex items-center gap-2">
               <AlertTriangle className="text-red-600" size={20} />
-              <h2 className="font-semibold text-red-800">Critical Lab Values</h2>
+              <h2 className="font-semibold text-red-800">{t('docDashboard.criticalLabValuesTitle')}</h2>
               <span className="bg-red-600 text-white text-xs px-2 py-0.5 rounded-full animate-pulse">
-                {dashboard.critical_values.length} URGENT
+                {t('docDashboard.urgentBadge', { count: dashboard.critical_values.length })}
               </span>
             </div>
           </div>
@@ -385,7 +386,7 @@ function DashboardPage() {
                   <p className="text-sm text-red-600 font-mono">{cv.value} - {cv.critical_reason}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-gray-600">Patient: {cv.patient_id}</p>
+                  <p className="text-sm text-gray-600">{t('docDashboard.patientLabel', { id: cv.patient_id })}</p>
                   <p className="text-xs text-gray-500">
                     {new Date(cv.reported_at).toLocaleString()}
                   </p>
@@ -402,7 +403,7 @@ function DashboardPage() {
           <div className="p-4 border-b border-amber-200">
             <div className="flex items-center gap-2">
               <TestTube className="text-amber-600" size={20} />
-              <h2 className="font-semibold text-amber-800">Pending Lab Reviews</h2>
+              <h2 className="font-semibold text-amber-800">{t('docDashboard.pendingLabReviewsTitle')}</h2>
               <span className="bg-amber-600 text-white text-xs px-2 py-0.5 rounded-full">
                 {dashboard.pending_lab_approvals.length}
               </span>
@@ -427,7 +428,7 @@ function DashboardPage() {
           </div>
           <div className="p-3 bg-amber-100 rounded-b-xl">
             <Link to="/lab-results" className="text-amber-700 text-sm font-medium flex items-center gap-1 justify-center">
-              View all pending labs <ArrowRight size={14} />
+              {t('docDashboard.viewAllPendingLabs')} <ArrowRight size={14} />
             </Link>
           </div>
         </div>
@@ -439,7 +440,7 @@ function DashboardPage() {
           <div className="p-4 border-b border-blue-200 dark:border-slate-600">
             <div className="flex items-center gap-2">
               <Heart className="text-blue-600 dark:text-blue-400" size={20} />
-              <h2 className="font-semibold text-blue-800 dark:text-blue-300">Recent Code Blues</h2>
+              <h2 className="font-semibold text-blue-800 dark:text-blue-300">{t('docDashboard.recentCodeBluesTitle')}</h2>
             </div>
           </div>
           <div className="divide-y divide-blue-200 dark:divide-slate-600">
@@ -451,13 +452,13 @@ function DashboardPage() {
               // Convert outcome to readable string - handle enum values
               const outcomeValue = code.outcome ? String(code.outcome) : null;
               const outcomeDisplay = (() => {
-                if (!outcomeValue) return 'In Progress';
+                if (!outcomeValue) return t('docDashboard.outcome_inProgress');
                 // Handle enum values from API
                 switch (outcomeValue) {
-                  case 'ROSC': return 'ROSC Achieved';
-                  case 'Death': return 'Deceased';
-                  case 'TransferredOngoing': return 'Transferred';
-                  case 'FamilyRequestedTermination': return 'Terminated by Family';
+                  case 'ROSC': return t('docDashboard.outcome_ROSC');
+                  case 'Death': return t('docDashboard.outcome_Death');
+                  case 'TransferredOngoing': return t('docDashboard.outcome_TransferredOngoing');
+                  case 'FamilyRequestedTermination': return t('docDashboard.outcome_FamilyRequestedTermination');
                   default: return outcomeValue;
                 }
               })();
@@ -476,11 +477,11 @@ function DashboardPage() {
                   className="flex items-center justify-between p-4"
                 >
                   <div>
-                    <p className="font-medium text-gray-900 dark:text-white">Patient: {code.patient_id}</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Location: {code.location}</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{t('docDashboard.patientLabel', { id: code.patient_id })}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{t('docDashboard.locationLabel', { value: code.location })}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{teamLeader || 'No team leader assigned'}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{teamLeader || t('docDashboard.noTeamLeader')}</p>
                     <p className={`text-xs px-2 py-1 rounded ${outcomeClass}`}>
                       {outcomeDisplay}
                     </p>
@@ -498,7 +499,7 @@ function DashboardPage() {
           <div className="p-4 border-b border-purple-200">
             <div className="flex items-center gap-2">
               <ClipboardList className="text-purple-600" size={20} />
-              <h2 className="font-semibold text-purple-800">Active Physician Orders</h2>
+              <h2 className="font-semibold text-purple-800">{t('docDashboard.activePhysicianOrdersTitle')}</h2>
               <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">
                 {dashboard.active_orders.length}
               </span>
@@ -512,7 +513,7 @@ function DashboardPage() {
               >
                 <div>
                   <p className="font-medium text-gray-900">{order.order_type}: {order.description}</p>
-                  <p className="text-sm text-gray-600">Patient: {order.patient_id}</p>
+                  <p className="text-sm text-gray-600">{t('docDashboard.patientLabel', { id: order.patient_id })}</p>
                 </div>
                 <div className="text-right">
                   <span className={`text-xs px-2 py-1 rounded ${
@@ -536,17 +537,17 @@ function DashboardPage() {
       <div className="bg-white rounded-xl shadow">
         <div className="p-6 border-b border-gray-100">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Patients</h2>
+            <h2 className="text-lg font-semibold text-gray-900">{t('docDashboard.recentPatientsTitle')}</h2>
             <Link to="/patients" className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
-              View all <ArrowRight size={16} />
+              {t('docDashboard.viewAll')} <ArrowRight size={16} />
             </Link>
           </div>
         </div>
-        
+
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
-            <p className="text-gray-500">Loading patients...</p>
+            <p className="text-gray-500">{t('docDashboard.loadingPatients')}</p>
           </div>
         ) : dashboard?.patients?.list && dashboard.patients.list.length > 0 ? (
           <div className="divide-y divide-gray-100">
@@ -573,7 +574,7 @@ function DashboardPage() {
                   )}
                   {patient.allergies && patient.allergies.length > 0 && (
                     <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
-                      {patient.allergies.length} allergies
+                      {t('docDashboard.allergiesCount', { count: patient.allergies.length })}
                     </span>
                   )}
                   <ArrowRight size={16} className="text-gray-400" />
@@ -600,7 +601,7 @@ function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-gray-500">
                   <Clock size={14} />
-                  <span>{patient.lastAccessed ? new Date(patient.lastAccessed).toLocaleDateString() : 'N/A'}</span>
+                  <span>{patient.lastAccessed ? new Date(patient.lastAccessed).toLocaleDateString() : t('docDashboard.naLabel')}</span>
                 </div>
               </Link>
             ))}
@@ -608,8 +609,8 @@ function DashboardPage() {
         ) : (
           <div className="p-8 text-center text-gray-500">
             <Users className="mx-auto mb-3 text-gray-300" size={48} />
-            <p>No patients found</p>
-            <p className="text-sm mt-1">Register a patient or connect to the API</p>
+            <p>{t('docDashboard.noPatientsFound')}</p>
+            <p className="text-sm mt-1">{t('docDashboard.noPatientsHint')}</p>
           </div>
         )}
       </div>

@@ -22,12 +22,49 @@ import {
   ActivityIndicator,
   StatusBar,
 } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { LoginScreen } from './screens/LoginScreen';
 import { EmergencyCardScreen } from './screens/EmergencyCardScreen';
 import { MyRecordsScreen } from './screens/MyRecordsScreen';
+import { FamilyScreen } from './screens/FamilyScreen';
+import { NfcCardScreen } from './screens/NfcCardScreen';
+import { apiClient } from './api/client';
 
-type Tab = 'emergency' | 'records';
+type Tab = 'emergency' | 'records' | 'family' | 'nfc';
+
+/** Offline / pending-sync banner, mirroring the web shell's status indicator. */
+function OfflineBanner() {
+  const [isOnline, setIsOnline] = useState(true);
+  const [pending, setPending] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOnline(state.isConnected ?? true);
+    });
+    const interval = setInterval(() => {
+      setPending(apiClient.getOfflineQueueStats().pending);
+    }, 3000);
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, []);
+
+  if (isOnline && pending === 0) return null;
+
+  return (
+    <View style={styles.offlineBanner}>
+      <Text style={styles.offlineBannerText}>
+        {isOnline
+          ? `Syncing ${pending} pending change${pending === 1 ? '' : 's'}...`
+          : pending > 0
+          ? `Offline — ${pending} change${pending === 1 ? '' : 's'} will sync when reconnected`
+          : 'Offline — showing your saved data'}
+      </Text>
+    </View>
+  );
+}
 
 function Shell() {
   const { user, loading, unlocked, unlockWithBiometrics } = useAuth();
@@ -66,12 +103,23 @@ function Shell() {
 
   return (
     <View style={styles.flex}>
+      <OfflineBanner />
       <View style={styles.flex}>
-        {tab === 'emergency' ? <EmergencyCardScreen /> : <MyRecordsScreen />}
+        {tab === 'emergency' ? (
+          <EmergencyCardScreen />
+        ) : tab === 'records' ? (
+          <MyRecordsScreen />
+        ) : tab === 'family' ? (
+          <FamilyScreen />
+        ) : (
+          <NfcCardScreen />
+        )}
       </View>
       <View style={styles.tabBar}>
         <TabButton label="Emergency" active={tab === 'emergency'} onPress={() => setTab('emergency')} />
         <TabButton label="Records" active={tab === 'records'} onPress={() => setTab('records')} />
+        <TabButton label="Family" active={tab === 'family'} onPress={() => setTab('family')} />
+        <TabButton label="My Card" active={tab === 'nfc'} onPress={() => setTab('nfc')} />
       </View>
     </View>
   );
@@ -107,4 +155,6 @@ const styles = StyleSheet.create({
   tab: { flex: 1, paddingVertical: 14, alignItems: 'center' },
   tabText: { fontSize: 14, color: '#94a3b8', fontWeight: '600' },
   tabTextActive: { color: '#0f766e' },
+  offlineBanner: { backgroundColor: '#b45309', paddingVertical: 6, paddingHorizontal: 12 },
+  offlineBannerText: { color: '#fff', fontSize: 12, fontWeight: '600', textAlign: 'center' },
 });

@@ -9,9 +9,9 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { 
-  apiUrl, 
-  setPatientAuth, 
+import {
+  apiUrl,
+  setPatientAuth,
   clearAuth as clearStoredAuth,
   getPatientAuth,
   debugLog,
@@ -20,6 +20,8 @@ import {
   syncApiClientUserId,
   getApiClient,
   issueJwt,
+  enterPatientContext,
+  initPushNotifications,
 } from '@medichain/shared';
 
 /**
@@ -32,11 +34,31 @@ async function acquireJwtTokens(walletAddress: string): Promise<void> {
     const resp = await issueJwt({ wallet_address: walletAddress });
     if (resp?.access_token) {
       getApiClient().setTokens(resp.access_token, resp.refresh_token);
+      // Phase 1: patient screens use an explicit personal-health token. A
+      // legacy fallback keeps existing accounts usable until their profile is
+      // linked by the migration workflow.
+      try {
+        const context = await enterPatientContext();
+        getApiClient().setTokens(context.access_token);
+      } catch (contextError) {
+        debugLog('patientAuthStore', 'Patient context unavailable; using legacy JWT:', contextError);
+      }
       debugLog('patientAuthStore', 'JWT acquired');
     }
   } catch (e) {
     debugLog('patientAuthStore', 'JWT acquisition failed; continuing with X-User-Id:', e);
   }
+}
+
+/**
+ * Request push-notification permission and register the device token
+ * (Phase 5.2). Non-fatal and silently a no-op without a configured Firebase
+ * project — see `push.ts` for the full explanation.
+ */
+function initPush(): void {
+  void initPushNotifications().catch((e) => {
+    debugLog('patientAuthStore', 'Push notification init failed:', e);
+  });
 }
 
 /**
@@ -155,6 +177,7 @@ export const usePatientAuthStore = create<AuthState>()(
             });
 
             await acquireJwtTokens(patient.walletAddress);
+            initPush();
 
             debugLog('patientAuthStore', 'Logged in with wallet:', walletAddress);
             return true;
@@ -227,6 +250,7 @@ export const usePatientAuthStore = create<AuthState>()(
           });
 
           await acquireJwtTokens(patient.walletAddress);
+          initPush();
 
           debugLog('patientAuthStore', 'Created demo wallet:', { walletAddress, healthId });
           return true;
@@ -295,6 +319,7 @@ export const usePatientAuthStore = create<AuthState>()(
           });
           // Re-acquire JWTs (not persisted); fire-and-forget since this is sync.
           void acquireJwtTokens(storedAuth.address);
+          initPush();
           debugLog('patientAuthStore', 'Restored session from storage');
         }
       },

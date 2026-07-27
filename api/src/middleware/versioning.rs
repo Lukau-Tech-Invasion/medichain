@@ -67,7 +67,7 @@ where
             req.head_mut().uri = new_uri;
         }
         let fut = self.service.call(req);
-        Box::pin(async move { fut.await })
+        Box::pin(fut)
     }
 }
 

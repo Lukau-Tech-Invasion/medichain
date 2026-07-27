@@ -101,7 +101,7 @@ impl TriageAssessmentRepository for MemoryTriageAssessmentRepository {
             None => Vec::new(),
         };
 
-        assessments.sort_by(|a, b| b.triage_time.cmp(&a.triage_time));
+        assessments.sort_by_key(|b| std::cmp::Reverse(b.triage_time));
 
         let total = assessments.len() as u64;
         let offset = pagination.offset() as usize;

@@ -336,7 +336,7 @@ export function AppointmentsPage() {
                   {t('appointments.joinVideo')}
                 </button>
                 {appointment.phoneNumber && (
-                  <button className="py-2 px-4 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm flex items-center gap-2">
+                  <button className="py-2 px-4 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm flex items-center gap-2" aria-label={`Call ${appointment.provider}`}>
                     <Phone className="w-4 h-4" />
                   </button>
                 )}

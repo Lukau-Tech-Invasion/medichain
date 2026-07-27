@@ -346,15 +346,12 @@ pub fn appt_parse_status(s: &str) -> crate::clinical::AppointmentStatus {
 pub fn appt_to_datetime(date: &str, time: &str) -> DateTime<Utc> {
     let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .ok()
-        .and_then(|d| {
+        .map(|d| {
             let t = chrono::NaiveTime::parse_from_str(time, "%H:%M")
                 .ok()
                 .or_else(|| chrono::NaiveTime::parse_from_str(time, "%H:%M:%S").ok())
                 .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-            Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                d.and_time(t),
-                Utc,
-            ))
+            DateTime::<Utc>::from_naive_utc_and_offset(d.and_time(t), Utc)
         });
     parsed.unwrap_or_else(Utc::now)
 }

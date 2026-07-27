@@ -23,14 +23,6 @@ impl MemorySampleHistoryRepository {
             data: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-    /// Create with existing data
-    #[allow(dead_code)]
-    pub fn with_data(data: HashMap<String, SampleHistoryEntity>) -> Self {
-        Self {
-            data: Arc::new(RwLock::new(data)),
-        }
-    }
 }
 
 #[async_trait]
@@ -79,7 +71,7 @@ impl SampleHistoryRepository for MemorySampleHistoryRepository {
             .collect();
 
         // Sort by collection time (newest first)
-        histories.sort_by(|a, b| b.collected_at.cmp(&a.collected_at));
+        histories.sort_by_key(|b| std::cmp::Reverse(b.collected_at));
 
         let total = histories.len() as u64;
         let offset = pagination.offset() as usize;

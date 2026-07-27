@@ -50,6 +50,28 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // JWT auth (Phase 9.4)
         .service(issue_jwt) // POST /api/auth/jwt
         .service(refresh_jwt) // POST /api/auth/jwt/refresh
+        // Phase 1 identity contexts: work and personal health remain separate.
+        .service(enter_work_context)
+        .service(enter_patient_context)
+        .service(switch_identity_context)
+        // Phase 2 organisation public-key directory.
+        .service(register_organization_key)
+        .service(transition_organization_key)
+        .service(get_active_organization_key)
+        // Phase 4 approved device credentials and lifecycle.
+        .service(enroll_managed_device)
+        .service(rotate_managed_device)
+        .service(revoke_managed_device)
+        .service(get_device_compliance)
+        // Phase 5 server-side emergency grants.
+        .service(issue_emergency_grant)
+        .service(get_emergency_grant)
+        .service(revoke_emergency_grant)
+        .service(grant_bound_emergency_access)
+        // Phase 6 encrypted patient mobile-record capabilities.
+        .service(register_patient_mobile_device)
+        .service(authorise_mobile_record)
+        .service(revoke_patient_mobile_device)
         // MFA / TOTP (Phase 11.3)
         .service(mfa_enroll) // POST /api/auth/mfa/enroll
         .service(mfa_verify) // POST /api/auth/mfa/verify
@@ -63,6 +85,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_cds_thresholds) // GET /api/admin/cds/thresholds/{facility_id}
         .service(set_cds_thresholds) // PUT /api/admin/cds/thresholds/{facility_id}
         .service(get_cds_audit) // GET /api/admin/cds/audit
+        // SMS opt-in/opt-out preferences (Phase 5.3)
+        .service(sms_opt_out) // POST /api/notifications/sms/opt-out
+        .service(sms_opt_in) // POST /api/notifications/sms/opt-in
+        .service(get_sms_opt_out_status) // GET  /api/notifications/sms/opt-out/{phone_number}
+        .service(sms_inbound_webhook) // POST /api/notifications/sms/inbound
         // Insurance cards CRUD (Phase 13.4)
         .service(create_insurance_card) // POST   /api/insurance/cards
         .service(list_insurance_cards) // GET    /api/insurance/cards/{patient_id}
@@ -92,6 +119,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // NFC card simulation endpoints
         .service(generate_nfc_card)
         .service(nfc_tap)
+        .service(verify_my_nfc_card)
         .service(verify_qr_code)
         .service(get_card_info)
         .service(suspend_card)
@@ -242,6 +270,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_death_certificate)
         .service(clinical_endpoints::create_autopsy_request)
         .service(clinical_endpoints::get_autopsy_request)
+        .service(clinical_endpoints::create_autopsy_report)
+        .service(clinical_endpoints::get_autopsy_report)
         // Phase 19: Patient Satisfaction endpoints
         .service(clinical_endpoints::create_satisfaction_survey)
         .service(clinical_endpoints::get_satisfaction_survey)
@@ -258,7 +288,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::fhir_capability_statement)
         // Insurance Verification endpoints
         .service(clinical_endpoints::verify_insurance)
-        .service(clinical_endpoints::check_eligibility)
+        // `check_eligibility` (insurance_pharmacy/insurance.rs) is NOT registered here:
+        // it was duplicate-registered on the same `POST /api/insurance/eligibility`
+        // path as `check_insurance_eligibility` below (billing/insurance_eligibility.rs,
+        // the fuller implementation with real policy-date/deductible/plan-type logic).
+        // Actix takes the first registration for an exact path+method match, so the
+        // richer handler was silently dead code — removed this duplicate registration
+        // rather than the crude handler's body (flagged as a dead-code cleanup
+        // candidate, not deleted, per this repo's "never delete without asking" rule).
         // Dashboard & Workflow endpoints
         .service(clinical_endpoints::patient_dashboard)
         .service(clinical_endpoints::doctor_dashboard)
@@ -319,6 +356,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::cancel_appointment)
         .service(clinical_endpoints::check_in_appointment)
         .service(clinical_endpoints::get_available_slots)
+        .service(clinical_endpoints::get_appointment)
         // Phase 24: Wearable Device Integration endpoints
         .service(clinical_endpoints::get_supported_wearables)
         .service(clinical_endpoints::register_wearable_device)
@@ -403,6 +441,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_immunizations)
         .service(clinical_endpoints::list_blood_bank)
         .service(clinical_endpoints::list_autopsy)
+        .service(clinical_endpoints::list_autopsy_reports)
         .service(clinical_endpoints::list_consults)
         .service(clinical_endpoints::list_cds_alerts)
         // Additional frontend-compatible endpoints

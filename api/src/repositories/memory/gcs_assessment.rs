@@ -23,14 +23,6 @@ impl MemoryGcsAssessmentRepository {
             data: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-    /// Create with existing data
-    #[allow(dead_code)]
-    pub fn with_data(data: HashMap<String, GcsAssessmentEntity>) -> Self {
-        Self {
-            data: Arc::new(RwLock::new(data)),
-        }
-    }
 }
 
 #[async_trait]
@@ -81,7 +73,7 @@ impl GcsAssessmentRepository for MemoryGcsAssessmentRepository {
             .collect();
 
         // Sort by assessment time (newest first)
-        assessments.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+        assessments.sort_by_key(|b| std::cmp::Reverse(b.assessed_at));
 
         let total = assessments.len() as u64;
         let offset = pagination.offset() as usize;

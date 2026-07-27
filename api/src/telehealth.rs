@@ -632,7 +632,7 @@ impl TwilioProvider {
     }
 
     fn api_url(&self) -> String {
-        format!("https://video.twilio.com/v1/Rooms")
+        "https://video.twilio.com/v1/Rooms".to_string()
     }
 }
 
@@ -651,7 +651,7 @@ impl TelehealthProvider for TwilioProvider {
         let room_name = format!("mc_{}", params.session_id.replace('-', "_"));
 
         let resp = client
-            .post(&self.api_url())
+            .post(self.api_url())
             .basic_auth(&self.account_sid, Some(&self.auth_token))
             .form(&[
                 ("UniqueName", room_name.as_str()),

@@ -7,7 +7,6 @@
 //! list endpoints — adopt incrementally by implementing [`Cursorable`].
 
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Default / maximum page sizes.
@@ -35,12 +34,6 @@ pub fn encode_cursor_ms(ts_ms: i64, id: &str) -> String {
     })
     .unwrap_or_default();
     STANDARD_NO_PAD.encode(json)
-}
-
-/// Encode an opaque cursor from a `DateTime` + id.
-#[allow(dead_code)]
-pub fn encode_cursor(created_at: DateTime<Utc>, id: &str) -> String {
-    encode_cursor_ms(created_at.timestamp_millis(), id)
 }
 
 /// Decode a cursor back into `(ts_ms, id)`. Returns `None` if malformed.

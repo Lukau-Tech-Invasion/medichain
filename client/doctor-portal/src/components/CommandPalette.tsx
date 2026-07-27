@@ -159,7 +159,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
               aria-label="Command palette search"
             />
             <kbd className="hidden sm:inline-flex px-2 py-1 text-xs bg-gray-100 text-gray-500 rounded border">esc</kbd>
-            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded" aria-label="Close">
               <X size={18} className="text-gray-400" />
             </button>
           </div>

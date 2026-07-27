@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listChainOfCustody, createChainOfCustody } from '@medichain/shared';
+import { getPatients, listChainOfCustody, createChainOfCustody, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -64,6 +64,7 @@ interface ChainOfCustody {
 }
 
 const ChainOfCustodyPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -143,7 +144,7 @@ const ChainOfCustodyPage: React.FC = () => {
       
       setRecords(mappedRecords);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch chain of custody records');
+      setError(err instanceof Error ? err.message : t('docChainOfCustody.errorFetchFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -155,7 +156,7 @@ const ChainOfCustodyPage: React.FC = () => {
 
   const handleCreateCustody = () => {
     if (!newCollection.patientId || !newCollection.specimenDescription || !newCollection.sealNumber) {
-      showWarning('Please fill in all required fields');
+      showWarning(t('docChainOfCustody.errorRequiredFields'));
       return;
     }
 
@@ -205,12 +206,12 @@ const ChainOfCustodyPage: React.FC = () => {
       notes: '',
     });
     setActiveTab('active');
-    showSuccess(`Chain of custody record ${newRecord.custodyId} created`);
+    showSuccess(t('docChainOfCustody.successCreated', { id: newRecord.custodyId }));
   };
 
   const handleTransfer = () => {
     if (!selectedRecord || !transfer.transferredTo || !transfer.location) {
-      showWarning('Please fill in all required transfer fields');
+      showWarning(t('docChainOfCustody.errorRequiredTransferFields'));
       return;
     }
 
@@ -250,7 +251,7 @@ const ChainOfCustodyPage: React.FC = () => {
       witnessSignature: '',
       notes: '',
     });
-    showSuccess('Transfer documented successfully');
+    showSuccess(t('docChainOfCustody.successTransferDocumented'));
   };
 
   const filteredRecords = records.filter((r) => {
@@ -309,8 +310,8 @@ const ChainOfCustodyPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="bg-gradient-to-r from-gray-700 to-slate-600 text-white rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold mb-2">Chain of Custody</h1>
-        <p className="text-gray-100">Forensic specimen tracking and custody documentation</p>
+        <h1 className="text-3xl font-bold mb-2">{t('docChainOfCustody.title')}</h1>
+        <p className="text-gray-100">{t('docChainOfCustody.subtitle')}</p>
       </div>
 
       <div className="flex gap-2 mb-6 border-b">
@@ -320,7 +321,7 @@ const ChainOfCustodyPage: React.FC = () => {
             activeTab === 'active' ? 'text-gray-700 border-b-2 border-gray-700' : 'text-gray-600 hover:text-gray-700'
           }`}
         >
-          Active Specimens
+          {t('docChainOfCustody.tabActiveSpecimens')}
           {activeRecords.length > 0 && (
             <span className="ml-2 bg-gray-700 text-white text-xs rounded-full px-2 py-0.5">{activeRecords.length}</span>
           )}
@@ -331,7 +332,7 @@ const ChainOfCustodyPage: React.FC = () => {
             activeTab === 'new-collection' ? 'text-gray-700 border-b-2 border-gray-700' : 'text-gray-600 hover:text-gray-700'
           }`}
         >
-          New Collection
+          {t('docChainOfCustody.tabNewCollection')}
         </button>
         <button
           onClick={() => setActiveTab('transfer')}
@@ -339,7 +340,7 @@ const ChainOfCustodyPage: React.FC = () => {
             activeTab === 'transfer' ? 'text-gray-700 border-b-2 border-gray-700' : 'text-gray-600 hover:text-gray-700'
           }`}
         >
-          Transfer Custody
+          {t('docChainOfCustody.tabTransferCustody')}
         </button>
         <button
           onClick={() => setActiveTab('history')}
@@ -347,7 +348,7 @@ const ChainOfCustodyPage: React.FC = () => {
             activeTab === 'history' ? 'text-gray-700 border-b-2 border-gray-700' : 'text-gray-600 hover:text-gray-700'
           }`}
         >
-          History
+          {t('docChainOfCustody.tabHistory')}
         </button>
       </div>
 
@@ -356,8 +357,8 @@ const ChainOfCustodyPage: React.FC = () => {
           {activeRecords.length === 0 ? (
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
               <Package className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">No Active Specimens</h3>
-              <p className="text-gray-600">No specimens currently in custody</p>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('docChainOfCustody.noActiveTitle')}</h3>
+              <p className="text-gray-600">{t('docChainOfCustody.noActiveHint')}</p>
             </div>
           ) : (
             activeRecords.map((record) => (
@@ -369,53 +370,53 @@ const ChainOfCustodyPage: React.FC = () => {
                         <h3 className="text-lg font-bold text-gray-900">{record.custodyId}</h3>
                         <span className={`px-3 py-1 rounded-full text-sm font-semibold flex items-center gap-1 ${getStatusBadge(record.status)}`}>
                           {getStatusIcon(record.status)}
-                          {record.status.toUpperCase().replace('-', ' ')}
+                          {t(`docChainOfCustody.status_${record.status}`)}
                         </span>
                         {record.integrityVerified && (
                           <span className="text-green-600 flex items-center gap-1 text-sm">
                             <Shield className="w-4 h-4" />
-                            Verified
+                            {t('docChainOfCustody.verifiedBadge')}
                           </span>
                         )}
                       </div>
                       <p className="text-sm text-gray-600">
-                        Seal: {record.sealNumber} • Case: {record.caseNumber || 'N/A'}
+                        {t('docChainOfCustody.sealCaseLine', { seal: record.sealNumber, value: record.caseNumber || t('docChainOfCustody.caseNA') })}
                       </p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-4 mb-4 bg-gray-50 rounded-lg p-4">
                     <div>
-                      <p className="text-sm text-gray-600 mb-1">Patient</p>
+                      <p className="text-sm text-gray-600 mb-1">{t('docChainOfCustody.lblPatient')}</p>
                       <p className="font-semibold text-gray-900">{record.patientName}</p>
                       <p className="text-sm text-gray-600">{record.patientId}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600 mb-1">Specimen</p>
+                      <p className="text-sm text-gray-600 mb-1">{t('docChainOfCustody.lblSpecimen')}</p>
                       <p className="font-semibold text-gray-900">{record.specimenDescription}</p>
                       <p className="text-sm text-gray-600">{record.containerType} • {record.quantity}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-600 mb-1">Purpose</p>
-                      <p className="font-semibold text-gray-900 capitalize">{record.purpose.replace('-', ' ')}</p>
+                      <p className="text-sm text-gray-600 mb-1">{t('docChainOfCustody.lblPurpose')}</p>
+                      <p className="font-semibold text-gray-900 capitalize">{t(`docChainOfCustody.purpose_${record.purpose}`)}</p>
                       <p className="text-sm text-gray-600">{record.investigatingAgency}</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                      <p className="text-sm text-blue-900 font-semibold mb-1">Current Custodian</p>
+                      <p className="text-sm text-blue-900 font-semibold mb-1">{t('docChainOfCustody.lblCurrentCustodian')}</p>
                       <p className="text-blue-800">{record.currentCustodian}</p>
                     </div>
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                      <p className="text-sm text-blue-900 font-semibold mb-1">Current Location</p>
+                      <p className="text-sm text-blue-900 font-semibold mb-1">{t('docChainOfCustody.lblCurrentLocation')}</p>
                       <p className="text-blue-800">{record.currentLocation}</p>
                     </div>
                   </div>
 
                   {record.transfers.length > 0 && (
                     <div className="mb-4">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-2">Transfer History ({record.transfers.length})</h4>
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.transferHistoryTitle', { count: record.transfers.length })}</h4>
                       <div className="space-y-2">
                         {record.transfers.map((t, idx) => (
                           <div key={idx} className="bg-gray-50 rounded p-3 text-sm">
@@ -445,7 +446,7 @@ const ChainOfCustodyPage: React.FC = () => {
                     }}
                     className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
                   >
-                    Transfer Custody
+                    {t('docChainOfCustody.transferCustodyBtn')}
                   </button>
                 </div>
               </div>
@@ -458,14 +459,14 @@ const ChainOfCustodyPage: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
-            New Specimen Collection
+            {t('docChainOfCustody.newCollectionTitle')}
           </h2>
 
           <div className="space-y-4 mb-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="coc-patient" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Patient <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.patientLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="coc-patient"
@@ -473,7 +474,7 @@ const ChainOfCustodyPage: React.FC = () => {
                   onChange={(e) => setNewCollection({ ...newCollection, patientId: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docChainOfCustody.selectPatientPh')}</option>
                   {patients.map((p) => (
                     <option key={p.patient_id} value={p.patient_id}>
                       {p.full_name} ({p.patient_id})
@@ -484,7 +485,7 @@ const ChainOfCustodyPage: React.FC = () => {
 
               <div>
                 <label htmlFor="coc-specimen-type" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Specimen Type <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.specimenTypeLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="coc-specimen-type"
@@ -492,32 +493,32 @@ const ChainOfCustodyPage: React.FC = () => {
                   onChange={(e) => setNewCollection({ ...newCollection, specimenType: e.target.value as SpecimenType })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="blood">Blood</option>
-                  <option value="urine">Urine</option>
-                  <option value="other-fluid">Other Fluid</option>
-                  <option value="tissue">Tissue</option>
-                  <option value="swab">Swab</option>
-                  <option value="evidence">Physical Evidence</option>
+                  <option value="blood">{t('docChainOfCustody.type_blood')}</option>
+                  <option value="urine">{t('docChainOfCustody.type_urine')}</option>
+                  <option value="other-fluid">{t('docChainOfCustody.type_other-fluid')}</option>
+                  <option value="tissue">{t('docChainOfCustody.type_tissue')}</option>
+                  <option value="swab">{t('docChainOfCustody.type_swab')}</option>
+                  <option value="evidence">{t('docChainOfCustody.type_evidence')}</option>
                 </select>
               </div>
 
               <div className="col-span-2">
                 <label htmlFor="coc-specimen-description" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Specimen Description <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.specimenDescriptionLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="coc-specimen-description"
                   type="text"
                   value={newCollection.specimenDescription}
                   onChange={(e) => setNewCollection({ ...newCollection, specimenDescription: e.target.value })}
-                  placeholder="e.g., Whole blood - EDTA tube (purple top)"
+                  placeholder={t('docChainOfCustody.specimenDescriptionPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
                 <label htmlFor="coc-collection-date" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Collection Date <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.collectionDateLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="coc-collection-date"
@@ -530,7 +531,7 @@ const ChainOfCustodyPage: React.FC = () => {
 
               <div>
                 <label htmlFor="coc-collection-time" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Collection Time <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.collectionTimeLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="coc-collection-time"
@@ -543,21 +544,21 @@ const ChainOfCustodyPage: React.FC = () => {
 
               <div className="col-span-2">
                 <label htmlFor="coc-collection-location" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Collection Location <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.collectionLocationLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="coc-collection-location"
                   type="text"
                   value={newCollection.collectionLocation}
                   onChange={(e) => setNewCollection({ ...newCollection, collectionLocation: e.target.value })}
-                  placeholder="e.g., Emergency Department"
+                  placeholder={t('docChainOfCustody.collectionLocationPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
                 <label htmlFor="coc-purpose" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Purpose <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.purposeLabel')} <span className="text-red-600">*</span>
                 </label>
                 <select
                   id="coc-purpose"
@@ -565,96 +566,96 @@ const ChainOfCustodyPage: React.FC = () => {
                   onChange={(e) => setNewCollection({ ...newCollection, purpose: e.target.value as CustodyPurpose })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="legal">Legal/Forensic</option>
-                  <option value="toxicology">Toxicology</option>
-                  <option value="dna">DNA Analysis</option>
-                  <option value="sexual-assault">Sexual Assault</option>
-                  <option value="criminal">Criminal Investigation</option>
-                  <option value="workplace">Workplace Testing</option>
+                  <option value="legal">{t('docChainOfCustody.purpose_legal')}</option>
+                  <option value="toxicology">{t('docChainOfCustody.purpose_toxicology')}</option>
+                  <option value="dna">{t('docChainOfCustody.purpose_dna')}</option>
+                  <option value="sexual-assault">{t('docChainOfCustody.purpose_sexual-assault')}</option>
+                  <option value="criminal">{t('docChainOfCustody.purpose_criminal')}</option>
+                  <option value="workplace">{t('docChainOfCustody.purpose_workplace')}</option>
                 </select>
               </div>
 
               <div>
-                <label htmlFor="coc-case-number" className="block text-sm font-semibold text-gray-700 mb-2">Case Number</label>
+                <label htmlFor="coc-case-number" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.caseNumberLabel')}</label>
                 <input
                   id="coc-case-number"
                   type="text"
                   value={newCollection.caseNumber}
                   onChange={(e) => setNewCollection({ ...newCollection, caseNumber: e.target.value })}
-                  placeholder="e.g., CASE-2024-001"
+                  placeholder={t('docChainOfCustody.caseNumberPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div className="col-span-2">
-                <label htmlFor="coc-investigating-agency" className="block text-sm font-semibold text-gray-700 mb-2">Investigating Agency</label>
+                <label htmlFor="coc-investigating-agency" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.investigatingAgencyLabel')}</label>
                 <input
                   id="coc-investigating-agency"
                   type="text"
                   value={newCollection.investigatingAgency}
                   onChange={(e) => setNewCollection({ ...newCollection, investigatingAgency: e.target.value })}
-                  placeholder="e.g., South African Police Service"
+                  placeholder={t('docChainOfCustody.investigatingAgencyPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
                 <label htmlFor="coc-seal-number" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Seal Number <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.sealNumberLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="coc-seal-number"
                   type="text"
                   value={newCollection.sealNumber}
                   onChange={(e) => setNewCollection({ ...newCollection, sealNumber: e.target.value })}
-                  placeholder="e.g., SEAL-2024-001"
+                  placeholder={t('docChainOfCustody.sealNumberPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
-                <label htmlFor="coc-container-type" className="block text-sm font-semibold text-gray-700 mb-2">Container Type</label>
+                <label htmlFor="coc-container-type" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.containerTypeLabel')}</label>
                 <input
                   id="coc-container-type"
                   type="text"
                   value={newCollection.containerType}
                   onChange={(e) => setNewCollection({ ...newCollection, containerType: e.target.value })}
-                  placeholder="e.g., EDTA tube (5mL)"
+                  placeholder={t('docChainOfCustody.containerTypePh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
-                <label htmlFor="coc-quantity" className="block text-sm font-semibold text-gray-700 mb-2">Quantity</label>
+                <label htmlFor="coc-quantity" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.quantityLabel')}</label>
                 <input
                   id="coc-quantity"
                   type="text"
                   value={newCollection.quantity}
                   onChange={(e) => setNewCollection({ ...newCollection, quantity: e.target.value })}
-                  placeholder="e.g., 5mL"
+                  placeholder={t('docChainOfCustody.quantityPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
-                <label htmlFor="coc-storage-conditions" className="block text-sm font-semibold text-gray-700 mb-2">Storage Conditions</label>
+                <label htmlFor="coc-storage-conditions" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.storageConditionsLabel')}</label>
                 <input
                   id="coc-storage-conditions"
                   type="text"
                   value={newCollection.storageConditions}
                   onChange={(e) => setNewCollection({ ...newCollection, storageConditions: e.target.value })}
-                  placeholder="e.g., Refrigerated 2-8°C"
+                  placeholder={t('docChainOfCustody.storageConditionsPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div className="col-span-2">
-                <label htmlFor="coc-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label htmlFor="coc-notes" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.notesLabel')}</label>
                 <textarea
                   id="coc-notes"
                   value={newCollection.notes}
                   onChange={(e) => setNewCollection({ ...newCollection, notes: e.target.value })}
-                  placeholder="Additional notes..."
+                  placeholder={t('docChainOfCustody.notesPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   rows={2}
                 />
@@ -665,14 +666,14 @@ const ChainOfCustodyPage: React.FC = () => {
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
             <h3 className="font-bold text-yellow-900 mb-2 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5" />
-              Chain of Custody Requirements
+              {t('docChainOfCustody.requirementsTitle')}
             </h3>
             <ul className="text-sm text-yellow-800 space-y-1">
-              <li>• All specimens must be sealed with tamper-evident seals</li>
-              <li>• Document collector name, date, time, and location</li>
-              <li>• Maintain continuous custody or document all transfers</li>
-              <li>• Verify seal integrity at each transfer point</li>
-              <li>• Store specimens according to required conditions</li>
+              <li>• {t('docChainOfCustody.requirement1')}</li>
+              <li>• {t('docChainOfCustody.requirement2')}</li>
+              <li>• {t('docChainOfCustody.requirement3')}</li>
+              <li>• {t('docChainOfCustody.requirement4')}</li>
+              <li>• {t('docChainOfCustody.requirement5')}</li>
             </ul>
           </div>
 
@@ -680,18 +681,18 @@ const ChainOfCustodyPage: React.FC = () => {
             onClick={handleCreateCustody}
             className="w-full bg-gray-700 text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
           >
-            Create Chain of Custody Record
+            {t('docChainOfCustody.createRecordBtn')}
           </button>
         </div>
       )}
 
       {activeTab === 'transfer' && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-bold mb-4">Transfer Custody</h2>
+          <h2 className="text-xl font-bold mb-4">{t('docChainOfCustody.transferCustodyTitle')}</h2>
 
           {!selectedRecord ? (
             <div>
-              <p className="text-gray-600 mb-4">Select a specimen to transfer:</p>
+              <p className="text-gray-600 mb-4">{t('docChainOfCustody.selectSpecimenPrompt')}</p>
               <div className="space-y-2">
                 {activeRecords.map((record) => (
                   <button
@@ -707,7 +708,7 @@ const ChainOfCustodyPage: React.FC = () => {
                         </p>
                       </div>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(record.status)}`}>
-                        {record.status.toUpperCase().replace('-', ' ')}
+                        {t(`docChainOfCustody.status_${record.status}`)}
                       </span>
                     </div>
                   </button>
@@ -717,22 +718,22 @@ const ChainOfCustodyPage: React.FC = () => {
           ) : (
             <div className="space-y-4">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h3 className="font-bold text-blue-900 mb-2">Specimen Information</h3>
+                <h3 className="font-bold text-blue-900 mb-2">{t('docChainOfCustody.specimenInfoTitle')}</h3>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <p className="text-blue-700">Custody ID</p>
+                    <p className="text-blue-700">{t('docChainOfCustody.custodyIdLabel')}</p>
                     <p className="font-semibold text-blue-900">{selectedRecord.custodyId}</p>
                   </div>
                   <div>
-                    <p className="text-blue-700">Seal Number</p>
+                    <p className="text-blue-700">{t('docChainOfCustody.sealNumberLabel')}</p>
                     <p className="font-semibold text-blue-900">{selectedRecord.sealNumber}</p>
                   </div>
                   <div>
-                    <p className="text-blue-700">Patient</p>
+                    <p className="text-blue-700">{t('docChainOfCustody.patientLabel')}</p>
                     <p className="font-semibold text-blue-900">{selectedRecord.patientName}</p>
                   </div>
                   <div>
-                    <p className="text-blue-700">Current Custodian</p>
+                    <p className="text-blue-700">{t('docChainOfCustody.lblCurrentCustodian')}</p>
                     <p className="font-semibold text-blue-900">{selectedRecord.currentCustodian}</p>
                   </div>
                 </div>
@@ -740,40 +741,40 @@ const ChainOfCustodyPage: React.FC = () => {
 
               <div>
                 <label htmlFor="coc-transfer-to" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Transfer To <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.transferToLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="coc-transfer-to"
                   type="text"
                   value={transfer.transferredTo}
                   onChange={(e) => setTransfer({ ...transfer, transferredTo: e.target.value })}
-                  placeholder="Recipient name or ID"
+                  placeholder={t('docChainOfCustody.transferToPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
                 <label htmlFor="coc-transfer-location" className="block text-sm font-semibold text-gray-700 mb-2">
-                  Location <span className="text-red-600">*</span>
+                  {t('docChainOfCustody.locationLabel')} <span className="text-red-600">*</span>
                 </label>
                 <input
                   id="coc-transfer-location"
                   type="text"
                   value={transfer.location}
                   onChange={(e) => setTransfer({ ...transfer, location: e.target.value })}
-                  placeholder="Transfer location"
+                  placeholder={t('docChainOfCustody.locationPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
-                <label htmlFor="coc-transfer-condition" className="block text-sm font-semibold text-gray-700 mb-2">Condition</label>
+                <label htmlFor="coc-transfer-condition" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.conditionLabel')}</label>
                 <input
                   id="coc-transfer-condition"
                   type="text"
                   value={transfer.condition}
                   onChange={(e) => setTransfer({ ...transfer, condition: e.target.value })}
-                  placeholder="Specimen condition"
+                  placeholder={t('docChainOfCustody.conditionPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
@@ -786,28 +787,28 @@ const ChainOfCustodyPage: React.FC = () => {
                   onChange={(e) => setTransfer({ ...transfer, sealIntact: e.target.checked })}
                   className="w-5 h-5"
                 />
-                <label htmlFor="coc-seal-intact" className="text-sm font-semibold text-gray-700">Seal Intact</label>
+                <label htmlFor="coc-seal-intact" className="text-sm font-semibold text-gray-700">{t('docChainOfCustody.sealIntactLabel')}</label>
               </div>
 
               <div>
-                <label htmlFor="coc-witness-signature" className="block text-sm font-semibold text-gray-700 mb-2">Witness Signature</label>
+                <label htmlFor="coc-witness-signature" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.witnessSignatureLabel')}</label>
                 <input
                   id="coc-witness-signature"
                   type="text"
                   value={transfer.witnessSignature}
                   onChange={(e) => setTransfer({ ...transfer, witnessSignature: e.target.value })}
-                  placeholder="Optional witness"
+                  placeholder={t('docChainOfCustody.witnessSignaturePh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
-                <label htmlFor="coc-transfer-notes" className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <label htmlFor="coc-transfer-notes" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.notesLabel')}</label>
                 <textarea
                   id="coc-transfer-notes"
                   value={transfer.notes}
                   onChange={(e) => setTransfer({ ...transfer, notes: e.target.value })}
-                  placeholder="Transfer notes..."
+                  placeholder={t('docChainOfCustody.transferNotesPh')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   rows={2}
                 />
@@ -818,13 +819,13 @@ const ChainOfCustodyPage: React.FC = () => {
                   onClick={handleTransfer}
                   className="flex-1 bg-gray-700 text-white px-4 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
                 >
-                  Complete Transfer
+                  {t('docChainOfCustody.completeTransferBtn')}
                 </button>
                 <button
                   onClick={() => setSelectedRecord(null)}
                   className="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  Cancel
+                  {t('docChainOfCustody.cancelBtn')}
                 </button>
               </div>
             </div>
@@ -837,7 +838,7 @@ const ChainOfCustodyPage: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
             <div className="grid grid-cols-3 gap-4">
               <div className="col-span-2">
-                <label htmlFor="coc-search" className="block text-sm font-semibold text-gray-700 mb-2">Search</label>
+                <label htmlFor="coc-search" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.searchLabel')}</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <input
@@ -845,27 +846,27 @@ const ChainOfCustodyPage: React.FC = () => {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search by custody ID, patient, seal number, or case..."
+                    placeholder={t('docChainOfCustody.searchPh')}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="coc-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
+                <label htmlFor="coc-status-filter" className="block text-sm font-semibold text-gray-700 mb-2">{t('docChainOfCustody.statusLabel')}</label>
                 <select
                   id="coc-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as SpecimenStatus | 'all')}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="collected">Collected</option>
-                  <option value="in-transit">In Transit</option>
-                  <option value="received">Received</option>
-                  <option value="analyzed">Analyzed</option>
-                  <option value="stored">Stored</option>
-                  <option value="released">Released</option>
-                  <option value="destroyed">Destroyed</option>
+                  <option value="all">{t('docChainOfCustody.filterAllStatuses')}</option>
+                  <option value="collected">{t('docChainOfCustody.filterStatus_collected')}</option>
+                  <option value="in-transit">{t('docChainOfCustody.filterStatus_in-transit')}</option>
+                  <option value="received">{t('docChainOfCustody.filterStatus_received')}</option>
+                  <option value="analyzed">{t('docChainOfCustody.filterStatus_analyzed')}</option>
+                  <option value="stored">{t('docChainOfCustody.filterStatus_stored')}</option>
+                  <option value="released">{t('docChainOfCustody.filterStatus_released')}</option>
+                  <option value="destroyed">{t('docChainOfCustody.filterStatus_destroyed')}</option>
                 </select>
               </div>
             </div>
@@ -875,12 +876,12 @@ const ChainOfCustodyPage: React.FC = () => {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Status</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Custody ID</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Patient</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Specimen</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Case Info</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">Current Status</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">{t('docChainOfCustody.colStatus')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">{t('docChainOfCustody.colCustodyId')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">{t('docChainOfCustody.colPatient')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">{t('docChainOfCustody.colSpecimen')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">{t('docChainOfCustody.colCaseInfo')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700">{t('docChainOfCustody.colCurrentStatus')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -889,12 +890,12 @@ const ChainOfCustodyPage: React.FC = () => {
                     <td className="px-4 py-3">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold inline-flex items-center gap-1 ${getStatusBadge(record.status)}`}>
                         {getStatusIcon(record.status)}
-                        {record.status.replace('-', ' ').toUpperCase()}
+                        {t(`docChainOfCustody.status_${record.status}`)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-gray-900">{record.custodyId}</p>
-                      <p className="text-xs text-gray-600">Seal: {record.sealNumber}</p>
+                      <p className="text-xs text-gray-600">{t('docChainOfCustody.sealLabel', { seal: record.sealNumber })}</p>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-gray-900">{record.patientName}</p>
@@ -905,13 +906,13 @@ const ChainOfCustodyPage: React.FC = () => {
                       <p className="text-xs text-gray-600">{record.quantity}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-gray-900 capitalize">{record.purpose.replace('-', ' ')}</p>
-                      <p className="text-xs text-gray-600">{record.caseNumber || 'N/A'}</p>
+                      <p className="text-sm text-gray-900 capitalize">{t(`docChainOfCustody.purpose_${record.purpose}`)}</p>
+                      <p className="text-xs text-gray-600">{record.caseNumber || t('docChainOfCustody.caseNA')}</p>
                     </td>
                     <td className="px-4 py-3 text-sm">
                       <p className="text-gray-900">{record.currentCustodian}</p>
                       <p className="text-xs text-gray-600">{record.currentLocation}</p>
-                      <p className="text-xs text-gray-600 mt-1">Transfers: {record.transfers.length}</p>
+                      <p className="text-xs text-gray-600 mt-1">{t('docChainOfCustody.transfersCountLabel', { count: record.transfers.length })}</p>
                     </td>
                   </tr>
                 ))}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, listPathology, createPathology } from '@medichain/shared';
+import { getPatients, listPathology, createPathology, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 
@@ -49,6 +49,7 @@ interface PathologySpecimen {
 }
 
 const PathologyPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [patients, setPatients] = useState<PatientProfile[]>([]);
@@ -99,7 +100,7 @@ const PathologyPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching pathology specimens:', err);
-      setError('Failed to load pathology specimens');
+      setError(t('docPathology.errorLoad'));
     } finally {
       setIsLoading(false);
     }
@@ -117,7 +118,7 @@ const PathologyPage: React.FC = () => {
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatientId || !collectionDate || !site || !clinician) {
-      showWarning('Please fill in all required fields');
+      showWarning(t('docPathology.warningRequiredFields'));
       return;
     }
 
@@ -151,7 +152,7 @@ const PathologyPage: React.FC = () => {
     }
 
     setSpecimens([...specimens, newSpecimen]);
-    showSuccess(`Pathology specimen ${newSpecimen.specimenId} submitted successfully`);
+    showSuccess(t('docPathology.submittedSuccess', { id: newSpecimen.specimenId }));
 
     // Reset form
     setSelectedPatientId('');
@@ -188,11 +189,11 @@ const PathologyPage: React.FC = () => {
 
     if (finalizeReport) {
       if (!diagnosis || !microscopicDescription) {
-        showWarning('Diagnosis and microscopic description are required to finalize report');
+        showWarning(t('docPathology.warningFinalizeFields'));
         return;
       }
       if (isCritical && !communicatedTo) {
-        showWarning('Critical findings must be communicated before finalizing');
+        showWarning(t('docPathology.warningCriticalCommunication'));
         return;
       }
     }
@@ -215,7 +216,7 @@ const PathologyPage: React.FC = () => {
     };
 
     setSpecimens(specimens.map(s => s.specimenId === selectedSpecimen.specimenId ? updatedSpecimen : s));
-    showSuccess(`Report ${finalizeReport ? 'finalized' : 'saved as preliminary'} successfully`);
+    showSuccess(finalizeReport ? t('docPathology.reportFinalizedSuccess') : t('docPathology.reportSavedPrelimSuccess'));
     setActiveTab('worklist');
     setSelectedSpecimen(null);
   };
@@ -294,12 +295,12 @@ const PathologyPage: React.FC = () => {
           <div className="flex items-center space-x-3">
             <Microscope className="h-8 w-8" />
             <div>
-              <h1 className="text-3xl font-bold">Pathology Laboratory</h1>
-              <p className="text-amber-100">Surgical Pathology & Cytology</p>
+              <h1 className="text-3xl font-bold">{t('docPathology.title')}</h1>
+              <p className="text-amber-100">{t('docPathology.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-amber-100">Pathologist</p>
+            <p className="text-sm text-amber-100">{t('docPathology.pathologistLabel')}</p>
             <p className="font-semibold">{user?.userId || 'Unknown'}</p>
           </div>
         </div>
@@ -316,7 +317,7 @@ const PathologyPage: React.FC = () => {
           }`}
         >
           <FileText className="inline h-4 w-4 mr-2" />
-          Worklist
+          {t('docPathology.tabWorklist')}
         </button>
         <button
           onClick={() => setActiveTab('newOrder')}
@@ -327,7 +328,7 @@ const PathologyPage: React.FC = () => {
           }`}
         >
           <Plus className="inline h-4 w-4 mr-2" />
-          New Specimen
+          {t('docPathology.tabNewSpecimen')}
         </button>
         {selectedSpecimen && (
           <button
@@ -339,7 +340,7 @@ const PathologyPage: React.FC = () => {
             }`}
           >
             <Microscope className="inline h-4 w-4 mr-2" />
-            Report: {selectedSpecimen.specimenId}
+            {t('docPathology.tabReport', { id: selectedSpecimen.specimenId })}
           </button>
         )}
       </div>
@@ -353,47 +354,47 @@ const PathologyPage: React.FC = () => {
               <div className="md:col-span-2">
                 <label htmlFor="path-search" className="block text-sm font-medium text-gray-700 mb-1">
                   <Search className="inline h-4 w-4 mr-1" />
-                  Search
+                  {t('docPathology.searchLabel')}
                 </label>
                 <input
                   id="path-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Specimen ID, patient, site..."
+                  placeholder={t('docPathology.searchPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
               <div>
-                <label htmlFor="path-status-filter" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <label htmlFor="path-status-filter" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.statusLabel')}</label>
                 <select
                   id="path-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="all">All Statuses</option>
-                  <option value="received">Received</option>
-                  <option value="grossing">Grossing</option>
-                  <option value="processing">Processing</option>
-                  <option value="prelim">Preliminary</option>
-                  <option value="final">Final</option>
+                  <option value="all">{t('docPathology.allStatuses')}</option>
+                  <option value="received">{t('docPathology.status_received')}</option>
+                  <option value="grossing">{t('docPathology.status_grossing')}</option>
+                  <option value="processing">{t('docPathology.status_processing')}</option>
+                  <option value="prelim">{t('docPathology.status_prelim')}</option>
+                  <option value="final">{t('docPathology.status_final')}</option>
                 </select>
               </div>
               <div>
-                <label htmlFor="path-type-filter" className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <label htmlFor="path-type-filter" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.typeLabel')}</label>
                 <select
                   id="path-type-filter"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="all">All Types</option>
-                  <option value="surgical">Surgical</option>
-                  <option value="biopsy">Biopsy</option>
-                  <option value="cytology">Cytology</option>
-                  <option value="bone-marrow">Bone Marrow</option>
-                  <option value="autopsy">Autopsy</option>
+                  <option value="all">{t('docPathology.allTypes')}</option>
+                  <option value="surgical">{t('docPathology.specimenType_surgical')}</option>
+                  <option value="biopsy">{t('docPathology.specimenType_biopsy')}</option>
+                  <option value="cytology">{t('docPathology.specimenType_cytology')}</option>
+                  <option value="bone-marrow">{t('docPathology.specimenType_bone-marrow')}</option>
+                  <option value="autopsy">{t('docPathology.specimenType_autopsy')}</option>
                 </select>
               </div>
             </div>
@@ -405,13 +406,13 @@ const PathologyPage: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Specimen ID</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Patient</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type/Site</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Collected</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docPathology.tablePriority')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docPathology.tableSpecimenId')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docPathology.tablePatient')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docPathology.tableTypeSite')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docPathology.tableCollected')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docPathology.tableStatus')}</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docPathology.tableActions')}</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -422,7 +423,7 @@ const PathologyPage: React.FC = () => {
                     >
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 text-xs font-semibold rounded ${getPriorityBadge(specimen.priority)}`}>
-                          {specimen.priority.toUpperCase()}
+                          {t(`docPathology.priority_${specimen.priority}`)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -430,7 +431,7 @@ const PathologyPage: React.FC = () => {
                         {specimen.isCritical && (
                           <span className="text-xs text-red-600 flex items-center">
                             <AlertCircle className="h-3 w-3 mr-1" />
-                            Critical
+                            {t('docPathology.criticalBadge')}
                           </span>
                         )}
                       </td>
@@ -440,7 +441,7 @@ const PathologyPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm">
-                          <span className="font-medium text-gray-700">{specimen.specimenType}</span>
+                          <span className="font-medium text-gray-700">{t(`docPathology.specimenType_${specimen.specimenType}`)}</span>
                         </div>
                         <div className="text-sm text-gray-600">{specimen.site}</div>
                         {specimen.laterality !== 'n/a' && (
@@ -456,7 +457,7 @@ const PathologyPage: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusBadge(specimen.status)}`}>
-                          {specimen.status}
+                          {t(`docPathology.status_${specimen.status}`)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -465,7 +466,7 @@ const PathologyPage: React.FC = () => {
                           className="text-amber-600 hover:text-amber-800 text-sm font-medium flex items-center"
                         >
                           <Eye className="h-4 w-4 mr-1" />
-                          View/Report
+                          {t('docPathology.viewReportButton')}
                         </button>
                       </td>
                     </tr>
@@ -480,13 +481,13 @@ const PathologyPage: React.FC = () => {
       {/* New Specimen Tab */}
       {activeTab === 'newOrder' && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold mb-4">New Specimen Submission</h2>
+          <h2 className="text-xl font-bold mb-4">{t('docPathology.newSpecimenSubmissionHeading')}</h2>
           <form onSubmit={handleSubmitOrder}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Patient Selection */}
               <div>
                 <label htmlFor="path-patient" className="block text-sm font-medium text-gray-700 mb-1">
-                  Patient <span className="text-red-500">*</span>
+                  {t('docPathology.patientRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="path-patient"
@@ -495,7 +496,7 @@ const PathologyPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docPathology.selectPatientPh')}</option>
                   {patients.map((patient) => (
                     <option key={patient.patient_id} value={patient.patient_id}>
                       {patient.full_name} ({patient.patient_id})
@@ -507,7 +508,7 @@ const PathologyPage: React.FC = () => {
               {/* Specimen Type */}
               <div>
                 <label htmlFor="path-specimen-type" className="block text-sm font-medium text-gray-700 mb-1">
-                  Specimen Type <span className="text-red-500">*</span>
+                  {t('docPathology.specimenTypeRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="path-specimen-type"
@@ -516,18 +517,18 @@ const PathologyPage: React.FC = () => {
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 >
-                  <option value="surgical">Surgical</option>
-                  <option value="biopsy">Biopsy</option>
-                  <option value="cytology">Cytology</option>
-                  <option value="bone-marrow">Bone Marrow</option>
-                  <option value="autopsy">Autopsy</option>
+                  <option value="surgical">{t('docPathology.specimenType_surgical')}</option>
+                  <option value="biopsy">{t('docPathology.specimenType_biopsy')}</option>
+                  <option value="cytology">{t('docPathology.specimenType_cytology')}</option>
+                  <option value="bone-marrow">{t('docPathology.specimenType_bone-marrow')}</option>
+                  <option value="autopsy">{t('docPathology.specimenType_autopsy')}</option>
                 </select>
               </div>
 
               {/* Collection Date/Time */}
               <div>
                 <label htmlFor="path-collection-date" className="block text-sm font-medium text-gray-700 mb-1">
-                  Collection Date <span className="text-red-500">*</span>
+                  {t('docPathology.collectionDateRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="path-collection-date"
@@ -540,7 +541,7 @@ const PathologyPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="path-collection-time" className="block text-sm font-medium text-gray-700 mb-1">Collection Time</label>
+                <label htmlFor="path-collection-time" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.collectionTimeLabel')}</label>
                 <input
                   id="path-collection-time"
                   type="time"
@@ -553,14 +554,14 @@ const PathologyPage: React.FC = () => {
               {/* Anatomical Site */}
               <div>
                 <label htmlFor="path-site" className="block text-sm font-medium text-gray-700 mb-1">
-                  Anatomical Site <span className="text-red-500">*</span>
+                  {t('docPathology.anatomicalSiteRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="path-site"
                   type="text"
                   value={site}
                   onChange={(e) => setSite(e.target.value)}
-                  placeholder="e.g., Colon, Breast, Lung..."
+                  placeholder={t('docPathology.anatomicalSitePh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -568,31 +569,31 @@ const PathologyPage: React.FC = () => {
 
               {/* Laterality */}
               <div>
-                <label htmlFor="path-laterality" className="block text-sm font-medium text-gray-700 mb-1">Laterality</label>
+                <label htmlFor="path-laterality" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.lateralityLabel')}</label>
                 <select
                   id="path-laterality"
                   value={laterality}
                   onChange={(e) => setLaterality(e.target.value as typeof laterality)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="n/a">Not Applicable</option>
-                  <option value="left">Left</option>
-                  <option value="right">Right</option>
-                  <option value="bilateral">Bilateral</option>
+                  <option value="n/a">{t('docPathology.laterality_na')}</option>
+                  <option value="left">{t('docPathology.laterality_left')}</option>
+                  <option value="right">{t('docPathology.laterality_right')}</option>
+                  <option value="bilateral">{t('docPathology.laterality_bilateral')}</option>
                 </select>
               </div>
 
               {/* Clinician */}
               <div>
                 <label htmlFor="path-clinician" className="block text-sm font-medium text-gray-700 mb-1">
-                  Ordering Clinician <span className="text-red-500">*</span>
+                  {t('docPathology.orderingClinicianRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="path-clinician"
                   type="text"
                   value={clinician}
                   onChange={(e) => setClinician(e.target.value)}
-                  placeholder="Dr. Name"
+                  placeholder={t('docPathology.orderingClinicianPh')}
                   className="w-full px-3 py-2 border rounded-md"
                   required
                 />
@@ -600,71 +601,71 @@ const PathologyPage: React.FC = () => {
 
               {/* Priority */}
               <div>
-                <label htmlFor="path-priority" className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                <label htmlFor="path-priority" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.priorityLabel')}</label>
                 <select
                   id="path-priority"
                   value={priority}
                   onChange={(e) => setPriority(e.target.value as typeof priority)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="routine">Routine</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="stat">STAT</option>
+                  <option value="routine">{t('docPathology.priority_routine')}</option>
+                  <option value="urgent">{t('docPathology.priority_urgent')}</option>
+                  <option value="stat">{t('docPathology.priority_stat')}</option>
                 </select>
               </div>
 
               {/* Container */}
               <div>
-                <label htmlFor="path-container" className="block text-sm font-medium text-gray-700 mb-1">Container Type</label>
+                <label htmlFor="path-container" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.containerTypeLabel')}</label>
                 <input
                   id="path-container"
                   type="text"
                   value={container}
                   onChange={(e) => setContainer(e.target.value)}
-                  placeholder="e.g., Large specimen container"
+                  placeholder={t('docPathology.containerTypePh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
 
               {/* Fixative */}
               <div>
-                <label htmlFor="path-fixative" className="block text-sm font-medium text-gray-700 mb-1">Fixative</label>
+                <label htmlFor="path-fixative" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.fixativeLabel')}</label>
                 <select
                   id="path-fixative"
                   value={fixative}
                   onChange={(e) => setFixative(e.target.value)}
                   className="w-full px-3 py-2 border rounded-md"
                 >
-                  <option value="10% formalin">10% Formalin</option>
-                  <option value="95% alcohol">95% Alcohol</option>
-                  <option value="CytoLyt">CytoLyt</option>
-                  <option value="RPMI">RPMI</option>
-                  <option value="none">None (Fresh)</option>
+                  <option value="10% formalin">{t('docPathology.fixative_formalin')}</option>
+                  <option value="95% alcohol">{t('docPathology.fixative_alcohol')}</option>
+                  <option value="CytoLyt">{t('docPathology.fixative_cytolyt')}</option>
+                  <option value="RPMI">{t('docPathology.fixative_rpmi')}</option>
+                  <option value="none">{t('docPathology.fixative_none')}</option>
                 </select>
               </div>
 
               {/* Clinical History */}
               <div className="md:col-span-2">
-                <label htmlFor="path-clinical-history" className="block text-sm font-medium text-gray-700 mb-1">Clinical History</label>
+                <label htmlFor="path-clinical-history" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.clinicalHistoryLabel')}</label>
                 <textarea
                   id="path-clinical-history"
                   value={clinicalHistory}
                   onChange={(e) => setClinicalHistory(e.target.value)}
                   rows={3}
-                  placeholder="Relevant clinical history..."
+                  placeholder={t('docPathology.clinicalHistoryPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
 
               {/* Clinical Diagnosis */}
               <div className="md:col-span-2">
-                <label htmlFor="path-clinical-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">Clinical Diagnosis</label>
+                <label htmlFor="path-clinical-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.clinicalDiagnosisLabel')}</label>
                 <input
                   id="path-clinical-diagnosis"
                   type="text"
                   value={clinicalDiagnosis}
                   onChange={(e) => setClinicalDiagnosis(e.target.value)}
-                  placeholder="Working/differential diagnosis..."
+                  placeholder={t('docPathology.clinicalDiagnosisPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
@@ -677,14 +678,14 @@ const PathologyPage: React.FC = () => {
                 onClick={() => setActiveTab('worklist')}
                 className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
               >
-                Cancel
+                {t('docPathology.cancelButton')}
               </button>
               <button
                 type="submit"
                 className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Submit Specimen
+                {t('docPathology.submitSpecimenButton')}
               </button>
             </div>
           </form>
@@ -696,52 +697,52 @@ const PathologyPage: React.FC = () => {
         <div className="space-y-6">
           {/* Specimen Information */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Specimen Information</h2>
+            <h2 className="text-xl font-bold mb-4">{t('docPathology.specimenInformationHeading')}</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <span className="font-medium text-gray-700">Specimen ID:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.specimenIdColLabel')}</span>
                 <p className="text-gray-900">{selectedSpecimen.specimenId}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Patient:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.patientColLabel')}</span>
                 <p className="text-gray-900">{selectedSpecimen.patientName}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Type:</span>
-                <p className="text-gray-900">{selectedSpecimen.specimenType}</p>
+                <span className="font-medium text-gray-700">{t('docPathology.typeColLabel')}</span>
+                <p className="text-gray-900">{t(`docPathology.specimenType_${selectedSpecimen.specimenType}`)}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Site:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.siteColLabel')}</span>
                 <p className="text-gray-900">{selectedSpecimen.site} {selectedSpecimen.laterality !== 'n/a' ? `(${selectedSpecimen.laterality})` : ''}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Collected:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.collectedColLabel')}</span>
                 <p className="text-gray-900">{selectedSpecimen.collectionDate} {selectedSpecimen.collectionTime}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Clinician:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.clinicianColLabel')}</span>
                 <p className="text-gray-900">{selectedSpecimen.clinician}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Fixative:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.fixativeColLabel')}</span>
                 <p className="text-gray-900">{selectedSpecimen.fixative}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">Status:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.statusColLabel')}</span>
                 <span className={`px-2 py-1 text-xs font-semibold rounded ${getStatusBadge(selectedSpecimen.status)}`}>
-                  {selectedSpecimen.status}
+                  {t(`docPathology.status_${selectedSpecimen.status}`)}
                 </span>
               </div>
             </div>
             {selectedSpecimen.clinicalHistory && (
               <div className="mt-4">
-                <span className="font-medium text-gray-700">Clinical History:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.clinicalHistoryColLabel')}</span>
                 <p className="text-gray-900 mt-1">{selectedSpecimen.clinicalHistory}</p>
               </div>
             )}
             {selectedSpecimen.clinicalDiagnosis && (
               <div className="mt-2">
-                <span className="font-medium text-gray-700">Clinical Diagnosis:</span>
+                <span className="font-medium text-gray-700">{t('docPathology.clinicalDiagnosisColLabel')}</span>
                 <p className="text-gray-900 mt-1">{selectedSpecimen.clinicalDiagnosis}</p>
               </div>
             )}
@@ -750,9 +751,9 @@ const PathologyPage: React.FC = () => {
           {/* Digital Slide Viewer Placeholder */}
           <div className="bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 p-8 text-center">
             <Microscope className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-            <p className="text-gray-600 font-medium">[Digital Pathology Viewer Placeholder]</p>
+            <p className="text-gray-600 font-medium">{t('docPathology.viewerPlaceholder')}</p>
             <p className="text-sm text-gray-500 mt-1">
-              Whole slide images (WSI) would display here via OpenSeadragon or similar viewer
+              {t('docPathology.viewerPlaceholderHint')}
             </p>
             {slides.length > 0 && (
               <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -767,32 +768,32 @@ const PathologyPage: React.FC = () => {
 
           {/* Gross Examination */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 id="path-gross-examination-heading" className="text-lg font-bold mb-3">Gross Examination</h3>
+            <h3 id="path-gross-examination-heading" className="text-lg font-bold mb-3">{t('docPathology.grossExaminationHeading')}</h3>
             <textarea
               id="path-gross-description"
               aria-labelledby="path-gross-examination-heading"
               value={grossDescription}
               onChange={(e) => setGrossDescription(e.target.value)}
               rows={6}
-              placeholder="Describe the gross appearance of the specimen..."
+              placeholder={t('docPathology.grossDescriptionPh')}
               className="w-full px-3 py-2 border rounded-md"
             />
           </div>
 
           {/* Blocks and Slides */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-bold mb-3">Tissue Processing</h3>
+            <h3 className="text-lg font-bold mb-3">{t('docPathology.tissueProcessingHeading')}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Blocks */}
               <div>
-                <label htmlFor="path-new-block" className="block text-sm font-medium text-gray-700 mb-2">Tissue Blocks</label>
+                <label htmlFor="path-new-block" className="block text-sm font-medium text-gray-700 mb-2">{t('docPathology.tissueBlocksLabel')}</label>
                 <div className="flex space-x-2 mb-2">
                   <input
                     id="path-new-block"
                     type="text"
                     value={newBlock}
                     onChange={(e) => setNewBlock(e.target.value)}
-                    placeholder="e.g., A1-tumor"
+                    placeholder={t('docPathology.tissueBlockPh')}
                     className="flex-1 px-3 py-2 border rounded-md"
                   />
                   <button
@@ -814,14 +815,14 @@ const PathologyPage: React.FC = () => {
 
               {/* Slides */}
               <div>
-                <label htmlFor="path-new-slide" className="block text-sm font-medium text-gray-700 mb-2">Slides</label>
+                <label htmlFor="path-new-slide" className="block text-sm font-medium text-gray-700 mb-2">{t('docPathology.slidesLabel')}</label>
                 <div className="flex space-x-2 mb-2">
                   <input
                     id="path-new-slide"
                     type="text"
                     value={newSlide}
                     onChange={(e) => setNewSlide(e.target.value)}
-                    placeholder="e.g., H&E-A1"
+                    placeholder={t('docPathology.slidePh')}
                     className="flex-1 px-3 py-2 border rounded-md"
                   />
                   <button
@@ -845,11 +846,11 @@ const PathologyPage: React.FC = () => {
 
           {/* Special Stains and IHC */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-bold mb-3">Special Studies</h3>
+            <h3 className="text-lg font-bold mb-3">{t('docPathology.specialStudiesHeading')}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Special Stains */}
               <div>
-                <label id="path-special-stains-label" className="block text-sm font-medium text-gray-700 mb-2">Special Stains</label>
+                <label id="path-special-stains-label" className="block text-sm font-medium text-gray-700 mb-2">{t('docPathology.specialStainsLabel')}</label>
                 <div className="space-y-2" role="group" aria-labelledby="path-special-stains-label">
                   {['PAS', 'PAS-D', 'Mucicarmine', 'Trichrome', 'Reticulin', 'Iron', 'Congo Red', 'AFB', 'GMS'].map((stain) => (
                     <label key={stain} className="flex items-center">
@@ -867,7 +868,7 @@ const PathologyPage: React.FC = () => {
 
               {/* IHC Markers */}
               <div>
-                <label id="path-ihc-markers-label" className="block text-sm font-medium text-gray-700 mb-2">Immunohistochemistry (IHC)</label>
+                <label id="path-ihc-markers-label" className="block text-sm font-medium text-gray-700 mb-2">{t('docPathology.ihcLabel')}</label>
                 <div className="space-y-2" role="group" aria-labelledby="path-ihc-markers-label">
                   {['CK7', 'CK20', 'ER', 'PR', 'HER2', 'Ki-67', 'CD20', 'CD3', 'CD45', 'S100', 'HMB45', 'Desmin'].map((marker) => (
                     <label key={marker} className="flex items-center">
@@ -887,40 +888,40 @@ const PathologyPage: React.FC = () => {
 
           {/* Microscopic Examination */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 id="path-microscopic-examination-heading" className="text-lg font-bold mb-3">Microscopic Examination</h3>
+            <h3 id="path-microscopic-examination-heading" className="text-lg font-bold mb-3">{t('docPathology.microscopicExaminationHeading')}</h3>
             <textarea
               id="path-microscopic-description"
               aria-labelledby="path-microscopic-examination-heading"
               value={microscopicDescription}
               onChange={(e) => setMicroscopicDescription(e.target.value)}
               rows={8}
-              placeholder="Describe the microscopic findings..."
+              placeholder={t('docPathology.microscopicDescriptionPh')}
               className="w-full px-3 py-2 border rounded-md"
             />
           </div>
 
           {/* Diagnosis */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 id="path-diagnosis-heading" className="text-lg font-bold mb-3">Diagnosis</h3>
+            <h3 id="path-diagnosis-heading" className="text-lg font-bold mb-3">{t('docPathology.diagnosisHeading')}</h3>
             <textarea
               id="path-diagnosis"
               aria-labelledby="path-diagnosis-heading"
               value={diagnosis}
               onChange={(e) => setDiagnosis(e.target.value)}
               rows={4}
-              placeholder="Final pathologic diagnosis..."
+              placeholder={t('docPathology.diagnosisPh')}
               className="w-full px-3 py-2 border rounded-md mb-3"
             />
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="path-snomed-code" className="block text-sm font-medium text-gray-700 mb-1">SNOMED Code</label>
+                <label htmlFor="path-snomed-code" className="block text-sm font-medium text-gray-700 mb-1">{t('docPathology.snomedCodeLabel')}</label>
                 <input
                   id="path-snomed-code"
                   type="text"
                   value={snomedCode}
                   onChange={(e) => setSnomedCode(e.target.value)}
-                  placeholder="e.g., 363406005"
+                  placeholder={t('docPathology.snomedCodePh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
               </div>
@@ -939,24 +940,24 @@ const PathologyPage: React.FC = () => {
               />
               <label htmlFor="critical" className="text-lg font-bold text-red-600">
                 <AlertCircle className="inline h-5 w-5 mr-1" />
-                Critical Findings
+                {t('docPathology.criticalFindingsLabel')}
               </label>
             </div>
             {isCritical && (
               <div>
                 <label htmlFor="path-communicated-to" className="block text-sm font-medium text-gray-700 mb-1">
-                  Communicated To <span className="text-red-500">*</span>
+                  {t('docPathology.communicatedToRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="path-communicated-to"
                   type="text"
                   value={communicatedTo}
                   onChange={(e) => setCommunicatedTo(e.target.value)}
-                  placeholder="Physician name and date/time of communication"
+                  placeholder={t('docPathology.communicatedToPh')}
                   className="w-full px-3 py-2 border rounded-md"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Critical findings must be verbally communicated to the ordering physician and documented
+                  {t('docPathology.communicatedToHint')}
                 </p>
               </div>
             )}
@@ -972,7 +973,7 @@ const PathologyPage: React.FC = () => {
               }}
               className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
             >
-              Cancel
+              {t('docPathology.cancelButton')}
             </button>
             <button
               type="button"
@@ -980,7 +981,7 @@ const PathologyPage: React.FC = () => {
               className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 flex items-center"
             >
               <Clock className="h-4 w-4 mr-2" />
-              Save Preliminary
+              {t('docPathology.savePreliminaryButton')}
             </button>
             <button
               type="button"
@@ -988,7 +989,7 @@ const PathologyPage: React.FC = () => {
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
             >
               <CheckCircle className="h-4 w-4 mr-2" />
-              Finalize Report
+              {t('docPathology.finalizeReportButton')}
             </button>
           </div>
         </div>

@@ -116,6 +116,40 @@ jobs:
                   if-no-files-found: warn
 
     # ============================================================================
+    # Snyk (11.2) — dependency vulnerability scanning, Rust + frontend.
+    # Needs a SNYK_TOKEN repo secret (Settings → Secrets and variables → Actions)
+    # and the SNYK_ENABLED repo variable set to "true" to activate — deliberately
+    # opt-in so adding the token alone doesn't start failing builds before it's
+    # configured the way this team wants (severity threshold, project scope).
+    # ============================================================================
+    snyk:
+        name: Snyk
+        runs-on: ubuntu-latest
+        if: ${{ vars.SNYK_ENABLED == 'true' }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Snyk — Rust dependencies (Cargo.lock)
+              continue-on-error: true
+              uses: snyk/actions/rust@master
+              env:
+                  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+              with:
+                  args: --severity-threshold=high
+
+            - name: Snyk — frontend dependencies (npm)
+              continue-on-error: true
+              uses: snyk/actions/node@master
+              env:
+                  SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+              with:
+                  command: test
+                  args: --severity-threshold=high --all-projects
+              working-directory: client
+
+    # ============================================================================
     # TypeScript/React Client Apps (doctor-portal, patient-app)
     # ============================================================================
     client:

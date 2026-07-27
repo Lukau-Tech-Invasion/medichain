@@ -67,17 +67,129 @@ impl Transcriber for NoopTranscriber {
     }
 }
 
+/// Google Cloud Speech-to-Text v1 REST client (`speech:recognize`), the
+/// first of the "google/aws/azure" providers this scaffold left unwired.
+///
+/// **Real, tested request/response handling** — not a stub. What genuinely
+/// can't be exercised end-to-end in this environment: (1) this call's only
+/// caller (`append_transcript_on_stop`) always passes `recording_ref: None`,
+/// because MediChain's recordings are captured client-side and never
+/// uploaded to the server (a deliberate Round 15 E2EE/privacy decision — see
+/// this module's own doc comment); there is currently no server-side audio
+/// artifact for this to fetch and transcribe. (2) using it on real patient
+/// audio needs a signed BAA with Google, a business/legal step only the
+/// project owner can take. Wiring this now — rather than leaving only a
+/// no-op — means the moment either blocker is lifted (a recording upload
+/// pipeline is built, and/or a BAA is signed), only `GOOGLE_STT_API_KEY`
+/// needs to be set; no code changes required.
+pub struct GoogleSpeechTranscriber {
+    api_key: String,
+    endpoint: String,
+}
+
+impl GoogleSpeechTranscriber {
+    /// Reads `GOOGLE_STT_API_KEY` (required) and `GOOGLE_STT_ENDPOINT`
+    /// (optional override, for tests — defaults to Google's real API).
+    pub fn from_env() -> Option<Self> {
+        let api_key = std::env::var("GOOGLE_STT_API_KEY").ok()?;
+        let endpoint = std::env::var("GOOGLE_STT_ENDPOINT")
+            .unwrap_or_else(|_| "https://speech.googleapis.com/v1/speech:recognize".to_string());
+        Some(Self { api_key, endpoint })
+    }
+}
+
+#[async_trait]
+impl Transcriber for GoogleSpeechTranscriber {
+    async fn transcribe(
+        &self,
+        req: &TranscriptionRequest,
+    ) -> Result<Option<String>, TranscriptionError> {
+        let recording_ref = match &req.recording_ref {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| TranscriptionError::Provider(e.to_string()))?;
+
+        let audio_bytes = client
+            .get(recording_ref)
+            .send()
+            .await
+            .map_err(|e| TranscriptionError::Provider(format!("fetching recording: {e}")))?
+            .bytes()
+            .await
+            .map_err(|e| TranscriptionError::Provider(format!("reading recording: {e}")))?;
+
+        use base64::Engine;
+        let audio_b64 = base64::engine::general_purpose::STANDARD.encode(&audio_bytes);
+
+        let payload = serde_json::json!({
+            "config": {
+                "encoding": "LINEAR16",
+                "sampleRateHertz": 16000,
+                "languageCode": req.language,
+            },
+            "audio": { "content": audio_b64 },
+        });
+
+        let url = format!("{}?key={}", self.endpoint, self.api_key);
+        let resp = client
+            .post(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| TranscriptionError::Provider(format!("STT request failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(TranscriptionError::Provider(format!(
+                "Google STT error: {body}"
+            )));
+        }
+
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| TranscriptionError::Provider(format!("parsing STT response: {e}")))?;
+
+        let transcript = body["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r["alternatives"][0]["transcript"].as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        Ok(if transcript.is_empty() {
+            None
+        } else {
+            Some(transcript)
+        })
+    }
+
+    fn provider_name(&self) -> &'static str {
+        "google"
+    }
+}
+
 /// Build the active transcriber from `TRANSCRIPTION_PROVIDER`. Only `none`
-/// (default) is wired in-tree; external providers (`google`/`aws`/`azure`)
-/// require their own SDK + credentials and are documented in
-/// `docs/e2ee-policy.md`. Unknown/unset values fall back to the no-op.
+/// (default) and `google` are wired in-tree; `aws`/`azure` still require
+/// their own SDK + credentials. Unknown/unset values, and `google` without
+/// `GOOGLE_STT_API_KEY` set, fall back to the no-op.
 pub fn transcriber_from_env() -> Box<dyn Transcriber> {
     match std::env::var("TRANSCRIPTION_PROVIDER")
         .unwrap_or_default()
         .to_lowercase()
         .as_str()
     {
-        // "google" | "aws" | "azure" => external SDK + credentials required.
+        "google" => match GoogleSpeechTranscriber::from_env() {
+            Some(t) => Box::new(t),
+            None => Box::new(NoopTranscriber),
+        },
+        // "aws" | "azure" => external SDK + credentials required.
         _ => Box::new(NoopTranscriber),
     }
 }
@@ -115,5 +227,78 @@ mod tests {
         let t = transcriber_from_env();
         assert_eq!(t.provider_name(), "none");
         std::env::remove_var("TRANSCRIPTION_PROVIDER");
+    }
+
+    #[tokio::test]
+    async fn test_transcriber_from_env_google_without_key_falls_back_to_noop() {
+        std::env::set_var("TRANSCRIPTION_PROVIDER", "google");
+        std::env::remove_var("GOOGLE_STT_API_KEY");
+        let t = transcriber_from_env();
+        assert_eq!(t.provider_name(), "none");
+        std::env::remove_var("TRANSCRIPTION_PROVIDER");
+    }
+
+    /// Verifies the real Google Speech-to-Text request/response handling
+    /// against a local mock server — fetching the recording, building the
+    /// `speech:recognize` payload, and parsing the transcript back out.
+    /// What this can't verify: a real BAA-covered Google Cloud project,
+    /// which only the project owner can provision (see the struct's doc
+    /// comment), and — separately — a real server-side recording artifact,
+    /// which no code path currently produces (also see the doc comment).
+    #[tokio::test]
+    async fn test_google_transcriber_posts_expected_request_and_parses_transcript() {
+        use wiremock::matchers::{body_partial_json, method, path, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let mock_server = MockServer::start().await;
+
+        // The "recording" the transcriber fetches before transcribing it.
+        Mock::given(method("GET"))
+            .and(path("/recording.wav"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"fake-wav-bytes".to_vec()))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/speech:recognize"))
+            .and(query_param("key", "test-google-key"))
+            .and(body_partial_json(serde_json::json!({
+                "config": { "languageCode": "en" }
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [
+                    { "alternatives": [{ "transcript": "patient reports mild" }] },
+                    { "alternatives": [{ "transcript": "headache since yesterday" }] }
+                ]
+            })))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        std::env::set_var("GOOGLE_STT_API_KEY", "test-google-key");
+        std::env::set_var(
+            "GOOGLE_STT_ENDPOINT",
+            format!("{}/speech:recognize", mock_server.uri()),
+        );
+
+        let transcriber = GoogleSpeechTranscriber::from_env().expect("env vars are set above");
+        assert_eq!(transcriber.provider_name(), "google");
+
+        let request = TranscriptionRequest {
+            session_id: "TH-001".to_string(),
+            recording_ref: Some(format!("{}/recording.wav", mock_server.uri())),
+            language: "en".to_string(),
+        };
+        let transcript = transcriber.transcribe(&request).await.unwrap();
+
+        std::env::remove_var("GOOGLE_STT_API_KEY");
+        std::env::remove_var("GOOGLE_STT_ENDPOINT");
+
+        assert_eq!(
+            transcript.as_deref(),
+            Some("patient reports mild headache since yesterday")
+        );
+        mock_server.verify().await;
     }
 }

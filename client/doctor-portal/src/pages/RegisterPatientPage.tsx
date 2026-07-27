@@ -64,8 +64,15 @@ function RegisterPatientPage() {
     setError(null);
     setPhoneError(null);
 
-    // Reject malformed emergency-contact numbers before submit — a broken
-    // number is worse than none in an emergency.
+    // Reject blank or malformed emergency-contact numbers before submit — a
+    // broken number is worse than none in an emergency. `required` on the
+    // input covers native browser submission, but this still runs for
+    // whitespace-only input or a programmatic submit, so distinguish the two
+    // messages rather than showing "invalid" for a simply-empty field.
+    if (!formData.emergencyContactPhone.trim()) {
+      setPhoneError(t('docRegisterPatient.requiredPhone'));
+      return;
+    }
     if (!isValidPhoneNumber(formData.emergencyContactPhone)) {
       setPhoneError(t('docRegisterPatient.invalidPhone'));
       return;

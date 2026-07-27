@@ -77,7 +77,7 @@ impl LabSubmissionRepository for MemoryLabSubmissionRepository {
             .filter(|s| s.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.order_date.cmp(&a.order_date));
+        items.sort_by_key(|b| std::cmp::Reverse(b.order_date));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -103,7 +103,7 @@ impl LabSubmissionRepository for MemoryLabSubmissionRepository {
             .filter(|s| s.ordering_provider_id == provider_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.order_date.cmp(&a.order_date));
+        items.sort_by_key(|b| std::cmp::Reverse(b.order_date));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -236,7 +236,7 @@ impl LabPanelRepository for MemoryLabPanelRepository {
             .filter(|p| p.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -340,7 +340,7 @@ impl LabQcRecordRepository for MemoryLabQcRecordRepository {
             .filter(|r| r.instrument_id == instrument_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -382,7 +382,7 @@ impl LabQcRecordRepository for MemoryLabQcRecordRepository {
             })
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
         Ok(items)
     }
 
@@ -471,7 +471,7 @@ impl CriticalValueRepository for MemoryCriticalValueRepository {
             .filter(|v| v.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -884,7 +884,7 @@ impl PreOpAssessmentRepository for MemoryPreOpAssessmentRepository {
             .filter(|a| a.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.assessed_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -910,7 +910,7 @@ impl PreOpAssessmentRepository for MemoryPreOpAssessmentRepository {
             .filter(|a| a.surgeon_id == surgeon_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.assessed_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -969,7 +969,7 @@ impl PreOpAssessmentRepository for MemoryPreOpAssessmentRepository {
             })
             .cloned()
             .collect();
-        items.sort_by(|a, b| a.scheduled_date.cmp(&b.scheduled_date));
+        items.sort_by_key(|a| a.scheduled_date);
         Ok(items)
     }
 }
@@ -1035,7 +1035,7 @@ impl OperativeNoteRepository for MemoryOperativeNoteRepository {
             .filter(|n| n.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.start_time));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1061,7 +1061,7 @@ impl OperativeNoteRepository for MemoryOperativeNoteRepository {
             .filter(|n| n.surgeon_id == surgeon_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.start_time));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1167,7 +1167,7 @@ impl PostOpNoteRepository for MemoryPostOpNoteRepository {
             .filter(|n| n.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.note_date.cmp(&a.note_date));
+        items.sort_by_key(|b| std::cmp::Reverse(b.note_date));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1259,7 +1259,7 @@ impl AnesthesiaRecordRepository for MemoryAnesthesiaRecordRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1285,7 +1285,7 @@ impl AnesthesiaRecordRepository for MemoryAnesthesiaRecordRepository {
             .filter(|r| r.anesthesiologist_id == anesthesiologist_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1388,7 +1388,7 @@ impl IntubationRecordRepository for MemoryIntubationRecordRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1495,7 +1495,7 @@ impl LacerationRepairRepository for MemoryLacerationRepairRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1603,7 +1603,7 @@ impl SplintCastRecordRepository for MemorySplintCastRecordRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.applied_at.cmp(&a.applied_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.applied_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1725,7 +1725,7 @@ impl RadiologyOrderRepository for MemoryRadiologyOrderRepository {
             .filter(|o| o.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1866,7 +1866,7 @@ impl RadiologyReportRepository for MemoryRadiologyReportRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.report_datetime.cmp(&a.report_datetime));
+        items.sort_by_key(|b| std::cmp::Reverse(b.report_datetime));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -1981,7 +1981,7 @@ impl PathologyReportRepository for MemoryPathologyReportRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.report_date.cmp(&a.report_date));
+        items.sort_by_key(|b| std::cmp::Reverse(b.report_date));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -2102,7 +2102,7 @@ impl BloodTypeScreenRepository for MemoryBloodTypeScreenRepository {
             .filter(|s| s.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -2234,7 +2234,7 @@ impl CrossmatchRecordRepository for MemoryCrossmatchRecordRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.performed_at.cmp(&a.performed_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.performed_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -2350,7 +2350,7 @@ impl TransfusionRecordRepository for MemoryTransfusionRecordRepository {
             .filter(|r| r.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.start_time));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -2410,7 +2410,7 @@ impl TransfusionRecordRepository for MemoryTransfusionRecordRepository {
             })
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.start_time));
         Ok(items)
     }
 
@@ -2491,7 +2491,7 @@ impl EPrescriptionRepository for MemoryEPrescriptionRepository {
             .filter(|p| p.patient_id == patient_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -2517,7 +2517,7 @@ impl EPrescriptionRepository for MemoryEPrescriptionRepository {
             .filter(|p| p.prescriber_id == prescriber_id)
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -2575,7 +2575,7 @@ impl EPrescriptionRepository for MemoryEPrescriptionRepository {
             .read()
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<EPrescriptionEntity> = data.values().cloned().collect();
-        items.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         let total = items.len() as u64;
         let paged: Vec<_> = items
             .into_iter()
@@ -2895,7 +2895,7 @@ impl AdherenceLogRepository for MemoryAdherenceLogRepository {
             })
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.scheduled_time.cmp(&a.scheduled_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.scheduled_time));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());
@@ -2921,7 +2921,7 @@ impl AdherenceLogRepository for MemoryAdherenceLogRepository {
             .filter(|l| l.reminder_id.as_deref() == Some(reminder_id))
             .cloned()
             .collect();
-        items.sort_by(|a, b| b.scheduled_time.cmp(&a.scheduled_time));
+        items.sort_by_key(|b| std::cmp::Reverse(b.scheduled_time));
         let total = items.len() as u64;
         let start = pagination.offset() as usize;
         let end = (start + pagination.limit() as usize).min(items.len());

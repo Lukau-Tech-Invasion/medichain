@@ -29,15 +29,9 @@ pub async fn book_appointment(
     http_req: HttpRequest,
     req: web::Json<BookAppointmentRequest>,
 ) -> impl Responder {
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // User must be booking for themselves or be a healthcare provider/authorized relative
@@ -133,13 +127,46 @@ pub async fn book_appointment(
     };
 
     let appointment_id = appointment.appointment_id.clone();
-    if let Ok(mut appointments) = data.appointments.write() {
-        appointments.insert(appointment_id.clone(), appointment);
-    } else {
-        return HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: "Failed to store appointment".to_string(),
-            code: "INTERNAL_ERROR".to_string(),
+    let appointment_patient_id = appointment.patient_id.clone();
+    let appointment_provider_name = appointment.provider_name.clone();
+    let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
+    // Atomically checks for an overlapping booking and inserts in the same
+    // transaction (11.1 TOCTOU) so two concurrent requests can't double-book
+    // the same provider slot.
+    if let Err(e) = data.repositories.book_appointment_atomic(entity).await {
+        return match e {
+            crate::repositories::traits::RepositoryError::Duplicate(msg) => {
+                HttpResponse::Conflict().json(ErrorResponse {
+                    success: false,
+                    error: msg,
+                    code: "SLOT_UNAVAILABLE".to_string(),
+                })
+            }
+            other => HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: format!("Failed to store appointment: {}", other),
+                code: "INTERNAL_ERROR".to_string(),
+            }),
+        };
+    }
+
+    // FCM push: appointment booking confirmation.
+    {
+        let repos = data.repositories.clone();
+        tokio::spawn(async move {
+            let _ = crate::notifications::send_push_to_user(
+                &repos,
+                crate::notifications::PushNotification {
+                    user_id: appointment_patient_id,
+                    title: "Appointment Confirmed".to_string(),
+                    body: format!(
+                        "Your appointment with {} has been booked.",
+                        appointment_provider_name
+                    ),
+                    data: Some([("type".to_string(), "appointment_confirmed".to_string())].into()),
+                },
+            )
+            .await;
         });
     }
 
@@ -159,15 +186,9 @@ pub async fn get_patient_appointments(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Auth check
@@ -180,15 +201,11 @@ pub async fn get_patient_appointments(
     }
 
     let patient_appointments: Vec<crate::clinical::Appointment> = data
+        .repositories
         .appointments
-        .read()
-        .map(|appointments| {
-            appointments
-                .values()
-                .filter(|appointment| appointment.patient_id == patient_id)
-                .cloned()
-                .collect()
-        })
+        .get_by_patient(&patient_id, Pagination::new(0, 100))
+        .await
+        .map(|r| r.items.into_iter().map(Into::into).collect())
         .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -207,15 +224,9 @@ pub async fn get_provider_appointments(
 ) -> impl Responder {
     let provider_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
     // Providers can only see their own appointments (demo restriction)
@@ -228,15 +239,11 @@ pub async fn get_provider_appointments(
     }
 
     let provider_appointments: Vec<crate::clinical::Appointment> = data
+        .repositories
         .appointments
-        .read()
-        .map(|appointments| {
-            appointments
-                .values()
-                .filter(|appointment| appointment.provider_id == provider_id)
-                .cloned()
-                .collect()
-        })
+        .get_by_provider_all(&provider_id, Pagination::new(0, 100))
+        .await
+        .map(|r| r.items.into_iter().map(Into::into).collect())
         .unwrap_or_default();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -262,30 +269,19 @@ pub async fn cancel_appointment(
 ) -> impl Responder {
     let appointment_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
-    let mut appointments = match data.appointments.write() {
-        Ok(appointments) => appointments,
+    let appointment = match data
+        .repositories
+        .appointments
+        .get_by_id(&appointment_id)
+        .await
+    {
+        Ok(a) => a,
         Err(_) => {
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
-                error: "Failed to access appointments".to_string(),
-                code: "INTERNAL_ERROR".to_string(),
-            })
-        }
-    };
-    let appointment = match appointments.get_mut(&appointment_id) {
-        Some(appointment) => appointment,
-        None => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Appointment not found".to_string(),
@@ -303,17 +299,18 @@ pub async fn cancel_appointment(
         });
     }
 
-    appointment.status = crate::clinical::AppointmentStatus::Cancelled;
-    appointment.notes = Some(format!(
-        "{}Cancellation reason: {}",
-        appointment
-            .notes
-            .as_ref()
-            .map(|notes| format!("{notes}\n"))
-            .unwrap_or_default(),
-        req.reason
-    ));
-    appointment.updated_at = chrono::Utc::now().timestamp();
+    if let Err(e) = data
+        .repositories
+        .appointments
+        .cancel(&appointment_id, &req.reason, &current_user_id)
+        .await
+    {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: format!("Failed to cancel appointment: {}", e),
+            code: "INTERNAL_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -321,7 +318,56 @@ pub async fn cancel_appointment(
     }))
 }
 
-/// Check-in for an appointment
+/// Get a single appointment by id
+// Added 2026-07-22: the shared client's `getAppointment(appointmentId)` had no
+// matching backend route at all (only patient/provider list + slot lookups
+// existed) — the repository already supported `get_by_id`, just nothing exposed it.
+#[get("/api/appointments/{appointment_id}")]
+pub async fn get_appointment(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let appointment_id = path.into_inner();
+
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    let entity = match data
+        .repositories
+        .appointments
+        .get_by_id(&appointment_id)
+        .await
+    {
+        Ok(e) => e,
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Appointment not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+    let appointment: crate::clinical::Appointment = entity.into();
+
+    // Patient, the assigned provider, or any healthcare provider may view it.
+    if current_user_id != appointment.patient_id
+        && current_user_id != appointment.provider_id
+        && !current_user_id.starts_with("0xPROV")
+    {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(appointment)
+}
+
+/// Check in a patient for their appointment
 #[post("/api/appointments/{appointment_id}/check-in")]
 pub async fn check_in_appointment(
     data: web::Data<crate::AppState>,
@@ -330,30 +376,19 @@ pub async fn check_in_appointment(
 ) -> impl Responder {
     let appointment_id = path.into_inner();
 
-    let current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
     };
 
-    let mut appointments = match data.appointments.write() {
-        Ok(appointments) => appointments,
+    let entity = match data
+        .repositories
+        .appointments
+        .get_by_id(&appointment_id)
+        .await
+    {
+        Ok(e) => e,
         Err(_) => {
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
-                error: "Failed to access appointments".to_string(),
-                code: "INTERNAL_ERROR".to_string(),
-            })
-        }
-    };
-    let appointment = match appointments.get_mut(&appointment_id) {
-        Some(appointment) => appointment,
-        None => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Appointment not found".to_string(),
@@ -361,6 +396,7 @@ pub async fn check_in_appointment(
             })
         }
     };
+    let mut appointment: crate::clinical::Appointment = entity.into();
 
     // Only patient can check in (usually via NFC/GPS at the clinic)
     if current_user_id != appointment.patient_id {
@@ -374,6 +410,19 @@ pub async fn check_in_appointment(
     appointment.status = crate::clinical::AppointmentStatus::CheckedIn;
     appointment.check_in_time = Some(chrono::Utc::now().timestamp());
     appointment.updated_at = chrono::Utc::now().timestamp();
+
+    if let Err(e) = data
+        .repositories
+        .appointments
+        .update(appointment.into())
+        .await
+    {
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: format!("Failed to check in: {}", e),
+            code: "INTERNAL_ERROR".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
@@ -397,21 +446,25 @@ pub async fn get_available_slots(
     ];
 
     // Filter out already booked slots for this provider on this date
-    let booked_times: Vec<String> = data
-        .appointments
-        .read()
-        .map(|appointments| {
-            appointments
-                .values()
-                .filter(|appointment| {
-                    appointment.provider_id == provider_id
-                        && appointment.scheduled_date == date
-                        && appointment.status != crate::clinical::AppointmentStatus::Cancelled
-                })
-                .map(|appointment| appointment.start_time.clone())
-                .collect()
-        })
-        .unwrap_or_default();
+    let booked_times: Vec<String> = match chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d") {
+        Ok(naive_date) => data
+            .repositories
+            .appointments
+            .get_by_provider(&provider_id, naive_date)
+            .await
+            .map(|entities| {
+                entities
+                    .into_iter()
+                    .map(crate::clinical::Appointment::from)
+                    .filter(|appointment| {
+                        appointment.status != crate::clinical::AppointmentStatus::Cancelled
+                    })
+                    .map(|appointment| appointment.start_time)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
 
     let available_slots: Vec<&str> = slots
         .into_iter()
@@ -425,4 +478,239 @@ pub async fn get_available_slots(
         "available_slots": available_slots,
         "slot_duration_minutes": 30
     }))
+}
+
+/// Fetch every appointment across all pages (`AppointmentRepository::list_all` is
+/// paginated; callers that genuinely need the whole set — the reminder scanner,
+/// analytics — page through it here instead of duplicating the loop).
+pub(crate) async fn fetch_all_appointments(
+    data: &crate::AppState,
+) -> Vec<crate::clinical::Appointment> {
+    let mut all = Vec::new();
+    let mut page = 0u32;
+    loop {
+        let result = match data
+            .repositories
+            .appointments
+            .list_all(Pagination::new(page, Pagination::MAX_PER_PAGE))
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => break,
+        };
+        if result.items.is_empty() {
+            break;
+        }
+        let total = result.total;
+        all.extend(
+            result
+                .items
+                .into_iter()
+                .map(crate::clinical::Appointment::from),
+        );
+        page += 1;
+        if (page as u64) * (Pagination::MAX_PER_PAGE as u64) >= total {
+            break;
+        }
+    }
+    all
+}
+
+/// Check for upcoming appointments and send a one-time reminder (Phase 5.2 FCM).
+/// Called by a background task, mirroring `check_and_send_medication_reminders`.
+///
+/// Sends once per appointment: any `Scheduled`/`Confirmed` appointment within the
+/// next 24 hours with no `Push` entry yet in `reminders_sent` gets a reminder and
+/// is marked, so re-running this scan doesn't re-notify the same appointment.
+pub async fn check_and_send_appointment_reminders(data: &crate::AppState) {
+    let now = chrono::Utc::now().timestamp();
+    let window_end = now + 24 * 3600;
+
+    let due: Vec<crate::clinical::Appointment> = fetch_all_appointments(data)
+        .await
+        .into_iter()
+        .filter(|a| {
+            matches!(
+                a.status,
+                crate::clinical::AppointmentStatus::Scheduled
+                    | crate::clinical::AppointmentStatus::Confirmed
+            )
+        })
+        .filter(|a| matches!(a.scheduled_time, Some(t) if t > now && t <= window_end))
+        .filter(|a| {
+            !a.reminders_sent
+                .iter()
+                .any(|r| r.reminder_type == crate::clinical::ReminderType::Push)
+        })
+        .collect();
+
+    for mut appointment in due {
+        log::info!(
+            "APPOINTMENT_REMINDER_DUE: patient={} provider={} scheduled_time={:?}",
+            appointment.patient_id,
+            appointment.provider_name,
+            appointment.scheduled_time
+        );
+
+        crate::websocket::push_reminder(
+            &data.ws_manager,
+            &appointment.patient_id,
+            &format!("Appointment with {}", appointment.provider_name),
+        );
+
+        let repos = data.repositories.clone();
+        let patient_id = appointment.patient_id.clone();
+        let provider_name = appointment.provider_name.clone();
+        tokio::spawn(async move {
+            let _ = crate::notifications::send_push_to_user(
+                &repos,
+                crate::notifications::PushNotification {
+                    user_id: patient_id,
+                    title: "Upcoming Appointment".to_string(),
+                    body: format!("You have an appointment with {} tomorrow.", provider_name),
+                    data: Some([("type".to_string(), "appointment_reminder".to_string())].into()),
+                },
+            )
+            .await;
+        });
+
+        appointment
+            .reminders_sent
+            .push(crate::clinical::AppointmentReminder {
+                reminder_type: crate::clinical::ReminderType::Push,
+                sent_at: now,
+                status: crate::clinical::ReminderStatus::Sent,
+            });
+        let _ = data
+            .repositories
+            .appointments
+            .update(appointment.into())
+            .await;
+    }
+}
+
+#[cfg(test)]
+mod appointment_reminder_tests {
+    use super::*;
+
+    fn test_appointment(id: &str, hours_from_now: i64) -> crate::clinical::Appointment {
+        crate::clinical::Appointment {
+            appointment_id: id.to_string(),
+            patient_id: "PAT-1".to_string(),
+            provider_id: "PROV-1".to_string(),
+            provider_name: "Dr. Test".to_string(),
+            appointment_type: crate::clinical::AppointmentType::FollowUp,
+            visit_reason: "Checkup".to_string(),
+            scheduled_date: "2026-07-22".to_string(),
+            start_time: "09:00".to_string(),
+            scheduled_time: Some(chrono::Utc::now().timestamp() + hours_from_now * 3600),
+            duration_minutes: 30,
+            location: crate::clinical::AppointmentLocation {
+                facility_name: "Test Clinic".to_string(),
+                department: "General".to_string(),
+                room: None,
+                address: None,
+                telehealth_link: None,
+            },
+            status: crate::clinical::AppointmentStatus::Scheduled,
+            created_at: chrono::Utc::now().timestamp(),
+            updated_at: chrono::Utc::now().timestamp(),
+            created_by: "PAT-1".to_string(),
+            booked_by: Some("PAT-1".to_string()),
+            check_in_time: None,
+            is_telehealth: false,
+            reminders_sent: Vec::new(),
+            instructions: None,
+            insurance_verified: false,
+            notes: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn sends_and_marks_reminder_for_appointment_within_24h() {
+        let data = crate::AppState::new();
+        data.repositories
+            .appointments
+            .create(test_appointment("APT-1", 12).into())
+            .await
+            .unwrap();
+
+        check_and_send_appointment_reminders(&data).await;
+
+        let a: crate::clinical::Appointment = data
+            .repositories
+            .appointments
+            .get_by_id("APT-1")
+            .await
+            .unwrap()
+            .into();
+        assert_eq!(a.reminders_sent.len(), 1);
+        assert_eq!(
+            a.reminders_sent[0].reminder_type,
+            crate::clinical::ReminderType::Push
+        );
+    }
+
+    #[tokio::test]
+    async fn does_not_resend_to_an_already_reminded_appointment() {
+        let data = crate::AppState::new();
+        let mut appointment = test_appointment("APT-2", 12);
+        appointment
+            .reminders_sent
+            .push(crate::clinical::AppointmentReminder {
+                reminder_type: crate::clinical::ReminderType::Push,
+                sent_at: chrono::Utc::now().timestamp(),
+                status: crate::clinical::ReminderStatus::Sent,
+            });
+        data.repositories
+            .appointments
+            .create(appointment.into())
+            .await
+            .unwrap();
+
+        check_and_send_appointment_reminders(&data).await;
+
+        let a: crate::clinical::Appointment = data
+            .repositories
+            .appointments
+            .get_by_id("APT-2")
+            .await
+            .unwrap()
+            .into();
+        assert_eq!(a.reminders_sent.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn ignores_appointments_outside_the_24h_window() {
+        let data = crate::AppState::new();
+        data.repositories
+            .appointments
+            .create(test_appointment("APT-3", 48).into())
+            .await
+            .unwrap();
+        data.repositories
+            .appointments
+            .create(test_appointment("APT-4", -1).into())
+            .await
+            .unwrap();
+
+        check_and_send_appointment_reminders(&data).await;
+
+        let a3: crate::clinical::Appointment = data
+            .repositories
+            .appointments
+            .get_by_id("APT-3")
+            .await
+            .unwrap()
+            .into();
+        let a4: crate::clinical::Appointment = data
+            .repositories
+            .appointments
+            .get_by_id("APT-4")
+            .await
+            .unwrap()
+            .into();
+        assert!(a3.reminders_sent.is_empty());
+        assert!(a4.reminders_sent.is_empty());
+    }
 }

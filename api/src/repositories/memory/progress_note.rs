@@ -23,14 +23,6 @@ impl MemoryProgressNoteRepository {
             data: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-    /// Create with existing data
-    #[allow(dead_code)]
-    pub fn with_data(data: HashMap<String, ProgressNoteEntity>) -> Self {
-        Self {
-            data: Arc::new(RwLock::new(data)),
-        }
-    }
 }
 
 #[async_trait]
@@ -73,7 +65,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
             .cloned()
             .collect();
 
-        notes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        notes.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
         let total = notes.len() as u64;
         let offset = pagination.offset() as usize;
@@ -102,7 +94,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
             .cloned()
             .collect();
 
-        notes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        notes.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
         let total = notes.len() as u64;
         let offset = pagination.offset() as usize;
@@ -156,7 +148,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
             .cloned()
             .collect();
 
-        notes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        notes.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
         let total = notes.len() as u64;
         let offset = pagination.offset() as usize;
@@ -175,7 +167,7 @@ impl ProgressNoteRepository for MemoryProgressNoteRepository {
         let mut notes: Vec<ProgressNoteEntity> =
             storage.values().filter(|n| n.is_active).cloned().collect();
 
-        notes.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        notes.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
         let total = notes.len() as u64;
         let offset = pagination.offset() as usize;

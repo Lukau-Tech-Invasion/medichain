@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl } from '@medichain/shared';
+import { apiUrl, useTranslation } from '@medichain/shared';
 import {
   AlertTriangle,
   Search,
@@ -93,6 +93,7 @@ interface InteractionCheck {
 }
 
 const DrugInteractionsPage: React.FC = () => {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
 
   // State Management
@@ -147,7 +148,7 @@ const DrugInteractionsPage: React.FC = () => {
         }
       } catch (err) {
         console.error('Failed to load drug database:', err);
-        setError('Failed to load drug database. Please try again.');
+        setError(t('docDrugInteractions.errorLoadDrugsFailed'));
       } finally {
         setLoading(false);
       }
@@ -320,7 +321,7 @@ const DrugInteractionsPage: React.FC = () => {
       setShowResults(true);
     } catch (err) {
       console.error('Failed to check interactions:', err);
-      setError('Failed to check drug interactions. Please try again.');
+      setError(t('docDrugInteractions.errorCheckFailed'));
     } finally {
       setIsChecking(false);
     }
@@ -422,8 +423,8 @@ const DrugInteractionsPage: React.FC = () => {
         <div className="flex items-center gap-4">
           <Pill className="w-12 h-12" />
           <div>
-            <h1 className="text-3xl font-bold">Drug Interaction Checker</h1>
-            <p className="text-purple-100 mt-1">Check for drug-drug, drug-allergy, and other medication interactions</p>
+            <h1 className="text-3xl font-bold">{t('docDrugInteractions.title')}</h1>
+            <p className="text-purple-100 mt-1">{t('docDrugInteractions.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -438,7 +439,7 @@ const DrugInteractionsPage: React.FC = () => {
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
-          Interaction Checker
+          {t('docDrugInteractions.tabChecker')}
         </button>
         <button
           onClick={() => setActiveTab('history')}
@@ -448,7 +449,7 @@ const DrugInteractionsPage: React.FC = () => {
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
-          Check History ({checks.length})
+          {t('docDrugInteractions.tabHistory', { count: checks.length })}
         </button>
         <button
           onClick={() => setActiveTab('database')}
@@ -458,7 +459,7 @@ const DrugInteractionsPage: React.FC = () => {
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
-          Interaction Database ({interactionDatabase.length})
+          {t('docDrugInteractions.tabDatabase', { count: interactionDatabase.length })}
         </button>
       </div>
 
@@ -467,8 +468,8 @@ const DrugInteractionsPage: React.FC = () => {
         <div className="space-y-6">
           {/* Drug Selection */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Select Medications</h2>
-            
+            <h2 className="text-xl font-bold text-gray-900 mb-4">{t('docDrugInteractions.selectMedicationsTitle')}</h2>
+
             {/* Drug Search */}
             <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -476,10 +477,10 @@ const DrugInteractionsPage: React.FC = () => {
                 type="text"
                 value={drugSearch}
                 onChange={(e) => setDrugSearch(e.target.value)}
-                placeholder="Search by drug name, generic name, or class..."
+                placeholder={t('docDrugInteractions.searchPh')}
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
-              
+
               {/* Search Results Dropdown */}
               {searchResults.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-64 overflow-y-auto">
@@ -491,10 +492,10 @@ const DrugInteractionsPage: React.FC = () => {
                     >
                       <div className="font-medium text-gray-900">{drug.name}</div>
                       <div className="text-sm text-gray-600">
-                        Generic: {drug.genericName} | Class: {drug.drugClass}
+                        {t('docDrugInteractions.genericClassLine', { generic: drug.genericName, drugClass: drug.drugClass })}
                       </div>
                       <div className="text-xs text-gray-500 mt-1">
-                        Brand names: {drug.brandNames.join(', ')}
+                        {t('docDrugInteractions.brandNamesLine', { names: drug.brandNames.join(', ') })}
                       </div>
                     </button>
                   ))}
@@ -505,7 +506,7 @@ const DrugInteractionsPage: React.FC = () => {
             {/* Selected Drugs */}
             <div className="space-y-2">
               <h3 className="font-semibold text-gray-900 mb-3">
-                Selected Medications ({selectedDrugs.length})
+                {t('docDrugInteractions.selectedMedicationsTitle', { count: selectedDrugs.length })}
               </h3>
               {selectedDrugs.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -524,6 +525,7 @@ const DrugInteractionsPage: React.FC = () => {
                       <button
                         onClick={() => handleRemoveDrug(drug.drugId)}
                         className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                        aria-label={`Remove ${drug.name}`}
                       >
                         <X className="w-5 h-5" />
                       </button>
@@ -533,8 +535,8 @@ const DrugInteractionsPage: React.FC = () => {
               ) : (
                 <div className="text-center py-8 text-gray-500">
                   <Pill className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                  <p>No medications selected</p>
-                  <p className="text-sm">Search and add medications above to check for interactions</p>
+                  <p>{t('docDrugInteractions.noMedicationsSelected')}</p>
+                  <p className="text-sm">{t('docDrugInteractions.noMedicationsHint')}</p>
                 </div>
               )}
             </div>
@@ -550,12 +552,12 @@ const DrugInteractionsPage: React.FC = () => {
                   {isChecking ? (
                     <>
                       <RefreshCw className="w-5 h-5 animate-spin" />
-                      Checking...
+                      {t('docDrugInteractions.checkingBtn')}
                     </>
                   ) : (
                     <>
                       <Search className="w-5 h-5" />
-                      Check Interactions
+                      {t('docDrugInteractions.checkInteractionsBtn')}
                     </>
                   )}
                 </button>
@@ -563,7 +565,7 @@ const DrugInteractionsPage: React.FC = () => {
                   onClick={handleClearDrugs}
                   className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
                 >
-                  Clear All
+                  {t('docDrugInteractions.clearAllBtn')}
                 </button>
               </div>
             )}
@@ -571,45 +573,45 @@ const DrugInteractionsPage: React.FC = () => {
 
           {/* Patient Context (Optional) */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Patient Context (Optional)</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">{t('docDrugInteractions.patientContextTitle')}</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label htmlFor="ddi-patient-id" className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
+                <label htmlFor="ddi-patient-id" className="block text-sm font-medium text-gray-700 mb-1">{t('docDrugInteractions.patientIdLabel')}</label>
                 <input
                   id="ddi-patient-id"
                   type="text"
                   value={patientContext.patientId}
                   onChange={(e) => setPatientContext({ ...patientContext, patientId: e.target.value })}
-                  placeholder="e.g., PAT-001"
+                  placeholder={t('docDrugInteractions.patientIdPh')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                 />
               </div>
               <div>
-                <label htmlFor="ddi-patient-age" className="block text-sm font-medium text-gray-700 mb-1">Age</label>
+                <label htmlFor="ddi-patient-age" className="block text-sm font-medium text-gray-700 mb-1">{t('docDrugInteractions.ageLabel')}</label>
                 <input
                   id="ddi-patient-age"
                   type="number"
                   value={patientContext.age || ''}
                   onChange={(e) => setPatientContext({ ...patientContext, age: parseInt(e.target.value) || 0 })}
-                  placeholder="Years"
+                  placeholder={t('docDrugInteractions.agePh')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                 />
               </div>
               <div>
-                <label htmlFor="ddi-patient-weight" className="block text-sm font-medium text-gray-700 mb-1">Weight</label>
+                <label htmlFor="ddi-patient-weight" className="block text-sm font-medium text-gray-700 mb-1">{t('docDrugInteractions.weightLabel')}</label>
                 <input
                   id="ddi-patient-weight"
                   type="number"
                   value={patientContext.weight || ''}
                   onChange={(e) => setPatientContext({ ...patientContext, weight: parseFloat(e.target.value) || 0 })}
-                  placeholder="kg"
+                  placeholder={t('docDrugInteractions.weightPh')}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                 />
               </div>
             </div>
             <div className="mt-4">
               <label htmlFor="ddi-patient-allergies" className="block text-sm font-medium text-gray-700 mb-1">
-                Known Allergies (comma-separated)
+                {t('docDrugInteractions.allergiesLabel')}
               </label>
               <input
                 id="ddi-patient-allergies"
@@ -621,7 +623,7 @@ const DrugInteractionsPage: React.FC = () => {
                     allergies: e.target.value.split(',').map((a) => a.trim()).filter((a) => a),
                   })
                 }
-                placeholder="e.g., Penicillin, Sulfa, Latex"
+                placeholder={t('docDrugInteractions.allergiesPh')}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
               />
             </div>
@@ -632,7 +634,7 @@ const DrugInteractionsPage: React.FC = () => {
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold text-gray-900">
-                  Interaction Results ({interactions.length})
+                  {t('docDrugInteractions.resultsTitle', { count: interactions.length })}
                 </h2>
                 {interactions.length > 0 && (
                   <div className="flex gap-2">
@@ -641,23 +643,23 @@ const DrugInteractionsPage: React.FC = () => {
                       onChange={(e) => setSeverityFilter(e.target.value as InteractionSeverity | 'all')}
                       className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
                     >
-                      <option value="all">All Severities</option>
-                      <option value="contraindicated">Contraindicated</option>
-                      <option value="major">Major</option>
-                      <option value="moderate">Moderate</option>
-                      <option value="minor">Minor</option>
+                      <option value="all">{t('docDrugInteractions.filterAllSeverities')}</option>
+                      <option value="contraindicated">{t('docDrugInteractions.severity_contraindicated')}</option>
+                      <option value="major">{t('docDrugInteractions.severity_major')}</option>
+                      <option value="moderate">{t('docDrugInteractions.severity_moderate')}</option>
+                      <option value="minor">{t('docDrugInteractions.severity_minor')}</option>
                     </select>
                     <select
                       value={typeFilter}
                       onChange={(e) => setTypeFilter(e.target.value as InteractionType | 'all')}
                       className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
                     >
-                      <option value="all">All Types</option>
-                      <option value="drug-drug">Drug-Drug</option>
-                      <option value="drug-allergy">Drug-Allergy</option>
-                      <option value="drug-condition">Drug-Condition</option>
-                      <option value="drug-food">Drug-Food</option>
-                      <option value="drug-lab">Drug-Lab</option>
+                      <option value="all">{t('docDrugInteractions.filterAllTypes')}</option>
+                      <option value="drug-drug">{t('docDrugInteractions.type_drug-drug')}</option>
+                      <option value="drug-allergy">{t('docDrugInteractions.type_drug-allergy')}</option>
+                      <option value="drug-condition">{t('docDrugInteractions.type_drug-condition')}</option>
+                      <option value="drug-food">{t('docDrugInteractions.type_drug-food')}</option>
+                      <option value="drug-lab">{t('docDrugInteractions.type_drug-lab')}</option>
                     </select>
                   </div>
                 )}
@@ -666,12 +668,12 @@ const DrugInteractionsPage: React.FC = () => {
               {interactions.length === 0 ? (
                 <div className="text-center py-12 bg-green-50 rounded-lg border-2 border-green-200">
                   <CheckCircle className="w-16 h-16 mx-auto mb-4 text-green-500" />
-                  <h3 className="text-xl font-semibold text-green-800 mb-2">No Interactions Detected</h3>
+                  <h3 className="text-xl font-semibold text-green-800 mb-2">{t('docDrugInteractions.noInteractionsTitle')}</h3>
                   <p className="text-green-700">
-                    The selected medications do not have known interactions in our database.
+                    {t('docDrugInteractions.noInteractionsDesc')}
                   </p>
                   <p className="text-sm text-green-600 mt-2">
-                    Always review full prescribing information and use clinical judgment.
+                    {t('docDrugInteractions.noInteractionsHint')}
                   </p>
                 </div>
               ) : (
@@ -700,24 +702,24 @@ const DrugInteractionsPage: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-2 mb-2">
                               <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getSeverityBadge(interaction.severity)}`}>
-                                {interaction.severity.toUpperCase()}
+                                {t(`docDrugInteractions.severity_${interaction.severity}`).toUpperCase()}
                               </span>
                               <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(interaction.type)}`}>
-                                {interaction.type.replace('-', ' ')}
+                                {t(`docDrugInteractions.type_${interaction.type}`)}
                               </span>
                               <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
-                                Evidence: {interaction.evidenceLevel}
+                                {t('docDrugInteractions.evidenceLabel', { level: interaction.evidenceLevel })}
                               </span>
                             </div>
                             <p className="text-gray-700 mb-2">{interaction.description}</p>
                             <div className="flex items-center gap-4 text-sm text-gray-600">
                               <span className="flex items-center gap-1">
                                 <Activity className="w-4 h-4" />
-                                Onset: {interaction.onset}
+                                {t('docDrugInteractions.onsetLabel', { value: interaction.onset })}
                               </span>
                               <span className="flex items-center gap-1">
                                 <FileText className="w-4 h-4" />
-                                Documentation: {interaction.documentation}
+                                {t('docDrugInteractions.documentationLabel', { value: interaction.documentation })}
                               </span>
                             </div>
                           </div>
@@ -736,7 +738,7 @@ const DrugInteractionsPage: React.FC = () => {
                             <div>
                               <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                                 <Activity className="w-4 h-4 text-purple-600" />
-                                Mechanism
+                                {t('docDrugInteractions.mechanismTitle')}
                               </h4>
                               <p className="text-gray-700 text-sm">{interaction.mechanism}</p>
                             </div>
@@ -745,7 +747,7 @@ const DrugInteractionsPage: React.FC = () => {
                             <div>
                               <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                                 <AlertCircle className="w-4 h-4 text-orange-600" />
-                                Clinical Effects
+                                {t('docDrugInteractions.clinicalEffectsTitle')}
                               </h4>
                               <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
                                 {interaction.clinicalEffects.map((effect, idx) => (
@@ -758,7 +760,7 @@ const DrugInteractionsPage: React.FC = () => {
                             <div className="bg-white rounded-lg p-4">
                               <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                                 <CheckCircle className="w-4 h-4 text-green-600" />
-                                Management Recommendations
+                                {t('docDrugInteractions.managementTitle')}
                               </h4>
                               <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
                                 {interaction.management.map((item, idx) => (
@@ -771,7 +773,7 @@ const DrugInteractionsPage: React.FC = () => {
                             <div>
                               <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                                 <TrendingUp className="w-4 h-4 text-blue-600" />
-                                Monitoring Parameters
+                                {t('docDrugInteractions.monitoringTitle')}
                               </h4>
                               <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
                                 {interaction.monitoring.map((item, idx) => (
@@ -785,7 +787,7 @@ const DrugInteractionsPage: React.FC = () => {
                               <div>
                                 <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                                   <Pill className="w-4 h-4 text-green-600" />
-                                  Alternative Options
+                                  {t('docDrugInteractions.alternativesTitle')}
                                 </h4>
                                 <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
                                   {interaction.alternatives.map((alt, idx) => (
@@ -800,7 +802,7 @@ const DrugInteractionsPage: React.FC = () => {
                               <div>
                                 <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                                   <AlertTriangle className="w-4 h-4 text-red-600" />
-                                  Risk Factors
+                                  {t('docDrugInteractions.riskFactorsTitle')}
                                 </h4>
                                 <div className="flex flex-wrap gap-2">
                                   {interaction.riskFactors.map((factor, idx) => (
@@ -816,7 +818,7 @@ const DrugInteractionsPage: React.FC = () => {
                             <div>
                               <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
                                 <Book className="w-4 h-4 text-purple-600" />
-                                References
+                                {t('docDrugInteractions.referencesTitle')}
                               </h4>
                               <ul className="text-xs text-gray-600 space-y-1">
                                 {interaction.references.map((ref, idx) => (
@@ -848,7 +850,7 @@ const DrugInteractionsPage: React.FC = () => {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <h3 className="text-lg font-bold text-gray-900 mb-2">
-                      Check ID: {check.checkId}
+                      {t('docDrugInteractions.checkIdLabel', { id: check.checkId })}
                     </h3>
                     <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
                       <Calendar className="w-4 h-4" />
@@ -856,17 +858,17 @@ const DrugInteractionsPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2 text-sm text-gray-600">
                       <User className="w-4 h-4" />
-                      Checked by: {check.checkedBy}
+                      {t('docDrugInteractions.checkedByLabel', { value: check.checkedBy })}
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-2xl font-bold text-purple-600">{check.totalInteractions}</div>
-                    <div className="text-sm text-gray-600">Interactions</div>
+                    <div className="text-sm text-gray-600">{t('docDrugInteractions.interactionsLabel')}</div>
                   </div>
                 </div>
 
                 <div className="border-t pt-4">
-                  <h4 className="font-semibold text-gray-900 mb-2">Medications Checked:</h4>
+                  <h4 className="font-semibold text-gray-900 mb-2">{t('docDrugInteractions.medicationsCheckedTitle')}</h4>
                   <div className="flex flex-wrap gap-2 mb-4">
                     {check.drugs.map((drug, idx) => (
                       <span key={idx} className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
@@ -875,30 +877,30 @@ const DrugInteractionsPage: React.FC = () => {
                     ))}
                   </div>
 
-                  <h4 className="font-semibold text-gray-900 mb-2">By Severity:</h4>
+                  <h4 className="font-semibold text-gray-900 mb-2">{t('docDrugInteractions.bySeverityTitle')}</h4>
                   <div className="grid grid-cols-5 gap-2">
                     {check.bySeverity.contraindicated > 0 && (
                       <div className="bg-red-50 border border-red-200 rounded p-2 text-center">
                         <div className="text-xl font-bold text-red-600">{check.bySeverity.contraindicated}</div>
-                        <div className="text-xs text-red-700">Contraindicated</div>
+                        <div className="text-xs text-red-700">{t('docDrugInteractions.severity_contraindicated')}</div>
                       </div>
                     )}
                     {check.bySeverity.major > 0 && (
                       <div className="bg-orange-50 border border-orange-200 rounded p-2 text-center">
                         <div className="text-xl font-bold text-orange-600">{check.bySeverity.major}</div>
-                        <div className="text-xs text-orange-700">Major</div>
+                        <div className="text-xs text-orange-700">{t('docDrugInteractions.severity_major')}</div>
                       </div>
                     )}
                     {check.bySeverity.moderate > 0 && (
                       <div className="bg-yellow-50 border border-yellow-200 rounded p-2 text-center">
                         <div className="text-xl font-bold text-yellow-600">{check.bySeverity.moderate}</div>
-                        <div className="text-xs text-yellow-700">Moderate</div>
+                        <div className="text-xs text-yellow-700">{t('docDrugInteractions.severity_moderate')}</div>
                       </div>
                     )}
                     {check.bySeverity.minor > 0 && (
                       <div className="bg-blue-50 border border-blue-200 rounded p-2 text-center">
                         <div className="text-xl font-bold text-blue-600">{check.bySeverity.minor}</div>
-                        <div className="text-xs text-blue-700">Minor</div>
+                        <div className="text-xs text-blue-700">{t('docDrugInteractions.severity_minor')}</div>
                       </div>
                     )}
                   </div>
@@ -908,8 +910,8 @@ const DrugInteractionsPage: React.FC = () => {
           ) : (
             <div className="bg-white rounded-lg shadow p-12 text-center">
               <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-700 mb-2">No check history</h3>
-              <p className="text-gray-500">Your interaction checks will appear here</p>
+              <h3 className="text-xl font-semibold text-gray-700 mb-2">{t('docDrugInteractions.noHistoryTitle')}</h3>
+              <p className="text-gray-500">{t('docDrugInteractions.noHistoryHint')}</p>
             </div>
           )}
         </div>
@@ -920,10 +922,10 @@ const DrugInteractionsPage: React.FC = () => {
         <div className="space-y-4">
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Interaction Database ({interactionDatabase.length} interactions)
+              {t('docDrugInteractions.databaseTitle', { count: interactionDatabase.length })}
             </h2>
             <p className="text-gray-600 mb-4">
-              Browse all known drug interactions in the database. This is a reference for clinical decision-making.
+              {t('docDrugInteractions.databaseSubtitle')}
             </p>
 
             <div className="space-y-3">
@@ -940,20 +942,20 @@ const DrugInteractionsPage: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-2 mb-2">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getSeverityBadge(interaction.severity)}`}>
-                          {interaction.severity}
+                          {t(`docDrugInteractions.severity_${interaction.severity}`)}
                         </span>
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(interaction.type)}`}>
-                          {interaction.type}
+                          {t(`docDrugInteractions.type_${interaction.type}`)}
                         </span>
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getEvidenceBadge(interaction.evidenceLevel)}`}>
-                          Evidence: {interaction.evidenceLevel}
+                          {t('docDrugInteractions.evidenceLabel', { level: interaction.evidenceLevel })}
                         </span>
                       </div>
                       <p className="text-sm text-gray-700 mb-2">{interaction.description}</p>
                       <div className="text-xs text-gray-500">
                         {interaction.drug1}
                         {interaction.drug2 && ` + ${interaction.drug2}`}
-                        {interaction.allergen && ` + ${interaction.allergen} allergy`}
+                        {interaction.allergen && ` + ${t('docDrugInteractions.allergyLabel', { value: interaction.allergen })}`}
                       </div>
                     </div>
                   </div>

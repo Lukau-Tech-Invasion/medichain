@@ -18,6 +18,7 @@ import {
   apiUrl,
   listIntakeOutput,
   createIntakeOutput,
+  useTranslation,
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
@@ -58,6 +59,7 @@ interface PatientIO {
 }
 
 const IntakeOutputPage: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'patients' | 'entry' | 'trends'>('patients');
   const [patients, setPatients] = useState<PatientIO[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<PatientIO | null>(null);
@@ -100,7 +102,7 @@ const IntakeOutputPage: React.FC = () => {
         }
       } catch (err) {
         console.error('Failed to fetch I/O records:', err);
-        setError('Failed to load intake/output records');
+        setError(t('docIntakeOutput.errorLoad'));
       } finally {
         setLoading(false);
       }
@@ -144,17 +146,17 @@ const IntakeOutputPage: React.FC = () => {
 
   const getCategoryLabel = (cat: IntakeType | OutputType): string => {
     const labels: Record<string, string> = {
-      'oral': 'Oral Fluids',
-      'iv': 'IV Fluids',
-      'tube-feeding': 'Tube Feeding',
-      'blood-products': 'Blood Products',
-      'other-intake': 'Other Intake',
-      'urine': 'Urine',
-      'stool': 'Stool',
-      'emesis': 'Emesis/Vomit',
-      'drainage': 'Drainage',
-      'blood-loss': 'Blood Loss',
-      'other-output': 'Other Output'
+      'oral': t('docIntakeOutput.category_oral'),
+      'iv': t('docIntakeOutput.category_iv'),
+      'tube-feeding': t('docIntakeOutput.category_tube-feeding'),
+      'blood-products': t('docIntakeOutput.category_blood-products'),
+      'other-intake': t('docIntakeOutput.category_other-intake'),
+      'urine': t('docIntakeOutput.category_urine'),
+      'stool': t('docIntakeOutput.category_stool'),
+      'emesis': t('docIntakeOutput.category_emesis'),
+      'drainage': t('docIntakeOutput.category_drainage'),
+      'blood-loss': t('docIntakeOutput.category_blood-loss'),
+      'other-output': t('docIntakeOutput.category_other-output')
     };
     return labels[cat] || cat;
   };
@@ -175,10 +177,10 @@ const IntakeOutputPage: React.FC = () => {
   };
 
   const getBalanceStatus = (balance: number): { color: string; icon: React.ReactNode; label: string } => {
-    if (balance > 1000) return { color: 'text-red-600', icon: <TrendingUp className="w-4 h-4" />, label: 'Positive (High)' };
-    if (balance > 500) return { color: 'text-yellow-600', icon: <TrendingUp className="w-4 h-4" />, label: 'Positive' };
-    if (balance < -500) return { color: 'text-blue-600', icon: <TrendingDown className="w-4 h-4" />, label: 'Negative' };
-    return { color: 'text-green-600', icon: <CheckCircle className="w-4 h-4" />, label: 'Balanced' };
+    if (balance > 1000) return { color: 'text-red-600', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
+    if (balance > 500) return { color: 'text-yellow-600', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositive') };
+    if (balance < -500) return { color: 'text-blue-600', icon: <TrendingDown className="w-4 h-4" />, label: t('docIntakeOutput.balanceNegative') };
+    return { color: 'text-green-600', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
   };
 
   const filteredPatients = patients.filter(p =>
@@ -189,7 +191,7 @@ const IntakeOutputPage: React.FC = () => {
 
   const handleAddEntry = async () => {
     if (!selectedPatient || newEntry.amount <= 0) {
-      showWarning('Please enter a valid amount');
+      showWarning(t('docIntakeOutput.warningValidAmount'));
       return;
     }
 
@@ -204,7 +206,7 @@ const IntakeOutputPage: React.FC = () => {
       };
 
       await createIntakeOutput(payload);
-      showSuccess(`${newEntry.type.charAt(0).toUpperCase() + newEntry.type.slice(1)} recorded successfully`);
+      showSuccess(t('docIntakeOutput.recordedSuccess', { type: t(`docIntakeOutput.typeLabel_${newEntry.type}`) }));
       
       // Refresh list
       const data = await listIntakeOutput();
@@ -218,7 +220,7 @@ const IntakeOutputPage: React.FC = () => {
         })));
         
         // Update selected patient too
-        const updatedSelected = (data as NonNullable<typeof selectedPatient>[]).find(p => p.patientId === selectedPatient.patientId);
+        const updatedSelected = (data as unknown as NonNullable<typeof selectedPatient>[]).find(p => p.patientId === selectedPatient.patientId);
         if (updatedSelected) {
           setSelectedPatient({
             ...updatedSelected,
@@ -234,7 +236,7 @@ const IntakeOutputPage: React.FC = () => {
       setNewEntry({ type: 'intake', category: 'oral', amount: 0, unit: 'ml', source: '', notes: '' });
     } catch (err) {
       console.error('Error recording I/O:', err);
-      showError('Failed to record I/O entry');
+      showError(t('docIntakeOutput.errorRecord'));
     } finally {
       setIsSubmitting(false);
     }
@@ -246,16 +248,16 @@ const IntakeOutputPage: React.FC = () => {
       <div className="bg-gradient-to-r from-cyan-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <Droplets className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Intake & Output</h1>
+          <h1 className="text-2xl font-bold">{t('docIntakeOutput.title')}</h1>
         </div>
-        <p className="text-cyan-100">Track patient fluid balance</p>
+        <p className="text-cyan-100">{t('docIntakeOutput.subtitle')}</p>
       </div>
 
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-cyan-600 animate-spin mb-2" />
-          <p className="text-gray-500">Loading I/O records...</p>
+          <p className="text-gray-500">{t('docIntakeOutput.loading')}</p>
         </div>
       )}
 
@@ -265,7 +267,7 @@ const IntakeOutputPage: React.FC = () => {
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
             <p className="text-sm text-red-700">{error}</p>
-            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+            <p className="text-xs text-red-500 mt-1">{t('docIntakeOutput.apiCheckMessage')}</p>
           </div>
         </div>
       )}
@@ -284,7 +286,7 @@ const IntakeOutputPage: React.FC = () => {
                     activeTab === tab ? 'text-cyan-700 border-b-2 border-cyan-700' : 'text-gray-500'
                   }`}
                 >
-                  {tab === 'entry' ? 'Quick Entry' : tab === 'patients' ? 'All Patients' : 'Trends'}
+                  {tab === 'entry' ? t('docIntakeOutput.tabEntry') : tab === 'patients' ? t('docIntakeOutput.tabPatients') : t('docIntakeOutput.tabTrends')}
                 </button>
               ))}
             </div>
@@ -300,7 +302,7 @@ const IntakeOutputPage: React.FC = () => {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by name, MRN, or room..."
+                    placeholder={t('docIntakeOutput.searchPh')}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg"
                   />
                 </div>
@@ -319,12 +321,12 @@ const IntakeOutputPage: React.FC = () => {
                         <div className="flex items-start justify-between mb-4">
                           <div>
                             <h3 className="font-semibold text-lg">{patient.patientName}</h3>
-                        <p className="text-sm text-gray-500">MRN: {patient.mrn} • Room: {patient.room}</p>
+                        <p className="text-sm text-gray-500">{t('docIntakeOutput.mrnRoomLine', { mrn: patient.mrn, room: patient.room })}</p>
                       </div>
                       {patient.alerts.length > 0 && (
                         <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs">
                           <AlertTriangle className="w-3 h-3" />
-                          {patient.alerts.length} Alert{patient.alerts.length > 1 ? 's' : ''}
+                          {t(patient.alerts.length > 1 ? 'docIntakeOutput.alertPlural' : 'docIntakeOutput.alertSingular', { count: patient.alerts.length })}
                         </div>
                       )}
                     </div>
@@ -333,28 +335,28 @@ const IntakeOutputPage: React.FC = () => {
                       <div className="bg-blue-50 rounded-lg p-3 text-center">
                         <div className="flex items-center justify-center gap-1 text-blue-600 mb-1">
                           <ArrowDown className="w-4 h-4" />
-                          <span className="text-xs font-medium">Intake</span>
+                          <span className="text-xs font-medium">{t('docIntakeOutput.intakeLabel')}</span>
                         </div>
                         <p className="text-xl font-bold text-blue-700">{patient.totalIntake24h}</p>
-                        <p className="text-xs text-blue-500">ml/24h</p>
+                        <p className="text-xs text-blue-500">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
                       <div className="bg-amber-50 rounded-lg p-3 text-center">
                         <div className="flex items-center justify-center gap-1 text-amber-600 mb-1">
                           <ArrowUp className="w-4 h-4" />
-                          <span className="text-xs font-medium">Output</span>
+                          <span className="text-xs font-medium">{t('docIntakeOutput.outputLabel')}</span>
                         </div>
                         <p className="text-xl font-bold text-amber-700">{patient.totalOutput24h}</p>
-                        <p className="text-xs text-amber-500">ml/24h</p>
+                        <p className="text-xs text-amber-500">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
                       <div className={`rounded-lg p-3 text-center ${patient.netBalance > 500 ? 'bg-red-50' : patient.netBalance < -500 ? 'bg-blue-50' : 'bg-green-50'}`}>
                         <div className={`flex items-center justify-center gap-1 mb-1 ${balanceStatus.color}`}>
                           {balanceStatus.icon}
-                          <span className="text-xs font-medium">Balance</span>
+                          <span className="text-xs font-medium">{t('docIntakeOutput.balanceLabel')}</span>
                         </div>
                         <p className={`text-xl font-bold ${balanceStatus.color}`}>
                           {patient.netBalance > 0 ? '+' : ''}{patient.netBalance}
                         </p>
-                        <p className={`text-xs ${balanceStatus.color}`}>ml</p>
+                        <p className={`text-xs ${balanceStatus.color}`}>{t('docIntakeOutput.mlUnit')}</p>
                       </div>
                     </div>
 
@@ -382,13 +384,13 @@ const IntakeOutputPage: React.FC = () => {
       {activeTab === 'entry' && (
         <div className="p-6">
           <div className="bg-white rounded-lg shadow p-6 max-w-lg mx-auto">
-            <h2 className="text-lg font-semibold mb-4">Quick I/O Entry</h2>
+            <h2 className="text-lg font-semibold mb-4">{t('docIntakeOutput.quickEntryHeading')}</h2>
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="io-patient" className="block text-sm font-medium mb-1">Patient *</label>
+                <label htmlFor="io-patient" className="block text-sm font-medium mb-1">{t('docIntakeOutput.patientRequired')} *</label>
                 <select id="io-patient" className="w-full border rounded-lg px-3 py-2">
-                  <option value="">Select patient...</option>
+                  <option value="">{t('docIntakeOutput.selectPatientPh')}</option>
                   {patients.map(p => (
                     <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.room}</option>
                   ))}
@@ -396,7 +398,7 @@ const IntakeOutputPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Type *</label>
+                <label className="block text-sm font-medium mb-2">{t('docIntakeOutput.typeRequired')} *</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => { setEntryType('intake'); setNewEntry({ ...newEntry, type: 'intake', category: 'oral' }); }}
@@ -405,7 +407,7 @@ const IntakeOutputPage: React.FC = () => {
                     }`}
                   >
                     <ArrowDown className="w-5 h-5" />
-                    Intake
+                    {t('docIntakeOutput.intakeLabel')}
                   </button>
                   <button
                     onClick={() => { setEntryType('output'); setNewEntry({ ...newEntry, type: 'output', category: 'urine' }); }}
@@ -414,13 +416,13 @@ const IntakeOutputPage: React.FC = () => {
                     }`}
                   >
                     <ArrowUp className="w-5 h-5" />
-                    Output
+                    {t('docIntakeOutput.outputLabel')}
                   </button>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="io-category" className="block text-sm font-medium mb-1">Category *</label>
+                <label htmlFor="io-category" className="block text-sm font-medium mb-1">{t('docIntakeOutput.categoryRequired')} *</label>
                 <select
                   id="io-category"
                   value={newEntry.category}
@@ -435,7 +437,7 @@ const IntakeOutputPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="io-amount" className="block text-sm font-medium mb-1">Amount *</label>
+                  <label htmlFor="io-amount" className="block text-sm font-medium mb-1">{t('docIntakeOutput.amountRequired')} *</label>
                   <input
                     id="io-amount"
                     type="number"
@@ -446,7 +448,7 @@ const IntakeOutputPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="io-unit" className="block text-sm font-medium mb-1">Unit</label>
+                  <label htmlFor="io-unit" className="block text-sm font-medium mb-1">{t('docIntakeOutput.unitLabel')}</label>
                   <select
                     id="io-unit"
                     value={newEntry.unit}
@@ -462,27 +464,27 @@ const IntakeOutputPage: React.FC = () => {
 
               {entryType === 'intake' && (
                 <div>
-                  <label htmlFor="io-source" className="block text-sm font-medium mb-1">Source</label>
+                  <label htmlFor="io-source" className="block text-sm font-medium mb-1">{t('docIntakeOutput.sourceLabel')}</label>
                   <input
                     id="io-source"
                     type="text"
                     value={newEntry.source}
                     onChange={(e) => setNewEntry({ ...newEntry, source: e.target.value })}
                     className="w-full border rounded-lg px-3 py-2"
-                    placeholder="e.g., Water, NS @ 100ml/hr"
+                    placeholder={t('docIntakeOutput.sourcePh')}
                   />
                 </div>
               )}
 
               <div>
-                <label htmlFor="io-notes" className="block text-sm font-medium mb-1">Notes</label>
+                <label htmlFor="io-notes" className="block text-sm font-medium mb-1">{t('docIntakeOutput.notesLabel')}</label>
                 <textarea
                   id="io-notes"
                   value={newEntry.notes}
                   onChange={(e) => setNewEntry({ ...newEntry, notes: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2"
                   rows={2}
-                  placeholder="Optional notes..."
+                  placeholder={t('docIntakeOutput.notesPh')}
                 />
               </div>
 
@@ -494,7 +496,7 @@ const IntakeOutputPage: React.FC = () => {
                 }`}
               >
                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-                Record Entry
+                {t('docIntakeOutput.recordEntryButton')}
               </button>
             </div>
           </div>
@@ -506,7 +508,7 @@ const IntakeOutputPage: React.FC = () => {
         <div className="p-6">
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold">I/O Trends</h2>
+              <h2 className="text-lg font-semibold">{t('docIntakeOutput.ioTrendsHeading')}</h2>
               <div className="flex gap-2">
                 <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border rounded-lg px-3 py-2" />
                 <button className="p-2 border rounded-lg hover:bg-gray-50"><Download className="w-5 h-5" /></button>
@@ -518,12 +520,12 @@ const IntakeOutputPage: React.FC = () => {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="text-left p-3">Patient</th>
-                    <th className="text-left p-3">Room</th>
-                    <th className="text-right p-3">Intake (ml)</th>
-                    <th className="text-right p-3">Output (ml)</th>
-                    <th className="text-right p-3">Balance (ml)</th>
-                    <th className="text-center p-3">Status</th>
+                    <th className="text-left p-3">{t('docIntakeOutput.tablePatient')}</th>
+                    <th className="text-left p-3">{t('docIntakeOutput.tableRoom')}</th>
+                    <th className="text-right p-3">{t('docIntakeOutput.tableIntakeMl')}</th>
+                    <th className="text-right p-3">{t('docIntakeOutput.tableOutputMl')}</th>
+                    <th className="text-right p-3">{t('docIntakeOutput.tableBalanceMl')}</th>
+                    <th className="text-center p-3">{t('docIntakeOutput.tableStatus')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -561,14 +563,14 @@ const IntakeOutputPage: React.FC = () => {
             <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{selectedPatient.patientName}</h2>
-                <p className="text-sm text-gray-500">Room {selectedPatient.room} • MRN: {selectedPatient.mrn}</p>
+                <p className="text-sm text-gray-500">{t('docIntakeOutput.roomMrnLine', { room: selectedPatient.room, mrn: selectedPatient.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { setShowEntryModal(true); }}
                   className="px-3 py-1.5 bg-cyan-600 text-white rounded-lg text-sm font-medium flex items-center gap-1"
                 >
-                  <Plus className="w-4 h-4" /> Add Entry
+                  <Plus className="w-4 h-4" /> {t('docIntakeOutput.addEntryButton')}
                 </button>
                 <button onClick={() => setSelectedPatient(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
               </div>
@@ -579,31 +581,31 @@ const IntakeOutputPage: React.FC = () => {
               <div className="grid grid-cols-3 gap-4 mb-6">
                 <div className="bg-blue-50 rounded-lg p-4 text-center">
                   <p className="text-2xl font-bold text-blue-700">{selectedPatient.totalIntake24h}</p>
-                  <p className="text-sm text-blue-600">Total Intake (24h)</p>
+                  <p className="text-sm text-blue-600">{t('docIntakeOutput.totalIntake24h')}</p>
                 </div>
                 <div className="bg-amber-50 rounded-lg p-4 text-center">
                   <p className="text-2xl font-bold text-amber-700">{selectedPatient.totalOutput24h}</p>
-                  <p className="text-sm text-amber-600">Total Output (24h)</p>
+                  <p className="text-sm text-amber-600">{t('docIntakeOutput.totalOutput24h')}</p>
                 </div>
                 <div className={`rounded-lg p-4 text-center ${selectedPatient.netBalance > 500 ? 'bg-red-50' : 'bg-green-50'}`}>
                   <p className={`text-2xl font-bold ${selectedPatient.netBalance > 500 ? 'text-red-700' : 'text-green-700'}`}>
                     {selectedPatient.netBalance > 0 ? '+' : ''}{selectedPatient.netBalance}
                   </p>
-                  <p className={`text-sm ${selectedPatient.netBalance > 500 ? 'text-red-600' : 'text-green-600'}`}>Net Balance</p>
+                  <p className={`text-sm ${selectedPatient.netBalance > 500 ? 'text-red-600' : 'text-green-600'}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
                 </div>
               </div>
 
               {/* Entries Table */}
-              <h3 className="font-semibold mb-3">Today's Entries</h3>
+              <h3 className="font-semibold mb-3">{t('docIntakeOutput.todaysEntriesHeading')}</h3>
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="text-left p-3">Time</th>
-                      <th className="text-left p-3">Type</th>
-                      <th className="text-left p-3">Category</th>
-                      <th className="text-right p-3">Amount</th>
-                      <th className="text-left p-3">Notes</th>
+                      <th className="text-left p-3">{t('docIntakeOutput.tableTime')}</th>
+                      <th className="text-left p-3">{t('docIntakeOutput.tableType')}</th>
+                      <th className="text-left p-3">{t('docIntakeOutput.tableCategory')}</th>
+                      <th className="text-right p-3">{t('docIntakeOutput.tableAmount')}</th>
+                      <th className="text-left p-3">{t('docIntakeOutput.tableNotes')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -613,7 +615,7 @@ const IntakeOutputPage: React.FC = () => {
                         <td className="p-3">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${entry.type === 'intake' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
                             {entry.type === 'intake' ? <ArrowDown className="w-3 h-3 inline mr-1" /> : <ArrowUp className="w-3 h-3 inline mr-1" />}
-                            {entry.type}
+                            {t(`docIntakeOutput.typeLabel_${entry.type}`)}
                           </span>
                         </td>
                         <td className="p-3">

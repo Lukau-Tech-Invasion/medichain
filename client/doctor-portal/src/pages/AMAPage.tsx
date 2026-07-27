@@ -21,6 +21,7 @@ import {
   listAMADischarges,
   createAMADischarge,
   getPatients,
+  useTranslation,
   type PatientProfile
 } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -62,6 +63,7 @@ interface RiskDisclosure {
 }
 
 const AMAPage: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'view'>('list');
   const [records, setRecords] = useState<AMARecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<AMARecord | null>(null);
@@ -89,7 +91,7 @@ const AMAPage: React.FC = () => {
   useEffect(() => {
     const fetchAMARecords = async () => {
       if (!user?.walletAddress) {
-        setError('User not authenticated');
+        setError(t('docAMA.errorAuth'));
         setLoading(false);
         return;
       }
@@ -105,7 +107,7 @@ const AMAPage: React.FC = () => {
         setError(null);
       } catch (err) {
         console.error('Error fetching AMA records:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load AMA records');
+        setError(err instanceof Error ? err.message : t('docAMA.errorLoadFailed'));
       } finally {
         setLoading(false);
       }
@@ -136,7 +138,7 @@ const AMAPage: React.FC = () => {
 
   const handleCreateAMA = async () => {
     if (!patientId || !patientName || !diagnosis || !recommendedTreatment) {
-      showError('Please complete all required fields');
+      showError(t('docAMA.errorRequiredFields'));
       return;
     }
 
@@ -161,7 +163,7 @@ const AMAPage: React.FC = () => {
       };
 
       await createAMADischarge(newRecord);
-      showSuccess('AMA Discharge form created successfully');
+      showSuccess(t('docAMA.successCreated'));
       
       // Refresh list
       const updatedData = await listAMADischarges();
@@ -174,7 +176,7 @@ const AMAPage: React.FC = () => {
       resetForm();
     } catch (err) {
       console.error('Error creating AMA record:', err);
-      showError('Failed to create AMA record');
+      showError(t('docAMA.errorCreateFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -200,15 +202,9 @@ const AMAPage: React.FC = () => {
       'completed': 'bg-green-100 text-green-700',
       'voided': 'bg-red-100 text-red-700'
     };
-    const labels = {
-      'draft': 'Draft',
-      'pending-signatures': 'Pending Signatures',
-      'completed': 'Completed',
-      'voided': 'Voided'
-    };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
-        {labels[status]}
+        {t(`docAMA.status_${status}`)}
       </span>
     );
   };
@@ -222,7 +218,7 @@ const AMAPage: React.FC = () => {
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${styles[level]}`}>
-        {level} Risk
+        {t('docAMA.riskBadge', { level: t(`docAMA.level_${level}`) })}
       </span>
     );
   };
@@ -249,16 +245,16 @@ const AMAPage: React.FC = () => {
       <div className="bg-gradient-to-r from-red-600 to-orange-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
           <FileWarning className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Against Medical Advice (AMA)</h1>
+          <h1 className="text-2xl font-bold">{t('docAMA.title')}</h1>
         </div>
-        <p className="text-red-100">Document patient refusal of care and AMA discharges</p>
+        <p className="text-red-100">{t('docAMA.subtitle')}</p>
       </div>
 
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-red-600 animate-spin mb-2" />
-          <p className="text-gray-500">Loading AMA records...</p>
+          <p className="text-gray-500">{t('docAMA.loading')}</p>
         </div>
       )}
 
@@ -268,7 +264,7 @@ const AMAPage: React.FC = () => {
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
             <p className="text-sm text-red-700">{error}</p>
-            <p className="text-xs text-red-500 mt-1">Check that the API server is running on port 8080</p>
+            <p className="text-xs text-red-500 mt-1">{t('docAMA.errorHint')}</p>
           </div>
         </div>
       )}
@@ -299,7 +295,7 @@ const AMAPage: React.FC = () => {
                       : 'text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  {tab === 'list' ? 'AMA Records' : 'New AMA Form'}
+                  {tab === 'list' ? t('docAMA.tabRecords') : t('docAMA.tabNew')}
                 </button>
               ))}
             </div>
@@ -317,7 +313,7 @@ const AMAPage: React.FC = () => {
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search by patient name, MRN, or ID..."
+                      placeholder={t('docAMA.searchPh')}
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                     />
                   </div>
@@ -326,11 +322,11 @@ const AMAPage: React.FC = () => {
                     onChange={(e) => setStatusFilter(e.target.value as AMAStatus | 'all')}
                     className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                   >
-                    <option value="all">All Status</option>
-                <option value="draft">Draft</option>
-                <option value="pending-signatures">Pending Signatures</option>
-                <option value="completed">Completed</option>
-                <option value="voided">Voided</option>
+                    <option value="all">{t('docAMA.filterAll')}</option>
+                <option value="draft">{t('docAMA.status_draft')}</option>
+                <option value="pending-signatures">{t('docAMA.status_pending-signatures')}</option>
+                <option value="completed">{t('docAMA.status_completed')}</option>
+                <option value="voided">{t('docAMA.status_voided')}</option>
               </select>
             </div>
 
@@ -339,7 +335,7 @@ const AMAPage: React.FC = () => {
               {filteredRecords.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                   <FileWarning className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                  <p>No AMA records found</p>
+                  <p>{t('docAMA.noRecords')}</p>
                 </div>
               ) : (
                 filteredRecords.map(record => (
@@ -366,7 +362,7 @@ const AMAPage: React.FC = () => {
                         </div>
                         <div>
                           <h3 className="font-medium text-gray-900">{record.patientName}</h3>
-                          <p className="text-sm text-gray-500">MRN: {record.mrn} • {record.id}</p>
+                          <p className="text-sm text-gray-500">{t('docAMA.mrnLine', { mrn: record.mrn, id: record.id })}</p>
                           <p className="text-sm text-gray-600 mt-1">{record.diagnosis}</p>
                         </div>
                       </div>
@@ -386,13 +382,13 @@ const AMAPage: React.FC = () => {
                       </span>
                       <div className="flex items-center gap-2">
                         <span className={`flex items-center gap-1 ${record.patientSigned ? 'text-green-600' : 'text-gray-400'}`}>
-                          <UserCheck className="w-3 h-3" /> Patient
+                          <UserCheck className="w-3 h-3" /> {t('docAMA.sigPatient')}
                         </span>
                         <span className={`flex items-center gap-1 ${record.witnessSigned ? 'text-green-600' : 'text-gray-400'}`}>
-                          <Users className="w-3 h-3" /> Witness
+                          <Users className="w-3 h-3" /> {t('docAMA.sigWitness')}
                         </span>
                         <span className={`flex items-center gap-1 ${record.providerSigned ? 'text-green-600' : 'text-gray-400'}`}>
-                          <Pen className="w-3 h-3" /> Provider
+                          <Pen className="w-3 h-3" /> {t('docAMA.sigProvider')}
                         </span>
                       </div>
                     </div>
@@ -413,7 +409,7 @@ const AMAPage: React.FC = () => {
               }}
               className="text-red-600 hover:text-red-700 text-sm font-medium"
             >
-              ← Back to Records
+              {t('docAMA.backToRecords')}
             </button>
 
             {/* Header Card */}
@@ -424,26 +420,26 @@ const AMAPage: React.FC = () => {
                     <h2 className="text-xl font-bold text-gray-900">{selectedRecord.patientName}</h2>
                     {getStatusBadge(selectedRecord.status)}
                   </div>
-                  <p className="text-gray-500">MRN: {selectedRecord.mrn} • {selectedRecord.id}</p>
+                  <p className="text-gray-500">{t('docAMA.mrnLine', { mrn: selectedRecord.mrn, id: selectedRecord.id })}</p>
                 </div>
                 {getRiskBadge(selectedRecord.riskLevel)}
               </div>
 
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-gray-500">Date Created</p>
+                  <p className="text-gray-500">{t('docAMA.lblDateCreated')}</p>
                   <p className="font-medium">{selectedRecord.dateCreated.toLocaleString()}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Provider</p>
+                  <p className="text-gray-500">{t('docAMA.lblProvider')}</p>
                   <p className="font-medium">{selectedRecord.provider}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-gray-500">Diagnosis</p>
+                  <p className="text-gray-500">{t('docAMA.lblDiagnosis')}</p>
                   <p className="font-medium">{selectedRecord.diagnosis}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-gray-500">Recommended Treatment</p>
+                  <p className="text-gray-500">{t('docAMA.lblRecommendedTreatment')}</p>
                   <p className="font-medium">{selectedRecord.recommendedTreatment}</p>
                 </div>
               </div>
@@ -451,12 +447,12 @@ const AMAPage: React.FC = () => {
 
             {/* Signature Status */}
             <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="font-semibold text-gray-900 mb-4">Signature Status</h3>
+              <h3 className="font-semibold text-gray-900 mb-4">{t('docAMA.signatureStatusTitle')}</h3>
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <UserCheck className="w-5 h-5 text-gray-600" />
-                    <span>Patient Signature</span>
+                    <span>{t('docAMA.lblPatientSignature')}</span>
                   </div>
                   {selectedRecord.patientSigned ? (
                     <CheckCircle className="w-6 h-6 text-green-500" />
@@ -467,7 +463,7 @@ const AMAPage: React.FC = () => {
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <Users className="w-5 h-5 text-gray-600" />
-                    <span>Witness Signature {selectedRecord.witnessName && `(${selectedRecord.witnessName})`}</span>
+                    <span>{t('docAMA.lblWitnessSignature')} {selectedRecord.witnessName && `(${selectedRecord.witnessName})`}</span>
                   </div>
                   {selectedRecord.witnessSigned ? (
                     <CheckCircle className="w-6 h-6 text-green-500" />
@@ -478,7 +474,7 @@ const AMAPage: React.FC = () => {
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <Pen className="w-5 h-5 text-gray-600" />
-                    <span>Provider Signature</span>
+                    <span>{t('docAMA.lblProviderSignature')}</span>
                   </div>
                   {selectedRecord.providerSigned ? (
                     <CheckCircle className="w-6 h-6 text-green-500" />
@@ -492,7 +488,7 @@ const AMAPage: React.FC = () => {
             {/* Patient Statement */}
             {selectedRecord.patientStatement && (
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-semibold text-gray-900 mb-2">Patient Statement</h3>
+                <h3 className="font-semibold text-gray-900 mb-2">{t('docAMA.patientStatementTitle')}</h3>
                 <p className="text-gray-700 italic">"{selectedRecord.patientStatement}"</p>
               </div>
             )}
@@ -501,11 +497,11 @@ const AMAPage: React.FC = () => {
             <div className="flex gap-3">
               <button className="flex-1 py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2">
                 <Printer className="w-5 h-5" />
-                Print Document
+                {t('docAMA.printDocument')}
               </button>
               {selectedRecord.status === 'pending-signatures' && (
                 <button className="flex-1 py-3 border border-red-600 text-red-600 rounded-lg font-semibold">
-                  Collect Signatures
+                  {t('docAMA.collectSignatures')}
                 </button>
               )}
             </div>
@@ -536,21 +532,21 @@ const AMAPage: React.FC = () => {
                 ))}
               </div>
               <div className="flex justify-between mt-2 text-xs text-gray-500">
-                <span>Patient Info</span>
-                <span>Medical Details</span>
-                <span>Risk Disclosure</span>
-                <span>Signatures</span>
+                <span>{t('docAMA.stepPatientInfo')}</span>
+                <span>{t('docAMA.stepMedicalDetails')}</span>
+                <span>{t('docAMA.stepRiskDisclosure')}</span>
+                <span>{t('docAMA.stepSignatures')}</span>
               </div>
             </div>
 
             {/* Step 1: Patient Info */}
             {formStep === 1 && (
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Patient Information</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAMA.patientInfoTitle')}</h3>
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="ama-patient-select" className="block text-sm font-medium text-gray-700 mb-1">
-                      Select Patient
+                      {t('docAMA.selectPatientLabel')}
                     </label>
                     <select
                       id="ama-patient-select"
@@ -563,7 +559,7 @@ const AMAPage: React.FC = () => {
                       }}
                       className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     >
-                      <option value="">-- Select Existing Patient --</option>
+                      <option value="">{t('docAMA.selectExistingPatient')}</option>
                       {availablePatients.map(p => (
                         <option key={p.patient_id} value={p.patient_id}>{p.full_name} ({p.patient_id})</option>
                       ))}
@@ -571,40 +567,40 @@ const AMAPage: React.FC = () => {
                   </div>
                   <div>
                     <label htmlFor="ama-patient-id" className="block text-sm font-medium text-gray-700 mb-1">
-                      Patient ID <span className="text-red-500">*</span>
+                      {t('docAMA.patientIdLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
                       id="ama-patient-id"
                       type="text"
                       value={patientId}
                       onChange={(e) => setPatientId(e.target.value)}
-                      placeholder="Enter patient ID"
+                      placeholder={t('docAMA.patientIdPh')}
                       className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
                     <label htmlFor="ama-patient-name" className="block text-sm font-medium text-gray-700 mb-1">
-                      Patient Name <span className="text-red-500">*</span>
+                      {t('docAMA.patientNameLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
                       id="ama-patient-name"
                       type="text"
                       value={patientName}
                       onChange={(e) => setPatientName(e.target.value)}
-                      placeholder="Full legal name"
+                      placeholder={t('docAMA.patientNamePh')}
                       className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
                     <label htmlFor="ama-mrn" className="block text-sm font-medium text-gray-700 mb-1">
-                      MRN <span className="text-red-500">*</span>
+                      {t('docAMA.mrnLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
                       id="ama-mrn"
                       type="text"
                       value={mrn}
                       onChange={(e) => setMrn(e.target.value)}
-                      placeholder="Medical Record Number"
+                      placeholder={t('docAMA.mrnPh')}
                       className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
@@ -618,7 +614,7 @@ const AMAPage: React.FC = () => {
                       : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  Continue
+                  {t('docAMA.continueBtn')}
                   <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
@@ -627,37 +623,37 @@ const AMAPage: React.FC = () => {
             {/* Step 2: Medical Details */}
             {formStep === 2 && (
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Medical Details</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAMA.medicalDetailsTitle')}</h3>
                 <div className="space-y-4">
                   <div>
                     <label htmlFor="ama-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">
-                      Diagnosis <span className="text-red-500">*</span>
+                      {t('docAMA.diagnosisLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
                       id="ama-diagnosis"
                       type="text"
                       value={diagnosis}
                       onChange={(e) => setDiagnosis(e.target.value)}
-                      placeholder="Primary diagnosis"
+                      placeholder={t('docAMA.diagnosisPh')}
                       className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
                     <label htmlFor="ama-recommended-treatment" className="block text-sm font-medium text-gray-700 mb-1">
-                      Recommended Treatment <span className="text-red-500">*</span>
+                      {t('docAMA.recommendedTreatmentLabel')} <span className="text-red-500">*</span>
                     </label>
                     <textarea
                       id="ama-recommended-treatment"
                       value={recommendedTreatment}
                       onChange={(e) => setRecommendedTreatment(e.target.value)}
                       rows={3}
-                      placeholder="Describe the recommended treatment the patient is refusing"
+                      placeholder={t('docAMA.recommendedTreatmentPh')}
                       className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Risk Level <span className="text-red-500">*</span>
+                      {t('docAMA.riskLevelLabel')} <span className="text-red-500">*</span>
                     </label>
                     <div className="grid grid-cols-2 gap-3">
                       {(['low', 'moderate', 'high', 'critical'] as RiskLevel[]).map(level => (
@@ -673,7 +669,7 @@ const AMAPage: React.FC = () => {
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
                         >
-                          {level}
+                          {t(`docAMA.level_${level}`)}
                         </button>
                       ))}
                     </div>
@@ -684,7 +680,7 @@ const AMAPage: React.FC = () => {
                     onClick={() => setFormStep(1)}
                     className="flex-1 py-3 border border-gray-300 rounded-lg font-semibold"
                   >
-                    Back
+                    {t('docAMA.backBtn')}
                   </button>
                   <button
                     onClick={() => setFormStep(3)}
@@ -695,7 +691,7 @@ const AMAPage: React.FC = () => {
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    Continue
+                    {t('docAMA.continueBtn')}
                     <ChevronRight className="w-5 h-5" />
                   </button>
                 </div>
@@ -707,10 +703,10 @@ const AMAPage: React.FC = () => {
               <div className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">Risk Disclosure</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">{t('docAMA.riskDisclosureTitle')}</h3>
                 </div>
                 <p className="text-sm text-gray-600 mb-4">
-                  Each risk must be verbally explained to the patient and acknowledged.
+                  {t('docAMA.riskDisclosureIntro')}
                 </p>
                 <div className="space-y-3">
                   {riskDisclosures.map(risk => (
@@ -739,14 +735,14 @@ const AMAPage: React.FC = () => {
                 </div>
                 <div className="mt-4">
                   <label htmlFor="ama-patient-statement" className="block text-sm font-medium text-gray-700 mb-1">
-                    Patient Statement (optional)
+                    {t('docAMA.patientStatementLabel')}
                   </label>
                   <textarea
                     id="ama-patient-statement"
                     value={patientStatement}
                     onChange={(e) => setPatientStatement(e.target.value)}
                     rows={3}
-                    placeholder="Document any statement made by the patient"
+                    placeholder={t('docAMA.patientStatementPh')}
                     className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                   />
                 </div>
@@ -755,7 +751,7 @@ const AMAPage: React.FC = () => {
                     onClick={() => setFormStep(2)}
                     className="flex-1 py-3 border border-gray-300 rounded-lg font-semibold"
                   >
-                    Back
+                    {t('docAMA.backBtn')}
                   </button>
                   <button
                     onClick={() => setFormStep(4)}
@@ -766,7 +762,7 @@ const AMAPage: React.FC = () => {
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    Continue to Signatures
+                    {t('docAMA.continueToSignatures')}
                     <ChevronRight className="w-5 h-5" />
                   </button>
                 </div>
@@ -776,20 +772,20 @@ const AMAPage: React.FC = () => {
             {/* Step 4: Signatures */}
             {formStep === 4 && (
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Collect Signatures</h3>
-                
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAMA.collectSignaturesTitle')}</h3>
+
                 <div className="space-y-4">
                   {/* Patient Signature */}
                   <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <UserCheck className="w-5 h-5 text-gray-600" />
-                        <span className="font-medium">Patient Signature</span>
+                        <span className="font-medium">{t('docAMA.lblPatientSignature')}</span>
                       </div>
-                      <span className="text-red-500 text-sm">Required</span>
+                      <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
                     <div className="h-24 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
-                      <p className="text-gray-400">Tap to capture signature</p>
+                      <p className="text-gray-400">{t('docAMA.tapToCaptureSignature')}</p>
                     </div>
                   </div>
 
@@ -798,21 +794,21 @@ const AMAPage: React.FC = () => {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <Users className="w-5 h-5 text-gray-600" />
-                        <span className="font-medium">Witness Signature</span>
+                        <span className="font-medium">{t('docAMA.lblWitnessSignature')}</span>
                       </div>
-                      <span className="text-red-500 text-sm">Required</span>
+                      <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
-                    <label htmlFor="ama-witness-name" className="sr-only">Witness name</label>
+                    <label htmlFor="ama-witness-name" className="sr-only">{t('docAMA.witnessNamePh')}</label>
                     <input
                       id="ama-witness-name"
                       type="text"
                       value={witnessName}
                       onChange={(e) => setWitnessName(e.target.value)}
-                      placeholder="Witness name"
+                      placeholder={t('docAMA.witnessNamePh')}
                       className="w-full border border-gray-300 rounded-lg p-2 mb-2 focus:ring-2 focus:ring-red-500"
                     />
                     <div className="h-24 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
-                      <p className="text-gray-400">Tap to capture signature</p>
+                      <p className="text-gray-400">{t('docAMA.tapToCaptureSignature')}</p>
                     </div>
                   </div>
 
@@ -821,12 +817,12 @@ const AMAPage: React.FC = () => {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <Pen className="w-5 h-5 text-gray-600" />
-                        <span className="font-medium">Provider Signature</span>
+                        <span className="font-medium">{t('docAMA.lblProviderSignature')}</span>
                       </div>
-                      <span className="text-red-500 text-sm">Required</span>
+                      <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
                     <div className="h-24 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
-                      <p className="text-gray-400">Tap to capture signature</p>
+                      <p className="text-gray-400">{t('docAMA.tapToCaptureSignature')}</p>
                     </div>
                   </div>
                 </div>
@@ -836,10 +832,9 @@ const AMAPage: React.FC = () => {
                   <div className="flex items-start gap-2">
                     <Shield className="w-5 h-5 text-yellow-600 mt-0.5" />
                     <div>
-                      <p className="font-medium text-yellow-900">Legal Notice</p>
+                      <p className="font-medium text-yellow-900">{t('docAMA.legalNoticeTitle')}</p>
                       <p className="text-sm text-yellow-700 mt-1">
-                        By signing, all parties acknowledge that the patient has been informed of the risks
-                        of leaving against medical advice and chooses to do so of their own free will.
+                        {t('docAMA.legalNoticeText')}
                       </p>
                     </div>
                   </div>
@@ -850,7 +845,7 @@ const AMAPage: React.FC = () => {
                     onClick={() => setFormStep(3)}
                     className="flex-1 py-3 border border-gray-300 rounded-lg font-semibold"
                   >
-                    Back
+                    {t('docAMA.backBtn')}
                   </button>
                   <button
                     onClick={handleCreateAMA}
@@ -858,7 +853,7 @@ const AMAPage: React.FC = () => {
                     className="flex-1 py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2"
                   >
                     {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
-                    Complete AMA Form
+                    {t('docAMA.completeFormBtn')}
                   </button>
                 </div>
               </div>
@@ -869,10 +864,9 @@ const AMAPage: React.FC = () => {
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
                 <div>
-                  <p className="font-medium text-red-900">Important Documentation</p>
+                  <p className="font-medium text-red-900">{t('docAMA.importantDocTitle')}</p>
                   <p className="text-sm text-red-700 mt-1">
-                    AMA documentation is a legal record. Ensure all information is accurate and complete.
-                    Patient must demonstrate capacity to make informed decisions.
+                    {t('docAMA.importantDocText')}
                   </p>
                 </div>
               </div>

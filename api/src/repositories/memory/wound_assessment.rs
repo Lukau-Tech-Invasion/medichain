@@ -65,7 +65,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
             .cloned()
             .collect();
 
-        assessments.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+        assessments.sort_by_key(|b| std::cmp::Reverse(b.assessed_at));
 
         let total = assessments.len() as u64;
         let offset = pagination.offset() as usize;
@@ -88,7 +88,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
             .cloned()
             .collect();
 
-        assessments.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+        assessments.sort_by_key(|b| std::cmp::Reverse(b.assessed_at));
 
         let total = assessments.len() as u64;
         let offset = pagination.offset() as usize;
@@ -146,7 +146,7 @@ impl WoundAssessmentRepository for MemoryWoundAssessmentRepository {
 
         let mut assessments: Vec<WoundAssessmentEntity> = storage.values().cloned().collect();
 
-        assessments.sort_by(|a, b| b.assessed_at.cmp(&a.assessed_at));
+        assessments.sort_by_key(|b| std::cmp::Reverse(b.assessed_at));
 
         let total = assessments.len() as u64;
         let offset = pagination.offset() as usize;

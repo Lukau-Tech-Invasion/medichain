@@ -34,6 +34,19 @@ pub struct Claims {
     pub sub: String,
     /// Role string (e.g. "Doctor"); informational, RBAC still re-checks server-side.
     pub role: String,
+    /// Explicit authorization context. Absent only on legacy tokens issued
+    /// before Phase 1; new context tokens are either `patient` or
+    /// `professional`.
+    #[serde(default)]
+    pub context: Option<String>,
+    #[serde(default)]
+    pub patient_profile_id: Option<String>,
+    #[serde(default)]
+    pub organization_id: Option<String>,
+    #[serde(default)]
+    pub facility_id: Option<String>,
+    #[serde(default)]
+    pub assignment_id: Option<String>,
     /// Whether multi-factor auth was satisfied when this token was issued.
     pub mfa: bool,
     /// Token type: [`TYP_ACCESS`] or [`TYP_REFRESH`].
@@ -66,10 +79,49 @@ fn issue(
     let claims = Claims {
         sub: wallet.to_string(),
         role: role.to_string(),
+        context: None,
+        patient_profile_id: None,
+        organization_id: None,
+        facility_id: None,
+        assignment_id: None,
         mfa,
         typ: typ.to_string(),
         iat: now,
         exp: now + ttl_secs,
+    };
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(jwt_secret().as_bytes()),
+    )
+}
+
+/// Issue an access token tied to one explicit patient or professional context.
+/// Legacy access tokens remain supported during migration, but callers using
+/// this function cannot carry professional claims into a patient context.
+pub fn issue_context_access_token(
+    context: &crate::federation_identity::LoginContext,
+    mfa: bool,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = chrono::Utc::now().timestamp();
+    let claims = Claims {
+        sub: context.wallet_address.clone(),
+        role: context.role.clone().unwrap_or_default(),
+        context: Some(
+            match context.context_type {
+                crate::federation_identity::ContextType::Patient => "patient",
+                crate::federation_identity::ContextType::Professional => "professional",
+            }
+            .to_string(),
+        ),
+        patient_profile_id: context.patient_profile_id.clone(),
+        organization_id: context.organization_id.clone(),
+        facility_id: context.facility_id.clone(),
+        assignment_id: context.assignment_id.clone(),
+        mfa,
+        typ: TYP_ACCESS.to_string(),
+        iat: now,
+        exp: now + ACCESS_TOKEN_TTL_SECS,
     };
     encode(
         &Header::default(),

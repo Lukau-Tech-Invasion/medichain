@@ -57,14 +57,6 @@ pub struct SignatureAuthMiddleware {
 }
 
 impl SignatureAuthMiddleware {
-    /// Create middleware with an explicit enabled flag.
-    ///
-    /// Prefer [`Self::enabled()`] or [`Self::disabled()`] for clarity.
-    #[allow(dead_code)]
-    pub fn new(enabled: bool) -> Self {
-        Self { enabled }
-    }
-
     /// Create enabled middleware
     pub fn enabled() -> Self {
         Self { enabled: true }
