@@ -14,6 +14,22 @@ jobs:
   rust:
     name: Rust format and tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: medichain
+          POSTGRES_PASSWORD: medichain_dev_2024
+          POSTGRES_DB: medichain
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medichain -d medichain"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://medichain:medichain_dev_2024@localhost:5432/medichain
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
