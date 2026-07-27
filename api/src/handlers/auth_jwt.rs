@@ -492,7 +492,7 @@ pub async fn declare_breach(
 // Local helpers
 // ============================================================================
 
-fn unauthorized_missing_user() -> HttpResponse {
+pub(crate) fn unauthorized_missing_user() -> HttpResponse {
     HttpResponse::Unauthorized().json(ErrorResponse {
         success: false,
         error: "Authentication required (Bearer JWT or X-User-Id)".to_string(),
@@ -501,7 +501,10 @@ fn unauthorized_missing_user() -> HttpResponse {
 }
 
 /// Verify the caller is an Admin. Returns the rejection response on failure.
-fn require_admin(data: &web::Data<AppState>, req: &HttpRequest) -> Result<(), HttpResponse> {
+pub(crate) fn require_admin(
+    data: &web::Data<AppState>,
+    req: &HttpRequest,
+) -> Result<(), HttpResponse> {
     let wallet = get_current_user_id(req).ok_or_else(unauthorized_missing_user)?;
     let user = get_user(data, &wallet).ok_or_else(|| {
         HttpResponse::Unauthorized().json(ErrorResponse {

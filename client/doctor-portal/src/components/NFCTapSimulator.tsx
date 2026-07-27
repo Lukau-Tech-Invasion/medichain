@@ -64,7 +64,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       const emergencyInfo = {
         patientId: data.emergency_info.patient_id,
         bloodType: data.emergency_info.blood_type,
-        allergies: data.emergency_info.allergies,
+        allergies: data.emergency_info.allergies.map((allergy) => allergy.name),
         currentMedications: data.emergency_info.current_medications,
         chronicConditions: data.emergency_info.chronic_conditions,
         emergencyContacts: data.emergency_info.emergency_contacts,

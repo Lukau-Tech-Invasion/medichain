@@ -166,7 +166,7 @@ pub async fn grant_bound_emergency_access(
 }
 
 fn emergency_error(
-    builder: actix_web::HttpResponseBuilder,
+    mut builder: actix_web::HttpResponseBuilder,
     error: &str,
     code: &str,
 ) -> HttpResponse {
