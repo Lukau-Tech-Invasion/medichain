@@ -32,6 +32,10 @@ async fn create_test_pool() -> PgPool {
     );
 
     let admin_pool = create_admin_pool(&database_url).await;
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to enable uuid-ossp for test database migrations");
     sqlx::query(&format!("CREATE SCHEMA {}", quote_identifier(&schema)))
         .execute(&admin_pool)
         .await
