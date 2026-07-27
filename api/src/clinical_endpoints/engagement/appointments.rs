@@ -34,10 +34,12 @@ pub async fn book_appointment(
         Err(resp) => return resp,
     };
 
-    // User must be booking for themselves or be a healthcare provider/authorized relative
+    // User must be booking for themselves or be a healthcare provider/authorized relative.
+    // Resolve the caller from the server-side account registry instead of trusting a
+    // legacy ID prefix: production wallet addresses do not encode a user's role.
     if current_user_id != req.patient_id {
-        // Simple role check for demo (ideally uses pallets/access-control)
-        let is_provider = current_user_id.starts_with("0xPROV");
+        let is_provider = crate::get_user(&data, &current_user_id)
+            .is_some_and(|user| user.role.is_healthcare_provider());
         if !is_provider {
             // Check family access (Phase 22 linkage)
             let stored_groups = data
@@ -191,8 +193,11 @@ pub async fn get_patient_appointments(
         Err(resp) => return resp,
     };
 
-    // Auth check
-    if current_user_id != patient_id && !current_user_id.starts_with("0xPROV") {
+    // A patient can see their own appointments; registered healthcare staff can
+    // review appointments for care coordination.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
+    if current_user_id != patient_id && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -229,8 +234,11 @@ pub async fn get_provider_appointments(
         Err(resp) => return resp,
     };
 
-    // Providers can only see their own appointments (demo restriction)
-    if current_user_id != provider_id && !current_user_id.starts_with("0xADMIN") {
+    // Providers can only see their own appointments; registered administrators
+    // may review schedules for operational support.
+    let is_admin =
+        crate::get_user(&data, &current_user_id).is_some_and(|user| user.role.is_admin());
+    if current_user_id != provider_id && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -352,10 +360,13 @@ pub async fn get_appointment(
     };
     let appointment: crate::clinical::Appointment = entity.into();
 
-    // Patient, the assigned provider, or any healthcare provider may view it.
+    // Patient, the assigned provider, or any registered healthcare provider may
+    // view it. Never infer authorization from a user-ID prefix.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
     if current_user_id != appointment.patient_id
         && current_user_id != appointment.provider_id
-        && !current_user_id.starts_with("0xPROV")
+        && !is_provider
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,

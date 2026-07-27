@@ -10,7 +10,9 @@
 # (docker-compose.yml already sets `context: .` + `dockerfile: api/Dockerfile`.)
 
 # ---- Builder ----------------------------------------------------------------
-FROM rust:1.83-slim-bookworm AS builder
+# The locked `home` and `time` releases require Cargo/Rust 1.88 or newer.
+# Keep this explicit so the production image matches CI's stable toolchain.
+FROM rust:1.88-slim-bookworm AS builder
 WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -38,13 +40,13 @@ COPY --from=builder /build/target/release/medichain-api /usr/local/bin/medichain
 # Migrations are applied by the API at startup; ship them alongside the binary.
 COPY api/migrations ./migrations
 
-ENV API_HOST=0.0.0.0 \
-    API_PORT=8080
+ENV HOST=0.0.0.0 \
+    PORT=8080
 
 EXPOSE 8080
 
 # Container-level health check (also lets `depends_on: condition: service_healthy` work).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -fsS http://localhost:8080/api/health || exit 1
+    CMD curl -fsS http://localhost:8080/health || exit 1
 
 CMD ["medichain-api"]

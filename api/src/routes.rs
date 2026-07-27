@@ -163,10 +163,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_patient_emergency_records)
         // Nursing documentation endpoints (Phase 3)
         .service(clinical_endpoints::create_mar)
+        // Static list routes must precede `/{id}` routes. Actix resolves in
+        // registration order, so otherwise "list" is treated as an ID.
+        .service(clinical_endpoints::list_mar)
         .service(clinical_endpoints::get_mar)
         .service(clinical_endpoints::create_io)
+        .service(clinical_endpoints::list_io)
         .service(clinical_endpoints::get_io)
         .service(clinical_endpoints::create_care_plan)
+        .service(clinical_endpoints::list_care_plans)
         .service(clinical_endpoints::get_care_plan)
         .service(clinical_endpoints::create_wound)
         .service(clinical_endpoints::get_wound)
@@ -427,11 +432,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_orders)
         .service(clinical_endpoints::list_discharges)
         .service(clinical_endpoints::approve_discharge)
-        .service(clinical_endpoints::list_mar)
         .service(clinical_endpoints::administer_medication)
-        .service(clinical_endpoints::list_io)
         .service(clinical_endpoints::record_fluid)
-        .service(clinical_endpoints::list_care_plans)
         // Phase 35: Additional list endpoints for frontend pages
         .service(clinical_endpoints::list_chain_of_custody)
         .service(clinical_endpoints::list_lab_qc)

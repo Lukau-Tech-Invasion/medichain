@@ -31,7 +31,10 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        // Docker exposes the API through the public Nginx gateway on port 80.
+        // Port 8080 belongs to the IPFS gateway, so proxying there made browser
+        // API calls fail despite a healthy MediChain API container.
+        target: 'http://127.0.0.1',
         changeOrigin: true,
         secure: false,
         // Add timeout and error handling
@@ -44,7 +47,7 @@ export default defineConfig({
             }
           });
           proxy.on('proxyReq', (_proxyReq, req) => {
-            console.log('Proxying:', req.method, req.url, '-> http://127.0.0.1:8080');
+              console.log('Proxying:', req.method, req.url, '-> http://127.0.0.1');
           });
         },
       },

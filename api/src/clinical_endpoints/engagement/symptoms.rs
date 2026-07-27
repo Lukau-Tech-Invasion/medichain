@@ -404,8 +404,11 @@ pub async fn get_symptom_checker_history(
         Err(resp) => return resp,
     };
 
-    // Auth check
-    if current_user_id != patient_id && !current_user_id.starts_with("0xPROV") {
+    // Allow the patient or a registered healthcare provider. Wallet addresses
+    // are opaque identifiers, so a legacy `0xPROV` prefix is not authorization.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
+    if current_user_id != patient_id && !is_provider {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

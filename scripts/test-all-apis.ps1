@@ -241,6 +241,7 @@ $newPatient = @{
     full_name                      = "Test Patient $(Get-Random -Maximum 9999)"
     date_of_birth                  = "1990-05-15"
     national_id                    = "TEST-NID-$(Get-Random -Maximum 99999)"
+    phone                          = "+1-555-0100"
     blood_type                     = "A+"
     allergies                      = @("Penicillin")
     current_medications            = @("Aspirin 81mg")
@@ -568,12 +569,7 @@ $prescription = @{
     status          = "Pending"
 }
 
-$rxResult = Test-Endpoint -Name "Create E-Prescription" -Category "Prescriptions" -Method "POST" -Endpoint "/api/clinical/e-prescription" -Body $prescription -ExpectedStatus 201 -Description "Create e-prescription"
-if ($rxResult.Success) {
-    $CreatedResources.PrescriptionId = $prescription.rx_id
-}
-
-Test-Endpoint -Name "Create E-Prescription V2" -Category "Prescriptions" -Method "POST" -Endpoint "/api/e-prescriptions" -Body @{
+$rxResult = Test-Endpoint -Name "Create E-Prescription" -Category "Prescriptions" -Method "POST" -Endpoint "/api/e-prescriptions" -Body @{
     patient_id           = $patientId
     medication_name      = "Atorvastatin"
     generic_name         = "atorvastatin calcium"
@@ -590,7 +586,10 @@ Test-Endpoint -Name "Create E-Prescription V2" -Category "Prescriptions" -Method
     diagnosis_codes      = @("E78.5")
     patient_instructions = "Take with or without food. Avoid grapefruit."
     pharmacy_notes       = "Generic substitution permitted"
-} -ExpectedStatus 201 -Description "Create e-prescription v2"
+} -ExpectedStatus 201 -Description "Create e-prescription"
+if ($rxResult.Success -and $rxResult.Content.prescription_id) {
+    $CreatedResources.PrescriptionId = $rxResult.Content.prescription_id
+}
 
 Test-Endpoint -Name "Drug Database Search" -Category "Prescriptions" -Method "GET" -Endpoint "/api/drugs?query=atorvastatin" -Description "Search drug database"
 Test-Endpoint -Name "Check Drug Interactions" -Category "Prescriptions" -Method "POST" -Endpoint "/api/interactions/check" -Body @{
@@ -637,7 +636,7 @@ Test-Endpoint -Name "Patient Dashboard" -Category "Dashboards" -Method "GET" -En
 # ============================================
 Write-Host "[13/20] Testing Emergency Protocol Endpoints..." -ForegroundColor Yellow
 
-Test-Endpoint -Name "Create Code Blue" -Category "Emergency" -Method "POST" -Endpoint "/api/clinical/code-blue" -Body @{
+Test-Endpoint -Name "Create Code Blue" -Category "Emergency" -Method "POST" -Endpoint "/api/emergency/code-blue" -Body @{
     event_id        = "CB-$(Get-Random -Maximum 99999)"
     patient_id      = $patientId
     location        = "Room 205"
@@ -657,7 +656,7 @@ Test-Endpoint -Name "Create Code Blue" -Category "Emergency" -Method "POST" -End
     documented_at   = [int64](Get-Date -UFormat %s)
 } -ExpectedStatus 201 -Description "Code Blue event"
 
-Test-Endpoint -Name "Create Trauma Assessment" -Category "Emergency" -Method "POST" -Endpoint "/api/clinical/trauma" -Body @{
+Test-Endpoint -Name "Create Trauma Assessment" -Category "Emergency" -Method "POST" -Endpoint "/api/emergency/trauma" -Body @{
     assessment_id         = "TRAUMA-$(Get-Random -Maximum 99999)"
     patient_id            = $patientId
     mechanism             = "MVC"
@@ -720,7 +719,7 @@ Test-Endpoint -Name "Create Trauma Assessment" -Category "Emergency" -Method "PO
     assessed_at           = [int64](Get-Date -UFormat %s)
 } -ExpectedStatus 201 -Description "Trauma assessment"
 
-Test-Endpoint -Name "Create Stroke Assessment" -Category "Emergency" -Method "POST" -Endpoint "/api/clinical/stroke" -Body @{
+Test-Endpoint -Name "Create Stroke Assessment" -Category "Emergency" -Method "POST" -Endpoint "/api/emergency/stroke" -Body @{
     assessment_id          = "STROKE-$(Get-Random -Maximum 99999)"
     patient_id             = $patientId
     last_known_well        = [int64]((Get-Date).AddHours(-1) | Get-Date -UFormat %s)
@@ -757,7 +756,7 @@ Test-Endpoint -Name "Create Stroke Assessment" -Category "Emergency" -Method "PO
     assessed_at            = [int64](Get-Date -UFormat %s)
 } -ExpectedStatus 201 -Description "Stroke assessment"
 
-Test-Endpoint -Name "Create Sepsis Screening" -Category "Emergency" -Method "POST" -Endpoint "/api/clinical/sepsis" -Body @{
+Test-Endpoint -Name "Create Sepsis Screening" -Category "Emergency" -Method "POST" -Endpoint "/api/emergency/sepsis" -Body @{
     assessment_id         = "SEPSIS-$(Get-Random -Maximum 99999)"
     patient_id            = $patientId
     suspected_source      = "Urinary"
@@ -801,14 +800,14 @@ Test-Endpoint -Name "Create Sepsis Screening" -Category "Emergency" -Method "POS
     assessed_at           = [int64](Get-Date -UFormat %s)
 } -ExpectedStatus 201 -Description "Sepsis screening"
 
-Test-Endpoint -Name "Patient Emergency Summary" -Category "Emergency" -Method "GET" -Endpoint "/api/clinical/patient/$patientId/emergency" -Description "Emergency summary"
+Test-Endpoint -Name "Patient Emergency Summary" -Category "Emergency" -Method "GET" -Endpoint "/api/emergency/patient/$patientId" -Description "Emergency summary"
 
 # ============================================
 # 14. NURSING DOCUMENTATION
 # ============================================
 Write-Host "[14/20] Testing Nursing Documentation Endpoints..." -ForegroundColor Yellow
 
-Test-Endpoint -Name "MAR Record" -Category "Nursing" -Method "POST" -Endpoint "/api/clinical/mar" -UserId $USERS.Nurse -Body @{
+Test-Endpoint -Name "MAR Record" -Category "Nursing" -Method "POST" -Endpoint "/api/emergency/mar" -UserId $USERS.Nurse -Body @{
     patient_id            = $patientId
     date                  = (Get-Date).ToString("yyyy-MM-dd")
     scheduled_medications = @(
@@ -834,7 +833,7 @@ Test-Endpoint -Name "MAR Record" -Category "Nursing" -Method "POST" -Endpoint "/
     infusions             = @()
 } -ExpectedStatus 201 -Description "Medication administration"
 
-Test-Endpoint -Name "Intake/Output Record" -Category "Nursing" -Method "POST" -Endpoint "/api/clinical/io" -UserId $USERS.Nurse -Body @{
+Test-Endpoint -Name "Intake/Output Record" -Category "Nursing" -Method "POST" -Endpoint "/api/emergency/io" -UserId $USERS.Nurse -Body @{
     patient_id    = $patientId
     date          = (Get-Date).ToString("yyyy-MM-dd")
     shift         = "Day"
@@ -870,7 +869,7 @@ Test-Endpoint -Name "Intake/Output Record" -Category "Nursing" -Method "POST" -E
     documented_by = $USERS.Nurse
 } -ExpectedStatus 201 -Description "Intake/Output record"
 
-Test-Endpoint -Name "Care Plan" -Category "Nursing" -Method "POST" -Endpoint "/api/clinical/care-plan" -UserId $USERS.Nurse -Body @{
+Test-Endpoint -Name "Care Plan" -Category "Nursing" -Method "POST" -Endpoint "/api/emergency/care-plan" -UserId $USERS.Nurse -Body @{
     care_plan_id       = "CP-$(Get-Random -Maximum 99999)"
     patient_id         = $patientId
     admission_date     = (Get-Date).ToString("yyyy-MM-dd")
@@ -922,8 +921,8 @@ Test-Endpoint -Name "Care Plan" -Category "Nursing" -Method "POST" -Endpoint "/a
     updated_at         = [int64](Get-Date -UFormat %s)
 } -ExpectedStatus 201 -Description "Nursing care plan"
 
-Test-Endpoint -Name "Get Nursing Tasks" -Category "Nursing" -Method "GET" -Endpoint "/api/tasks/nurse" -UserId $USERS.Nurse -Description "Nurse task list"
-Test-Endpoint -Name "Get Care Plans" -Category "Nursing" -Method "GET" -Endpoint "/api/nursing/care-plans" -UserId $USERS.Nurse -Description "Care plans"
+Test-Endpoint -Name "Get MAR Records" -Category "Nursing" -Method "GET" -Endpoint "/api/emergency/mar/list" -UserId $USERS.Nurse -Description "Medication administration list"
+Test-Endpoint -Name "Get Care Plans" -Category "Nursing" -Method "GET" -Endpoint "/api/emergency/care-plan/list" -UserId $USERS.Nurse -Description "Care plans"
 
 # ============================================
 # 15. NFC & BARCODE
@@ -938,14 +937,16 @@ Test-Endpoint -Name "Generate NFC Card" -Category "NFC" -Method "POST" -Endpoint
 Test-Endpoint -Name "Get NFC Card" -Category "NFC" -Method "GET" -Endpoint "/api/nfc/card/$patientId" -Description "Get patient NFC card"
 Test-Endpoint -Name "List NFC Cards" -Category "NFC" -Method "GET" -Endpoint "/api/nfc/cards" -UserId $USERS.Admin -Description "List all NFC cards"
 
-Test-Endpoint -Name "Generate Barcode" -Category "Barcode" -Method "POST" -Endpoint "/api/barcode/generate" -Body @{
+$barcodeResult = Test-Endpoint -Name "Generate Barcode" -Category "Barcode" -Method "POST" -Endpoint "/api/barcode/generate" -Body @{
     entity_type  = "patient"
     entity_id    = $patientId
     barcode_type = "QR"
     data         = @{ patient_id = $patientId; type = "identification" }
 } -ExpectedStatus 201 -Description "Generate barcode"
 
-Test-Endpoint -Name "Scan History" -Category "Barcode" -Method "GET" -Endpoint "/api/barcode/scan-history" -Description "Barcode scan history"
+if ($barcodeResult.Success -and $barcodeResult.Content.barcode_id) {
+    Test-Endpoint -Name "Barcode History" -Category "Barcode" -Method "GET" -Endpoint "/api/barcode/$($barcodeResult.Content.barcode_id)/history" -Description "Barcode history"
+}
 
 # ============================================
 # 16. WEARABLES & IOT
@@ -1050,7 +1051,7 @@ Test-Endpoint -Name "Log Symptom" -Category "Symptoms" -Method "POST" -Endpoint 
     notes      = "Mild tension headache"
 } -ExpectedStatus 201 -Description "Log symptom"
 
-Test-Endpoint -Name "Symptom History" -Category "Symptoms" -Method "GET" -Endpoint "/api/symptoms/$patientId" -Description "Symptom history"
+Test-Endpoint -Name "Symptom History" -Category "Symptoms" -Method "GET" -Endpoint "/api/symptoms/history/$patientId" -Description "Symptom history"
 
 Test-Endpoint -Name "Analyze Symptoms" -Category "Symptoms" -Method "POST" -Endpoint "/api/symptoms/analyze" -Body @{
     symptoms            = @("chest_pain", "shortness_of_breath", "diaphoresis")
@@ -1078,9 +1079,12 @@ Test-Endpoint -Name "Verify Insurance" -Category "Insurance" -Method "POST" -End
 } -ExpectedStatus 200 -Description "Insurance verification"
 
 Test-Endpoint -Name "Check Eligibility" -Category "Insurance" -Method "POST" -Endpoint "/api/insurance/eligibility" -Body @{
-    patient_id      = $patientId
-    service_type    = "outpatient"
-    date_of_service = (Get-Date).ToString("yyyy-MM-dd")
+    patient_id     = $patientId
+    payer_id       = "BCBS-001"
+    member_id      = "MEM123456"
+    subscriber_dob = "1990-05-15"
+    service_type   = "outpatient"
+    service_date   = (Get-Date).ToString("yyyy-MM-dd")
 } -ExpectedStatus 200 -Description "Eligibility check"
 
 Test-Endpoint -Name "Consent Types" -Category "Consent" -Method "GET" -Endpoint "/api/consent/types" -Description "Available consent types"
