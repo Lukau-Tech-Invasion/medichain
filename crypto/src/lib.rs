@@ -551,11 +551,7 @@ pub mod signature {
 
         // Verify checksum if present (35 bytes total)
         if decoded.len() >= 35 {
-            let checksum_data = [
-                &b"SS58PRE"[..],
-                &decoded[..33],
-            ]
-            .concat();
+            let checksum_data = [&b"SS58PRE"[..], &decoded[..33]].concat();
             let hash: [u8; 64] = Blake2b512::digest(&checksum_data).into();
 
             if decoded[33] != hash[0] || decoded[34] != hash[1] {

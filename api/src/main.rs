@@ -35,25 +35,25 @@ mod models;
 mod repositories;
 mod services;
 
+mod audit_outbox;
 mod blockchain;
 mod clinical;
 mod clinical_endpoints;
+mod device_lifecycle;
+mod emergency_grants;
 mod ipfs;
 mod key_management;
 mod middleware;
+mod mobile_records;
 mod national_id;
 mod nfc_simulator;
 mod notifications;
 mod organization_keys;
-mod device_lifecycle;
-mod emergency_grants;
-mod mobile_records;
-mod telehealth_retention;
-mod audit_outbox;
 mod pagination;
 mod pdf;
 mod security;
 mod telehealth;
+mod telehealth_retention;
 mod websocket;
 
 // API layer modules (split out of the original 10K-line main.rs — Phase 10.2).
