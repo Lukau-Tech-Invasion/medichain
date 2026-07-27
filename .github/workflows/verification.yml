@@ -39,5 +39,7 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - name: Install client dependencies
         run: npm ci
-      - name: Build all client workspaces
-        run: npm run build:all
+      - name: Build doctor portal
+        run: npm run build:doctor
+      - name: Build patient app
+        run: npm run build:patient
