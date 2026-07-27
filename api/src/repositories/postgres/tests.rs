@@ -32,10 +32,18 @@ async fn create_test_pool() -> PgPool {
     );
 
     let admin_pool = create_admin_pool(&database_url).await;
+    sqlx::query("SELECT pg_advisory_lock(812_940_171)")
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to lock PostgreSQL extension setup");
     sqlx::query("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
         .execute(&admin_pool)
         .await
         .expect("Failed to enable uuid-ossp for test database migrations");
+    sqlx::query("SELECT pg_advisory_unlock(812_940_171)")
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to unlock PostgreSQL extension setup");
     sqlx::query(&format!("CREATE SCHEMA {}", quote_identifier(&schema)))
         .execute(&admin_pool)
         .await
