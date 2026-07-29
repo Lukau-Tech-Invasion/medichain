@@ -33,8 +33,8 @@ This document provides a comprehensive analysis of the feature completeness acro
 | TypeScript Doctor Portal | ✅ PASS | `npm run typecheck` in doctor-portal |
 | TypeScript Patient App | ✅ PASS | `npm run typecheck` in patient-app |
 | Pallet: access-control | ✅ PASS | 19 tests passing |
-| Pallet: medical-records | ✅ PASS | 15 tests passing |
-| Pallet: patient-identity | ✅ PASS | 12 tests passing |
+| Pallet: medical-records | ✅ PASS | 17 tests passing |
+| Pallet: patient-identity | ✅ PASS | 10 tests passing |
 | **Total Tests** | **46** | All passing |
 
 ### Implementation Progress (February 17, 2026)

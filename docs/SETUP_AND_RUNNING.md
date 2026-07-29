@@ -2,7 +2,7 @@
 
 > **Platform:** Linux / WSL (Windows Subsystem for Linux)  
 > **Last Updated:** January 6, 2026  
-> © 2025 Trustware. All rights reserved.
+> © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 ---
 

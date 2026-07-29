@@ -10,23 +10,23 @@ This document provides comprehensive research on implementing a **hybrid blockch
 
 The recommended approach is **Option B: Hybrid Architecture** - using PostgreSQL for speed-critical operations and blockchain for verification, audit trails, and security-sensitive data.
 
-### Current Implementation Status (Updated Feb 2026)
+### Current Implementation Status (updated 2026-07-29)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | ✅ **Pallet: access-control** | Complete | 19 tests passing - RBAC, emergency access, audit logs |
-| ✅ **Pallet: medical-records** | Complete | 15 tests passing - Health records, alerts, IPFS hash |
-| ✅ **Pallet: patient-identity** | Complete | 12 tests passing - National ID hash, Health ID gen |
-| ✅ **API: PostgreSQL repos** | Complete | 60+ repository implementations (memory + postgres) |
+| ✅ **Pallet: medical-records** | Complete | 17 tests passing - capsule commitment, alerts, IPFS hash |
+| ✅ **Pallet: patient-identity** | Complete | 10 tests passing - National ID digest, Health ID gen |
+| ✅ **API: PostgreSQL repos** | Complete | 94 repository traits, two full backends (memory + postgres) |
 | ✅ **Doctor Portal: Schedule** | Complete | DoctorSchedulePage.tsx with day/week/month views |
 | ✅ **Doctor Portal: Messages** | Complete | MessagesPage.tsx with conversations |
 | ✅ **Doctor Portal: Telehealth** | Complete | TelehealthPage.tsx with session management |
 | ✅ **Patient App: Appointments** | Complete | Booking, reschedule, check-in, telehealth join |
 | ✅ **API: Reschedule endpoint** | Complete | PUT /api/appointments/{id}/reschedule |
-| ⚠️ **Blockchain→API connection** | Pending | Pallets designed but not called from API layer |
+| ✅ **Blockchain→API connection** | Complete | `subxt` signed extrinsics from `api/src/blockchain.rs`; placeholder fallback reports `finalized: false` |
 | ⚠️ **Production persistence** | Config | Set DATABASE_URL + MEDICHAIN_STORAGE=postgres |
 
-**All critical features are now implemented.** The remaining work is connecting the blockchain pallets to the API for immutable audit trails.
+**Updated 2026-07-29.** The blockchain→API connection described below as "pending" has since been implemented. Remaining work is verification against a live node and the federation scenarios, not construction — see [Remaining work](#remaining-work).
 
 ---
 
@@ -56,43 +56,59 @@ The recommended approach is **Option B: Hybrid Architecture** - using PostgreSQL
 
 ### Architecture Overview
 
+> **Diagram updated 2026-07-29 to match the implementation.** The previous
+> version was stale in six ways: it showed plaintext `blood_type` in pallet
+> storage (removed — see
+> [`adr/0004-commitment-not-plaintext-on-chain.md`](adr/0004-commitment-not-plaintext-on-chain.md)),
+> marked the API-to-chain connection "pending" (it is wired via `subxt`), and
+> carried out-of-date test and repository counts.
+
+```mermaid
+graph TB
+    subgraph runtime["Substrate runtime — construct_runtime!"]
+        AC["<b>pallet-access-control</b> · 19 tests<br/>roles · emergency access · access logs"]
+        MR["<b>pallet-medical-records</b> · 17 tests<br/>emergency_capsule_commitment [u8;32]<br/>+ version · IPFS hash · alerts"]
+        PI["<b>pallet-patient-identity</b> · 10 tests<br/>national-ID digest · health-ID generation"]
+    end
+
+    subgraph api["API layer — Rust / Actix-web"]
+        BC["<b>blockchain.rs</b> — subxt client<br/>real signed extrinsics when BLOCKCHAIN_ENABLED=true<br/>deterministic placeholder otherwise;<br/>ChainTxResult reports which you got"]
+        RC["<b>RepositoryContainer</b><br/>94 repository traits"]
+        MEMB["Memory backend<br/>(default, ephemeral)"]
+        PGB["PostgreSQL backend<br/>MEDICHAIN_STORAGE=postgres"]
+        RC --> MEMB
+        RC --> PGB
+    end
+
+    BC -->|"signed extrinsics"| runtime
+    api --> DATA[("PostgreSQL · 179 tables<br/>IPFS · encrypted documents")]
+
+    style MR fill:#FF9500
+    style BC fill:#34C759
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                      SUBSTRATE RUNTIME                            │
-│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────────┐ │
-│  │ pallet-access-  │ │ pallet-medical- │ │ pallet-patient-     │ │
-│  │ control         │ │ records         │ │ identity            │ │
-│  │ ✅ 19 tests     │ │ ✅ 15 tests     │ │ ✅ 12 tests         │ │
-│  │ • Role mgmt     │ │ • Blood type    │ │ • National ID hash  │ │
-│  │ • Emergency     │ │ • IPFS hash     │ │ • Health ID gen     │ │
-│  │   access        │ │ • Medical alerts│ │ • Identity verify   │ │
-│  │ • Access logs   │ │ • Audit trail   │ │                     │ │
-│  └─────────────────┘ └─────────────────┘ └─────────────────────┘ │
-│                         ⚠️ API CONNECTION PENDING                 │
-└──────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────────────────────────────────────────────────┐
-│                         API LAYER                                 │
-│  ┌──────────────────────────────────────────────────────────────┐│
-│  │              RepositoryContainer (Abstraction)                ││
-│  │  ├── Memory Backend (default for dev/demo)                   ││
-│  │  │   └── 60+ MemoryXxxRepository implementations             ││
-│  │  └── PostgreSQL Backend (set MEDICHAIN_STORAGE=postgres)     ││
-│  │      └── 60+ PgXxxRepository implementations                 ││
-│  │                                                               ││
-│  │  AppState provides:                                           ││
-│  │  • db_pool: Option<PgPool> for PostgreSQL                    ││
-│  │  • repositories: RepositoryContainer                          ││
-│  │  • HashMaps for legacy compatibility                          ││
-│  └──────────────────────────────────────────────────────────────┘│
-└──────────────────────────────────────────────────────────────────┘
-```
+Note what the medical-records pallet stores now: a **commitment and a version**,
+not a blood type. The plaintext field it used to hold is the single largest change
+this architecture has undergone, and it was driven by a legal constraint rather
+than a technical one.
 
-### Remaining Integration Work
+### Integration status
 
-1. **Blockchain connection**: Use subxt to call pallet extrinsics from API
-2. **Repository migration**: Migrate endpoints from HashMaps to RepositoryContainer
-3. **Hash verification**: Store record hashes on-chain for tamper detection
+| Item | Status |
+|---|---|
+| **Blockchain connection** — call pallet extrinsics from the API via `subxt` | **Done.** Real signed submission when enabled and an operator key is configured; falls back to a deterministic placeholder and reports `finalized: false` so a caller can always distinguish the two |
+| **Repository migration** — move endpoints off ad-hoc HashMaps onto `RepositoryContainer` | **Largely done.** 94 repository traits with two full backends; some legacy in-memory maps remain in `AppState` |
+| **Hash verification** — store record hashes on-chain for tamper detection | **Done, and extended.** IPFS content hashes plus emergency-capsule commitments are anchored; the break-glass read recomputes the commitment and returns `commitment_verified` |
+
+### Remaining work
+
+1. **Verify the chain round-trip against a live node.** Submission code exists and
+   is exercised, but end-to-end anchoring against a running node with real
+   finalisation has not been validated in this environment.
+2. **Retire the legacy `AppState` HashMaps** that predate the repository layer, so
+   there is one storage path rather than two.
+3. **Federation scenarios against a live multi-node deployment** — see
+   [`FEDERATION_TEST_READINESS.md`](FEDERATION_TEST_READINESS.md).
 
 ---
 
@@ -114,7 +130,7 @@ The patient app is primarily **read-only** with occasional consent operations. P
 | Grant access to doctor | Low | <3s acceptable | **Blockchain** |
 | Revoke access | Low | <3s acceptable | **Blockchain** |
 | View who accessed records | Medium | <500ms | **Blockchain** |
-| Emergency NFC tap | Rare | <1s | **Blockchain** (verify) |
+| Emergency NFC tap | Rare | <3s, offline | **Database** — the chain is deliberately NOT in this path |
 
 #### Patient App Data Flow
 
@@ -844,7 +860,7 @@ TARGET:
 1. Enable PostgreSQL in `api/Cargo.toml` (sqlx already there)
 2. Run migrations in `api/migrations/`
 3. Update handlers to use repository pattern
-4. Test all 306 endpoints
+4. Test all 385 registered endpoints
 
 ### Phase 2: Connect API to Blockchain (Week 2-4)
 

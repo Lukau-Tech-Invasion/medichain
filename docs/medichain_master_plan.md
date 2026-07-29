@@ -320,79 +320,111 @@ Patient Data → ChaCha20-Poly1305 Encryption → IPFS Storage → Hash on Subst
 
 ## 🗺️ SYSTEM ARCHITECTURE DIAGRAMS
 
-### 1. Emergency Access Flow
+> **Updated 2026-07-29 to match the implementation.** The diagrams previously in
+> this section described the original January 2026 design and were materially
+> wrong in three ways: they put the chain in the emergency read path, they read
+> the emergency record from IPFS, and they classified "critical emergency info"
+> as on-chain storage. All three were changed — the last one because a POPIA
+> legal review found that publishing health data to an immutable ledger cannot
+> satisfy correction, deletion or retention obligations. See
+> [`adr/0004-commitment-not-plaintext-on-chain.md`](adr/0004-commitment-not-plaintext-on-chain.md).
+>
+> The authoritative, fuller set of diagrams lives in
+> [`architecture.md`](architecture.md).
+
+### 1. Emergency Access Flow (as implemented)
+
+The chain is deliberately **not** in this path — that is what makes the read work
+offline and inside the latency budget.
 
 ```mermaid
 sequenceDiagram
     participant EMT as Emergency Responder
-    participant Device as Mobile/Tablet
-    participant NFC as NFC Card
+    participant Device as Approved work device
     participant API as MediChain API
-    participant Chain as Substrate Chain
-    participant IPFS as IPFS Network
+    participant PG as PostgreSQL
+    participant Log as Access log
 
-    EMT->>Device: Open MediChain App
-    Device->>NFC: Tap/Scan NFC Card
-    NFC->>Device: Return Patient ID Hash
-    Device->>API: Request Emergency Access
-    API->>Chain: Verify Access Permissions
-    Chain->>API: Grant Emergency Access (15 min)
-    API->>IPFS: Fetch Emergency Record Hash
-    IPFS->>API: Return Encrypted Data
-    API->>Device: Decrypt & Display
-    Device->>EMT: Show Critical Info (< 500ms)
-    
-    Note over Chain: Log access event immutably
-    Chain->>Chain: Create AccessLog entry
+    EMT->>Device: Tap patient NFC card
+    Device->>API: POST /api/emergency/nfc/token (card hash)
+    Note over API: The card UID never rotates, so it is<br/>exchanged for a short-lived signed token<br/>rather than accepted as a credential
+    API-->>Device: Short-lived token
+
+    Device->>API: POST /api/emergency/access<br/>(token, device_id, work_context, reason_code)
+    API->>API: Require live professional work context
+    API->>API: Require device approved for this org + facility
+    API->>API: Issue scoped, expiring server-side grant
+
+    API->>PG: Read emergency capsule
+    Note over API,PG: Decrypted with the SERVER keyring —<br/>no patient interaction, no chain call
+    API->>API: Recompute commitment, compare to stored value
+
+    API->>Log: who · why · when · grant · FIELDS REVEALED · verified?
+    API-->>Device: blood type, allergies, medications, contacts,<br/>dnr_actionable, commitment_verified
+    Device->>EMT: Display critical subset
+
+    Note over EMT,Log: Target: under 3 seconds, no network dependency.<br/>A failed integrity check still returns the data<br/>and flags it — a blank screen helps no one.
 ```
 
-### 2. Patient Registration Flow
+### 2. Patient Registration Flow (as implemented)
 
 ```mermaid
 graph TD
-    A[Patient Visits Hospital] --> B[Provide National ID]
-    B --> C{Verify National ID}
-    C -->|Valid| D[Create MediChain Account]
-    C -->|Invalid| E[Request Additional Verification]
-    E --> B
-    D --> F[Link National ID to Blockchain Address]
-    F --> G[Input Medical Data]
-    G --> H[Encrypt Medical Records]
-    H --> I[Upload to IPFS]
-    I --> J[Store IPFS Hash on Chain]
-    J --> K[Generate NFC Card]
-    K --> L[Assign Emergency Contacts]
-    L --> M[Patient Receives NFC Card]
-    
+    A[Provider registers patient] --> B{Verify national ID}
+    B -->|"API key present"| C[Verified against registry]
+    B -->|"no key configured"| C2["Stub verifier —<br/>reports verification_method: Stub,<br/>never implies a real check"]
+    C --> D[Store keyed digest of national ID<br/>never the raw value]
+    C2 --> D
+    D --> E[Encrypt profile under keyring<br/>ChaCha20-Poly1305]
+    E --> F[Persist patient + NFC tag<br/>one transaction]
+    F --> G[Build emergency capsule v1<br/>encrypt under server keyring]
+    G --> H[Compute SHA3-256 commitment<br/>domain-separated, length-prefixed]
+    H --> I["Anchor commitment on-chain<br/>(spawned, non-fatal)"]
+    I --> J{"Chain available?"}
+    J -->|yes| K["chain_finalized = true"]
+    J -->|no| L["Placeholder recorded,<br/>chain_finalized = false"]
+    F --> M[Patient receives NFC card]
+
     style M fill:#34C759
-    style C fill:#FF9500
+    style B fill:#FF9500
+    style L fill:#FFD60A
 ```
 
-### 3. Data Storage Architecture
+Note the honesty mechanism: a hash alone never proves anchoring, so
+`chain_finalized` distinguishes a real submission from a placeholder.
+
+### 3. Data Storage Architecture (as implemented)
+
+**No personal health information goes on-chain.** This is the diagram that
+changed most.
 
 ```mermaid
 graph LR
-    A[Patient Medical Data] --> B{Data Classification}
-    B -->|Critical Emergency Info| C[On-Chain Storage]
-    B -->|Full Medical Records| D[IPFS - Encrypted]
-    B -->|Medical Images| D
-    
-    C --> E[Substrate Blockchain]
-    E --> F[Validator Nodes]
-    
-    D --> G[IPFS Network]
-    G --> H[Distributed Storage]
-    
-    F --> I[Consensus Mechanism]
-    H --> J[Content Addressing]
-    
-    I --> K[Immutable Audit Trail]
-    J --> K
-    
-    style C fill:#007AFF
-    style D fill:#34C759
-    style K fill:#FF3B30
+    A[Patient medical data] --> B{Classification}
+
+    B -->|"Emergency subset<br/>(blood type, organ donor, DNR)"| C["PostgreSQL —<br/>encrypted capsule,<br/>versioned + revocable"]
+    B -->|"Documents and images"| D["IPFS —<br/>ChaCha20-Poly1305"]
+    B -->|"Queryable clinical data"| E["PostgreSQL —<br/>179 tables"]
+
+    C -->|"SHA3-256 commitment only"| F["Substrate chain"]
+    D -->|"content hash only"| F
+    E -.->|"access events"| F
+
+    F --> G["Validator nodes<br/>proof-of-authority"]
+    G --> H["Immutable audit trail"]
+
+    C --> I["Correctable · deletable ·<br/>retention-limited"]
+    D --> I
+    E --> I
+
+    style C fill:#34C759
+    style F fill:#FF9500
+    style I fill:#34C759
 ```
+
+Everything in green can be corrected and deleted, which is what POPIA requires.
+Everything reaching the orange box is a digest, so the ledger carries integrity
+guarantees without carrying obligations it cannot discharge.
 
 ### 4. Multi-Country Interoperability
 
@@ -418,43 +450,89 @@ graph TB
         B4 --> C4[Local Substrate Node]
     end
     
-    C1 --> D[MediChain Relay Chain]
+    C1 --> D
     C2 --> D
     C3 --> D
     C4 --> D
-    
-    D --> E[Shared IPFS Network]
-    D --> F[Cross-Border Patient Access]
-    
+
+    D["<b>Shared chain</b><br/>identity · consent · audit ONLY<br/>proof-of-authority"]
+
+    D --> F["Cross-facility record location<br/>and release via encrypted envelopes"]
+
     style D fill:#FF9500
-    style E fill:#34C759
+    style F fill:#34C759
 ```
+
+**Correction (2026-07-29):** this diagram previously showed a *shared IPFS
+network* behind the chain. That is wrong, and wrong on the point the whole model
+turns on. Each hospital runs **its own** IPFS node holding **its own** encrypted
+documents — nothing is pooled. The only shared layer is the chain, and it carries
+identity, consent and audit entries: enough to *locate and release* a record
+across facilities, never enough to *take* one.
+
+A hospital that has to place its documents in a shared store has surrendered
+custody, which is precisely the objection that stalled previous South African
+digitisation efforts. See
+[`adr/0006-federated-deployment.md`](adr/0006-federated-deployment.md).
 
 ### 5. Consent Management System
 
+The implemented model is **not** a permission ladder. Consent is one recorded
+lawful basis among several, and emergency access is a *separate* mechanism that
+does not sit on the same scale — a POPIA §11 ground plus a §32 health
+authorisation, rather than "partial" or "full" access.
+
 ```mermaid
 stateDiagram-v2
-    [*] --> NoAccess
-    
-    NoAccess --> PartialAccess: Patient Grants Consent
-    NoAccess --> EmergencyAccess: Life-Threatening Emergency
-    
-    PartialAccess --> FullAccess: Patient Upgrades Permission
-    PartialAccess --> NoAccess: Patient Revokes Consent
-    PartialAccess --> EmergencyAccess: Emergency Override
-    
-    FullAccess --> PartialAccess: Patient Downgrades Permission
-    FullAccess --> NoAccess: Patient Revokes All Access
-    
-    EmergencyAccess --> PartialAccess: Emergency Resolved (auto-downgrade)
-    EmergencyAccess --> [*]: Access Expired (15 min)
-    
-    note right of EmergencyAccess
-        Time-limited: 15 minutes
-        Auto-logged for audit
-        Patient notified via SMS
+    direction LR
+    [*] --> NotRequired: processing proceeds on a<br/>non-consent §11 ground
+    [*] --> Granted: voluntary, specific,<br/>informed consent recorded
+    [*] --> Refused: data subject declined
+
+    Granted --> Withdrawn: data subject withdraws<br/>(reason recorded)
+    Granted --> Expired: validity period elapses
+
+    NotRequired --> [*]
+    Refused --> [*]
+    Withdrawn --> [*]
+    Expired --> [*]
+
+    note right of Granted
+        Recorded alongside consent, not instead of it:
+        · popia_section_11_basis
+        · special_information_basis (§32 health)
+        · child_information_basis (§34/35, or §129)
+        · consent_giver_capacity + authority evidence
+        · privacy_notice_version, scope, expiry
     end note
 ```
+
+Emergency access runs on its own track — a grant, not a consent state:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Issued: work context + approved device<br/>+ reason code verified
+    Issued --> Expired: time limit elapses
+    Issued --> Revoked: administrator revokes
+    Expired --> [*]
+    Revoked --> [*]
+
+    note right of Issued
+        Scoped: EmergencySummary,
+        DownloadProhibited, OfflineProhibited.
+        Every read logs who · why · when ·
+        which grant · WHICH FIELDS were revealed.
+        Recorded as an emergency legal
+        justification, never as consent.
+    end note
+```
+
+**Correction (2026-07-29):** the previous diagram modelled consent as
+NoAccess → PartialAccess → FullAccess with emergency as an override on the same
+ladder. The legal review was explicit that an emergency event must be recorded as
+its own justification and **never mislabelled as consent** — so the two are now
+separate state machines, which is also how the code works.
 
 ---
 
@@ -1840,8 +1918,8 @@ font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", In
 | **Project Structure** | ✅ Complete | Full Substrate workspace with pallets, runtime, node, API |
 | **Rust Toolchain** | ✅ Complete | rust-toolchain.toml, clippy.toml configured |
 | **pallet-access-control** | ✅ Complete | RBAC with 6 roles, emergency access, 19 tests |
-| **pallet-patient-identity** | ✅ Complete | National ID integration, 12 tests passing |
-| **pallet-medical-records** | ✅ Complete | Health records with RBAC, 15 tests passing |
+| **pallet-patient-identity** | ✅ Complete | National ID integration, 10 tests passing |
+| **pallet-medical-records** | ✅ Complete | Capsule commitment + RBAC, 17 tests passing |
 | **medichain-runtime** | ✅ Complete | All pallets integrated, 3 tests passing |
 | **REST API Server** | ✅ Complete | Actix-web with RBAC + IPFS endpoints |
 | **RBAC Implementation** | ✅ Complete | Healthcare-grade access control |

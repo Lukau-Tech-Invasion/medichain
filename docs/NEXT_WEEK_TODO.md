@@ -15,7 +15,7 @@ Legend: `[ ]` not started · `[~]` in progress · `[x]` done
 ### Persistence & data fidelity (2.1)
 - [x] Replace `#[sqlx(skip)]` "extras" data-loss on PostgreSQL round-trips
       (appointments, medication_reminders, immunization) with a JSONB column or typed columns
-- [x] Verify all 70+ tables have matching repository CRUD; close any gaps
+- [x] Verify all 179 tables have matching repository CRUD; close any gaps
 - [x] Confirm `MEDICHAIN_STORAGE=postgres` activates PostgreSQL for **every** endpoint
 
 ### Frontend completeness (3.1, 3.2, 4.1-UI, 13.2)

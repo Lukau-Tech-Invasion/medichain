@@ -1,6 +1,6 @@
 # MediChain Medical ID Research & Standards Analysis
 
-© 2025 Trustware. All rights reserved.
+© 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 **Date:** January 13, 2026  
 **Purpose:** Comprehensive research on medical ID standards and best practices for MediChain implementation

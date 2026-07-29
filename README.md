@@ -1,523 +1,252 @@
-# MediChain 🏥
+# MediChain
 
-**Blockchain-Based National Health ID & Emergency Medical Records System**
+**A paramedic taps an NFC card and sees blood type, allergies and DNR status in under three seconds — with no internet connection.**
 
-[![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
-[![Substrate](https://img.shields.io/badge/Substrate-38.0-blue.svg)](https://substrate.io/)
+[![Rust](https://img.shields.io/badge/Rust-1.97-orange.svg)](https://www.rust-lang.org/)
+[![Substrate](https://img.shields.io/badge/Substrate-polkadot--sdk-blue.svg)](https://substrate.io/)
+[![Tests](https://img.shields.io/badge/tests-351%20passing-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
-[![Hackathon](https://img.shields.io/badge/Rust%20Africa%20Hackathon-2026-green.svg)](https://rustafrica.dev)
 
-**#RustAfricaHackathon**
+MediChain is a national health-ID and emergency medical records system for African
+healthcare. Patients control who reads their records through blockchain-verified
+consent; first responders get the handful of facts that decide whether someone
+lives, without waiting on a network or a login.
 
-> **Team:** Trustware (Keorapetswe Kgoatlha)  
-> **Origin:** Rust Africa Hackathon 2026 (1st-place submission) — now evolving toward production.
-
-© 2025 Trustware. All rights reserved.
-
----
-
-## 🎯 Problem Statement
-
-In Africa, millions lack accessible medical records during emergencies. First responders often have no patient history, leading to delayed treatment, medication errors, and preventable deaths. Traditional paper-based systems are easily lost, damaged, or inaccessible across healthcare facilities.
-
-## 💡 Solution
-
-MediChain provides a **blockchain-verified national health ID** with **NFC/QR emergency access**. Healthcare providers can instantly access critical patient information (blood type, allergies, conditions, medications) during emergencies, while patients maintain full control over who accesses their complete medical history.
+> **Origin:** Rust Africa Hackathon 2026 (2nd place). Now being engineered toward
+> production, including a formal POPIA legal review and a multi-week internal
+> security assessment.
 
 ---
 
-## ✨ Key Features
+## Why this exists
 
-### 🔐 Security & Privacy
-- **Role-Based Access Control (RBAC)** — 6 roles: Admin, Doctor, Nurse, LabTechnician, Pharmacist, Patient
-- **End-to-End Encryption** — ChaCha20-Poly1305 (256-bit) for all medical documents
-- **Immutable Audit Trail** — Every access logged on blockchain with timestamps
-- **Patient Consent Management** — Granular time-limited access grants
-- **Signature Authentication** — Optional wallet signature verification (SEC-005)
+A first responder arriving at a crash in Gauteng or Lagos typically knows nothing
+about the patient in front of them. Not their blood type, not that penicillin will
+kill them, not that they signed a DNR last year. Paper records are at a clinic
+that is closed, or lost, or in another province.
 
-### 🆔 Identity & Access
-- **National Health ID** — Unique identifier format: `MCHI-XXXX-XXXX`
-- **NFC Card Simulation** — Tap-to-access emergency info with SHA3-256 verification
-- **QR Code Backup** — Base64-encoded emergency data when NFC unavailable
-- **Emergency Access** — Time-limited (default 150 blocks ≈ 15 min), reason-logged access
+The information that matters in the first ten minutes is small — a few hundred
+bytes. The problem has never been storage. It is **trust and reach**: how does a
+stranger with a phone prove they are allowed to read it, and how does it reach
+them when the network is down?
 
-### 📋 Medical Records (306 API Endpoints)
-- **IPFS Storage** — Encrypted document storage with max 10MB per file
-- **Blockchain Verification** — IPFS hash stored on-chain for tamper-proof integrity
-- **Clinical Documentation** — 50+ medical record types across 35 phases
-- **HL7 FHIR R4** — 10 FHIR resources (Patient, Observation, DiagnosticReport, etc.)
+MediChain's answer:
 
-### 🌍 Africa-Focused
-- **National ID Integration** — Fayda (Ethiopia), Ghana Card, NIN (Nigeria), Smart ID (South Africa), Huduma Namba (Kenya)
-- **Multilingual Support** — English, Swahili, Amharic, Hausa, Yoruba, Zulu + translation API
-- **Offline-First Design** — Sync queue and offline data download endpoints
-- **Low-Resource Optimized** — Minimal data requirements, works on 2G networks
+- **Reach** — the emergency subset is read from local storage on a tap. No chain
+  round-trip, no patient interaction, no connectivity requirement.
+- **Trust** — access requires a live professional work context, an approved
+  device, and a freshly-issued server-side grant. Every read is logged with who,
+  why, when, and *which fields were actually shown*.
+- **Integrity** — the off-chain record is committed to on-chain as a hash, so
+  tampering is detectable without publishing anything private to a ledger.
 
 ---
 
-## 📊 Project Status
+## How it works
 
-> Updated 2026-06-23. MediChain has progressed well past the hackathon prototype. The
-> table below reflects what is **actually implemented and verified** in the codebase
-> today. Remaining work is tracked in [`docs/NEXT_WEEK_TODO.md`](docs/NEXT_WEEK_TODO.md)
-> and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+```mermaid
+graph TB
+    subgraph Clients
+        DP["Doctor Portal<br/>React 18 + Vite PWA"]
+        PA["Patient App<br/>React 18 + Vite PWA"]
+        NFC["NFC card / QR<br/>(offline emergency path)"]
+    end
 
-### ✅ Implemented & working
+    subgraph API["MediChain API — Rust / Actix-web"]
+        MW["Middleware<br/>auth · RBAC · rate limit · idempotency"]
+        H["385 registered HTTP endpoints"]
+        SVC["Domain services<br/>consent · retention · emergency capsule"]
+    end
 
-| Area | Status |
-|------|--------|
-| **Blockchain** | Real `subxt` extrinsic submission (register patient, IPFS hash, emergency access); Substrate node + chain specs; `@polkadot/extension-dapp` wallet sign-in |
-| **Persistence** | Dual storage (in-memory default + PostgreSQL via `MEDICHAIN_STORAGE=postgres`); 70+ tables; clinical domains migrated to repositories |
-| **Authentication** | JWT (HS256 access 1h + refresh 7d) over wallet challenge-response, with `X-User-Id` legacy/demo fallback; **TOTP MFA** (RFC-6238) for ePHI step-up (HIPAA 2025) |
-| **Real-time** | SSE (`/api/events`) wired into **both** apps (toasts, badges, live telehealth status) |
-| **Offline** | IndexedDB read cache, offline write queue + sync-on-reconnect, last-write-wins conflict resolution UI |
-| **Telehealth** | Jitsi JWT rooms, in-browser video (doctor + patient), recording w/ consent + audit, transcription hook, in-app mobile QR/redirect, self-host stack |
-| **Clinical logic** | Drug-interaction screening (blocks contraindicated Rx), multi-symptom checker w/ ICD-10 + red-flags, 15+ CDS rules with alert-fatigue suppression |
-| **Storage/crypto** | ChaCha20-Poly1305 encrypted IPFS, Argon2id KDF, SHA3-256 NFC hashing |
-| **Security hardening** | TOCTOU-safe emergency access, incident-response playbook + breach detection, secrets gate, supply-chain (`cargo-deny` + SBOM) |
-| **API design** | `/api/v1` versioning, idempotency keys, cursor pagination, canonical error envelope |
-| **Observability** | Prometheus `/api/metrics`, structured JSON logging, Grafana dashboard + alert rules |
-| **Transport** | TLS termination via Caddy reverse proxy + HSTS/security headers |
-| **i18n** | Provider + language switcher + 4 locales (English, Swahili, Amharic, French) |
-| **Testing** | Vitest unit/component + Playwright E2E (frontend); integration + property tests (backend); pre-commit hooks; CI/CD |
+    subgraph Storage
+        PG[("PostgreSQL 16<br/>179 tables — queryable clinical data")]
+        IPFS[("IPFS<br/>ChaCha20-Poly1305 encrypted documents")]
+        CHAIN[("Substrate chain<br/>hashes · commitments · audit entries")]
+    end
 
-### 🔭 In progress / planned
-
-See [`docs/NEXT_WEEK_TODO.md`](docs/NEXT_WEEK_TODO.md). Highlights: full i18n string extraction
-across all pages, FCM push, remaining PostgreSQL round-trip fidelity, module-split &
-dead-code cleanup, and a multi-agent codebase-cleanup pass.
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        CLIENT LAYER                              │
-│  ┌───────────────────┐    ┌───────────────────┐                 │
-│  │   Doctor Portal   │    │    Patient App    │                 │
-│  │   (React/Vite)    │    │   (React/Vite)    │                 │
-│  │   74 pages        │    │   23 pages        │                 │
-│  │   Port: 5173      │    │   Port: 5174      │                 │
-│  └───────────────────┘    └───────────────────┘                 │
-│                │                    │                            │
-│                └──────┬─────────────┘                            │
-│                       ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │                  Shared Library                             ││
-│  │  • API Client (1,748 lines)  • TypeScript Types             ││
-│  │  • Auth Store (Zustand)      • i18n Support                 ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         API LAYER                                │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │              Actix-web REST API (Port: 8080)                ││
-│  │                                                              ││
-│  │  Core Modules:                                               ││
-│  │  • main.rs (8,078 lines) — 67 endpoints                     ││
-│  │  • clinical_endpoints.rs (16,405 lines) — 239 endpoints     ││
-│  │  • clinical.rs (7,500+ lines) — 50+ medical types           ││
-│  │  • ipfs.rs — Encrypted IPFS client                          ││
-│  │  • nfc_simulator.rs — NFC card simulation                   ││
-│  │                                                              ││
-│  │  Middleware:                                                 ││
-│  │  • Rate Limiting       • CORS (configurable)                ││
-│  │  • Signature Auth      • Error Handling                     ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                              │                                   │
-│  ┌─────────────────┐         │                                   │
-│  │   PostgreSQL    │◄────────┘ (Optional — persistent storage)  │
-│  │   Indexer       │           DATABASE_URL env var             │
-│  └─────────────────┘                                             │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      BLOCKCHAIN LAYER                            │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │               Substrate Runtime (PoA Consensus)             ││
-│  │                                                              ││
-│  │  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────┐ ││
-│  │  │ Access Control  │  │ Patient Identity│  │Medical Records│ ││
-│  │  │     Pallet      │  │     Pallet      │  │    Pallet    │ ││
-│  │  │                 │  │                 │  │              │ ││
-│  │  │ • 6 Roles       │  │ • National ID   │  │ • IPFS Hash  │ ││
-│  │  │ • Access Grants │  │ • DNR Status    │  │ • Alerts     │ ││
-│  │  │ • Audit Logs    │  │ • Organ Donor   │  │ • Blood Type │ ││
-│  │  └─────────────────┘  └─────────────────┘  └──────────────┘ ││
-│  └─────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       STORAGE LAYER                              │
-│  ┌─────────────────┐    ┌─────────────────┐                     │
-│  │    RocksDB      │    │      IPFS       │                     │
-│  │  (Blockchain    │    │  (Encrypted     │                     │
-│  │   State)        │    │   Documents)    │                     │
-│  └─────────────────┘    └─────────────────┘                     │
-└─────────────────────────────────────────────────────────────────┘
+    DP --> MW
+    PA --> MW
+    NFC -.->|"sub-3s, no network"| MW
+    MW --> H --> SVC
+    SVC --> PG
+    SVC --> IPFS
+    SVC -->|"hash / commitment only"| CHAIN
 ```
 
+**The load-bearing rule: no personal health information goes on-chain.** Only
+hashes, commitments, pointers, public keys and audit entries. Encrypted documents
+live in IPFS; queryable clinical data lives in PostgreSQL. An immutable ledger
+cannot honour a correction or deletion request, so nothing that might need
+correcting or deleting is put there.
+
+Full diagrams — C4 context/container/component, the emergency-access sequence,
+trust boundaries and the data model — are in
+**[docs/architecture.md](docs/architecture.md)**.
+
 ---
 
-## 🚀 Quick Start
+## What is actually built
 
-### Prerequisites
+Verified against the codebase, not aspirational. Counts are reproducible with the
+commands in [docs/architecture.md](docs/architecture.md#verifying-these-numbers).
 
-| Requirement | Version | Purpose |
-|-------------|---------|---------|
-| **Rust** | 1.75+ | API server, blockchain pallets |
-| **Node.js** | 18+ | Frontend apps |
-| **PostgreSQL** | 14+ | Optional persistent storage |
-| **IPFS** | Latest | Optional document storage |
+| Area | State | Detail |
+|---|---|---|
+| **HTTP API** | Working | 386 handlers, 385 registered routes; `/api/v1` versioning, idempotency keys, cursor pagination, canonical error envelope |
+| **Storage** | Working, dual backend | In-memory (default, ephemeral) and PostgreSQL (`MEDICHAIN_STORAGE=postgres`); 38 migrations → 179 tables. Both implement the same repository traits |
+| **Blockchain** | Working, opt-in | Real `subxt` extrinsic submission when `BLOCKCHAIN_ENABLED=true` and an operator key is configured; deterministic placeholder hash otherwise. Every call returns `ChainTxResult { hash, finalized }` so callers can tell which they got |
+| **Substrate node** | Real node | `node/` builds a genuine node (chain spec, service, RPC) on polkadot-sdk — not a mock |
+| **Pallets** | Working | `access-control`, `medical-records`, `patient-identity` — 46 tests |
+| **Crypto** | Working | ChaCha20-Poly1305 AEAD, Argon2id KDF, SHA3-256, Sr25519 signatures, zeroization on drop |
+| **Emergency access** | Working | Grant-bound break-glass requiring live work context + approved device; short-lived signed NFC token exchange; field-level disclosure logging |
+| **Consent / legal basis** | Working | POPIA §11 grounds, §32 health authorisation, §34/35 children's information, Children's Act §129 mature-minor rules — not a boolean |
+| **Data retention** | Partial by design | Evaluation, legal holds, approval-gated execution, processing restriction, deletion register. **Irreversible deletion deliberately not built** — see [ADR-0005](docs/adr/0005-retention-restriction-before-deletion.md) |
+| **Real-time (backend)** | Working | Server-Sent Events at `/api/events` |
+| **Real-time (frontend)** | **Not wired** | No `EventSource` consumer exists yet. The backend pushes; nothing listens |
+| **Frontend** | Substantial | 151 doctor-portal pages, 53 patient-app pages, shared typed API client |
+| **Frontend tests** | Weak | The known gap. Backend is well covered; the UI is not |
 
-### 1. Clone & Build
+### Known gaps, stated plainly
+
+- **Frontend does not consume SSE.** The endpoint works; the clients ignore it.
+- **Irreversible deletion is not implemented** — retention restricts and
+  registers, which is reversible on purpose while retention periods await legal
+  confirmation.
+- **Authorization is not enforced at a single chokepoint.** Authentication is
+  centralised; role and ownership checks are still per-handler across 386 routes.
+- **49 integration/e2e tests do not run** — `tests/*.rs` belongs to no workspace
+  member, so it is never compiled. Tracked in
+  [docs/TECHNICAL_DEBT_REGISTER.md](docs/TECHNICAL_DEBT_REGISTER.md).
+- **Real patient data is blocked** behind seven documented gates, four of which
+  are not engineering tasks. See
+  [docs/PRODUCTION_READINESS_GATES.md](docs/PRODUCTION_READINESS_GATES.md).
+
+---
+
+## Quick start
+
+Requires Rust 1.97+, Node 20+, and Docker (only for the PostgreSQL path).
+
+### Fastest path — no database, no chain, synthetic data
 
 ```bash
-git clone https://github.com/trustware/medichain.git
-cd medichain
-
-# Build API server
-cd api && cargo build --release
+cargo build -p medichain-api --bin medichain-api
+bash scripts/run-synthetic-local.sh          # API on http://127.0.0.1:8080
 ```
 
-### 2. Run API Server
+In another shell, exercise it end to end:
 
 ```bash
-# Without PostgreSQL (in-memory storage)
-cd api && cargo run --release
-
-# With PostgreSQL (persistent storage)
-export DATABASE_URL="postgres://user:pass@localhost/medichain"
-cd api && cargo run --release
+bash scripts/synthetic-e2e-test.sh           # 40 assertions
 ```
 
-The server starts on **http://localhost:8080** and displays available endpoints.
+This runs in-memory: state is discarded on restart, no third-party API keys are
+read, and `BLOCKCHAIN_ENABLED=false`. It is the intended way to demo or evaluate
+the system without provisioning anything.
 
-### 3. Run Frontend Apps
+### PostgreSQL path
 
 ```bash
-# Terminal 1: Doctor Portal (http://localhost:5173)
-cd client/doctor-portal
-npm install && npm run dev
+docker compose -p medichain_horizon \
+  -f docker-compose.yml -f docker-compose.horizon-isolated.yml up -d postgres
 
-# Terminal 2: Patient App (http://localhost:5174)
-cd client/patient-app
-npm install && npm run dev
+bash scripts/run-synthetic-postgres.sh       # API on http://127.0.0.1:8091
+BASE=http://127.0.0.1:8091 bash scripts/synthetic-e2e-test.sh
 ```
 
-### Windows Quick Start
+Migrations run on boot. The isolated compose project is deliberately separate
+from any local dev stack — distinct container names, volume, credentials, and
+loopback-only port `55432`.
 
-```powershell
-# Run the API server via WSL
-.\run-api.bat
+> **Port note:** the API defaults to 8080, which collides with the IPFS gateway.
+> The Postgres script uses 8091 to avoid the ambiguity.
 
-# Or use PowerShell directly
-.\start-server.ps1
-```
-
----
-
-## 🔑 Authentication
-
-### Wallet-Based Authentication + JWT (Production)
-
-MediChain authenticates with **SS58 wallet addresses** (48 characters starting with "5")
-via a challenge-response that issues **JWT** tokens. **TOTP MFA** adds a second factor for
-sensitive ePHI operations (HIPAA 2025).
-
-```
-Authentication Flow:
-1. Frontend requests challenge → POST /api/auth/challenge
-2. Wallet signs the challenge message
-3. Submit signature → POST /api/auth/jwt  → { access_token (1h), refresh_token (7d) }
-4. All API requests send  Authorization: Bearer <access_token>
-   (the client auto-refreshes once on a 401 via POST /api/auth/jwt/refresh)
-5. Step-up: POST /api/auth/mfa/challenge issues an mfa=true token for gated actions
-```
-
-> Legacy/demo clients may still send `X-User-Id: <wallet>` instead of a Bearer token —
-> the backend accepts either, preferring a verified JWT.
-
-**API Request Example:**
-```bash
-curl -H "Authorization: Bearer <jwt>" http://localhost:8080/api/patients
-# or (demo/legacy):
-curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" \
-     http://localhost:8080/api/patients
-```
-
-### Demo Mode (Development)
-
-For testing, use demo login:
-```bash
-# Create demo user
-curl -X POST http://localhost:8080/api/auth/demo-login \
-  -H "Content-Type: application/json" \
-  -d '{"role": "Doctor", "name": "Dr. Demo"}'
-```
-
----
-
-## 📚 API Endpoints (306 Total)
-
-### Core Endpoints (67 in main.rs)
-
-| Category | Endpoints | Description |
-|----------|-----------|-------------|
-| **Health** | `/health`, `/health/db`, `/api/health/detailed` | System health checks |
-| **Auth** | `/api/auth/challenge`, `/api/auth/login`, `/api/auth/register` | Wallet authentication |
-| **Patients** | `/api/register`, `/api/patients`, `/api/patients/{id}` | Patient management |
-| **Emergency** | `/api/emergency-access`, `/api/simulate-nfc-tap` | Emergency access flow |
-| **NFC/QR** | `/api/nfc/generate`, `/api/nfc/tap`, `/api/nfc/verify-qr` | Card simulation |
-| **IPFS** | `/api/records/upload`, `/api/records/download` | Encrypted document storage |
-| **Roles** | `/api/roles/assign`, `/api/roles/revoke` | RBAC management |
-| **Lab** | `/api/lab/submit`, `/api/lab/pending`, `/api/lab/review` | Lab workflow |
-
-### Clinical Endpoints (239 in clinical_endpoints.rs)
-
-| Phase | Category | Example Endpoints |
-|-------|----------|-------------------|
-| 1 | **Basic Clinical** | Triage (ESI), SOAP notes, SAMPLE history, GCS, Vitals |
-| 2 | **Emergency Protocols** | Code Blue, Trauma, Stroke (NIHSS), Sepsis (qSOFA), EMS Handoff |
-| 3 | **Nursing Documentation** | MAR, I/O records, Care Plans, Wound Assessment, Shift Handoff |
-| 4 | **Specialty Emergency** | Burns, Psychiatric, Toxicology, Mass Casualty (MCI) |
-| 5 | **Procedures** | Intubation, Laceration Repair, Splint/Cast |
-| 6 | **Pediatric/Obstetric** | Pediatric Assessment, Obstetric Emergency |
-| 7 | **Laboratory** | Specimen Collection, Chain of Custody, Lab QC, Critical Values |
-| 8 | **Physician Documentation** | Orders, Discharge Summary, H&P, Consults, Progress Notes |
-| 9 | **Surgical** | Pre-Op, Operative Note, Post-Op |
-| 10 | **Anesthesia** | Anesthesia Record |
-| 11-12 | **Radiology/Pathology** | Orders, Reports |
-| 13-15 | **Immunization/Blood Bank** | Records, Transfusions |
-| 16-17 | **E-Prescribing** | Electronic Prescriptions, Appointments |
-| 18-19 | **Death/Satisfaction** | Death Certificates, Autopsy, Surveys |
-| 20-24 | **Patient Engagement** | Medication Reminders, Drug Interactions, Family Accounts, Wearables |
-| 25-26 | **AI/Telehealth** | Symptom Checker, Telehealth Sessions |
-| 27-28 | **Clinical Decision** | CDS Alerts, Lab Trends |
-| 29-31 | **Insurance/Analytics** | Claims, Eligibility, Dashboard Metrics |
-| 32-35 | **Infrastructure** | Multi-language, Offline Sync, List/Queue endpoints |
-
-### HL7 FHIR R4 Endpoints
-
-| Resource | Endpoint |
-|----------|----------|
-| Patient | `GET /api/fhir/r4/Patient/{id}` |
-| AllergyIntolerance | `GET /api/fhir/r4/AllergyIntolerance?patient={id}` |
-| MedicationStatement | `GET /api/fhir/r4/MedicationStatement?patient={id}` |
-| Condition | `GET /api/fhir/r4/Condition?patient={id}` |
-| Observation | `GET /api/fhir/r4/Observation?patient={id}` |
-| Encounter | `GET /api/fhir/r4/Encounter?patient={id}` |
-| DiagnosticReport | `GET /api/fhir/r4/DiagnosticReport?patient={id}` |
-| Procedure | `GET /api/fhir/r4/Procedure?patient={id}` |
-| Immunization | `GET /api/fhir/r4/Immunization?patient={id}` |
-| CapabilityStatement | `GET /api/fhir/r4/metadata` |
-
-### Dashboard Endpoints (Role-Based)
-
-| Role | Endpoint | Data Provided |
-|------|----------|---------------|
-| Patient | `/api/dashboard/patient` | Health summary, appointments, medications |
-| Doctor | `/api/dashboard/doctor` | Patient list, pending labs, orders |
-| Nurse | `/api/dashboard/nurse` | Tasks, vital signs due, MAR |
-| Lab Tech | `/api/dashboard/lab` | Queue, QC status, critical values |
-| Pharmacist | `/api/dashboard/pharmacist` | Rx queue, drug alerts |
-| Admin | `/api/dashboard/admin` | System metrics, user management |
-
----
-
-## 🔐 Role-Based Access Control (RBAC)
-
-### Roles & Permissions
-
-| Role | Can Register Patients | Can Edit Records | Can View Records | Can Assign Roles |
-|------|----------------------|------------------|------------------|------------------|
-| **Admin** | ✅ | ✅ | ✅ | ✅ |
-| **Doctor** | ✅ | ✅ | ✅ | ❌ |
-| **Nurse** | ✅ | ✅ | ✅ | ❌ |
-| **LabTechnician** | ❌ | Lab results only | ✅ | ❌ |
-| **Pharmacist** | ❌ | Dispense only | ✅ | ❌ |
-| **Patient** | ❌ | ❌ | Own records only | ❌ |
-
-### Key Access Rules
-
-1. **Patients cannot self-register** — Must be registered by healthcare provider
-2. **Emergency access is time-limited** — Default 150 blocks (~15 minutes at 6s/block)
-3. **All access is logged** — Immutable audit trail on blockchain
-4. **Maximum 10 active accesses per patient** — Bounded for safety
-
----
-
-## 📁 Project Structure
-
-```
-medichain/
-├── api/                           # Actix-web REST API (8,078 + 16,405 lines)
-│   └── src/
-│       ├── main.rs                # Core endpoints, RBAC, startup
-│       ├── clinical_endpoints.rs  # 239 clinical endpoints
-│       ├── clinical.rs            # 50+ medical record types
-│       ├── ipfs.rs                # ChaCha20 encrypted IPFS client
-│       ├── nfc_simulator.rs       # NFC card simulation (582 lines)
-│       ├── db/                    # PostgreSQL connection & migrations
-│       ├── models/                # Database models
-│       ├── repositories/          # Data access layer
-│       ├── services/              # Business logic
-│       └── middleware/            # Rate limit, signature auth, errors
-├── client/
-│   ├── doctor-portal/             # Healthcare provider PWA
-│   │   └── src/pages/             # 74 pages
-│   ├── patient-app/               # Patient mobile-first PWA  
-│   │   └── src/pages/             # 23 pages
-│   └── shared/                    # Shared library
-│       ├── api/                   # API client (1,748 lines)
-│       ├── types/                 # TypeScript interfaces
-│       ├── hooks/                 # React hooks (auth, sidebar)
-│       ├── i18n/                  # Internationalization
-│       └── config.ts              # Environment configuration
-├── crypto/                        # ChaCha20-Poly1305 + Argon2id (725 lines)
-├── pallets/
-│   ├── access-control/            # RBAC pallet (515 lines)
-│   ├── medical-records/           # Health records pallet (335 lines)
-│   └── patient-identity/          # Patient registration (428 lines)
-├── node/                          # Substrate node (PoA consensus)
-├── runtime/                       # Substrate runtime configuration
-├── docs/                          # Documentation
-│   ├── api.md                     # API reference
-│   ├── architecture.md            # System design
-│   ├── database-schema.md         # Data models
-│   ├── security.md                # Security practices
-│   └── openapi.yaml               # OpenAPI specification
-└── scripts/                       # Build & deployment tools
-```
-
----
-
-## 🧪 Testing
+### Frontend
 
 ```bash
-# Full test suite
-./scripts/test-all.sh
-
-# Individual checks
-cargo fmt --all -- --check              # Format verification
-cargo clippy --all-targets -- -D warnings  # Lint (zero warnings policy)
-cargo test --all-features               # Unit tests
-
-# Pallet-specific tests
-cargo test -p pallet-access-control
-cargo test -p pallet-medical-records
-cargo test -p pallet-patient-identity
-
-# Frontend tests
-cd client/doctor-portal && npm test
+cd client && npm install
+npm run dev:doctor      # http://localhost:5173
+npm run dev:patient     # http://localhost:5174
 ```
 
----
-
-## 🔒 Security
-
-### NASA Power of 10 Compliance
-
-MediChain follows **NASA Power of 10 Rules** for safety-critical software:
-
-| Rule | Implementation |
-|------|----------------|
-| 1. No recursion | ✅ Iterative algorithms only |
-| 2. Bounded loops | ✅ `MAX_ACTIVE_ACCESSES=10`, `MAX_ALLERGIES=10` |
-| 3. No dynamic memory after init | ✅ Pre-allocated bounded collections |
-| 4. Functions ≤60 lines | ✅ Enforced via `clippy.toml` |
-| 5. ≥2 assertions per function | ✅ `ensure!` macro checks |
-| 6. Minimal variable scope | ✅ Smallest scope declarations |
-| 7. Check all return values | ✅ Result types, `?` operator |
-| 8. Limited macros | ✅ Only frame/Substrate macros |
-| 9. Limited pointer use | ✅ Rust ownership model |
-| 10. Static analysis | ✅ `cargo clippy -- -D warnings` |
-
-### Cryptographic Standards
-
-| Purpose | Algorithm | Key Size | Notes |
-|---------|-----------|----------|-------|
-| Document Encryption | ChaCha20-Poly1305 | 256 bits | AEAD with authentication |
-| Key Derivation | Argon2id | Variable | Memory-hard, timing-safe |
-| Hashing | SHA3-256 / Blake2 | 256 bits | Card verification, ID hashing |
-| Signing | Ed25519 | 256 bits | Wallet signatures |
-
-### Security Features
-
-- **Rate Limiting** — Configurable request throttling
-- **Signature Authentication** — Optional wallet signature verification (set `REQUIRE_SIGNATURES=true`)
-- **CORS Configuration** — Restrictive by default, configurable via `ALLOWED_ORIGINS`
-- **Input Validation** — All inputs validated before processing
-- **Secure Token Generation** — Cryptographic random for challenges
+Full setup, environment variables and troubleshooting:
+**[docs/SETUP_AND_RUNNING.md](docs/SETUP_AND_RUNNING.md)**.
 
 ---
 
-## 🌍 Supported National IDs
+## Testing
 
-| Country | ID System | Code |
-|---------|-----------|------|
-| 🇪🇹 Ethiopia | Fayda Digital ID | `FaydaID` |
-| 🇬🇭 Ghana | Ghana Card | `GhanaCard` |
-| 🇳🇬 Nigeria | National Identification Number | `NIN` |
-| 🇿🇦 South Africa | Smart ID Card | `SmartID` |
-| 🇰🇪 Kenya | Huduma Namba | `KenyaHuduma` |
+```bash
+cargo test -p medichain-api --bin medichain-api    # 305 tests
+cargo test -p pallet-access-control                # 19
+cargo test -p pallet-medical-records               # 17
+cargo test -p pallet-patient-identity              # 10
+bash scripts/synthetic-e2e-test.sh                 # 40 live-API assertions
+```
 
----
+**351 automated tests pass** (305 API + 46 pallet), plus 40 end-to-end assertions
+against a running server. Four of the 305 require a live PostgreSQL and are
+skipped without one:
 
-## 📋 Environment Variables
+```bash
+DATABASE_URL=postgres://... cargo test -p medichain-api --bin medichain-api
+```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | (none) | PostgreSQL connection string |
-| `ALLOWED_ORIGINS` | `localhost:5173,5174` | CORS allowed origins |
-| `IS_DEMO` | `false` | Enable permissive CORS for demo |
-| `REQUIRE_SIGNATURES` | `false` | Require wallet signatures |
-| `DB_MAX_RETRIES` | `5` | Database connection retry attempts |
-| `VITE_API_URL` | (auto-detect) | API URL for frontend |
-| `VITE_SUBSTRATE_WS` | `ws://127.0.0.1:9944` | Substrate WebSocket |
+This machine needs the GNU toolchain (`RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu`)
+— see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
-## 🌍 Compliance
+## Security and compliance
 
-- **HIPAA** — Access controls, audit logs, minimum necessary access
-- **GDPR** — Data minimization, right to access, accountability
-- **Africa Data Protection** — Aligned with AU Convention on Cyber Security
+Security here is evidenced rather than asserted.
 
----
+- **[SECURITY.md](SECURITY.md)** — posture, cryptographic choices, responsible disclosure.
+- **[docs/PRODUCTION_READINESS_GATES.md](docs/PRODUCTION_READINESS_GATES.md)** — the seven
+  conditions that gate real patient data, derived from a POPIA / National Health Act /
+  Children's Act legal review.
+- **[docs/adr/](docs/adr/)** — Architecture Decision Records, including why plaintext
+  emergency fields were removed from chain storage.
+- **[docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md)** — how an internal,
+  authorized security assessment was run against an isolated synthetic environment,
+  and what it changed. Target-specific findings are deliberately not published.
 
-## 📜 License
+Highlights of what that assessment changed: on-chain plaintext health fields
+replaced with commitments; keyed digests for national-ID hashes; a replayable NFC
+credential replaced with short-lived signed tokens; plaintext staff PII removed;
+`sqlx` upgraded to close a reachable CVE.
 
-**Proprietary** — © 2025 Trustware. All rights reserved.
-
-This software is developed for the Rust Africa Hackathon 2026 and is the intellectual property of Trustware. Unauthorized copying, modification, or distribution is prohibited.
-
----
-
-## 👥 Team
-
-**Trustware** — Building trust through technology
-
-- **Keorapetswe Kgoatlha** — Full Stack Developer
-
----
-
-## 🔗 Links
-
-- **Documentation:** [docs/](docs/)
-- **API Reference:** [docs/api.md](docs/api.md)
-- **OpenAPI Spec:** [docs/openapi.yaml](docs/openapi.yaml)
-- **Architecture:** [docs/architecture.md](docs/architecture.md)
-- **Security:** [docs/security.md](docs/security.md)
+Standards applied: **NASA Power of 10** (bounded loops, no recursion, functions
+≤ 60 lines, assertions on invariants) and parameterised SQL only — zero string
+concatenation in queries.
 
 ---
 
-<p align="center">
-  <strong>🏥 MediChain — Saving Lives Through Secure Health Data 🚑</strong><br>
-  <em>Built with ❤️ in Africa, for Africa</em>
-</p>
+## Repository map
+
+| Path | Contents |
+|---|---|
+| `api/` | Rust API — handlers, middleware, repositories, domain services, migrations |
+| `pallets/` | Substrate pallets: access-control, medical-records, patient-identity |
+| `runtime/`, `node/` | Substrate runtime and node |
+| `crypto/` | `medichain-crypto` — AEAD, KDF, zeroization |
+| `client/` | `doctor-portal`, `patient-app`, `shared` (typed API client) |
+| `docs/` | Architecture, ADRs, API reference, OpenAPI spec, runbooks, compliance |
+| `scripts/` | Run scripts, synthetic test harness, backup/restore |
+| `.horizon/` | Security-campaign state, coverage ledger, findings (private) |
+
+Documentation index: **[docs/README.md](docs/README.md)**.
+
+---
+
+## Contact
+
+**Keorapetswe Kgoatlha** — Founder & Engineer
+kkgawatlh9@gmail.com
+[github.com/Lukau-Tech-Invasion/medichain](https://github.com/Lukau-Tech-Invasion/medichain)
+
+---
+
+© 2025–2026 Lukau Invasion (Pty) Ltd. All rights reserved. Developed originally for the Rust
+Africa Hackathon 2026; proprietary thereafter. Unauthorized copying,
+modification, or distribution is prohibited.

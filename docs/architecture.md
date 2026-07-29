@@ -1,347 +1,516 @@
 # MediChain Architecture
 
-© 2025 Trustware. All rights reserved.
+© 2025–2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
-> Updated: 2026-01-28 — See `docs/PROJECT_STATUS_FOR_PRESENTATION.md` for a concise implementation summary used for presentations.
-> Implementation progress and completed items consolidated in `docs/PROJECT_PROGRESS.md`.
-> Recent changes (2026-01-28): The storage architecture now includes an off-chain Postgres indexer in addition to on-chain metadata and IPFS blobs. The indexer provides fast queryability for API endpoints and reporting. See `docs/database-schema.md` and `POSTGRES_SETUP.md` for migration and schema details. A machine-readable endpoint list is available at `docs/api_endpoints.json` (generated from `api/src/main.rs`).
+**Last verified against the codebase: 2026-07-29.** Every count in this document
+is reproducible — see [Verifying these numbers](#verifying-these-numbers).
 
-## Overview
+This document follows the [C4 model](https://c4model.com/): system context, then
+containers, then components, then the sequences that matter. Diagrams are Mermaid
+so they render natively on GitHub with no external assets and stay diffable in
+review.
 
-MediChain is a safety-critical blockchain-based national health ID and medical records system built on the Substrate framework. The architecture follows NASA Power of 10 rules and Rust best practices for medical software.
-
----
-
-## System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        CLIENT LAYER                              │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │ Doctor       │    │ Patient      │    │ Shared       │      │
-│  │ Portal       │    │ App          │    │ Components   │      │
-│  │ (Web)        │    │ (Mobile)     │    │              │      │
-│  └──────────────┘    └──────────────┘    └──────────────┘      │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         API LAYER                                │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                  REST API Server                          │  │
-│  │  • RBAC Authentication & Authorization                    │  │
-│  │  • Rate Limiting                                          │  │
-│  │  • Request Validation                                     │  │
-│  │  • Audit Logging                                          │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     BLOCKCHAIN LAYER                             │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                   MediChain Runtime                       │  │
-│  │  ┌────────────────┐ ┌────────────────┐ ┌──────────────┐  │  │
-│  │  │ Access Control │ │ Patient        │ │ Medical      │  │  │
-│  │  │ Pallet         │ │ Identity       │ │ Records      │  │  │
-│  │  │                │ │ Pallet         │ │ Pallet       │  │  │
-│  │  │ • Role Mgmt    │ │ • Registration │ │ • Health     │  │  │
-│  │  │ • RBAC         │ │ • National ID  │ │   Records    │  │  │
-│  │  │ • Permissions  │ │ • Identity     │ │ • Alerts     │  │  │
-│  │  └────────────────┘ └────────────────┘ └──────────────┘  │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                   MediChain Node                          │  │
-│  │  • Consensus (PoA/GRANDPA)                                │  │
-│  │  • P2P Networking                                         │  │
-│  │  • Storage                                                │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    STORAGE LAYER                                 │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │ On-Chain     │    │ IPFS         │    │ Off-Chain    │      │
-│  │ Storage      │    │ (Medical     │    │ Indexer      │      │
-│  │ (Metadata)   │    │ Documents)   │    │ (Analytics)  │      │
-│  └──────────────┘    └──────────────┘    └──────────────┘      │
-└─────────────────────────────────────────────────────────────────┘
-
-Note: the off-chain indexer is implemented as a Postgres-backed read-store that maintains denormalized views for fast querying and reporting. The indexer stores `patients`, `health_records`, `access_logs`, `lab_submissions`, and `nfc_cards`, with traceability fields (`source_block`, `source_tx`) linking back to on-chain events.
-```
+Architecture *decisions* — the reasoning behind these structures, and the options
+rejected — live in [`docs/adr/`](adr/).
 
 ---
 
-## Component Details
+## Table of contents
 
-### Pallets
-
-#### Access Control Pallet (`pallets/access-control`)
-
-Central RBAC management for the entire system.
-
-**Storage:**
-```rust
-#[pallet::storage]
-pub type UserRoles<T> = StorageMap<_, Blake2_128Concat, T::AccountId, Role>;
-```
-
-**Extrinsics:**
-- `assign_role(origin, account, role)` - Admin only
-- `revoke_role(origin, account)` - Admin only
-
-**Helper Functions:**
-- `is_admin(account)` - Check if account is admin
-- `is_healthcare_provider(account)` - Check if account can access patient data
-- `can_edit_medical_records(account)` - Check if account can modify records
+- [1. System context (C4 L1)](#1-system-context-c4-l1)
+- [2. Containers (C4 L2)](#2-containers-c4-l2)
+- [3. API components (C4 L3)](#3-api-components-c4-l3)
+- [4. The emergency path](#4-the-emergency-path)
+- [5. Where data lives, and why](#5-where-data-lives-and-why)
+- [6. Consent and lawful basis](#6-consent-and-lawful-basis)
+- [7. Retention lifecycle](#7-retention-lifecycle)
+- [8. Core data model](#8-core-data-model)
+- [9. Trust boundaries](#9-trust-boundaries)
+- [10. Quality attributes and constraints](#10-quality-attributes-and-constraints)
+- [Verifying these numbers](#verifying-these-numbers)
 
 ---
 
-#### Patient Identity Pallet (`pallets/patient-identity`)
+## 1. System context (C4 L1)
 
-Manages patient registration and national health ID.
+Who uses MediChain and what it depends on.
 
-**Storage:**
-```rust
-#[pallet::storage]
-pub type Patients<T> = StorageMap<_, Blake2_128Concat, PatientId, Patient>;
+```mermaid
+graph TB
+    PARAMEDIC["First responder<br/>needs 4 facts in &lt;3s"]
+    CLINICIAN["Clinician<br/>doctor · nurse · lab · pharmacy"]
+    PATIENT["Patient<br/>owns and grants access"]
+    ADMIN["Administrator<br/>accounts · holds · retention"]
 
-#[pallet::storage]
-pub type NationalIdToPatient<T> = StorageMap<_, Blake2_128Concat, IdHash, PatientId>;
+    MC["<b>MediChain</b><br/>National health ID and<br/>emergency medical records"]
+
+    NID["National ID registries<br/>Fayda · Ghana Card · NIN<br/>Smart ID · Huduma Namba"]
+    SMS["SMS gateway<br/>Africa's Talking"]
+    CHAIN["Substrate chain<br/>audit and integrity anchor"]
+    IPFS["IPFS<br/>encrypted document store"]
+
+    PARAMEDIC -->|"taps NFC card"| MC
+    CLINICIAN -->|"records care"| MC
+    PATIENT -->|"grants / withdraws consent"| MC
+    ADMIN -->|"governs"| MC
+
+    MC -->|"verify identity<br/>(stub fallback if absent)"| NID
+    MC -->|"notify"| SMS
+    MC -->|"anchor hashes"| CHAIN
+    MC -->|"store encrypted blobs"| IPFS
 ```
 
-**Extrinsics:**
-- `register_patient(origin, patient_info, id_type, id_hash)` - Healthcare provider only
+Every external dependency is **optional at runtime**. Absent a national-ID API
+key the verifier falls back to a stub and reports `verification_method: Stub`
+rather than implying a verification happened. Absent a chain the API records a
+deterministic placeholder hash and reports `finalized: false`. This is what makes
+the system demonstrable on a laptop with no credentials, and it is deliberate —
+a clinical system that cannot function when a third party is down is not a
+clinical system.
 
 ---
 
-#### Medical Records Pallet (`pallets/medical-records`)
+## 2. Containers (C4 L2)
 
-Manages health records with IPFS integration.
+```mermaid
+graph TB
+    subgraph client["Client tier — React 18 + Vite + Zustand, PWA"]
+        DP["<b>doctor-portal</b><br/>151 pages<br/>:5173"]
+        PA["<b>patient-app</b><br/>53 pages<br/>:5174"]
+        SH["<b>shared</b><br/>typed API client · hooks · types"]
+        DP --- SH
+        PA --- SH
+    end
 
-**Storage:**
-```rust
-#[pallet::storage]
-pub type HealthRecords<T> = StorageMap<_, Blake2_128Concat, PatientId, HealthRecord>;
+    subgraph api["API tier — Rust 1.97 · Actix-web 4 · :8080"]
+        MW["<b>Middleware stack</b><br/>signature auth · RBAC · rate limit<br/>idempotency · versioning · metrics"]
+        HAND["<b>Handlers</b><br/>385 registered routes"]
+        DOM["<b>Domain services</b><br/>emergency capsule · consent<br/>retention · federation · telehealth"]
+        REPO["<b>Repository traits</b><br/>one interface, two implementations"]
+    end
 
-#[pallet::storage]
-pub type MedicalAlerts<T> = StorageMap<_, Blake2_128Concat, PatientId, Vec<Alert>>;
+    subgraph data["Data tier"]
+        MEM[("<b>In-memory</b><br/>default · ephemeral")]
+        PG[("<b>PostgreSQL 16</b><br/>38 migrations → 179 tables")]
+        IPFSN[("<b>IPFS (kubo)</b><br/>ChaCha20-Poly1305 blobs")]
+    end
+
+    subgraph chain["Blockchain tier — polkadot-sdk"]
+        RT["<b>runtime</b><br/>construct_runtime!"]
+        P1["pallet-access-control<br/>19 tests"]
+        P2["pallet-medical-records<br/>17 tests"]
+        P3["pallet-patient-identity<br/>10 tests"]
+        ND["<b>node</b><br/>chain spec · service · RPC"]
+        RT --- P1
+        RT --- P2
+        RT --- P3
+        ND --- RT
+    end
+
+    SH -->|"HTTPS / JSON"| MW
+    MW --> HAND --> DOM --> REPO
+    REPO --> MEM
+    REPO --> PG
+    DOM --> IPFSN
+    DOM -->|"subxt · signed extrinsics"| ND
 ```
 
-**Extrinsics:**
-- `create_health_record(origin, patient_id, ipfs_hash)` - Healthcare provider only
-- `add_alert(origin, patient_id, alert)` - Doctor/Nurse/Admin only
-- `update_ipfs_hash(origin, patient_id, new_hash)` - Doctor/Nurse/Admin only
+### Why two storage backends
+
+The in-memory backend is not a toy. It is the default, it implements the same
+`repositories::traits` interfaces as PostgreSQL, and it is what makes the system
+runnable with a single command for a demo or an evaluation. PostgreSQL is the
+production path. Both are exercised by the same test suite.
+
+The cost of that choice is real and was paid during testing: the two
+implementations can drift. A double-revoke bug existed in the in-memory capsule
+repository while PostgreSQL correctly refused it — the guard lived in SQL rather
+than in the trait contract. See [ADR-0001](adr/0001-dual-storage-backends.md).
 
 ---
 
-### Runtime (`runtime/`)
+## 3. API components (C4 L3)
 
-Composes all pallets into a unified blockchain runtime.
+```mermaid
+graph LR
+    REQ(["HTTP request"]) --> SEC["security_headers"]
+    SEC --> VER["versioning<br/>/api/v1"]
+    VER --> RL["rate_limit"]
+    RL --> AUTH["signature_auth<br/>Sr25519 · JWT · X-User-Id"]
+    AUTH --> IDEM["idempotency"]
+    IDEM --> ROUTE{"route dispatch<br/>385 services"}
 
-**Pallet Configuration:**
-```rust
-impl pallet_access_control::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-}
+    ROUTE --> GEN["handlers/<br/>general · rbac · vitals<br/>emergency_access · retention_admin"]
+    ROUTE --> CLIN["clinical_endpoints/<br/>emergency · surgical · workflow<br/>engagement · medical_id · platform"]
 
-impl pallet_patient_identity::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type AccessControl = AccessControl;
-}
+    GEN --> SVC["Domain layer"]
+    CLIN --> SVC
 
-impl pallet_medical_records::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type AccessControl = AccessControl;
-}
+    SVC --> EC["emergency_capsule<br/>commit · verify · revoke · log"]
+    SVC --> RET["retention<br/>evaluator · job · execution"]
+    SVC --> LB["types::legal_basis<br/>POPIA §11/§32/§35 · Children's Act §129"]
+    SVC --> BC["blockchain<br/>subxt or placeholder"]
+
+    EC --> RP[("repositories")]
+    RET --> RP
+    LB --> RP
+```
+
+**Known structural weakness.** Authentication is centralised in middleware;
+**authorization is not**. Role and ownership checks are re-implemented per
+handler across 386 handlers, which is the root cause behind an authorization
+finding in the internal assessment. An `AuthorizedUser` extractor exists and
+makes it hard to *forget* authentication for new code, but a single authorization
+chokepoint has not been retrofitted across the existing surface. This is the
+largest outstanding architectural debt and is recorded as such rather than
+smoothed over.
+
+---
+
+## 4. The emergency path
+
+This is the sequence the product exists for. Note what is **absent**: no patient
+interaction, no chain round-trip, no decryption key held by the patient.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor P as Paramedic
+    participant D as Approved device
+    participant API as MediChain API
+    participant G as Emergency grants
+    participant DB as Postgres / memory
+    participant L as Access log
+
+    P->>D: Tap patient NFC card
+    D->>API: POST /api/emergency/nfc/token (card hash)
+    API->>API: Validate card, mint short-lived signed token
+    Note over API: The card UID never rotates, so it is<br/>exchanged for an expiring token rather<br/>than accepted as a credential itself
+    API-->>D: Short-lived token
+
+    D->>API: POST /api/emergency/access (token, device, reason)
+    API->>API: Require live professional work context
+    API->>API: Require device approved for this org + facility
+    alt any check fails
+        API-->>D: 403 — nothing disclosed
+    else all checks pass
+        API->>G: Issue grant (scoped, expiring, reason recorded)
+        API->>DB: Read emergency capsule (server-key decrypt)
+        API->>API: Recompute commitment, compare to stored
+        API->>L: Log who · why · when · grant · FIELDS REVEALED · verified?
+        API-->>D: Blood type, allergies, contacts,<br/>dnr_actionable, commitment_verified
+    end
+
+    Note over P,L: Target: under 3 seconds, no network dependency
+```
+
+Two design details worth calling out:
+
+**`dnr_actionable` is returned separately from the raw `dnr_status` flag.** A DNR
+reads as actionable only when it is recorded, verified, *and* not revoked. An
+unverified or withdrawn directive reads as "resuscitate", because wrongly
+withholding resuscitation is not a recoverable error.
+
+**A failed integrity check does not withhold the data.** If the stored capsule no
+longer matches its commitment, the response still carries the clinical facts and
+sets `commitment_verified: false`, and the discrepancy is logged at error level.
+A responder who needs a blood type now is not helped by a blank screen; the
+investigation happens afterwards.
+
+---
+
+## 5. Where data lives, and why
+
+**No personal health information goes on-chain.** The ledger holds only hashes,
+commitments, pointers, public keys and audit entries.
+
+| Data | Location | Rationale |
+|---|---|---|
+| Emergency capsule (blood type, organ donor, DNR + provenance) | PostgreSQL, encrypted under the **server** keyring | Must be readable in an emergency without the patient online to approve a decryption |
+| Capsule commitment + version | On-chain | 32-byte digest makes off-chain tampering detectable without publishing the values |
+| Clinical documents | IPFS, ChaCha20-Poly1305 | Content-addressed, encrypted at rest |
+| IPFS content hash | On-chain | Proves the document has not been swapped |
+| Queryable clinical data | PostgreSQL | Needs indexes, joins, reporting — a ledger cannot serve this |
+| National ID | Keyed digest only | Never stored in the clear; keyed so digests are not brute-forceable |
+| Access audit entries | PostgreSQL + on-chain | Off-chain for query, on-chain for immutability |
+
+```mermaid
+flowchart LR
+    subgraph offchain["Off-chain — correctable, deletable"]
+        CAP["Emergency capsule<br/>(encrypted, versioned, revocable)"]
+        DOC["Clinical documents<br/>(encrypted in IPFS)"]
+        CLIN["Queryable clinical data"]
+    end
+
+    subgraph onchain["On-chain — immutable, therefore no PHI"]
+        COMMIT["commitment: [u8; 32]<br/>version: u32"]
+        IHASH["IPFS content hash"]
+        AUD["audit entries"]
+    end
+
+    CAP -->|"SHA3-256, domain-separated,<br/>length-prefixed"| COMMIT
+    DOC -->|"content hash"| IHASH
+    CLIN -.->|"access events"| AUD
+```
+
+This split is the direct consequence of a legal finding: an immutable ledger
+cannot satisfy POPIA's correction, deletion and retention-limitation duties, and
+pseudonymity does not cure it because an account may later correlate to a real
+person. Plaintext `blood_type` / `organ_donor` / `dnr_status` were therefore
+removed from pallet storage in favour of a commitment.
+See [ADR-0004](adr/0004-commitment-not-plaintext-on-chain.md).
+
+---
+
+## 6. Consent and lawful basis
+
+A `consent_recorded: true/false` boolean is legally insufficient. POPIA §11
+recognises multiple lawful grounds beyond consent, health data additionally needs
+a §32 authorisation, and a minor's information layers §34/§35 on top of that —
+while the Children's Act governs treatment consent separately.
+
+```mermaid
+flowchart TD
+    START(["POST /api/consent/sign"]) --> ACCESS{"Caller authorised for<br/>this patient?"}
+    ACCESS -->|no| DENY403["403 — a provider may not<br/>consent on a patient's behalf"]
+    ACCESS -->|yes| RESTRICT{"Patient under<br/>processing restriction?"}
+    RESTRICT -->|yes| DENY_R["403 PROCESSING_RESTRICTED"]
+    RESTRICT -->|no| AGE["Resolve age from<br/>date of birth"]
+
+    AGE --> CAP{"Claimed capacity"}
+
+    CAP -->|"child_over_12_mature"| C12{"Age ≥ 12?"}
+    C12 -->|no| E1["400 CHILD_SELF_CONSENT_AGE_NOT_MET"]
+    C12 -->|yes| MAT{"Maturity assessment<br/>recorded?"}
+    MAT -->|no| E2["400 CHILD_MATURITY_ASSESSMENT_REQUIRED"]
+    MAT -->|yes| OK
+
+    CAP -->|"self"| SELF{"Age ≥ 12?"}
+    SELF -->|no| E3["400 COMPETENT_PERSON_REQUIRED"]
+    SELF -->|yes| OK
+
+    CAP -->|"guardian / competent_person / legal_proxy"| EV{"Verified guardian<br/>relationship on file?"}
+    EV -->|no| E4["400 GUARDIAN_AUTHORITY_EVIDENCE_REQUIRED"]
+    EV -->|yes| OK
+
+    OK["Record: §11 ground · §32 authorisation<br/>child ground · capacity · evidence id<br/>privacy-notice version · scope · expiry"] --> DONE(["201 Created"])
+```
+
+A mature child's own consent is recorded as `s129_mature_child_self_consent`,
+**not** as competent-person consent — "the child consented" and "a guardian
+consented" are different legal facts and must not collapse into one flag.
+
+---
+
+## 7. Retention lifecycle
+
+Retention *evaluates* and *restricts*. It does not delete. That boundary is
+deliberate: the retention periods await formal legal confirmation, so the first
+thing built on top of them is reversible.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Evaluated: daily job / on-demand report
+
+    Evaluated --> Incomplete: policies or holds unreadable
+    Incomplete --> [*]: 503 — never reported as success
+
+    Evaluated --> Pending: request approval<br/>(token bound to SHA3-256 digest<br/>of THIS assessment)
+
+    Pending --> Rejected: operator declines
+    Pending --> Approved: operator approves
+    Rejected --> [*]
+
+    Approved --> Expired: 24h elapsed
+    Expired --> [*]
+
+    Approved --> Executing: execute
+    Executing --> Aborted: record set drifted<br/>(digest mismatch)
+    Executing --> Aborted: legal holds unreadable
+    Aborted --> [*]
+
+    Executing --> Restricted: processing limited to storage<br/>+ deletion-register entry
+    Restricted --> Lifted: administrator lifts
+    Lifted --> [*]
+    Restricted --> [*]
+
+    note right of Restricted
+        No destructive DELETE is issued.
+        Irreversible disposal, cascade,
+        backup expiry and cryptographic
+        erasure are NOT implemented.
+    end note
+```
+
+The digest binding is the load-bearing control: without it, approving a report of
+three records could execute against three thousand, and the approval would be
+genuine but meaningless.
+
+---
+
+## 8. Core data model
+
+The emergency and compliance tables — the ones this architecture turns on. The
+full schema is 179 tables; see [`database-schema.md`](database-schema.md).
+
+```mermaid
+erDiagram
+    patients ||--o{ emergency_capsules : "versioned"
+    patients ||--o{ emergency_capsule_access_log : "disclosures"
+    patients ||--o{ consent_records : "lawful basis"
+    patients ||--o{ guardian_relationships : "authority"
+    patients ||--o{ legal_holds : "may suspend disposal"
+    patients ||--o{ processing_restrictions : "POPIA restriction"
+    retention_approvals ||--o{ processing_restrictions : "authorises"
+    retention_approvals ||--o{ deletion_register : "evidences"
+
+    patients {
+        varchar id PK
+        varchar national_id_hash "keyed digest"
+        bytea profile_extras_encrypted
+        int key_version
+    }
+    emergency_capsules {
+        varchar patient_id PK
+        int version PK "strictly increasing"
+        char commitment "SHA3-256 hex, on-chain"
+        bytea capsule_encrypted "server keyring"
+        timestamptz revoked_at "revocation is not deletion"
+        boolean chain_finalized "false = placeholder"
+    }
+    emergency_capsule_access_log {
+        varchar id PK
+        varchar accessed_by
+        varchar reason_code
+        text_array fields_revealed "field-level disclosure"
+        boolean commitment_verified
+    }
+    consent_records {
+        varchar id PK
+        varchar popia_section_11_basis
+        varchar special_information_basis
+        varchar child_information_basis
+        varchar consent_giver_capacity
+        text child_maturity_assessment
+    }
+    retention_approvals {
+        varchar token PK
+        char assessment_digest "binds to one assessment"
+        varchar status
+        timestamptz expires_at
+    }
+    deletion_register {
+        varchar id PK
+        varchar action "restricted"
+        text basis "no clinical payload"
+    }
 ```
 
 ---
 
-### Node (`node/`)
+## 9. Trust boundaries
 
-Substrate node implementation with:
-- Consensus mechanism (Proof of Authority)
-- P2P networking
-- RPC interface
-- Block production
+```mermaid
+flowchart TB
+    subgraph untrusted["Untrusted"]
+        BROWSER["Browser / PWA"]
+        CARD["NFC card / QR"]
+    end
+
+    subgraph semi["Semi-trusted — authenticated but constrained"]
+        DEVICE["Approved work device"]
+        STAFF["Authenticated clinician"]
+    end
+
+    subgraph trusted["Trusted — server side"]
+        APIS["API process<br/>holds encryption keyring"]
+        DBS[("PostgreSQL")]
+    end
+
+    subgraph external["External — outside our control"]
+        NIDX["National ID APIs"]
+        SMSX["SMS gateway"]
+        NODEX["Chain nodes<br/>possibly foreign"]
+    end
+
+    BROWSER -->|"TLS · never trusted for role claims"| APIS
+    CARD -->|"exchanged for expiring token"| APIS
+    DEVICE --> APIS
+    STAFF --> APIS
+    APIS --> DBS
+    APIS -->|"no PHI crosses this line"| NIDX
+    APIS -->|"no PHI crosses this line"| SMSX
+    APIS -->|"hashes only"| NODEX
+```
+
+Rules that hold at every boundary:
+
+1. **Roles come from the server-side user record, never from a client header
+   claim.** `X-User-Id` identifies; it does not authorise.
+2. **No PHI crosses into an external system.** National-ID calls send a digest;
+   SMS carries no clinical content; the chain receives hashes.
+3. **Cross-border replication is a live compliance question.** Chain nodes may
+   run outside South Africa, which POPIA treats as a transborder transfer
+   requiring assessment — tracked in
+   [`GOVERNANCE_RECORD.md`](GOVERNANCE_RECORD.md).
 
 ---
 
-### Crypto (`crypto/`)
+## 10. Quality attributes and constraints
 
-Cryptographic utilities:
-- Hash functions (SHA-256, Blake2)
-- Digital signatures (Ed25519)
-- Encryption (ChaCha20-Poly1305)
-- Key derivation (Argon2)
+| Attribute | Target | How it is achieved |
+|---|---|---|
+| **Emergency latency** | < 3 s, offline | Local read, no chain call, no patient round-trip |
+| **Safety** | NASA Power of 10 | No recursion, bounded loops, functions ≤ 60 lines, assertions on invariants |
+| **Confidentiality** | Encrypted at rest | ChaCha20-Poly1305 AEAD, Argon2id KDF, keyring versioning for rotation |
+| **Integrity** | Tamper-evident | SHA3-256 commitments, domain-separated and length-prefixed so no two distinct inputs share a digest |
+| **Injection resistance** | Zero string-built SQL | `sqlx` with bound parameters only |
+| **Auditability** | Field-level | Every emergency disclosure records which fields were shown |
+| **Availability** | Degrade, don't fail | Every external dependency optional; chain/ID failures are non-fatal and honestly reported |
 
----
+### Deliberate non-goals
 
-### Client Applications
-
-#### Doctor Portal (`client/doctor-portal/`)
-- Web-based interface for healthcare providers (72 pages)
-- Patient registration & management
-- Clinical documentation (ESI Triage, SOAP Notes, Code Blue, etc.)
-- Medical record management with IPFS
-- Emergency access controls
-- Nursing documentation (MAR, I/O, Wound Care)
-- Surgical & specialty emergency workflows
-
-#### Patient App (`client/patient-app/`)
-- Mobile-first web application for patients (23 pages)
-- View own records & medical history
-- Manage access permissions & consents
-- Medication reminders & telehealth
-- Family group management
-- Appointment scheduling
-
-#### Shared (`client/shared/`)
-- Common components and utilities
-- API client library (1,577 lines, typed functions)
-- Type definitions for 150+ clinical endpoints
-- Shared UI components
+- **Not** a general EHR replacement. The emergency subset is the wedge.
+- **Not** a public ledger of health data. If it must be correctable, it is off-chain.
+- **Not** claiming production readiness for real patient data — seven gates
+  block that, four of which no code can close.
 
 ---
 
-## Data Flow
+## Verifying these numbers
 
-### Patient Registration Flow
+```bash
+# HTTP handlers and registered routes
+grep -rhoE '#\[(get|post|put|patch|delete)\("' --include=*.rs api/src | wc -l   # 386
+grep -c '\.service(' api/src/routes.rs                                          # 385
 
-```
-Doctor Portal → API → Patient Identity Pallet → Blockchain
-       │                      │
-       │                      └── Store: Patient metadata
-       │                      └── Store: National ID hash
-       │
-       └── Generate: National Health ID (MCHI-XXXX-XXXX)
-```
+# Migrations, and tables in a migrated database
+ls api/migrations/*.sql | wc -l                                                 # 38
+psql -tAc "SELECT count(*) FROM information_schema.tables
+           WHERE table_schema='public';"                                        # 179
 
-### Medical Record Access Flow
+# Frontend pages
+find client/doctor-portal/src/pages -name '*.tsx' | wc -l                       # 151
+find client/patient-app/src/pages   -name '*.tsx' | wc -l                       # 53
 
-```
-Request → API RBAC Check → Pallet RBAC Check → Blockchain Storage
-           │                    │                    │
-           │                    │                    └── Return record
-           │                    └── Log access
-           └── Validate role
-```
-
-### Emergency Access Flow
-
-```
-Provider → API → Emergency Access Request → Time-Limited Grant
-   │                       │                      │
-   │                       └── Log reason         │
-   │                                              │
-   └── Access granted ←──────────────────────────┘
-```
-
----
-
-## Security Architecture
-
-### 6-Layer Security Model
-
-1. **Role-Based Access Control (RBAC)** - Blockchain pallet level
-2. **National ID Hash** - SHA-256 hashed, never stored in plaintext
-3. **Emergency Access** - Time-limited, logged immutably
-4. **Audit Trail** - Every access logged on blockchain
-5. **Encryption** - Medical documents encrypted on IPFS
-6. **Rate Limiting** - API-level protection
-
-### Cryptographic Standards
-
-| Purpose | Algorithm | Key Size |
-|---------|-----------|----------|
-| Hashing | SHA-256 / Blake2 | 256 bits |
-| Signing | Ed25519 | 256 bits |
-| Encryption | ChaCha20-Poly1305 | 256 bits |
-| Key Derivation | Argon2id | Variable |
-
----
-
-## Deployment Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      PRODUCTION CLUSTER                          │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐                │
-│  │ Validator  │  │ Validator  │  │ Validator  │  (3+ nodes)    │
-│  │ Node 1     │──│ Node 2     │──│ Node 3     │                │
-│  └────────────┘  └────────────┘  └────────────┘                │
-│         │              │              │                         │
-│         └──────────────┼──────────────┘                         │
-│                        │                                        │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │                    API Gateway                          │    │
-│  │  • Load Balancing  • SSL Termination  • Rate Limiting  │    │
-│  └────────────────────────────────────────────────────────┘    │
-│                        │                                        │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │                    API Servers                          │    │
-│  │  (Horizontally Scalable, Stateless)                    │    │
-│  └────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
+# Tests
+cargo test -p medichain-api --bin medichain-api                                 # 305
+for p in access-control medical-records patient-identity; do
+  grep -c '#\[test\]' pallets/$p/src/tests.rs; done                             # 19 17 10
+bash scripts/synthetic-e2e-test.sh                                              # 40 assertions
 ```
 
 ---
 
-## Directory Structure
+## Related documents
 
-```
-medichain/
-├── pallets/
-│   ├── access-control/     # RBAC pallet
-│   ├── patient-identity/   # Patient registration
-│   └── medical-records/    # Health records
-├── runtime/                # Substrate runtime
-├── node/                   # Blockchain node
-├── crypto/                 # Cryptographic utilities
-├── api/                    # REST API server
-├── client/
-│   ├── doctor-portal/      # Healthcare provider web app
-│   ├── patient-app/        # Patient mobile app
-│   └── shared/             # Shared components
-├── docs/
-│   ├── api.md              # API documentation
-│   ├── architecture.md     # This file
-│   └── security.md         # Security documentation
-├── scripts/                # Build and deployment scripts
-└── tests/                  # Integration and E2E tests
-```
-
----
-
-## Technology Stack
-
-| Layer | Technology |
-|-------|------------|
-| Blockchain | Substrate (Rust) |
-| Consensus | Proof of Authority (GRANDPA) |
-| API | Actix-web (Rust) |
-| Storage | RocksDB (on-chain), IPFS (documents) |
-| Client | React / React Native |
-| Crypto | ring, ed25519-dalek |
-
----
-
-## NASA Power of 10 Compliance
-
-1. ✅ **Simple Control Flow** - No recursion, bounded loops
-2. ✅ **Fixed Upper Bounds** - All loops have maximum iterations
-3. ✅ **No Dynamic Memory** - After initialization
-4. ✅ **Short Functions** - Max 60 lines per function
-5. ✅ **Low Assertion Density** - 2+ assertions per function
-6. ✅ **Minimal Variable Scope** - Variables declared at use site
-7. ✅ **Return Value Checks** - All return values validated
-8. ✅ **Limited Preprocessor** - Minimal macro usage
-9. ✅ **Limited Pointer Use** - Reference-based where possible
-10. ✅ **Compile-Time Checks** - Maximum static analysis
+| Document | Purpose |
+|---|---|
+| [`adr/`](adr/) | Architecture Decision Records — the *why* |
+| [`api.md`](api.md) / [`openapi.yaml`](openapi.yaml) | Endpoint reference and machine-readable spec |
+| [`database-schema.md`](database-schema.md) | Full schema |
+| [`PRODUCTION_READINESS_GATES.md`](PRODUCTION_READINESS_GATES.md) | What blocks real patient data |
+| [`../SECURITY.md`](../SECURITY.md) | Security posture and disclosure policy |
+| [`TECHNICAL_DEBT_REGISTER.md`](TECHNICAL_DEBT_REGISTER.md) | Known debt, deferred deliberately |
+| [`BLOCKCHAIN_OPERATIONS.md`](BLOCKCHAIN_OPERATIONS.md) | Node and chain operations |
+| [`INCIDENT_RESPONSE.md`](INCIDENT_RESPONSE.md) | Incident playbook |

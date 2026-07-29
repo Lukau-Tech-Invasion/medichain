@@ -94,7 +94,7 @@ The API exposes many clinical endpoints under `/api/clinical/*`. Examples:
 ````
 # MediChain API
 
-© 2025 Trustware. All rights reserved.
+© 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 > Updated: 2026-01-28 — See `docs/PROJECT_STATUS_FOR_PRESENTATION.md` for current implementation notes and presentation summary.
 
