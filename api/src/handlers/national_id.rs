@@ -45,6 +45,16 @@ pub async fn simulate_nfc_tap(
     data: web::Data<AppState>,
     req: web::Json<SimulateNfcTapRequest>,
 ) -> impl Responder {
+    // HZ-019: this endpoint fabricates a patient's NFC card hash — the credential
+    // the emergency-token exchange accepts — from a patient ID alone, with no
+    // physical card. That is a testing convenience and a production
+    // credential-forgery primitive. Gate it to demo mode: outside IS_DEMO=true it
+    // returns 403 and computes nothing, so it cannot be chained into
+    // unauthenticated emergency-PHI disclosure on a real deployment.
+    if let Err(resp) = crate::support::require_demo_mode() {
+        return resp;
+    }
+
     // Check if patient exists via repository (was: in-memory data.patients HashMap)
     if data
         .repositories

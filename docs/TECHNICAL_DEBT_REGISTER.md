@@ -56,11 +56,26 @@ error: no test target named `integration_tests` in default-run packages
 "18+ tests" as part of the suite. **49 tests across 1,574 lines have never
 run.**
 
-Why this is first: it is not dead code to delete, it is coverage to *recover*.
-Any deletion pass is safer with those tests running, and they may well be
-asserting behaviour that a later cleanup would otherwise break silently. Also,
-some of them may no longer compile — 1,574 lines have been drifting against a
-moving codebase with no compiler checking them.
+**Correction (2026-07-30): this is NOT coverage to recover.** On inspection the
+files reference **zero project crates** — the only import in either is
+`std::collections::HashMap`. They define their own `MockStorage`, `Role`,
+`PatientIdentity` and `MedicalRecordRef` types inside the test file and then
+assert against those. A representative test inserts into a `HashMap` and
+asserts the value is present.
+
+They therefore test *mock reimplementations*, not MediChain. Wiring them into
+the workspace would produce 49 additional passing tests that verify nothing
+about the real system, taking the suite from 351 to 400 while making the number
+mean less. That is worse than leaving them unbuilt.
+
+**Revised action:** do not resurrect them as-is. Either convert them to exercise
+the real crates (`medichain_api`, `medichain_crypto`, the pallets), or retire
+them in favour of the live-API harness at `scripts/synthetic-e2e-test.sh`, which
+tests the running system rather than a copy of it. Retiring requires owner
+approval per CLAUDE.md rule 7.
+
+Either way, **correct `CLAUDE.md`'s testing section**, which cites these as
+"28+ tests" and "18+ tests" of real coverage.
 
 **Action when the time comes:** decide whether these move under `api/tests/`,
 get their own workspace member, or are retired. Do not assume they still pass;

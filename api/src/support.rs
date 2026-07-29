@@ -384,6 +384,37 @@ pub const MAJORITY_AGE_YEARS: u32 = 18;
 /// half of the test — the caller must still record the maturity assessment.
 pub const CHILD_SELF_CONSENT_MIN_AGE_YEARS: u32 = 12;
 
+/// Whether the server is running in demo mode (`IS_DEMO=true`).
+///
+/// Demo mode relaxes controls that only make sense with real users and real
+/// credentials — signature verification is off, demo secrets are permitted, and
+/// simulation aids that would be dangerous in production are available. The same
+/// boundary is used by `validate_production_secrets()` and the signature-auth
+/// middleware; centralised here so "is this demo mode?" is answered one way.
+pub fn is_demo_mode() -> bool {
+    std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true"
+}
+
+/// Reject a request unless the server is in demo mode.
+///
+/// For endpoints that are testing/simulation aids only and must never be live in
+/// a production deployment — e.g. `simulate_nfc_tap`, which fabricates a
+/// patient's NFC card hash (the emergency credential) from a patient ID and so
+/// would be a credential-forgery primitive outside demo (Horizon HZ-019).
+pub fn require_demo_mode() -> Result<(), HttpResponse> {
+    if is_demo_mode() {
+        return Ok(());
+    }
+    Err(HttpResponse::Forbidden().json(
+        crate::middleware::error_handling::error_envelope_json(
+            "DEMO_ONLY_ENDPOINT",
+            "This endpoint is a simulation aid available only when IS_DEMO=true. \
+             It is disabled in this deployment.",
+            None,
+        ),
+    ))
+}
+
 /// Who may lawfully consent to this patient's own medical treatment, on the
 /// age half of the Children's Act §129 test.
 ///
@@ -598,5 +629,35 @@ mod tests {
             treatment_consent_capacity(None),
             TreatmentConsentCapacity::Adult
         );
+    }
+
+    /// HZ-019: the demo gate must fail closed. `IS_DEMO` is process-global, so
+    /// this test serialises against other env-touching tests via a shared lock
+    /// and restores the prior value on exit.
+    static DEMO_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn require_demo_mode_fails_closed_outside_demo() {
+        let _g = DEMO_ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let original = std::env::var("IS_DEMO").ok();
+
+        // Unset and explicitly-false must both be refused. Anything other than
+        // exactly "true" is production, and the gate must deny.
+        std::env::remove_var("IS_DEMO");
+        assert!(require_demo_mode().is_err(), "unset IS_DEMO must be refused");
+
+        std::env::set_var("IS_DEMO", "false");
+        assert!(require_demo_mode().is_err());
+
+        std::env::set_var("IS_DEMO", "1");
+        assert!(require_demo_mode().is_err(), "only the literal 'true' enables demo");
+
+        std::env::set_var("IS_DEMO", "true");
+        assert!(require_demo_mode().is_ok());
+
+        match original {
+            Some(v) => std::env::set_var("IS_DEMO", v),
+            None => std::env::remove_var("IS_DEMO"),
+        }
     }
 }
