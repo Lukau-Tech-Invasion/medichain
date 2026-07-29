@@ -247,6 +247,26 @@ kkgawatlh9@gmail.com
 
 ---
 
-© 2025–2026 Lukau Invasion (Pty) Ltd. All rights reserved. Developed originally for the Rust
-Africa Hackathon 2026; proprietary thereafter. Unauthorized copying,
-modification, or distribution is prohibited.
+## Licence
+
+**Proprietary** — see [LICENSE](LICENSE). Viewing this repository and running it
+locally with synthetic data to evaluate it are permitted; copying, modification,
+redistribution and any production or clinical use require written permission.
+
+The repository is public deliberately. A system that asks hospitals and a health
+ministry to trust it with national health data should be inspectable, and the
+documented reason previous South African digitisation efforts stalled was a lack
+of trust in vendor-held infrastructure — not a lack of technology.
+
+**Intended direction: source-available core.** The federation protocol, health-ID
+and emergency-access layers are the parts a ministry or hospital would need to
+audit and self-host, and the intent is to open those under a permissive licence
+once there is a first production deployment to anchor it against. The commercial
+layer stays licensed. That sequencing is deliberate: an open licence cannot be
+withdrawn from code already published, so it is granted once rather than
+provisionally.
+
+---
+
+© 2025–2026 Lukau Invasion (Pty) Ltd. All rights reserved. Developed originally
+for the Rust Africa Hackathon 2026 (2nd place); proprietary thereafter.
