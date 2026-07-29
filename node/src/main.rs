@@ -58,7 +58,7 @@ impl SubstrateCli for Cli {
     }
 
     fn author() -> String {
-        "Trustware".into()
+        "Lukau Invasion (Pty) Ltd".into()
     }
 
     fn support_url() -> String {

@@ -328,4 +328,4 @@ Before submitting for judging:
 
 ---
 
-© 2025 Trustware. Rust Africa Hackathon 2026
+© 2025 Lukau Invasion (Pty) Ltd. Rust Africa Hackathon 2026

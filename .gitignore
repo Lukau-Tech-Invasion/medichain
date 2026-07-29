@@ -37,6 +37,7 @@ Thumbs.db
 *.db-wal
 *.sql.backup
 pgdata/
+backups/
 
 # Docker
 docker-compose.override.yml
@@ -49,6 +50,7 @@ coverage/
 
 # AI assistant / tooling artifacts (never commit)
 .claude/
+.agents/
 .junie/
 .ai/
 .aiassistant/
@@ -70,6 +72,16 @@ copilot-instructions.md
 docs/copilot-instructions.md
 .github/instructions/
 *.local.json
+
+# Internal security-assessment campaign — MUST STAY LOCAL.
+# .horizon/ holds the threat model, coverage ledger, decision log, finding
+# write-ups and evidence for an authorized internal security assessment. Those
+# describe specific weaknesses, reproduction steps and attack paths: publishing
+# them would lower the cost of attacking this system. The nested
+# .horizon/.gitignore only covered the *-private/ subfolders, which left the
+# threat model, decision log and ledger exposed to a `git add .`.
+# Public-safe security material belongs in docs/SECURITY_ASSESSMENT.md instead.
+.horizon/
 
 # Nested/embedded working clone — not part of this repo
 /medichain
