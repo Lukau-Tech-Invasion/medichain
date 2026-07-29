@@ -8,36 +8,44 @@
 //! - `X-Signature`: Hex-encoded sr25519 signature of the message
 //! - `X-Timestamp`: Unix timestamp used in the signed message
 //!
-//! **Message Format:** `<timestamp>:<wallet_address>`
+//! **Message Format:** `<timestamp>:<wallet_address>:<method>:<path>:<body_hash_hex>`
+//! (Horizon HZ-007 — previously `<timestamp>:<wallet_address>` only, which meant a
+//! captured `(signature, timestamp)` pair authorized *any* request as that wallet
+//! for the rest of the 5-minute window, not just the one it was made for.)
 //!
 //! **Security Properties:**
 //! - Replay protection via timestamp validation (5-minute window)
 //! - Wallet ownership proof via sr25519 signature verification
+//! - The signature is bound to this exact method, path, and request body — a
+//!   captured signature cannot be replayed against a different action
 //! - Constant-time signature comparison
 //!
 //! # Trust invariant
 //!
 //! Handlers downstream may treat the `X-User-Id` header as the caller's identity
 //! ONLY because this middleware, **when enabled**, binds that header to a verified
-//! sr25519 signature over `<timestamp>:<wallet_address>`. A mutating request that
-//! presents `X-User-Id` without a valid `X-Signature`/`X-Timestamp` is rejected.
+//! sr25519 signature over `<timestamp>:<wallet>:<method>:<path>:<body_hash>` for
+//! THIS request. A mutating request that presents `X-User-Id` without a valid
+//! `X-Signature`/`X-Timestamp` is rejected.
 //!
 //! When verification is DISABLED (demo mode), `X-User-Id` is **unauthenticated and
 //! spoofable** — it is for local/demo use only and MUST NOT be relied upon for any
 //! authorization decision in production. The server logs a loud warning at startup
 //! whenever it boots with verification disabled.
 //!
-//! © 2025-2026 Trustware. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use actix_web::http::StatusCode;
 use actix_web::{
     body::EitherBody,
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpResponse,
+    dev::{forward_ready, Payload, Service, ServiceRequest, ServiceResponse, Transform},
+    web::{Bytes, BytesMut},
+    Error, HttpMessage, HttpResponse,
 };
 use futures::future::{ok, LocalBoxFuture, Ready};
+use futures::StreamExt;
 use medichain_crypto::signature::{
-    verify_wallet_signature, SignatureError, MAX_TIMESTAMP_DRIFT_SECS,
+    verify_wallet_signature_bound, SignatureError, MAX_TIMESTAMP_DRIFT_SECS,
 };
 use std::rc::Rc;
 
@@ -114,7 +122,7 @@ where
 
     forward_ready!(service);
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
+    fn call(&self, mut req: ServiceRequest) -> Self::Future {
         let service = self.service.clone();
         let enabled = self.enabled;
 
@@ -150,9 +158,13 @@ where
                 let res = service.call(req).await?;
                 return Ok(res.map_into_left_body());
             };
+            let wallet_address = wallet_address.to_string();
 
             // For authenticated requests, require signature
-            let signature = headers.get("X-Signature").and_then(|v| v.to_str().ok());
+            let signature = headers
+                .get("X-Signature")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
 
             let timestamp = headers
                 .get("X-Timestamp")
@@ -166,21 +178,55 @@ where
                         crate::middleware::error_handling::error_codes::UNAUTHORIZED,
                         "Authenticated requests require X-Signature and X-Timestamp headers",
                         Some(serde_json::json!({
-                            "hint": "Sign message '<timestamp>:<wallet_address>' with your wallet"
+                            "hint": "Sign message '<timestamp>:<wallet_address>:<method>:<path>:<body_hash>' with your wallet"
                         })),
                     ),
                 );
                 return Ok(req.into_response(response).map_into_right_body());
             };
 
+            // Capture method + path as owned values before buffering the body,
+            // which needs a mutable borrow of `req` (`take_payload`).
+            let method_str = req.method().as_str().to_string();
+            let path_str = req.path().to_string();
+
+            // Buffer the request body so its hash can be bound into the signed
+            // message (Horizon HZ-007), then restore it unchanged so the
+            // handler's own extractor (`web::Json<T>`, etc.) still sees it.
+            let mut body_bytes = BytesMut::new();
+            {
+                let mut payload = req.take_payload();
+                while let Some(chunk) = payload.next().await {
+                    let chunk = chunk?;
+                    body_bytes.extend_from_slice(&chunk);
+                }
+            }
+            let body_bytes: Bytes = body_bytes.freeze();
+            let body_hash_hex = hex::encode(medichain_crypto::sha256(&body_bytes));
+            req.set_payload(Payload::from(body_bytes));
+
             // Get current timestamp
             let current_timestamp = chrono::Utc::now().timestamp();
 
             // Construct the message that was signed
-            let message = format!("{}:{}", msg_timestamp, wallet_address);
+            let message = medichain_crypto::signature::create_bound_sign_message(
+                msg_timestamp,
+                &wallet_address,
+                &method_str,
+                &path_str,
+                &body_hash_hex,
+            );
 
             // Verify signature
-            match verify_wallet_signature(signature, &message, wallet_address, current_timestamp) {
+            match verify_wallet_signature_bound(
+                &signature,
+                &message,
+                &wallet_address,
+                &method_str,
+                &path_str,
+                &body_hash_hex,
+                current_timestamp,
+            ) {
                 Ok(()) => {
                     // Signature valid, proceed with request
                     let res = service.call(req).await?;
@@ -205,7 +251,9 @@ where
                         ),
                         SignatureError::InvalidMessageFormat => (
                             StatusCode::BAD_REQUEST,
-                            "Invalid message format. Expected '<timestamp>:<wallet_address>'.".to_string(),
+                            "Invalid message format. Expected \
+                             '<timestamp>:<wallet_address>:<method>:<path>:<body_hash>'."
+                                .to_string(),
                         ),
                         _ => (
                             StatusCode::UNAUTHORIZED,
@@ -231,12 +279,18 @@ where
     }
 }
 
-/// Generate an authentication challenge for a wallet
+/// Generate a one-time wallet-ownership challenge (timestamp + wallet only).
 ///
-/// The client should sign this message and send back:
-/// - X-User-Id: wallet_address
-/// - X-Signature: hex-encoded signature
-/// - X-Timestamp: the timestamp from this challenge
+/// This message proves wallet ownership at a point in time — suited to a
+/// login-style exchange (e.g. `issue_jwt`, which verifies the same
+/// `<timestamp>:<wallet>` format), **not** to `SignatureAuthMiddleware`'s
+/// per-request signature requirement (Horizon HZ-007). This middleware binds
+/// every request's signature to that request's own method, path, and body via
+/// `create_bound_sign_message`/`verify_wallet_signature_bound` — a signature
+/// over this challenge's plain `<timestamp>:<wallet>` message will not satisfy
+/// it. No current client calls this endpoint; if one starts signing live
+/// per-request actions from a challenge, it must construct the bound message
+/// itself, the same way `client/shared/src/api/client.ts` does inline.
 pub fn generate_auth_challenge(wallet_address: &str) -> AuthChallenge {
     let timestamp = chrono::Utc::now().timestamp();
     let message = format!("{}:{}", timestamp, wallet_address);

@@ -1,6 +1,6 @@
 //! Substrate Blockchain RPC Client for MediChain
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 //!
 //! Provides a lightweight HTTP-based JSON-RPC client for interacting with a
 //! Substrate node. Supports health checks and fire-and-forget on-chain event
@@ -8,15 +8,16 @@
 //!
 //! # Extrinsic Encoding Note
 //!
-//! Full SCALE codec encoding of signed extrinsics requires either:
-//!   - `subxt` (high-level Substrate client crate), or
-//!   - `parity-scale-codec` + `sp-core` / `sp-runtime` for low-level encoding.
-//!
-//! Neither dependency is currently in `Cargo.toml`. Until they are added, this
-//! module logs every on-chain call with its arguments and returns a deterministic
-//! SHA3-256-derived placeholder transaction hash. The call is **not** actually
-//! submitted to the node. Add `subxt` or `parity-scale-codec` to `Cargo.toml`
-//! and replace the `pending_extrinsic` helpers below to enable real submission.
+//! Real extrinsic submission via `subxt` is wired in `pending_extrinsic`: when
+//! `BLOCKCHAIN_ENABLED=true`, a node is connected, and an operator signing key is
+//! configured (`SUBSTRATE_SIGNING_KEY`), calls are signed and submitted for real via
+//! `sign_and_submit_then_watch_default` + `wait_for_finalized_success`. In every
+//! other case (disabled/demo mode, node not ready, no operator key, or a real
+//! submission that failed) the call logs its arguments and falls back to a
+//! deterministic SHA3-256-derived placeholder hash instead — nothing reaches the
+//! node in that case. Every call returns a `ChainTxResult { hash, finalized }` so
+//! callers can tell the two cases apart instead of only ever seeing a bare hash
+//! string (Horizon finding HZ-002).
 
 use chrono::Utc;
 use log::{info, warn};
@@ -62,6 +63,17 @@ pub(crate) fn is_emergency_access(access_type: &str) -> bool {
         access_type.trim().to_ascii_uppercase().as_str(),
         "EMERGENCY" | "EMERGENCY_ACCESS" | "BREAK_GLASS"
     )
+}
+
+/// Decode a 64-character hex commitment into the fixed 32 bytes the pallet
+/// expects.
+///
+/// Returns `None` for anything that is not exactly 32 bytes of valid hex — a
+/// short, long, or non-hex value must not be silently padded or truncated into
+/// a digest that commits to nothing.
+fn decode_commitment(commitment_hex: &str) -> Option<[u8; 32]> {
+    let bytes = hex::decode(commitment_hex).ok()?;
+    bytes.try_into().ok()
 }
 
 /// The access-control extrinsic an audit event of `access_type` must use.
@@ -128,6 +140,11 @@ pub enum BlockchainError {
     /// The RPC call did not complete within the configured deadline.
     #[error("Timeout")]
     Timeout,
+
+    /// A caller passed a value that cannot be submitted. Distinct from `Rpc`
+    /// because the node was never reached and retrying will not help.
+    #[error("Invalid argument: {0}")]
+    InvalidArgument(String),
 }
 
 impl From<reqwest::Error> for BlockchainError {
@@ -185,6 +202,23 @@ pub struct SystemHealth {
     pub peers: u32,
     /// Whether the node expects to have peers (false for a dev node).
     pub should_have_peers: bool,
+}
+
+/// Result of an on-chain operation attempt.
+///
+/// `hash` is always a well-formed `0x`-prefixed 32-byte hex string either way, but
+/// `finalized` is the only field that says whether it is a real, node-confirmed
+/// extrinsic hash or a deterministic placeholder computed locally without ever
+/// reaching a node (Horizon finding HZ-002: previously both cases returned a bare
+/// `String`, so no caller could tell them apart).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainTxResult {
+    /// The transaction hash — real (chain-confirmed) or placeholder.
+    pub hash: String,
+    /// `true` only when this hash came from `wait_for_finalized_success` on a real
+    /// node. `false` for every placeholder case (disabled, not-ready, or a real
+    /// submission that failed and fell back).
+    pub finalized: bool,
 }
 
 // ------------------------------------------------------------------
@@ -344,14 +378,15 @@ impl SubstrateClient {
     /// * `registered_by`    – Staff member / system that triggered registration.
     ///
     /// # Returns
-    /// A transaction hash string (real or deterministic placeholder).
+    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
+    /// and `finalized` says honestly which one.
     pub async fn register_patient_on_chain(
         &self,
         patient_id: &str,
         id_hash: &str,
         national_id_type: &str,
         _registered_by: &str,
-    ) -> Result<String, BlockchainError> {
+    ) -> Result<ChainTxResult, BlockchainError> {
         info!(
             "[blockchain] register_patient_on_chain: patient_id={} national_id_type={}",
             patient_id, national_id_type
@@ -414,14 +449,15 @@ impl SubstrateClient {
     /// * `uploaded_by`  – Staff member / system that performed the upload.
     ///
     /// # Returns
-    /// A transaction hash string (real or deterministic placeholder).
+    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
+    /// and `finalized` says honestly which one.
     pub async fn record_ipfs_hash_on_chain(
         &self,
         patient_id: &str,
         ipfs_hash: &str,
         record_type: &str,
         _uploaded_by: &str,
-    ) -> Result<String, BlockchainError> {
+    ) -> Result<ChainTxResult, BlockchainError> {
         info!(
             "[blockchain] record_ipfs_hash_on_chain: patient_id={} ipfs_hash={} record_type={}",
             patient_id, ipfs_hash, record_type
@@ -465,13 +501,14 @@ impl SubstrateClient {
     /// * `access_type`   – E.g. `"READ"`, `"EMERGENCY_ACCESS"`, `"CONSENT_GRANT"`.
     ///
     /// # Returns
-    /// A transaction hash string (real or deterministic placeholder).
+    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
+    /// and `finalized` says honestly which one.
     pub async fn log_access_on_chain(
         &self,
         accessor_id: &str,
         patient_id: &str,
         access_type: &str,
-    ) -> Result<String, BlockchainError> {
+    ) -> Result<ChainTxResult, BlockchainError> {
         info!(
             "[blockchain] log_access_on_chain: accessor_id={} patient_id={} access_type={}",
             accessor_id, patient_id, access_type
@@ -515,6 +552,69 @@ impl SubstrateClient {
         }
 
         self.pending_extrinsic("AccessControl", call_name, params)
+            .await
+    }
+
+    /// Anchor an emergency capsule commitment on-chain (Horizon HZ-003).
+    ///
+    /// Publishes only the 32-byte digest and its version — never the blood
+    /// type, organ-donor flag, or DNR status those values used to be stored as.
+    /// The pallet rejects a version that is not strictly greater than the one
+    /// already recorded, so a superseded capsule cannot be replayed as current.
+    ///
+    /// # Arguments
+    /// * `patient_id`     – Patient account (SS58).
+    /// * `commitment_hex` – Hex-encoded SHA3-256 capsule commitment, 64 chars.
+    /// * `version`        – Capsule version this commitment belongs to.
+    ///
+    /// # Returns
+    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
+    /// and `finalized` says honestly which one.
+    pub async fn set_emergency_capsule_commitment_on_chain(
+        &self,
+        patient_id: &str,
+        commitment_hex: &str,
+        version: u32,
+    ) -> Result<ChainTxResult, BlockchainError> {
+        info!(
+            "[blockchain] set_emergency_capsule_commitment_on_chain: patient_id={} version={}",
+            patient_id, version
+        );
+
+        let commitment = match decode_commitment(commitment_hex) {
+            Some(bytes) => bytes,
+            None => {
+                // A malformed commitment is a caller bug, not a chain problem.
+                // Submitting a zero or truncated digest would anchor something
+                // that can never match the capsule it claims to commit to.
+                return Err(BlockchainError::InvalidArgument(format!(
+                    "commitment must be 64 hex characters, got {} characters",
+                    commitment_hex.len()
+                )));
+            }
+        };
+
+        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
+            Ok(acc) => acc,
+            Err(_) => {
+                return self
+                    .pending_extrinsic("MedicalRecords", "set_emergency_capsule_commitment", vec![])
+                    .await;
+            }
+        };
+
+        let params = vec![
+            DynamicValue::unnamed_variant(
+                "AccountId32",
+                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
+                    &patient_account,
+                ))],
+            ),
+            DynamicValue::from_bytes(commitment),
+            DynamicValue::u128(u128::from(version)),
+        ];
+
+        self.pending_extrinsic("MedicalRecords", "set_emergency_capsule_commitment", params)
             .await
     }
 
@@ -613,7 +713,7 @@ impl SubstrateClient {
         pallet_name: &str,
         call_name: &str,
         params: Vec<DynamicValue>,
-    ) -> Result<String, BlockchainError> {
+    ) -> Result<ChainTxResult, BlockchainError> {
         let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
 
         if blockchain_enabled() && self.is_connected() && self.subxt.is_some() {
@@ -650,7 +750,10 @@ impl SubstrateClient {
                                         "[blockchain] Extrinsic '{}.{}' included in block, tx_hash={}",
                                         pallet_name, call_name, tx_hash
                                     );
-                                    return Ok(tx_hash);
+                                    return Ok(ChainTxResult {
+                                        hash: tx_hash,
+                                        finalized: true,
+                                    });
                                 }
                                 Err(e) => {
                                     warn!(
@@ -703,7 +806,10 @@ impl SubstrateClient {
             pallet_name, call_name, tx_hash
         );
 
-        Ok(tx_hash)
+        Ok(ChainTxResult {
+            hash: tx_hash,
+            finalized: false,
+        })
     }
 }
 
@@ -776,9 +882,12 @@ mod tests {
     }
 
     /// Placeholder tx hashes must be valid 0x-prefixed 64-character hex strings
-    /// (32 bytes = 256 bits, matching the width of a Substrate extrinsic hash).
+    /// (32 bytes = 256 bits, matching the width of a Substrate extrinsic hash),
+    /// and — HZ-002 regression — must be honestly marked `finalized: false` since
+    /// no node was ever reached (`subxt: None`, `BLOCKCHAIN_ENABLED` unset).
     #[tokio::test]
     async fn test_placeholder_hash_format() {
+        std::env::remove_var("BLOCKCHAIN_ENABLED");
         let client = SubstrateClient {
             ws_url: "ws://localhost:9944".into(),
             http_url: "http://localhost:9944".into(),
@@ -787,14 +896,15 @@ mod tests {
             subxt: None,
         };
 
-        let hash = client
+        let result = client
             .pending_extrinsic("medicalRecords", "testCall", vec![])
             .await
             .expect("pending_extrinsic should not fail");
 
-        assert!(hash.starts_with("0x"), "hash must be 0x-prefixed");
+        assert!(!result.finalized, "a placeholder result must not claim finalized");
+        assert!(result.hash.starts_with("0x"), "hash must be 0x-prefixed");
         // Strip prefix and check hex length: 32 bytes × 2 hex chars = 64.
-        let hex_part = &hash[2..];
+        let hex_part = &result.hash[2..];
         assert_eq!(hex_part.len(), 64, "hash must encode 32 bytes");
         assert!(
             hex_part.chars().all(|c| c.is_ascii_hexdigit()),
@@ -824,30 +934,72 @@ mod tests {
             .unwrap();
 
         // Different call names → different hashes.
-        assert_ne!(h1, h2, "different call names must yield different hashes");
+        assert_ne!(h1.hash, h2.hash, "different call names must yield different hashes");
+        assert!(!h1.finalized && !h2.finalized);
 
         // Both should still be correctly formatted.
-        assert!(h1.starts_with("0x") && h1.len() == 66);
-        assert!(h2.starts_with("0x") && h2.len() == 66);
+        assert!(h1.hash.starts_with("0x") && h1.hash.len() == 66);
+        assert!(h2.hash.starts_with("0x") && h2.hash.len() == 66);
     }
+
+    /// HZ-002 regression: `log_access_on_chain` must be reachable and callable —
+    /// previously it had zero callers anywhere in `api/src`, making the on-chain
+    /// audit trail the code's own comments describe as a legal-reliability fix
+    /// entirely dead code. This does not require a live node: with no `subxt`
+    /// client, the call still resolves through the same placeholder path and
+    /// must return a well-formed, honestly-unfinalized `ChainTxResult`.
+    #[tokio::test]
+    async fn test_log_access_on_chain_is_reachable() {
+        let client = SubstrateClient {
+            ws_url: "ws://localhost:9944".into(),
+            http_url: "http://localhost:9944".into(),
+            connected: Arc::new(AtomicBool::new(false)),
+            client: Client::new(),
+            subxt: None,
+        };
+
+        let result = client
+            .log_access_on_chain("0xACCESSOR", "0xPATIENT", "READ")
+            .await
+            .expect("log_access_on_chain should not fail without a live node");
+        assert!(!result.finalized);
+        assert!(result.hash.starts_with("0x"));
+
+        let emergency = client
+            .log_access_on_chain("0xACCESSOR", "0xPATIENT", "EMERGENCY_ACCESS")
+            .await
+            .expect("log_access_on_chain should not fail without a live node");
+        assert!(!emergency.finalized);
+        // Routine vs. emergency route to different extrinsics (C5/F-05 routing,
+        // covered separately by `test_audit_call_routing`) and so, deterministically,
+        // to different placeholder hashes.
+        assert_ne!(result.hash, emergency.hash);
+    }
+
+    /// Serialises the two `from_env` tests.
+    ///
+    /// Environment variables are process-global, and `cargo test` runs tests on
+    /// multiple threads. Without this, `test_from_env_present` can set
+    /// `SUBSTRATE_WS_URL` in the window between `test_from_env_absent` clearing
+    /// it and reading it back — the absent test then sees the present test's
+    /// value and fails. That is a race in the tests, not in `from_env`, and it
+    /// surfaces only when unrelated changes shift thread timing.
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// `from_env` returns `None` when the variable is absent.
     #[test]
     fn test_from_env_absent() {
-        // Use a unique variable name to avoid interference from other tests
-        let var_name = "SUBSTRATE_WS_URL_TEST_ABSENT";
-        let _original_val = std::env::var(var_name).ok();
-        std::env::remove_var(var_name);
+        // `unwrap_or_else(|e| e.into_inner())` rather than `unwrap()`: if the
+        // sibling test panics while holding the lock, this test should still
+        // run and report its own result instead of failing as "poisoned".
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
 
-        // We need to modify SubstrateClient::from_env to take a var name or test it indirectly
-        // Actually, let's just make sure SUBSTRATE_WS_URL is unset for this test
-        let real_original = std::env::var("SUBSTRATE_WS_URL").ok();
+        let original = std::env::var("SUBSTRATE_WS_URL").ok();
         std::env::remove_var("SUBSTRATE_WS_URL");
 
         let result = SubstrateClient::from_env();
 
-        // Restore
-        if let Some(val) = real_original {
+        if let Some(val) = original {
             std::env::set_var("SUBSTRATE_WS_URL", val);
         }
 
@@ -861,9 +1013,18 @@ mod tests {
     /// `from_env` returns the variable value when it is set.
     #[test]
     fn test_from_env_present() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+
+        let original = std::env::var("SUBSTRATE_WS_URL").ok();
         std::env::set_var("SUBSTRATE_WS_URL", "ws://localhost:9944");
+
         let url = SubstrateClient::from_env();
+
+        match original {
+            Some(val) => std::env::set_var("SUBSTRATE_WS_URL", val),
+            None => std::env::remove_var("SUBSTRATE_WS_URL"),
+        }
+
         assert_eq!(url.as_deref(), Some("ws://localhost:9944"));
-        std::env::remove_var("SUBSTRATE_WS_URL");
     }
 }

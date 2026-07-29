@@ -172,8 +172,38 @@ pub async fn upload_medical_record(
                     )
                     .await
                 {
-                    Ok(tx_hash) => log::info!("IPFS hash recorded on chain: {}", tx_hash),
+                    Ok(result) => log::info!(
+                        "IPFS hash recorded on chain: {} (finalized={})",
+                        result.hash,
+                        result.finalized
+                    ),
                     Err(e) => log::warn!("Blockchain IPFS recording failed (non-fatal): {}", e),
+                }
+            });
+        }
+    }
+
+    // Fire-and-forget on-chain access-audit entry (non-fatal). HZ-002: previously
+    // `log_access_on_chain` had no caller anywhere in the codebase, so the
+    // on-chain audit trail its own history describes as a legal-reliability fix
+    // (C5/F-05) was entirely unreachable. This mirrors the IPFS-hash recording
+    // pattern immediately above.
+    {
+        let accessor_clone = current_user_id.clone();
+        let patient_id_clone = req.patient_id.clone();
+        if let Some(ref client) = data.substrate_client {
+            let client = client.clone();
+            tokio::spawn(async move {
+                match client
+                    .log_access_on_chain(&accessor_clone, &patient_id_clone, "upload_record")
+                    .await
+                {
+                    Ok(result) => log::info!(
+                        "Access logged on chain: {} (finalized={})",
+                        result.hash,
+                        result.finalized
+                    ),
+                    Err(e) => log::warn!("Blockchain access logging failed (non-fatal): {}", e),
                 }
             });
         }

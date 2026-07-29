@@ -14,7 +14,7 @@
 //! - If DATABASE_URL is set, persistent storage with demo users
 //! - Falls back to in-memory storage if no database configured
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
@@ -40,6 +40,7 @@ mod blockchain;
 mod clinical;
 mod clinical_endpoints;
 mod device_lifecycle;
+mod emergency_capsule;
 mod emergency_grants;
 mod ipfs;
 mod key_management;
@@ -51,6 +52,7 @@ mod notifications;
 mod organization_keys;
 mod pagination;
 mod pdf;
+mod retention;
 mod security;
 mod telehealth;
 mod telehealth_retention;
@@ -137,6 +139,11 @@ async fn main() -> std::io::Result<()> {
         eprintln!("\n[ERROR] STARTUP ABORTED: {}\n", msg);
         return Err(std::io::Error::other(msg));
     }
+
+    // Warn (do not block boot) if any national-ID verifier's API key is unset in
+    // non-demo mode — that country would silently run on the deterministic stub
+    // verifier (Horizon HZ-004).
+    warn_missing_national_id_keys();
 
     // Try to connect to PostgreSQL if DATABASE_URL is set
     let db_pool = match std::env::var("DATABASE_URL") {
@@ -264,6 +271,35 @@ async fn main() -> std::io::Result<()> {
             }
         });
         println!("  [INFO] Appointment reminder task started (checks every 5m)");
+    }
+
+    // Start data-retention assessment task.
+    //
+    // REPORT-ONLY: this evaluates retention policies and records what *would*
+    // be eligible for disposal. It does not delete, archive, or modify any
+    // record — see `crate::retention` for why the deletion half is deliberately
+    // absent. Retention boundaries move a day at a time, so it runs daily.
+    {
+        let retention_state = app_state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
+                crate::retention::job::RETENTION_ASSESSMENT_INTERVAL_SECS,
+            ));
+            loop {
+                interval.tick().await;
+                let assessment =
+                    crate::retention::run_retention_assessment(&retention_state).await;
+                if assessment.total_due > 0 || assessment.total_held > 0 {
+                    log::info!(
+                        "retention assessment {}: {} due, {} held, 0 deleted (report-only)",
+                        assessment.assessed_on,
+                        assessment.total_due,
+                        assessment.total_held
+                    );
+                }
+            }
+        });
+        println!("  [INFO] Retention assessment task started (daily, report-only — never deletes)");
     }
 
     println!();

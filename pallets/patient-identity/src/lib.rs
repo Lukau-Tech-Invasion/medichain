@@ -87,15 +87,32 @@ pub mod pallet {
         pub registered_at: BlockNumberFor<T>,
         /// Who registered this patient (healthcare provider)
         pub registered_by: T::AccountId,
-        /// Organ donor status
-        pub organ_donor: bool,
-        /// Do Not Resuscitate status
-        pub dnr_status: DnrStatus,
         /// Preferred language (ISO 639-1 code, e.g., "en", "am", "sw")
         pub preferred_language: BoundedVec<u8, ConstU32<MAX_LANGUAGE_LENGTH>>,
         /// Hash of photo ID document (optional)
         pub photo_id_hash: Option<[u8; 32]>,
     }
+
+    // NOTE (Horizon HZ-003): `organ_donor: bool` and `dnr_status: DnrStatus`
+    // were previously stored here in the clear, as a documented exception to
+    // this project's "hashes and pointers only" on-chain rule, so first
+    // responders could read them without a decrypt round-trip.
+    //
+    // A POPIA legal review on 2026-07-28 concluded that exception does not hold
+    // for real patient data: an immutable ledger cannot satisfy the correction,
+    // deletion, and retention-limitation duties POPIA imposes on health
+    // information, and a pseudonymous `owner` does not cure it, because the
+    // Regulator's de-identification standard turns on whether data can be
+    // re-linked to a person by a "reasonably foreseeable method".
+    //
+    // Both values now live in the off-chain emergency capsule alongside blood
+    // type, committed to on-chain via
+    // `pallet-medical-records::set_emergency_capsule_commitment`. The emergency
+    // read path is unaffected — it always read these from off-chain storage,
+    // never from chain. See `docs/PRODUCTION_READINESS_GATES.md` §1.
+    //
+    // `DnrStatus` itself is retained below: it remains a valid domain type for
+    // the off-chain capsule and is part of this pallet's public API.
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -135,16 +152,13 @@ pub mod pallet {
             who: T::AccountId,
             verifier: T::AccountId,
         },
-        /// Organ donor status updated
-        OrganDonorStatusUpdated {
-            who: T::AccountId,
-            organ_donor: bool,
-        },
-        /// DNR status updated
-        DnrStatusUpdated {
-            who: T::AccountId,
-            dnr_status: DnrStatus,
-        },
+        // `OrganDonorStatusUpdated` and `DnrStatusUpdated` were removed with the
+        // extrinsics that emitted them (Horizon HZ-003). Worth stating why the
+        // events had to go and not just the storage fields: emitted events are
+        // themselves recorded in block data, so an event carrying
+        // `organ_donor: bool` / `dnr_status: DnrStatus` would have republished
+        // exactly the plaintext health information the storage change removed,
+        // leaving the finding only half-fixed.
         /// Preferred language updated
         PreferredLanguageUpdated {
             who: T::AccountId,
@@ -228,8 +242,6 @@ pub mod pallet {
                 verified: false,
                 registered_at: current_block,
                 registered_by: registrar.clone(),
-                organ_donor: false,
-                dnr_status: DnrStatus::None,
                 preferred_language: BoundedVec::default(),
                 photo_id_hash: None,
             };
@@ -300,60 +312,22 @@ pub mod pallet {
             })
         }
 
-        /// Update organ donor status
-        ///
-        /// Patients can update their own organ donor status, or healthcare providers
-        /// can update it on behalf of verified patients.
-        ///
-        /// # Arguments
-        /// * `organ_donor` - New organ donor status
-        #[pallet::call_index(2)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
-        pub fn set_organ_donor_status(origin: OriginFor<T>, organ_donor: bool) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            Identities::<T>::try_mutate(&who, |maybe_identity| -> DispatchResult {
-                let identity = maybe_identity
-                    .as_mut()
-                    .ok_or(Error::<T>::IdentityNotFound)?;
-
-                identity.organ_donor = organ_donor;
-
-                Self::deposit_event(Event::OrganDonorStatusUpdated {
-                    who: who.clone(),
-                    organ_donor,
-                });
-
-                Ok(())
-            })
-        }
-
-        /// Update DNR (Do Not Resuscitate) status
-        ///
-        /// Patients can update their own DNR status. This is a critical medical directive.
-        ///
-        /// # Arguments
-        /// * `dnr_status` - New DNR status
-        #[pallet::call_index(3)]
-        #[pallet::weight(Weight::from_parts(10_000, 0))]
-        pub fn set_dnr_status(origin: OriginFor<T>, dnr_status: DnrStatus) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
-            Identities::<T>::try_mutate(&who, |maybe_identity| -> DispatchResult {
-                let identity = maybe_identity
-                    .as_mut()
-                    .ok_or(Error::<T>::IdentityNotFound)?;
-
-                identity.dnr_status = dnr_status.clone();
-
-                Self::deposit_event(Event::DnrStatusUpdated {
-                    who: who.clone(),
-                    dnr_status,
-                });
-
-                Ok(())
-            })
-        }
+        // Call indices 2 and 3 are permanently RESERVED and deliberately left
+        // unused. They belonged to `set_organ_donor_status` and
+        // `set_dnr_status`, removed under Horizon HZ-003 because they wrote
+        // health information to chain in the clear — and because any signed
+        // account could call them, they were also the least-controlled write
+        // path in this pallet.
+        //
+        // Both values now live in the off-chain emergency capsule, published
+        // on-chain only as a commitment via
+        // `pallet-medical-records::set_emergency_capsule_commitment` (which is
+        // provider-gated, unlike these were).
+        //
+        // The indices are NOT reused: call indices are part of this pallet's
+        // wire format, and silently rebinding an index that older clients still
+        // hold would turn a stale "set my DNR status" call into whatever new
+        // extrinsic took its place. See docs/PRODUCTION_READINESS_GATES.md §1.
 
         /// Update preferred language
         ///

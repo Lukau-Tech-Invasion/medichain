@@ -1,6 +1,6 @@
 //! IPFS Client Module for MediChain
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 //!
 //! Provides encrypted medical document storage on IPFS with:
 //! - ChaCha20-Poly1305 encryption before upload

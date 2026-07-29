@@ -49,12 +49,18 @@ pub async fn create_mar(
 }
 
 /// Get MAR entry
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_mar`'s authenticated-caller bar.
 #[get("/api/emergency/mar/{patient_id}/{medication_id}")]
 pub async fn get_mar(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<(String, String)>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let (patient_id, medication_id) = path.into_inner();
     // Composite ID lookup simulation
     let id = format!("{}:{}", patient_id, medication_id);
@@ -117,12 +123,18 @@ pub async fn create_io(
 }
 
 /// Get I/O record
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_io`'s authenticated-caller bar.
 #[get("/api/emergency/io/{patient_id}/{type}/{timestamp}")]
 pub async fn get_io(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let (patient_id, _, date) = path.into_inner();
     let id = format!("IO-{}-{}", patient_id, date);
     match data.repositories.io_records.get_by_id(&id).await {
@@ -184,12 +196,18 @@ pub async fn create_care_plan(
 }
 
 /// Get care plan
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_care_plan`'s authenticated-caller bar.
 #[get("/api/emergency/care-plan/{id}")]
 pub async fn get_care_plan(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.nursing_care_plans.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
@@ -236,12 +254,18 @@ pub async fn create_wound(
 }
 
 /// Get wound assessment
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_wound`'s authenticated-caller bar.
 #[get("/api/emergency/wound/{id}")]
 pub async fn get_wound(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.wound_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
@@ -291,12 +315,18 @@ pub async fn create_iv_site(
 }
 
 /// Get IV site assessment
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_iv_site`'s authenticated-caller bar.
 #[get("/api/emergency/iv-site/{id}")]
 pub async fn get_iv_site(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.iv_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
@@ -326,12 +356,18 @@ pub async fn create_shift_handoff(
 }
 
 /// Get shift handoff
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_shift_handoff`'s authenticated-caller bar.
 #[get("/api/emergency/handoff/{id}")]
 pub async fn get_shift_handoff(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.shift_handoffs.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
@@ -361,12 +397,18 @@ pub async fn create_incident(
 }
 
 /// Get incident report
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_incident`'s authenticated-caller bar.
 #[get("/api/emergency/incident/{id}")]
 pub async fn get_incident(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.incident_reports.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
@@ -396,12 +438,18 @@ pub async fn create_fall_risk(
 }
 
 /// Get fall risk assessment
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_fall_risk`'s authenticated-caller bar.
 #[get("/api/emergency/fall-risk/{id}")]
 pub async fn get_fall_risk(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.fall_risk_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
@@ -424,6 +472,7 @@ mod cds_wiring_tests {
             patient_id: id.to_string(),
             full_name: "Test Patient".to_string(),
             date_of_birth: "1980-01-01".to_string(),
+            time_of_birth: None,
             national_id: format!("NID-{id}"),
             phone: "+27000000000".to_string(),
             emergency_info: crate::EmergencyInfo {

@@ -43,12 +43,19 @@ pub async fn create_code_blue(
 }
 
 /// Get code blue record
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all
+/// before returning the full record by bare `{id}`. Now matches
+/// `create_code_blue`'s authenticated-caller bar.
 #[get("/api/emergency/code-blue/{id}")]
 pub async fn get_code_blue(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.code_blue.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
@@ -57,12 +64,17 @@ pub async fn get_code_blue(
 }
 
 /// List code blue records for a patient
+///
+/// HZ-009 audit: same unauthenticated-read gap as `get_code_blue` above.
 #[get("/api/emergency/code-blue/patient/{patient_id}")]
 pub async fn list_patient_code_blues(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let patient_id = path.into_inner();
     let pagination = Pagination::new(0, 50);
     match data
@@ -110,12 +122,19 @@ pub async fn create_cardiac(
 }
 
 /// Get cardiac event record
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all
+/// before returning the full record by bare `{id}`. Now matches
+/// `create_cardiac`'s authenticated-caller bar.
 #[get("/api/emergency/cardiac/{id}")]
 pub async fn get_cardiac(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.cardiac_events_repo.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),

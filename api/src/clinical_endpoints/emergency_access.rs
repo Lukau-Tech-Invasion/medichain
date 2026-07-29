@@ -72,6 +72,13 @@ pub fn verify_emergency_token(token: &str, patient_id: &str) -> bool {
 ///
 /// `tag_uid` stores the SHA3-256 NFC card hash, so this is a cryptographic
 /// binding to the physical card — an arbitrary string cannot match.
+///
+/// This check alone is **not** sufficient to gate PHI release: `tag_uid` never
+/// rotates for the lifetime of the card, so a value that matches once matches
+/// forever. Callers must exchange a match here for a short-lived
+/// [`issue_emergency_token`] via the `/api/emergency/nfc-token` endpoint and
+/// gate actual data release on [`verify_emergency_token`], not on this
+/// function's result directly (Horizon HZ-001).
 pub fn nfc_hash_matches(provided: &str, tags: &[NfcTagEntity]) -> bool {
     !provided.is_empty()
         && tags
@@ -79,18 +86,27 @@ pub fn nfc_hash_matches(provided: &str, tags: &[NfcTagEntity]) -> bool {
             .any(|t| t.is_active && ct_eq(t.tag_uid.as_bytes(), provided.as_bytes()))
 }
 
+/// Issue a signed, time-limited emergency token for `patient_id`.
+///
+/// Format: `"<expiry_unix>.<hex_mac>"`, verified by [`verify_emergency_token`].
+/// This is the *only* sanctioned way to turn a one-time proof (a signed
+/// challenge, or — via `/api/emergency/nfc-token` — a validated NFC tap) into
+/// something the PHI-releasing endpoints will accept, precisely because it
+/// carries a short, enforced expiry that a static NFC hash does not (HZ-001).
+pub fn issue_emergency_token(patient_id: &str, ttl_secs: i64) -> String {
+    let expiry = chrono::Utc::now().timestamp() + ttl_secs;
+    format!("{}.{}", expiry, mac_tag(patient_id, expiry))
+}
+
+/// Default validity window for a token issued via the NFC exchange endpoint.
+/// Short enough that a leaked query-string value (e.g. via a proxy or access
+/// log) is only replayable for a couple of minutes, not indefinitely.
+pub const NFC_EXCHANGE_TOKEN_TTL_SECS: i64 = 120;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::Utc;
-
-    /// Test-only helper mirroring what a real emergency-token issuer would produce
-    /// (format: `"<expiry_unix>.<hex_mac>"`), so `verify_emergency_token`'s
-    /// round-trip and expiry/binding behavior can be exercised without a live issuer.
-    fn issue_emergency_token(patient_id: &str, ttl_secs: i64) -> String {
-        let expiry = chrono::Utc::now().timestamp() + ttl_secs;
-        format!("{}.{}", expiry, mac_tag(patient_id, expiry))
-    }
 
     fn tag(uid: &str, active: bool) -> NfcTagEntity {
         NfcTagEntity {

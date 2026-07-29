@@ -24,6 +24,21 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
         "medichain-dev-secret-change-in-production",
     ),
     ("ENCRYPTION_KEYS", "\0__unset_sentinel_never_matches__\0"),
+    (
+        // Keys `support::hash_national_id`'s digest (Horizon HZ-005). Unset or
+        // left at the dev default means every stored national-ID digest is
+        // reversible by exhaustive search against a known/guessed key.
+        "NATIONAL_ID_HASH_KEY",
+        "medichain-dev-national-id-key-change-in-production",
+    ),
+    (
+        // Verifies the SMS inbound webhook actually came from the configured
+        // carrier callback (found during continued remediation, not one of
+        // HZ-001..011). Left at the dev default means anyone can spoof a STOP
+        // reply for an arbitrary phone number.
+        "SMS_INBOUND_WEBHOOK_SECRET",
+        "medichain-dev-sms-webhook-secret-change-in-production",
+    ),
 ];
 
 /// Validate that the running configuration is not using demo/default secrets.
@@ -84,6 +99,51 @@ pub fn validate_production_secrets() -> Result<(), String> {
         offenders.len()
     );
     Ok(())
+}
+
+/// Env vars for the 5 national-ID verifiers (Horizon HZ-004). Unlike
+/// `DEMO_SECRET_MARKERS`, an unset key here is not necessarily wrong — a soft
+/// launch may legitimately not have every country's key yet — so this warns
+/// loudly rather than refusing to boot. Before this check existed, a missing key
+/// silently degraded that country's identity verification to "any non-empty
+/// string is verified" (see `national_id::StubVerifier`) with only an
+/// invisible-by-default `log::debug!` line.
+pub const NATIONAL_ID_API_KEY_VARS: &[&str] = &[
+    "FAYDA_API_KEY",
+    "GHANA_CARD_API_KEY",
+    "NIN_API_KEY",
+    "SMARTID_API_KEY",
+    "HUDUMA_API_KEY",
+];
+
+/// Warn at startup for every national-ID API key that is unset in non-demo mode.
+///
+/// Deliberately warn-only (not `validate_production_secrets`'s fail-closed
+/// behavior): identity verification degrading to the stub for one missing
+/// country is a real gap, but it should not take down verification for every
+/// other country by refusing to boot.
+pub fn warn_missing_national_id_keys() {
+    let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
+    if is_demo {
+        return;
+    }
+
+    let missing: Vec<&str> = NATIONAL_ID_API_KEY_VARS
+        .iter()
+        .filter(|var| std::env::var(var).is_err())
+        .copied()
+        .collect();
+
+    if !missing.is_empty() {
+        log::warn!(
+            "National-ID verification will silently use the deterministic stub for {} \
+             country/countries whose API key is unset: {}. Any non-empty ID string will be \
+             reported as verified for these countries until the key is configured. Set the \
+             corresponding key or accept this explicitly for now.",
+            missing.len(),
+            missing.join(", ")
+        );
+    }
 }
 
 /// Print the ASCII startup banner and endpoint cheat-sheet.
@@ -177,6 +237,6 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!("     POST /api/medical-id/{{id}}/preferences - Update preferences");
     println!("     POST /api/medical-id/{{id}}/emergency-notify - Trigger family alert");
     println!();
-    println!("  © 2025 Trustware. Rust Africa Hackathon 2026");
+    println!("  © 2025 Lukau Invasion (Pty) Ltd. Rust Africa Hackathon 2026");
     println!();
 }

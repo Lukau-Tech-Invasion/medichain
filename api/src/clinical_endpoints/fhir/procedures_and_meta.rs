@@ -424,7 +424,7 @@ pub async fn fhir_capability_statement() -> impl Responder {
             "resourceType": "CapabilityStatement",
             "status": "active",
             "date": "2026-01-06",
-            "publisher": "Trustware - MediChain",
+            "publisher": "Lukau Invasion - MediChain",
             "kind": "instance",
             "software": {
                 "name": "MediChain FHIR Server",

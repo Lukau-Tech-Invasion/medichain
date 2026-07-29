@@ -53,12 +53,18 @@ pub async fn create_anesthesia(
 }
 
 /// Get anesthesia record
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_anesthesia`'s authenticated-caller bar.
 #[get("/api/surgical/anesthesia/{id}")]
 pub async fn get_anesthesia(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.anesthesia_records.read() {
         Ok(records) => records
@@ -130,12 +136,18 @@ pub async fn create_radiology_order(
 }
 
 /// Get radiology order
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_radiology_order`'s authenticated-caller bar.
 #[get("/api/surgical/radiology/order/{id}")]
 pub async fn get_radiology_order(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.radiology_orders.read() {
         Ok(orders) => orders
@@ -195,12 +207,18 @@ pub async fn create_radiology_report(
 }
 
 /// Get radiology report
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_radiology_report`'s authenticated-caller bar.
 #[get("/api/surgical/radiology/report/{id}")]
 pub async fn get_radiology_report(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.radiology_reports.read() {
         Ok(reports) => reports
@@ -260,12 +278,18 @@ pub async fn create_pathology(
 }
 
 /// Get pathology report
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_pathology`'s authenticated-caller bar.
 #[get("/api/surgical/pathology/{id}")]
 pub async fn get_pathology(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.pathology_reports.read() {
         Ok(reports) => reports

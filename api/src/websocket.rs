@@ -9,7 +9,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use std::task::{Context, Poll};
 
-use actix_web::{get, web, HttpRequest, HttpResponse};
+use actix_web::{get, web, HttpResponse};
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
@@ -90,6 +90,34 @@ impl WsSessionManager {
 // SSE stream adapter
 // ============================================================================
 
+/// Which events a connection may receive.
+///
+/// Horizon finding (surfaced during continued remediation, not one of
+/// HZ-001..012): `push_event` broadcasts every event to every connected SSE
+/// client with no per-connection filtering at all — a patient's medication
+/// reminders and CDS alerts (patient_id, medication name, alert title and
+/// severity) went to *every* open stream, authenticated or not. This scopes
+/// what each connection is allowed to see.
+#[derive(Debug, Clone)]
+pub enum EventScope {
+    /// A patient sees only events about their own linked patient record.
+    OwnPatientOnly(String),
+    /// Providers/Admin see the full stream — matches this codebase's existing
+    /// (imperfect, already-flagged — see `HZ-WP6-CONS-003`'s observation on
+    /// the absence of a per-patient ongoing consent-grant mechanism) broad
+    /// provider read access; not further restricted here.
+    AllEvents,
+}
+
+impl EventScope {
+    fn allows(&self, event: &PushEvent) -> bool {
+        match self {
+            EventScope::AllEvents => true,
+            EventScope::OwnPatientOnly(own_id) => event.patient_id.as_deref() == Some(own_id.as_str()),
+        }
+    }
+}
+
 /// Wraps a `broadcast::Receiver<PushEvent>` and implements `Stream` so it can
 /// be passed to `HttpResponse::streaming()`.
 ///
@@ -99,29 +127,38 @@ impl WsSessionManager {
 /// events with low latency.
 struct SseStream {
     receiver: broadcast::Receiver<PushEvent>,
+    scope: EventScope,
 }
 
 impl Stream for SseStream {
     type Item = Result<actix_web::web::Bytes, actix_web::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.receiver.try_recv() {
-            Ok(event) => {
-                let json = serde_json::to_string(&event).unwrap_or_default();
-                let frame = format!("data: {}\n\n", json);
-                Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame))))
+        loop {
+            match self.receiver.try_recv() {
+                Ok(event) => {
+                    if !self.scope.allows(&event) {
+                        // Not for this connection — keep draining without
+                        // yielding Pending, so an out-of-scope event doesn't
+                        // stall delivery of the next in-scope one.
+                        continue;
+                    }
+                    let json = serde_json::to_string(&event).unwrap_or_default();
+                    let frame = format!("data: {}\n\n", json);
+                    return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame))));
+                }
+                Err(broadcast::error::TryRecvError::Empty) => {
+                    // Schedule a wake-up after a short delay so we do not busy-spin.
+                    let waker = cx.waker().clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                        waker.wake();
+                    });
+                    return Poll::Pending;
+                }
+                // Channel was closed (sender dropped) — signal end of stream.
+                Err(_) => return Poll::Ready(None),
             }
-            Err(broadcast::error::TryRecvError::Empty) => {
-                // Schedule a wake-up after a short delay so we do not busy-spin.
-                let waker = cx.waker().clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                    waker.wake();
-                });
-                Poll::Pending
-            }
-            // Channel was closed (sender dropped) — signal end of stream.
-            Err(_) => Poll::Ready(None),
         }
     }
 }
@@ -132,19 +169,34 @@ impl Stream for SseStream {
 
 /// GET /api/events
 ///
-/// Streams Server-Sent Events to the caller.  The optional `X-User-Id` request
-/// header is used as the wallet address for subscription accounting.
+/// Streams Server-Sent Events to the caller. Requires an authenticated, known
+/// caller (Horizon finding — previously fell back to `"anonymous"` and
+/// streamed every patient's events to anyone, logged in or not) and scopes
+/// delivered events to what that caller may see (`EventScope`).
 #[get("/api/events")]
-pub async fn sse_events(data: web::Data<crate::AppState>, req: HttpRequest) -> HttpResponse {
-    let wallet_address = req
-        .headers()
-        .get("X-User-Id")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("anonymous")
-        .to_string();
+pub async fn sse_events(
+    data: web::Data<crate::AppState>,
+    caller: crate::middleware::AuthorizedUser,
+) -> HttpResponse {
+    let scope = if *caller.role() == crate::types::Role::Patient {
+        match &caller.user.linked_patient_id {
+            Some(patient_id) => EventScope::OwnPatientOnly(patient_id.clone()),
+            // A patient-role account with no linked patient record can't be
+            // scoped to anything real — deny rather than fall back to broad.
+            None => {
+                return HttpResponse::Forbidden().json(crate::types::ErrorResponse {
+                    success: false,
+                    error: "Patient account has no linked patient record".to_string(),
+                    code: "NO_LINKED_PATIENT".to_string(),
+                })
+            }
+        }
+    } else {
+        EventScope::AllEvents
+    };
 
-    let receiver = data.ws_manager.subscribe(&wallet_address);
-    let stream = SseStream { receiver };
+    let receiver = data.ws_manager.subscribe(&caller.wallet_address);
+    let stream = SseStream { receiver, scope };
 
     HttpResponse::Ok()
         .insert_header(("Content-Type", "text/event-stream"))
@@ -188,4 +240,35 @@ pub fn push_reminder(manager: &WsSessionManager, patient_id: &str, medication_na
         }),
         timestamp: chrono::Utc::now().timestamp(),
     });
+}
+
+#[cfg(test)]
+mod hz_sse_scope_tests {
+    use super::*;
+
+    fn event_for(patient_id: &str) -> PushEvent {
+        PushEvent {
+            event_type: "reminder_due".to_string(),
+            patient_id: Some(patient_id.to_string()),
+            payload: serde_json::json!({}),
+            timestamp: 0,
+        }
+    }
+
+    /// HZ regression: a patient-scoped connection must not see another
+    /// patient's events — this is the exact gap that let every connected
+    /// client see every patient's medication reminders/CDS alerts.
+    #[test]
+    fn own_patient_only_rejects_other_patients_events() {
+        let scope = EventScope::OwnPatientOnly("PAT-1".to_string());
+        assert!(scope.allows(&event_for("PAT-1")));
+        assert!(!scope.allows(&event_for("PAT-2")));
+    }
+
+    #[test]
+    fn all_events_scope_allows_everything() {
+        let scope = EventScope::AllEvents;
+        assert!(scope.allows(&event_for("PAT-1")));
+        assert!(scope.allows(&event_for("PAT-2")));
+    }
 }

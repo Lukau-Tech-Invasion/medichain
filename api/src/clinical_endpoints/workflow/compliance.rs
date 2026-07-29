@@ -86,12 +86,54 @@ pub async fn get_consent_types(
     }))
 }
 
+/// How long a consent grant lasts when the caller doesn't specify.
+///
+/// Previously an unexplained inline `365`. Still a default rather than a
+/// policy engine, but named so it can be found and changed deliberately.
+const DEFAULT_CONSENT_VALIDITY_DAYS: i64 = 365;
+
+/// Request body for `sign_consent`.
+///
+/// Replaces the previous untyped `serde_json::Value`, which silently accepted
+/// anything and recorded a hardcoded affirmative consent regardless of what was
+/// sent. Every lawful-basis field is `Option` so pre-migration callers (the
+/// current frontend) keep working — absent values fall back to the ordinary
+/// clinical-care grounds and are logged, so un-migrated callers stay findable
+/// rather than becoming invisible.
+#[derive(Debug, serde::Deserialize)]
+pub struct SignConsentRequest {
+    /// Accepts either `type_id` or `consent_type` — both spellings were in use.
+    #[serde(alias = "consent_type")]
+    pub type_id: Option<String>,
+    pub patient_id: Option<String>,
+    /// Whether consent was actually given. Absent means granted, matching the
+    /// previous hardcoded behaviour of this endpoint.
+    pub consent_given: Option<bool>,
+    pub popia_section_11_basis: Option<PopiaSection11Basis>,
+    pub special_information_basis: Option<SpecialInformationBasis>,
+    pub child_information_basis: Option<ChildInformationBasis>,
+    pub consent_giver_capacity: Option<ConsentGiverCapacity>,
+    pub privacy_notice_version: Option<String>,
+    pub emergency_basis: Option<EmergencyBasis>,
+    pub emergency_justification: Option<String>,
+    pub scope_description: Option<String>,
+    pub purpose: Option<String>,
+    pub expires_in_days: Option<i64>,
+    /// Clinician's finding that a child of 12+ has sufficient maturity to
+    /// consent to their own treatment. Required when `consent_giver_capacity`
+    /// is `child_over_12_mature`.
+    pub child_maturity_assessment: Option<String>,
+}
+
 /// Sign a consent form
+///
+/// Records the POPIA lawful basis for the processing, not merely a boolean.
+/// See `crate::types::legal_basis` and `docs/PRODUCTION_READINESS_GATES.md` §2.
 #[post("/api/consent/sign")]
 pub async fn sign_consent(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    body: web::Json<serde_json::Value>,
+    body: web::Json<SignConsentRequest>,
 ) -> impl Responder {
     let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
@@ -116,22 +158,203 @@ pub async fn sign_consent(
     };
 
     let consent_type = body
-        .get("type_id")
-        .or_else(|| body.get("consent_type"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("UNKNOWN")
-        .to_string();
+        .type_id
+        .clone()
+        .unwrap_or_else(|| "UNKNOWN".to_string());
     let patient_id = body
-        .get("patient_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(&current_user_id)
-        .to_string();
+        .patient_id
+        .clone()
+        .unwrap_or_else(|| current_user_id.clone());
 
-    // Auth check: patient or legal guardian
-    if current_user_id != patient_id && !current_user.role.is_admin() {
-        // In a real app, check for legal proxy/guardian status
+    // Auth check: patient, Admin, or a guardian holding the GiveConsent
+    // permission specifically (Horizon HZ-008 — previously only the patient's
+    // own account or an Admin override could sign; there was no
+    // representation of a minor/dependant/incapacitated patient's guardian at
+    // all). A guardian with e.g. view-only access is *not* sufficient here —
+    // the permission-granular repository lets this be checked precisely,
+    // unlike the old boolean "is an active guardian" check.
+    // `collector_id`/`collector_name` below already stamp the actual caller,
+    // so a guardian-signed consent is attributed to the guardian, not
+    // silently to the patient.
+    //
+    // Resolved (rather than merely checked) so a guardian-authorised consent
+    // can cite *which* relationship authorised it — POPIA needs the authority
+    // evidenced, not just the access permitted.
+    let access = crate::support::resolve_patient_access(
+        &data,
+        &current_user,
+        &patient_id,
+        crate::repositories::traits::GuardianPermission::ConsentToDataProcessing,
+    )
+    .await;
+
+    if !access.is_permitted() {
         return HttpResponse::Forbidden().finish();
     }
+
+    // Recording new consent is new processing, so a retention restriction
+    // blocks it. Placed after the access check so an unauthorised caller learns
+    // nothing about whether the patient is restricted.
+    if let Err(resp) = crate::support::ensure_not_restricted(&data, &patient_id).await {
+        return resp;
+    }
+
+    let emergency_basis = body.emergency_basis.unwrap_or(EmergencyBasis::None);
+    // An emergency override with no recorded reason is unauditable — this is
+    // the one lawful-basis field that is rejected rather than defaulted.
+    if emergency_basis.requires_justification()
+        && body
+            .emergency_justification
+            .as_ref()
+            .map(|j| j.trim().is_empty())
+            .unwrap_or(true)
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "emergency_justification is required when emergency_basis is not 'none'"
+                .to_string(),
+            code: "EMERGENCY_JUSTIFICATION_REQUIRED".to_string(),
+        });
+    }
+
+    // Fall back to the ordinary clinical-care grounds when a caller predates
+    // this schema, and say so in the log rather than silently inventing a
+    // lawful basis.
+    let section_11_basis = body.popia_section_11_basis.unwrap_or_else(|| {
+        log::warn!(
+            "consent {} for patient {} recorded without an explicit POPIA s11 basis; \
+             defaulting to 'consent'. Caller should be updated to send one.",
+            consent_type,
+            patient_id
+        );
+        PopiaSection11Basis::Consent
+    });
+    let special_basis = body
+        .special_information_basis
+        .unwrap_or(SpecialInformationBasis::S32Treatment);
+
+    // Capacity: trust an explicit value, otherwise infer from how access was
+    // actually resolved above.
+    let capacity = body.consent_giver_capacity.unwrap_or(match &access {
+        crate::support::PatientAccessGrant::Guardian(_) => ConsentGiverCapacity::Guardian,
+        _ => ConsentGiverCapacity::SelfCapacity,
+    });
+
+    let authority_evidence_id = access.authority_evidence_id().map(|s| s.to_string());
+
+    // A third-party capacity with no recorded guardian relationship is exactly
+    // the gap the legal review flagged — refuse rather than record an
+    // unevidenced claim of authority.
+    if capacity.requires_authority_evidence() && authority_evidence_id.is_none() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "consent_giver_capacity '{}' requires a verified guardian relationship \
+                 authorising this caller for this patient",
+                capacity.as_str()
+            ),
+            code: "GUARDIAN_AUTHORITY_EVIDENCE_REQUIRED".to_string(),
+        });
+    }
+
+    // Children's Act §129. The patient's age is resolved once and reused: it
+    // decides both whether a claimed mature-minor capacity is real and which
+    // child ground applies.
+    let patient_age = crate::support::patient_age_years(&data, &patient_id).await;
+    let treatment_capacity = crate::support::treatment_consent_capacity(patient_age);
+
+    // A claim of mature-minor capacity used to be accepted on the caller's word
+    // alone — the enum value existed and nothing checked it. Both halves of the
+    // §129 test are now required: the age (verified here from the patient's
+    // date of birth) and the maturity finding (which no amount of data can
+    // establish, so it must be recorded by the clinician).
+    if capacity == ConsentGiverCapacity::ChildOver12Mature {
+        if treatment_capacity != crate::support::TreatmentConsentCapacity::MatureChildEligible {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: format!(
+                    "consent_giver_capacity 'child_over_12_mature' is not available for this \
+                     patient: Children's Act s129 requires an age of at least {} years, and \
+                     the patient's recorded age is {}",
+                    crate::support::CHILD_SELF_CONSENT_MIN_AGE_YEARS,
+                    patient_age
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| "indeterminable".to_string())
+                ),
+                code: "CHILD_SELF_CONSENT_AGE_NOT_MET".to_string(),
+            });
+        }
+        if body
+            .child_maturity_assessment
+            .as_ref()
+            .map(|a| a.trim().is_empty())
+            .unwrap_or(true)
+        {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "child_maturity_assessment is required when consent_giver_capacity is \
+                        'child_over_12_mature': age alone does not establish capacity under \
+                        Children's Act s129"
+                    .to_string(),
+                code: "CHILD_MATURITY_ASSESSMENT_REQUIRED".to_string(),
+            });
+        }
+    }
+
+    // A child under 12 cannot consent for themselves at all — a competent
+    // person must. Without this, a patient account belonging to a young child
+    // could self-sign consent that no statute supports.
+    if capacity == ConsentGiverCapacity::SelfCapacity
+        && treatment_capacity == crate::support::TreatmentConsentCapacity::CompetentPersonRequired
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "a patient under {} may not consent for themselves; a parent, guardian, or \
+                 other competent person must consent on their behalf",
+                crate::support::CHILD_SELF_CONSENT_MIN_AGE_YEARS
+            ),
+            code: "COMPETENT_PERSON_REQUIRED".to_string(),
+        });
+    }
+
+    // POPIA ss.34-35 layer on top of the health-data authorisation for a
+    // minor, so the child ground is derived from the patient's actual age
+    // rather than trusted from the request.
+    let child_basis = match body.child_information_basis {
+        Some(explicit) => explicit,
+        // A mature child consenting for themselves is NOT competent-person
+        // consent — that value would assert a parent or guardian consented,
+        // which is false. Recorded distinctly so the two never collapse.
+        None if capacity == ConsentGiverCapacity::ChildOver12Mature => {
+            ChildInformationBasis::S129MatureChildSelfConsent
+        }
+        None => match treatment_capacity {
+            crate::support::TreatmentConsentCapacity::Adult => {
+                ChildInformationBasis::NotApplicable
+            }
+            // Unknown age (undecryptable or absent DOB): don't guess that the
+            // subject is an adult — leaving it not_applicable would assert
+            // something unverified. Log and treat as the safer child ground.
+            crate::support::TreatmentConsentCapacity::AgeUnknown => {
+                log::warn!(
+                    "consent {} for patient {}: age indeterminable, applying s35 child \
+                     ground conservatively",
+                    consent_type,
+                    patient_id
+                );
+                ChildInformationBasis::S35CompetentPersonConsent
+            }
+            _ => ChildInformationBasis::S35CompetentPersonConsent,
+        },
+    };
+
+    let granted = body.consent_given.unwrap_or(true);
+    let consent_status = if granted {
+        ConsentStatus::Granted
+    } else {
+        ConsentStatus::Refused
+    };
 
     let consent_id = format!(
         "CONS-{}",
@@ -142,17 +365,19 @@ pub async fn sign_consent(
             .unwrap_or("000")
     );
     let now = chrono::Utc::now();
+    let validity_days = body.expires_in_days.unwrap_or(DEFAULT_CONSENT_VALIDITY_DAYS);
 
     let entity = ConsentRecordEntity {
         id: consent_id,
         patient_id: patient_id.clone(),
         consent_type: consent_type.clone(),
-        consent_given: true,
+        // Derived, never set independently — see ConsentStatus::as_legacy_bool.
+        consent_given: consent_status.as_legacy_bool(),
         consent_datetime: now,
-        expiration_datetime: Some(now + chrono::Duration::days(365)),
-        scope_description: None,
+        expiration_datetime: Some(now + chrono::Duration::days(validity_days)),
+        scope_description: body.scope_description.clone(),
         data_types_covered: None,
-        purpose: None,
+        purpose: body.purpose.clone(),
         recipient_organization: None,
         collection_method: Some("electronic_signature".to_string()),
         witness_name: None,
@@ -169,6 +394,26 @@ pub async fn sign_consent(
         version: None,
         created_at: Some(now),
         updated_at: Some(now),
+        popia_section_11_basis: section_11_basis.as_str().to_string(),
+        special_information_basis: special_basis.as_str().to_string(),
+        child_information_basis: child_basis.as_str().to_string(),
+        // Consent is only "required" when it is the operative s11 ground.
+        consent_required: matches!(section_11_basis, PopiaSection11Basis::Consent),
+        consent_status: consent_status.as_str().to_string(),
+        consent_given_by: Some(current_user_id.clone()),
+        consent_giver_capacity: Some(capacity.as_str().to_string()),
+        guardian_authority_evidence_id: authority_evidence_id,
+        privacy_notice_version: body.privacy_notice_version.clone(),
+        emergency_basis: emergency_basis.as_str().to_string(),
+        emergency_justification: body.emergency_justification.clone(),
+        child_maturity_assessment: body.child_maturity_assessment.clone(),
+        // Attributed to the caller who signed, not to the child: the maturity
+        // finding is the clinician's, and it has to be reviewable against a
+        // named assessor.
+        child_maturity_assessed_by: body
+            .child_maturity_assessment
+            .as_ref()
+            .map(|_| current_user_id.clone()),
     };
 
     match data.repositories.consent_records.create(entity).await {
@@ -181,7 +426,13 @@ pub async fn sign_consent(
                 "patient_id": created.patient_id,
                 "signed_at": created.consent_datetime.timestamp(),
                 "expires_at": created.expiration_datetime.map(|d| d.timestamp()),
-                "status": "active"
+                "status": created.consent_status,
+                "popia_section_11_basis": created.popia_section_11_basis,
+                "special_information_basis": created.special_information_basis,
+                "child_information_basis": created.child_information_basis,
+                "consent_giver_capacity": created.consent_giver_capacity,
+                "guardian_authority_evidence_id": created.guardian_authority_evidence_id,
+                "emergency_basis": created.emergency_basis
             },
             "message": "Consent signed and recorded"
         })),
@@ -228,12 +479,33 @@ pub async fn get_patient_consents(
         .iter()
         .filter(|c| !c.revoked.unwrap_or(false))
         .map(|c| {
+            // Report the recorded lawful basis, not just "active". A consent
+            // record whose whole purpose is to evidence *why* processing is
+            // lawful is not much use if the API only ever says "active".
+            let integrity = c.validate_lawful_basis();
+            if let Err(problems) = &integrity {
+                log::warn!(
+                    "consent record {} has lawful-basis integrity problems: {}",
+                    c.id,
+                    problems.join("; ")
+                );
+            }
+
             serde_json::json!({
                 "consent_id": c.id,
                 "consent_type": c.consent_type,
                 "signed_at": c.consent_datetime.timestamp(),
                 "expires_at": c.expiration_datetime.map(|d| d.timestamp()),
-                "status": "active"
+                "status": c.consent_status,
+                "popia_section_11_basis": c.popia_section_11_basis,
+                "special_information_basis": c.special_information_basis,
+                "child_information_basis": c.child_information_basis,
+                "consent_giver_capacity": c.consent_giver_capacity,
+                "guardian_authority_evidence_id": c.guardian_authority_evidence_id,
+                "emergency_basis": c.emergency_basis,
+                // Present only when something is wrong, so a clean record's
+                // response shape is unchanged.
+                "integrity_problems": integrity.err(),
             })
         })
         .collect();

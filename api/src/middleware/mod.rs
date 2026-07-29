@@ -6,8 +6,9 @@
 //! - Request validation
 //! - Error handling utilities
 //!
-//! © 2025-2026 Trustware. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
+pub mod authorized_user;
 pub mod encryption_policy;
 pub mod error_handling;
 pub mod idempotency;
@@ -18,6 +19,8 @@ pub mod signature_auth;
 pub mod versioning;
 
 // Re-exports for convenience - allow unused as these are public API ready for use
+#[allow(unused_imports)]
+pub use authorized_user::{AuthorizedUser, AuthorizedUserError};
 #[allow(unused_imports)]
 pub use error_handling::*;
 #[allow(unused_imports)]

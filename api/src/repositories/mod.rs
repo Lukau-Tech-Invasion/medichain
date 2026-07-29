@@ -88,6 +88,15 @@ pub struct RepositoryContainer {
     pub vital_signs: Arc<dyn VitalSignsRepository>,
     pub triage_assessments: Arc<dyn TriageAssessmentRepository>,
     pub access_logs: Arc<dyn AccessLogRepository>,
+    /// Persistent, permission-granular guardian relationships (supersedes the
+    /// Horizon HZ-008 in-memory `guardian_relationships::GuardianRegistry`).
+    pub guardian_relationships: Arc<dyn GuardianRelationshipRepository>,
+    /// Litigation/regulatory holds that suspend retention-based disposal.
+    pub legal_holds: Arc<dyn LegalHoldRepository>,
+    /// Off-chain emergency capsules committed to on-chain (Horizon HZ-003).
+    pub emergency_capsules: Arc<dyn EmergencyCapsuleRepository>,
+    /// Retention approvals, processing restrictions, and the deletion register.
+    pub retention_execution: Arc<dyn RetentionExecutionRepository>,
 
     // Emergency Protocol repositories
     pub code_blue: Arc<dyn CodeBlueRepository>,
@@ -301,6 +310,10 @@ impl RepositoryContainer {
             vital_signs: Arc::new(memory::MemoryVitalSignsRepository::new()),
             triage_assessments: Arc::new(memory::MemoryTriageAssessmentRepository::new()),
             access_logs: Arc::new(memory::MemoryAccessLogRepository::new()),
+            guardian_relationships: Arc::new(memory::MemoryGuardianRelationshipRepository::new()),
+            legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
+            emergency_capsules: Arc::new(memory::MemoryEmergencyCapsuleRepository::new()),
+            retention_execution: Arc::new(memory::MemoryRetentionExecutionRepository::new()),
 
             // Emergency Protocol repositories (memory)
             code_blue: Arc::new(memory::MemoryCodeBlueRepository::new()),
@@ -764,6 +777,14 @@ impl RepositoryContainer {
             vital_signs: Arc::new(postgres::PgVitalSignsRepository::new(pool.clone())),
             triage_assessments: Arc::new(postgres::PgTriageAssessmentRepository::new(pool.clone())),
             access_logs: Arc::new(postgres::PgAccessLogRepository::new(pool.clone())),
+            guardian_relationships: Arc::new(postgres::PgGuardianRelationshipRepository::new(
+                pool.clone(),
+            )),
+            legal_holds: Arc::new(postgres::PgLegalHoldRepository::new(pool.clone())),
+            emergency_capsules: Arc::new(postgres::PgEmergencyCapsuleRepository::new(pool.clone())),
+            retention_execution: Arc::new(postgres::PgRetentionExecutionRepository::new(
+                pool.clone(),
+            )),
 
             // Emergency Protocol repositories (PostgreSQL — JSONB-persisted, C1)
             code_blue: Arc::new(postgres::PgCodeBlueRepository::new(pool.clone())),

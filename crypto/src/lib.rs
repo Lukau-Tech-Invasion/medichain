@@ -637,8 +637,102 @@ pub mod signature {
     ///
     /// # Returns
     /// Message string in format "<timestamp>:<wallet_address>"
+    ///
+    /// This format proves wallet ownership at a point in time and is
+    /// deliberately kept as-is for `issue_jwt`'s login/JWT-issuance flow — a
+    /// login has no specific method/path/body to bind to. For per-request
+    /// authorization (`SignatureAuthMiddleware`), use
+    /// [`create_bound_sign_message`] / [`verify_wallet_signature_bound`]
+    /// instead (Horizon HZ-007).
     pub fn create_sign_message(timestamp: i64, wallet_address: &str) -> String {
         format!("{}:{}", timestamp, wallet_address)
+    }
+
+    /// Generate the message a client must sign to authorize one specific
+    /// request (Horizon HZ-007).
+    ///
+    /// Format: `"<timestamp>:<wallet>:<method>:<path>:<body_hash_hex>"`
+    /// (`body_hash_hex` = lowercase-hex SHA-256 of the exact request body
+    /// bytes; the empty body hashes to `SHA-256("")`). Binding the signature
+    /// to the method, path, and body — not just timestamp and wallet — means
+    /// a captured `(signature, timestamp)` pair authorizes only the exact
+    /// request it was made for, not any action as that wallet for the
+    /// remainder of the timestamp window.
+    pub fn create_bound_sign_message(
+        timestamp: i64,
+        wallet_address: &str,
+        method: &str,
+        path: &str,
+        body_hash_hex: &str,
+    ) -> String {
+        format!(
+            "{}:{}:{}:{}:{}",
+            timestamp, wallet_address, method, path, body_hash_hex
+        )
+    }
+
+    /// Verify a signature over a [`create_bound_sign_message`]-shaped message.
+    ///
+    /// Same cryptographic and timestamp checks as [`verify_wallet_signature`],
+    /// plus binding checks that the message's method, path, and body hash
+    /// match what the server actually received.
+    #[allow(clippy::too_many_arguments)]
+    pub fn verify_wallet_signature_bound(
+        signature_hex: &str,
+        message: &str,
+        wallet_address: &str,
+        expected_method: &str,
+        expected_path: &str,
+        expected_body_hash_hex: &str,
+        current_timestamp: i64,
+    ) -> Result<(), SignatureError> {
+        // Format is unambiguous with a 5-way splitn: SS58 wallets, HTTP
+        // methods, and this API's static route paths never contain ':', and
+        // body_hash_hex (hex digits only) is the final segment, so it can
+        // safely contain none either.
+        let parts: Vec<&str> = message.splitn(5, ':').collect();
+        if parts.len() != 5 {
+            return Err(SignatureError::InvalidMessageFormat);
+        }
+        let (msg_timestamp_str, msg_wallet, msg_method, msg_path, msg_body_hash) =
+            (parts[0], parts[1], parts[2], parts[3], parts[4]);
+
+        let msg_timestamp: i64 = msg_timestamp_str
+            .parse()
+            .map_err(|_| SignatureError::InvalidMessageFormat)?;
+
+        if msg_wallet != wallet_address {
+            return Err(SignatureError::VerificationFailed);
+        }
+        if msg_method != expected_method || msg_path != expected_path {
+            return Err(SignatureError::VerificationFailed);
+        }
+        if msg_body_hash != expected_body_hash_hex {
+            return Err(SignatureError::VerificationFailed);
+        }
+
+        let drift = (current_timestamp - msg_timestamp).abs();
+        if drift > MAX_TIMESTAMP_DRIFT_SECS {
+            return Err(SignatureError::TimestampExpired);
+        }
+
+        let sig_bytes =
+            crate::from_hex(signature_hex).map_err(|_| SignatureError::InvalidSignatureFormat)?;
+        if sig_bytes.len() != 64 {
+            return Err(SignatureError::InvalidSignatureFormat);
+        }
+        let mut sig_array = [0u8; 64];
+        sig_array.copy_from_slice(&sig_bytes);
+        let signature = Signature::from_raw(sig_array);
+
+        let pubkey_bytes = decode_ss58_to_pubkey(wallet_address)?;
+        let public = Public::from_raw(pubkey_bytes);
+
+        if sp_core::sr25519::Pair::verify(&signature, message.as_bytes(), &public) {
+            Ok(())
+        } else {
+            Err(SignatureError::VerificationFailed)
+        }
     }
 
     #[cfg(test)]
@@ -711,10 +805,109 @@ pub mod signature {
                 verify_wallet_signature("00".repeat(64).as_str(), &message, wallet2, timestamp);
             assert_eq!(result, Err(SignatureError::VerificationFailed));
         }
+
+        // ------------------------------------------------------------------
+        // HZ-007: request-bound signature tests
+        // ------------------------------------------------------------------
+
+        fn real_keypair() -> (sp_core::sr25519::Pair, String) {
+            use sp_core::crypto::Ss58Codec;
+            use sp_core::Pair as _;
+            let (pair, _seed) = sp_core::sr25519::Pair::generate();
+            let wallet = pair.public().to_ss58check();
+            (pair, wallet)
+        }
+
+        fn sign_hex(pair: &sp_core::sr25519::Pair, message: &str) -> String {
+            use sp_core::Pair as _;
+            crate::to_hex(pair.sign(message.as_bytes()).0.as_slice())
+        }
+
+        #[test]
+        fn bound_signature_verifies_for_the_exact_request_it_was_signed_for() {
+            let (pair, wallet) = real_keypair();
+            let timestamp = 1_800_000_000i64;
+            let message =
+                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash");
+            let signature = sign_hex(&pair, &message);
+
+            let result = verify_wallet_signature_bound(
+                &signature, &message, &wallet, "POST", "/api/x", "bodyhash", timestamp,
+            );
+            assert_eq!(result, Ok(()));
+        }
+
+        /// The exact HZ-007 regression: a signature valid for one request must
+        /// be rejected when replayed against a different path.
+        #[test]
+        fn bound_signature_rejects_replay_against_a_different_path() {
+            let (pair, wallet) = real_keypair();
+            let timestamp = 1_800_000_000i64;
+            let message =
+                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash");
+            let signature = sign_hex(&pair, &message);
+
+            let result = verify_wallet_signature_bound(
+                &signature, &message, &wallet, "POST", "/api/y", "bodyhash", timestamp,
+            );
+            assert_eq!(result, Err(SignatureError::VerificationFailed));
+        }
+
+        /// Same request, different body — must also be rejected.
+        #[test]
+        fn bound_signature_rejects_replay_against_a_different_body() {
+            let (pair, wallet) = real_keypair();
+            let timestamp = 1_800_000_000i64;
+            let message =
+                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash-a");
+            let signature = sign_hex(&pair, &message);
+
+            let result = verify_wallet_signature_bound(
+                &signature, &message, &wallet, "POST", "/api/x", "bodyhash-b", timestamp,
+            );
+            assert_eq!(result, Err(SignatureError::VerificationFailed));
+        }
+
+        /// Same request, different method — must also be rejected.
+        #[test]
+        fn bound_signature_rejects_replay_against_a_different_method() {
+            let (pair, wallet) = real_keypair();
+            let timestamp = 1_800_000_000i64;
+            let message =
+                create_bound_sign_message(timestamp, &wallet, "POST", "/api/x", "bodyhash");
+            let signature = sign_hex(&pair, &message);
+
+            let result = verify_wallet_signature_bound(
+                &signature, &message, &wallet, "DELETE", "/api/x", "bodyhash", timestamp,
+            );
+            assert_eq!(result, Err(SignatureError::VerificationFailed));
+        }
+
+        #[test]
+        fn bound_signature_still_enforces_timestamp_drift() {
+            let (pair, wallet) = real_keypair();
+            let old_timestamp = 1_000_000i64;
+            let current_timestamp = 1_800_000_000i64;
+            let message =
+                create_bound_sign_message(old_timestamp, &wallet, "POST", "/api/x", "bodyhash");
+            let signature = sign_hex(&pair, &message);
+
+            let result = verify_wallet_signature_bound(
+                &signature,
+                &message,
+                &wallet,
+                "POST",
+                "/api/x",
+                "bodyhash",
+                current_timestamp,
+            );
+            assert_eq!(result, Err(SignatureError::TimestampExpired));
+        }
     }
 }
 
 // Re-export signature module
 pub use signature::{
-    create_sign_message, verify_wallet_signature, SignatureError, MAX_TIMESTAMP_DRIFT_SECS,
+    create_bound_sign_message, create_sign_message, verify_wallet_signature,
+    verify_wallet_signature_bound, SignatureError, MAX_TIMESTAMP_DRIFT_SECS,
 };

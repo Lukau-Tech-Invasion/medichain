@@ -914,6 +914,7 @@ impl AppState {
                 patient_id: patient_id.clone(),
                 full_name: full_name.unwrap_or_else(|| "Unknown".to_string()),
                 date_of_birth: date_of_birth.map(|d| d.to_string()).unwrap_or_default(),
+                time_of_birth: None,
                 national_id: national_id.unwrap_or_default(),
                 phone: String::new(),
                 emergency_info,

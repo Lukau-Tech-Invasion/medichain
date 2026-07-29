@@ -1,9 +1,6 @@
 //! User models for PostgreSQL database
 //!
 //! These models match the database schema and are used for SQLx queries.
-//! Some models (DbSession, UserResponse, UserWithProfile) are prepared for
-//! future endpoints and not yet wired into active code paths.
-#![allow(dead_code)]
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,14 +11,22 @@ use uuid::Uuid;
 // DATABASE MODELS (match PostgreSQL schema)
 // =============================================================================
 
-/// User stored in PostgreSQL database
+/// User stored in PostgreSQL database.
+///
+/// Horizon HZ-014: the `users` table's schema-level `password_hash` column
+/// (a vestige of the original hackathon schema's "optional email
+/// authentication" design) is deliberately not modeled here — this codebase's
+/// real, sole auth mechanism is wallet + Sr25519 signature (see `CLAUDE.md`),
+/// and no code anywhere reads or writes a password hash (confirmed by grep:
+/// `password_hash` appears nowhere in `api/src` outside this file before this
+/// change, and `AppState::persist_user`'s `INSERT INTO users` column list
+/// never included it). Omitting the field is safe with `SELECT *` — sqlx
+/// simply doesn't map an unmodeled column into the struct.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUser {
     pub id: Uuid,
     pub wallet_address: String,
     pub email: Option<String>,
-    #[serde(skip_serializing)]
-    pub password_hash: Option<String>,
     pub role: String,
     pub name: Option<String>,
     pub username: Option<String>,
@@ -37,7 +42,22 @@ pub struct DbUser {
     pub created_by: Option<String>,
 }
 
-/// User profile with extended information
+/// User profile with extended information.
+///
+/// **Horizon HZ-014 (data-minimization audit, WP8):** `first_name`, `last_name`,
+/// `date_of_birth`, `phone`, and the `address_*` fields are stored in
+/// PLAINTEXT in the `user_profiles` table — unlike the equivalent patient
+/// fields (`PatientEntity.first_name_encrypted` etc.), which are encrypted at
+/// rest via `EncryptionKeyring`/`enc_patient_field` (see `types/domain.rs`).
+/// The only write path into this table (`services::user_service::UserService`)
+/// was proven dead — never instantiated anywhere in this binary — and has
+/// been removed as part of this finding's resolution, so there is now no code
+/// path anywhere capable of writing to this table at all; it is read-only
+/// (`handlers::auth_challenge`), populated only by whatever a DBA inserts
+/// directly. If a staff-profile write feature is ever built, these fields
+/// MUST be encrypted the same way patient fields already are before any new
+/// write path is connected. Do not remove this table speculatively (CLAUDE.md:
+/// never delete without asking) — the read path is live.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct DbUserProfile {
     pub id: Uuid,
@@ -58,82 +78,4 @@ pub struct DbUserProfile {
     pub preferences: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-/// Session for authenticated users
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct DbSession {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub token: String,
-    pub device_info: Option<String>,
-    pub ip_address: Option<String>,
-    pub expires_at: DateTime<Utc>,
-    pub last_activity_at: DateTime<Utc>,
-    pub created_at: DateTime<Utc>,
-}
-
-// =============================================================================
-// REQUEST/RESPONSE DTOs
-// =============================================================================
-
-/// Request to create a new user
-#[derive(Debug, Deserialize)]
-pub struct CreateUserRequest {
-    pub wallet_address: String,
-    pub role: String,
-    pub name: Option<String>,
-    pub username: Option<String>,
-    pub email: Option<String>,
-    pub linked_patient_id: Option<String>,
-}
-
-/// Request to update user information
-#[derive(Debug, Deserialize)]
-pub struct UpdateUserRequest {
-    pub name: Option<String>,
-    pub username: Option<String>,
-    pub email: Option<String>,
-}
-
-/// API response for user data (hides sensitive fields)
-#[derive(Debug, Serialize)]
-pub struct UserResponse {
-    pub id: Uuid,
-    pub wallet_address: String,
-    pub role: String,
-    pub name: Option<String>,
-    pub username: Option<String>,
-    pub email: Option<String>,
-    pub is_active: bool,
-    pub linked_patient_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub last_login_at: Option<DateTime<Utc>>,
-    pub login_count: i32,
-}
-
-impl From<DbUser> for UserResponse {
-    fn from(user: DbUser) -> Self {
-        Self {
-            id: user.id,
-            wallet_address: user.wallet_address,
-            role: user.role,
-            name: user.name,
-            username: user.username,
-            email: user.email,
-            is_active: user.is_active,
-            linked_patient_id: user.linked_patient_id,
-            created_at: user.created_at,
-            last_login_at: user.last_login_at,
-            login_count: user.login_count,
-        }
-    }
-}
-
-/// User info combined with profile
-#[derive(Debug, Serialize)]
-pub struct UserWithProfile {
-    #[serde(flatten)]
-    pub user: UserResponse,
-    pub profile: Option<DbUserProfile>,
 }

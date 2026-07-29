@@ -44,6 +44,16 @@ mod phase4_admin;
 mod phase4_ems;
 mod phase4_specialty;
 
+// Persistent guardian relationships (supersedes the in-memory GuardianRegistry)
+mod guardian_relationships;
+pub use guardian_relationships::PgGuardianRelationshipRepository;
+mod legal_holds;
+pub use legal_holds::PgLegalHoldRepository;
+mod emergency_capsules;
+pub use emergency_capsules::PgEmergencyCapsuleRepository;
+mod retention_execution;
+pub use retention_execution::PgRetentionExecutionRepository;
+
 // Phase 7-10: Wearables & IoT, Telehealth, Clinical Decision Support, Insurance & Billing
 mod phase5_cds;
 mod phase5_communication;

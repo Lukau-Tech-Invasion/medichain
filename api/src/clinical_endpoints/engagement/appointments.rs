@@ -442,6 +442,11 @@ pub async fn check_in_appointment(
 }
 
 /// Get available slots for a provider
+///
+/// HZ-009 audit: `_http_req` is genuinely unused, not an oversight — this
+/// returns only anonymous open time slots for a provider/date (booked slots
+/// and any patient/appointment identity are filtered out below), the same
+/// class of information as a public booking calendar. `not_applicable`.
 #[get("/api/appointments/slots/{provider_id}/{date}")]
 pub async fn get_available_slots(
     data: web::Data<crate::AppState>,

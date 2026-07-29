@@ -78,6 +78,12 @@ pub fn paginate<T: Clone>(items: &[T], page: usize, limit: usize) -> (Vec<T>, Pa
 pub struct RegisterPatientRequest {
     pub full_name: String,
     pub date_of_birth: String,
+    /// "HH:MM" birth time, optional — twins-safe identification alongside
+    /// date_of_birth + national_id (patient_id itself is already a random
+    /// UUID, never name/DOB-derived, but lookup UIs need this to disambiguate
+    /// for a human).
+    #[serde(default)]
+    pub time_of_birth: Option<String>,
     pub national_id: String,
     pub phone: String,
     pub blood_type: String,

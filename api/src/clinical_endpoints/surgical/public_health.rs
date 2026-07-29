@@ -32,12 +32,18 @@ pub async fn create_immunization(
 }
 
 /// Get immunization record
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_immunization`'s authenticated-caller bar.
 #[get("/api/surgical/immunization/{id}")]
 pub async fn get_immunization(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.immunization_records.read() {
         Ok(records) => records
@@ -76,12 +82,18 @@ pub async fn create_family_history(
 }
 
 /// Get family history
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_family_history`'s authenticated-caller bar.
 #[get("/api/surgical/family-history/{id}")]
 pub async fn get_family_history(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.family_histories.read() {
         Ok(histories) => histories
@@ -120,12 +132,18 @@ pub async fn create_blood_type_screen(
 }
 
 /// Get blood type screen
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_blood_type_screen`'s authenticated-caller bar.
 #[get("/api/surgical/blood-type/{id}")]
 pub async fn get_blood_type_screen(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.blood_type_screens.read() {
         Ok(screens) => screens
@@ -184,12 +202,18 @@ pub async fn create_transfusion(
 }
 
 /// Get transfusion record
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_transfusion`'s authenticated-caller bar.
 #[get("/api/surgical/transfusion/{id}")]
 pub async fn get_transfusion(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.transfusion_records.read() {
         Ok(records) => records
@@ -248,12 +272,18 @@ pub async fn create_e_prescription(
 }
 
 /// Get electronic prescription
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_e_prescription`'s authenticated-caller bar.
 #[get("/api/surgical/e-prescription/{id}")]
 pub async fn get_e_prescription(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.e_prescriptions.read() {
         Ok(prescriptions) => prescriptions
@@ -294,12 +324,17 @@ pub async fn create_appointment(
 ///
 /// This explicit handler name prevents it from colliding with the appointment
 /// booking endpoint while preserving the established HTTP route.
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_appointment`'s authenticated-caller bar.
 #[get("/api/surgical/appointment/{id}")]
 pub async fn get_surgical_appointment(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.appointments.get_by_id(&id).await {
         Ok(entity) => {
@@ -358,12 +393,18 @@ pub async fn create_death_certificate(
 }
 
 /// Get death certificate
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_death_certificate`'s authenticated-caller bar.
 #[get("/api/surgical/death-certificate/{id}")]
 pub async fn get_death_certificate(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.death_certificates.read() {
         Ok(certificates) => certificates
@@ -431,12 +472,18 @@ pub async fn create_autopsy_request(
 }
 
 /// Get autopsy request
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_autopsy_request`'s authenticated-caller bar.
 #[get("/api/surgical/autopsy/{id}")]
 pub async fn get_autopsy_request(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.autopsy_requests.get_by_id(&id).await {
         Ok(Some(rec)) => match serde_json::from_value::<AutopsyRequest>(rec.data) {
@@ -500,12 +547,18 @@ pub async fn create_autopsy_report(
 }
 
 /// Get autopsy report
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_autopsy_report`'s authenticated-caller bar.
 #[get("/api/surgical/autopsy/report/{id}")]
 pub async fn get_autopsy_report(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.autopsy_reports.get_by_id(&id).await {
         Ok(Some(rec)) => match serde_json::from_value::<AutopsyReport>(rec.data) {
@@ -546,12 +599,18 @@ pub async fn create_satisfaction_survey(
 }
 
 /// Get satisfaction survey
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_satisfaction_survey`'s authenticated-caller bar.
 #[get("/api/surgical/satisfaction-survey/{id}")]
 pub async fn get_satisfaction_survey(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.satisfaction_surveys.read() {
         Ok(surveys) => surveys

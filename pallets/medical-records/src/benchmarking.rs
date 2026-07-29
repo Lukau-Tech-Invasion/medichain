@@ -24,6 +24,11 @@ use frame_support::BoundedVec;
 use frame_system::RawOrigin;
 use sp_std::vec;
 
+/// Stand-in commitment to an off-chain emergency capsule (Horizon HZ-003).
+/// Its contents are irrelevant to weight: a `[u8; 32]` is fixed-size, so any
+/// value costs the same to encode and store.
+const TEST_COMMITMENT: [u8; 32] = [7u8; 32];
+
 #[benchmarks]
 mod benchmarks {
     use super::*;
@@ -56,14 +61,14 @@ mod benchmarks {
         create_health_record(
             RawOrigin::Signed(provider.clone()),
             patient.clone(),
-            BloodType::APositive,
+            TEST_COMMITMENT,
             ipfs_hash,
         );
 
         // Verify the record was created
         assert!(HealthRecords::<T>::contains_key(&patient));
         let record = HealthRecords::<T>::get(&patient).unwrap();
-        assert_eq!(record.blood_type, BloodType::APositive);
+        assert_eq!(record.emergency_capsule_commitment, TEST_COMMITMENT);
         assert_eq!(record.last_modified_by, provider);
     }
 
@@ -106,7 +111,8 @@ mod benchmarks {
 
         let record = HealthRecord {
             patient: patient.clone(),
-            blood_type: BloodType::OPositive,
+            emergency_capsule_commitment: TEST_COMMITMENT,
+            emergency_capsule_version: 0,
             ipfs_hash,
             alerts: existing_alerts,
             created_at: current_block,
@@ -159,7 +165,8 @@ mod benchmarks {
 
         let record = HealthRecord {
             patient: patient.clone(),
-            blood_type: BloodType::ABNegative,
+            emergency_capsule_commitment: TEST_COMMITMENT,
+            emergency_capsule_version: 0,
             ipfs_hash: old_hash,
             alerts: BoundedVec::default(),
             created_at: current_block,

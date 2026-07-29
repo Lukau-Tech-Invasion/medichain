@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS users (
 -- ============================================================================
 -- USER PROFILES TABLE
 -- Extended user information (separate for query efficiency)
+--
+-- Horizon HZ-014: first_name/last_name/date_of_birth/phone/address_* below
+-- are plaintext, unlike the equivalent patients.*_encrypted columns. See the
+-- warning on api/src/models/user.rs::DbUserProfile before wiring any new
+-- write path to this table.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS user_profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

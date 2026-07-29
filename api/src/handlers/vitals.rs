@@ -442,6 +442,7 @@ mod cds_wiring_tests {
             patient_id: id.to_string(),
             full_name: "Test Patient".to_string(),
             date_of_birth: "1980-01-01".to_string(),
+            time_of_birth: None,
             national_id: format!("NID-{id}"),
             phone: "+27000000000".to_string(),
             emergency_info: crate::EmergencyInfo {

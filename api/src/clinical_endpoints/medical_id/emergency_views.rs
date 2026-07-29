@@ -8,6 +8,40 @@
 
 use super::*;
 
+/// The active, verified primary guardian's contact info for a ward, if any —
+/// surfaced to first responders and on the lock screen so emergency access
+/// shows a *verified* guardian (name + phone from their own account) rather
+/// than only the free-text `emergency_contact_*` fields typed in at
+/// registration. Prefers a parent/legal guardian over other relationship
+/// types (e.g. power of attorney) when a ward has more than one. Returns
+/// `Value::Null` when no active guardian relationship exists, so callers
+/// fall back to the pre-existing free-text emergency contact.
+async fn primary_guardian_contact_json(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+) -> serde_json::Value {
+    let now = chrono::Utc::now();
+    let mut relationships = data
+        .repositories
+        .guardian_relationships
+        .get_by_ward(patient_id)
+        .await
+        .unwrap_or_default();
+    relationships.retain(|r| r.active && r.expires_at.map(|e| e > now).unwrap_or(true));
+    relationships.sort_by_key(|r| if r.relationship_type == "parent_or_guardian" { 0 } else { 1 });
+
+    let Some(primary) = relationships.into_iter().next() else {
+        return serde_json::Value::Null;
+    };
+    let contact = get_user(data, &primary.guardian_wallet);
+    serde_json::json!({
+        "name": contact.as_ref().map(|u| u.name.clone()),
+        "phone": contact.as_ref().and_then(|u| u.phone.clone()),
+        "relationship": primary.relationship_type,
+        "verified": true
+    })
+}
+
 /// Get emergency-only view (minimal data for first responders)
 /// This endpoint can be accessed without full authentication for emergency scenarios
 #[get("/api/medical-id/{patient_id}/emergency")]
@@ -18,27 +52,25 @@ pub async fn get_emergency_medical_id(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    // Emergency access is granted only on a *verifiable* proof, never on the mere
-    // presence of a query parameter (C2):
-    //   - a time-limited, server-signed emergency token bound to THIS patient, or
-    //   - an NFC card hash matching one of the patient's active registered tags.
+    // Emergency access is granted only on a *verifiable, time-limited* proof
+    // (C2). A raw NFC hash is no longer accepted directly here (Horizon
+    // HZ-001): `tag_uid` never rotates for the card's lifetime, so a value
+    // captured once from a query-string log would otherwise replay forever.
+    // A card tap now exchanges its hash for a short-lived token first, via
+    // `POST /api/emergency/nfc-token`, then presents that token here — same
+    // number of round-trips as before once you count the exchange call, but
+    // what could leak from *this* endpoint's own query string now expires in
+    // ~2 minutes instead of never.
     let token_ok = query
         .get("token")
         .map(|t| super::emergency_access::verify_emergency_token(t, &patient_id))
         .unwrap_or(false);
 
-    let nfc_ok = match query.get("nfc_hash").filter(|h| !h.is_empty()) {
-        Some(h) => match data.repositories.nfc_tags.get_by_patient(&patient_id).await {
-            Ok(tags) => super::emergency_access::nfc_hash_matches(h, &tags),
-            Err(_) => false,
-        },
-        None => false,
-    };
-
-    if !token_ok && !nfc_ok {
+    if !token_ok {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             success: false,
-            error: "Emergency access requires a valid signed token or a matching NFC card hash"
+            error: "Emergency access requires a valid signed token. Exchange your NFC card hash \
+                    via POST /api/emergency/nfc-token first."
                 .to_string(),
             code: "EMERGENCY_ACCESS_DENIED".to_string(),
         });
@@ -104,6 +136,8 @@ pub async fn get_emergency_medical_id(
         }),
     };
 
+    let guardian_contact = primary_guardian_contact_json(&data, &patient_id).await;
+
     // Emergency view - ONLY critical information
     let emergency_data = serde_json::json!({
         "type": "EMERGENCY_MEDICAL_ID",
@@ -152,8 +186,10 @@ pub async fn get_emergency_medical_id(
         // CRITICAL CONDITIONS
         "conditions": Vec::<String>::new(), // TODO: Phase 2 repository
 
-        // PRIMARY EMERGENCY CONTACT
-        "emergency_contact": serde_json::Value::Null, // TODO: Phase 2 repository
+        // PRIMARY EMERGENCY CONTACT — verified guardian when one exists,
+        // otherwise null (the free-text emergency_contact_* fields aren't
+        // wired to this repository yet, unchanged from before this pass).
+        "emergency_contact": guardian_contact,
 
         // LANGUAGE (for communication)
         "primary_language": "en",
@@ -182,6 +218,28 @@ pub async fn get_emergency_medical_id(
     };
     let _ = data.repositories.access_logs.create(log_entry).await;
 
+    // Fire-and-forget on-chain audit entry (non-fatal). HZ-002: this is the exact
+    // audit path the code's own history describes as a legal-reliability fix
+    // (C5/F-05, routine-vs-emergency routing in `audit_call_for`) — previously it
+    // had no caller anywhere, so it never actually recorded emergency access.
+    if let Some(ref client) = data.substrate_client {
+        let client = client.clone();
+        let patient_id_clone = patient_id.clone();
+        tokio::spawn(async move {
+            match client
+                .log_access_on_chain("EMERGENCY_ACCESS", &patient_id_clone, "EMERGENCY_ACCESS")
+                .await
+            {
+                Ok(result) => log::info!(
+                    "Emergency access logged on chain: {} (finalized={})",
+                    result.hash,
+                    result.finalized
+                ),
+                Err(e) => log::warn!("Blockchain emergency-access logging failed (non-fatal): {}", e),
+            }
+        });
+    }
+
     HttpResponse::Ok().json(emergency_data)
 }
 
@@ -196,8 +254,10 @@ pub async fn get_lockscreen_medical_id(
     let patient_id = path.into_inner();
 
     // Lock-screen PHI is gated by a bound identity (C3): either an authenticated
-    // caller (X-User-Id / session) or a device-bound NFC card hash matching one
-    // of the patient's active tags. An unbound request never sees PHI.
+    // caller (X-User-Id / session) or a short-lived signed emergency token
+    // exchanged for an NFC card hash. An unbound request never sees PHI.
+    // Horizon HZ-001: a raw `nfc_hash` is no longer accepted directly — see
+    // `get_emergency_medical_id`'s doc comment above for why.
     let current_user_id = get_current_user_id(&http_req);
 
     // Get patient from repository
@@ -212,18 +272,16 @@ pub async fn get_lockscreen_medical_id(
         }
     };
 
-    let nfc_ok = match query.get("nfc_hash").filter(|h| !h.is_empty()) {
-        Some(h) => match data.repositories.nfc_tags.get_by_patient(&patient_id).await {
-            Ok(tags) => super::emergency_access::nfc_hash_matches(h, &tags),
-            Err(_) => false,
-        },
-        None => false,
-    };
+    let token_ok = query
+        .get("token")
+        .map(|t| super::emergency_access::verify_emergency_token(t, &patient_id))
+        .unwrap_or(false);
 
-    if current_user_id.is_none() && !nfc_ok {
+    if current_user_id.is_none() && !token_ok {
         return HttpResponse::Unauthorized().json(ErrorResponse {
             success: false,
-            error: "Lock-screen access requires an authenticated identity or a matching NFC card"
+            error: "Lock-screen access requires an authenticated identity or a valid signed \
+                    emergency token. Exchange your NFC card hash via POST /api/emergency/nfc-token first."
                 .to_string(),
             code: "IDENTITY_BINDING_REQUIRED".to_string(),
         });
@@ -272,6 +330,8 @@ pub async fn get_lockscreen_medical_id(
     };
 
     // Lock screen format - maximum simplicity, high contrast
+    let guardian_contact = primary_guardian_contact_json(&data, &patient_id).await;
+
     let lockscreen_data = serde_json::json!({
         "format": "lockscreen",
         "design": {
@@ -321,8 +381,8 @@ pub async fn get_lockscreen_medical_id(
             "font_size": "24px"
         },
 
-        // LINE 5: Emergency Contact Button
-        "emergency_contact": serde_json::Value::Null, // TODO: Phase 2 repository
+        // LINE 5: Emergency Contact Button — verified guardian when one exists.
+        "emergency_contact": guardian_contact,
 
         // QR Code (small, bottom corner)
         "qr_url": format!("/api/medical-id/{}/qr", patient_id)
@@ -332,7 +392,7 @@ pub async fn get_lockscreen_medical_id(
     if let Some(user_id) = current_user_id {
         let log_entry = crate::repositories::AccessLogEntity {
             id: uuid::Uuid::new_v4().to_string(),
-            accessor_id: user_id,
+            accessor_id: user_id.clone(),
             accessor_role: "Patient".to_string(),
             patient_id: Some(patient_id.clone()),
             resource_type: "lockscreen_view".to_string(),
@@ -347,7 +407,165 @@ pub async fn get_lockscreen_medical_id(
             facility_id: None,
         };
         let _ = data.repositories.access_logs.create(log_entry).await;
+
+        // Fire-and-forget on-chain audit entry (non-fatal), same HZ-002 remediation
+        // as the emergency-view handler above.
+        if let Some(ref client) = data.substrate_client {
+            let client = client.clone();
+            let patient_id_clone = patient_id.clone();
+            tokio::spawn(async move {
+                match client
+                    .log_access_on_chain(&user_id, &patient_id_clone, "READ")
+                    .await
+                {
+                    Ok(result) => log::info!(
+                        "Lockscreen access logged on chain: {} (finalized={})",
+                        result.hash,
+                        result.finalized
+                    ),
+                    Err(e) => log::warn!("Blockchain lockscreen-access logging failed (non-fatal): {}", e),
+                }
+            });
+        }
     }
 
     HttpResponse::Ok().json(lockscreen_data)
+}
+
+#[cfg(test)]
+mod hz_001_regression_tests {
+    use super::*;
+    use actix_web::test;
+
+    fn test_patient(id: &str) -> crate::PatientProfile {
+        let now = chrono::Utc::now();
+        crate::PatientProfile {
+            patient_id: id.to_string(),
+            full_name: "Test Patient".to_string(),
+            date_of_birth: "1980-01-01".to_string(),
+            time_of_birth: None,
+            national_id: format!("NID-{id}"),
+            phone: "+27000000000".to_string(),
+            emergency_info: crate::EmergencyInfo {
+                patient_id: id.to_string(),
+                blood_type: crate::BloodType::OPositive,
+                allergies: Vec::new(),
+                current_medications: Vec::new(),
+                chronic_conditions: Vec::new(),
+                emergency_contacts: Vec::new(),
+                organ_donor: false,
+                dnr_status: false,
+                dnr_verified_by: None,
+                dnr_verified_at: None,
+                dnr_document_ref: None,
+                languages: vec!["en".to_string()],
+                last_updated: now,
+            },
+            address: None,
+            insurance: None,
+            primary_doctor: None,
+            community_health_worker: None,
+            preferences: crate::PatientPreferences::default(),
+            advanced_directives: Vec::new(),
+            family_notifications: None,
+            created_at: now,
+            last_updated: now,
+        }
+    }
+
+    /// HZ-001 regression: a bare `nfc_hash` query parameter — the exact request
+    /// shape that previously granted indefinite-replay access directly — must
+    /// no longer be accepted by the PHI-releasing endpoint at all.
+    #[actix_web::test]
+    async fn raw_nfc_hash_query_param_is_rejected() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-HZ001-1";
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &test_patient(patient_id),
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        state
+            .repositories
+            .nfc_tags
+            .create(crate::repositories::traits::NfcTagEntity {
+                id: "tag-1".to_string(),
+                tag_uid: "static-card-hash".to_string(),
+                patient_id: patient_id.to_string(),
+                tag_type: "emergency".to_string(),
+                is_active: true,
+                pin_hash: None,
+                issued_at: chrono::Utc::now(),
+                expires_at: None,
+                last_used_at: None,
+                use_count: 0,
+                issued_by: None,
+            })
+            .await
+            .unwrap();
+
+        let app_state = web::Data::new(state);
+        let app = actix_web::App::new()
+            .app_data(app_state.clone())
+            .service(get_emergency_medical_id);
+        let app = test::init_service(app).await;
+
+        // Old behavior would have accepted this and returned 200.
+        let req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/medical-id/{patient_id}/emergency?nfc_hash=static-card-hash"
+            ))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
+
+    /// A token obtained via the exchange endpoint is accepted, and expired
+    /// tokens are rejected — proving the replacement path actually works, not
+    /// just that the old one was removed.
+    #[actix_web::test]
+    async fn exchanged_token_grants_access_and_expires() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-HZ001-2";
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &test_patient(patient_id),
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+
+        let valid_token =
+            super::super::emergency_access::issue_emergency_token(patient_id, 120);
+        let expired_token =
+            super::super::emergency_access::issue_emergency_token(patient_id, -10);
+
+        let app_state = web::Data::new(state);
+        let app = actix_web::App::new()
+            .app_data(app_state.clone())
+            .service(get_emergency_medical_id);
+        let app = test::init_service(app).await;
+
+        let ok_req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/medical-id/{patient_id}/emergency?token={valid_token}"
+            ))
+            .to_request();
+        let ok_resp = test::call_service(&app, ok_req).await;
+        assert!(ok_resp.status().is_success());
+
+        let expired_req = test::TestRequest::get()
+            .uri(&format!(
+                "/api/medical-id/{patient_id}/emergency?token={expired_token}"
+            ))
+            .to_request();
+        let expired_resp = test::call_service(&app, expired_req).await;
+        assert_eq!(expired_resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
 }

@@ -8,7 +8,7 @@
 //! - Authenticated users: 120 requests/minute  
 //! - Admin users: 300 requests/minute
 //!
-//! © 2025-2026 Trustware. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use actix_web::{
     body::EitherBody,

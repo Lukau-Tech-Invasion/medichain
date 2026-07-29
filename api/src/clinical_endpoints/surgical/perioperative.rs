@@ -123,12 +123,18 @@ pub async fn create_operative_note(
 }
 
 /// Get operative note
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_operative_note`'s authenticated-caller bar.
 #[get("/api/surgical/operative-note/{id}")]
 pub async fn get_operative_note(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.operative_notes.read() {
         Ok(notes) => notes
@@ -188,12 +194,18 @@ pub async fn create_post_op(
 }
 
 /// Get post-operative note
+///
+/// HZ-009 audit: took an unused `_http_req` with no authentication at all.
+/// Now matches `create_post_op`'s authenticated-caller bar.
 #[get("/api/surgical/post-op/{id}")]
 pub async fn get_post_op(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.post_op_notes.read() {
         Ok(notes) => notes

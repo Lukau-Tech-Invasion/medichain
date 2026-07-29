@@ -32,6 +32,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // RBAC endpoints
         .service(assign_role)
         .service(revoke_role)
+        // Guardian relationships (Horizon HZ-008; extended with granular
+        // permissions + expiry for the pediatric/guardian identity architecture)
+        .service(verify_guardian_relationship)
+        .service(update_guardian_permissions)
+        .service(revoke_guardian_relationship)
         .service(get_user_with_profile) // Must be before list_users (specific before generic)
         .service(list_users)
         .service(get_user_details)
@@ -54,6 +59,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(enter_work_context)
         .service(enter_patient_context)
         .service(switch_identity_context)
+        .service(list_my_medical_identities)
+        .service(claim_medical_identity)
         // Phase 2 organisation public-key directory.
         .service(register_organization_key)
         .service(transition_organization_key)
@@ -68,6 +75,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_emergency_grant)
         .service(revoke_emergency_grant)
         .service(grant_bound_emergency_access)
+        // NFC-hash-to-token exchange (Horizon HZ-001)
+        .service(exchange_nfc_hash_for_token)
         // Phase 6 encrypted patient mobile-record capabilities.
         .service(register_patient_mobile_device)
         .service(authorise_mobile_record)
@@ -85,6 +94,23 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_cds_thresholds) // GET /api/admin/cds/thresholds/{facility_id}
         .service(set_cds_thresholds) // PUT /api/admin/cds/thresholds/{facility_id}
         .service(get_cds_audit) // GET /api/admin/cds/audit
+        // Data retention: report-only assessment + legal holds (POPIA gate §4)
+        .service(get_retention_report) // GET  /api/admin/retention/report
+        .service(list_active_legal_holds) // GET  /api/admin/retention/holds
+        .service(create_legal_hold) // POST /api/admin/retention/holds
+        .service(release_legal_hold) // POST /api/admin/retention/holds/{id}/release
+        // Approval-gated retention execution: restrict + register, never delete
+        .service(request_retention_approval) // POST /api/admin/retention/approvals
+        .service(list_retention_approvals) // GET  /api/admin/retention/approvals
+        .service(decide_retention_approval) // POST /api/admin/retention/approvals/{token}/decide
+        .service(execute_retention_approval) // POST /api/admin/retention/approvals/{token}/execute
+        .service(get_deletion_register) // GET  /api/admin/retention/register
+        .service(list_processing_restrictions) // GET  /api/admin/retention/restrictions
+        .service(lift_processing_restriction) // POST /api/admin/retention/restrictions/{id}/lift
+        // Emergency capsule lifecycle: versioned, revocable, access-logged (POPIA gate §1)
+        .service(publish_emergency_capsule) // POST /api/patients/{id}/emergency-capsule
+        .service(revoke_emergency_capsule) // POST /api/patients/{id}/emergency-capsule/revoke
+        .service(get_emergency_capsule_access_log) // GET  /api/patients/{id}/emergency-capsule/access-log
         // SMS opt-in/opt-out preferences (Phase 5.3)
         .service(sms_opt_out) // POST /api/notifications/sms/opt-out
         .service(sms_opt_in) // POST /api/notifications/sms/opt-in

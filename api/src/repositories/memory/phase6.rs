@@ -1612,6 +1612,14 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
         consent.revoked_by = Some(revoked_by.to_string());
         consent.revocation_reason = reason.map(|r| r.to_string());
         consent.revoked_datetime = Some(chrono::Utc::now());
+        // Both the authoritative status and its legacy boolean projection move
+        // together. This backend previously left `consent_given` true on a
+        // revoked record, diverging from the Postgres implementation, which
+        // clears it — a revoked consent that still reads as "given" is exactly
+        // the kind of disagreement between backends that makes a consent audit
+        // untrustworthy.
+        consent.consent_given = false;
+        consent.consent_status = crate::types::ConsentStatus::Withdrawn.as_str().to_string();
         Ok(consent.clone())
     }
 
@@ -1714,6 +1722,9 @@ mod tests {
             patient_id: "PAT-001".to_string(),
             consent_type: "hipaa_notice".to_string(),
             consent_given: true,
+            // Must agree with `consent_given`, which is a derived projection of
+            // this field rather than an independent value.
+            consent_status: crate::types::ConsentStatus::Granted.as_str().to_string(),
             consent_datetime: chrono::Utc::now(),
             revoked: Some(false),
             ..Default::default()

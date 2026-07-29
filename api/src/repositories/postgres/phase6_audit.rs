@@ -601,7 +601,11 @@ impl ConsentRecordRepository for PgConsentRecordRepository {
                 expiration_datetime, scope_description, data_types_covered, purpose,
                 recipient_organization, collection_method, witness_name, witness_signature,
                 collector_id, collector_name, revoked, revoked_datetime, revocation_reason,
-                revoked_by, document_url, document_ipfs_hash, regulatory_requirement, version
+                revoked_by, document_url, document_ipfs_hash, regulatory_requirement, version,
+                popia_section_11_basis, special_information_basis, child_information_basis,
+                consent_required, consent_status, consent_given_by, consent_giver_capacity,
+                guardian_authority_evidence_id, privacy_notice_version, emergency_basis,
+                emergency_justification, child_maturity_assessment, child_maturity_assessed_by
             ) ",
         );
 
@@ -628,7 +632,20 @@ impl ConsentRecordRepository for PgConsentRecordRepository {
                 .push_bind(&r.document_url)
                 .push_bind(&r.document_ipfs_hash)
                 .push_bind(&r.regulatory_requirement)
-                .push_bind(&r.version);
+                .push_bind(&r.version)
+                .push_bind(&r.popia_section_11_basis)
+                .push_bind(&r.special_information_basis)
+                .push_bind(&r.child_information_basis)
+                .push_bind(r.consent_required)
+                .push_bind(&r.consent_status)
+                .push_bind(&r.consent_given_by)
+                .push_bind(&r.consent_giver_capacity)
+                .push_bind(&r.guardian_authority_evidence_id)
+                .push_bind(&r.privacy_notice_version)
+                .push_bind(&r.emergency_basis)
+                .push_bind(&r.emergency_justification)
+                .push_bind(&r.child_maturity_assessment)
+                .push_bind(&r.child_maturity_assessed_by);
         });
 
         qb.push(" RETURNING *");
@@ -734,7 +751,12 @@ impl ConsentRecordRepository for PgConsentRecordRepository {
         reason: Option<&str>,
     ) -> RepositoryResult<ConsentRecordEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE consent_records SET ");
-        qb.push("consent_given = false, revoked = true, revoked_datetime = NOW()");
+        // `consent_status` is authoritative and `consent_given` is its legacy
+        // projection, so both move together — leaving the status at 'granted'
+        // on a revoked record would misreport the lawful basis for every read
+        // that (correctly) trusts the newer field.
+        qb.push("consent_given = false, consent_status = 'withdrawn'");
+        qb.push(", revoked = true, revoked_datetime = NOW()");
         qb.push(", revoked_by = ").push_bind(revoked_by);
         qb.push(", revocation_reason = ").push_bind(reason);
         qb.push(", updated_at = NOW() WHERE id = ").push_bind(id);

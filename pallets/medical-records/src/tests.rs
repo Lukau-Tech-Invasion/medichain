@@ -4,8 +4,15 @@
 
 #![cfg(test)]
 
-use crate::{mock::*, AlertType, BloodType, Error};
+use crate::{mock::*, AlertType, Error};
 use frame_support::{assert_noop, assert_ok};
+
+/// A stand-in commitment to an off-chain emergency capsule.
+///
+/// Deliberately opaque bytes: the point of the HZ-003 change is that the chain
+/// holds a commitment it cannot interpret, so tests should not be able to read
+/// a blood type out of it either.
+const TEST_COMMITMENT: [u8; 32] = [7u8; 32];
 
 /// Test successful health record creation by doctor
 #[test]
@@ -16,12 +23,14 @@ fn create_health_record_works() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::APositive,
+            TEST_COMMITMENT,
             ipfs_hash.clone(),
         ));
 
         let record = MedicalRecords::health_records(PATIENT).unwrap();
-        assert_eq!(record.blood_type, BloodType::APositive);
+        assert_eq!(record.emergency_capsule_commitment, TEST_COMMITMENT);
+        // A freshly created record has no capsule published yet.
+        assert_eq!(record.emergency_capsule_version, 0);
         assert_eq!(record.ipfs_hash.to_vec(), ipfs_hash);
         assert_eq!(record.alerts.len(), 0);
         assert_eq!(record.last_modified_by, DOCTOR);
@@ -37,7 +46,7 @@ fn nurse_can_create_health_record() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(NURSE),
             PATIENT,
-            BloodType::BNegative,
+            TEST_COMMITMENT,
             ipfs_hash.clone(),
         ));
 
@@ -56,7 +65,7 @@ fn patient_cannot_create_health_record() {
             MedicalRecords::create_health_record(
                 RuntimeOrigin::signed(PATIENT),
                 PATIENT,
-                BloodType::OPositive,
+                TEST_COMMITMENT,
                 ipfs_hash,
             ),
             Error::<Test>::NotHealthcareProvider
@@ -74,7 +83,7 @@ fn unauthorized_cannot_create_health_record() {
             MedicalRecords::create_health_record(
                 RuntimeOrigin::signed(UNAUTHORIZED),
                 PATIENT,
-                BloodType::ABPositive,
+                TEST_COMMITMENT,
                 ipfs_hash,
             ),
             Error::<Test>::NotHealthcareProvider
@@ -91,7 +100,7 @@ fn create_health_record_fails_if_exists() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::OPositive,
+            TEST_COMMITMENT,
             ipfs_hash.clone(),
         ));
 
@@ -99,7 +108,7 @@ fn create_health_record_fails_if_exists() {
             MedicalRecords::create_health_record(
                 RuntimeOrigin::signed(DOCTOR),
                 PATIENT,
-                BloodType::BNegative,
+                TEST_COMMITMENT,
                 ipfs_hash,
             ),
             Error::<Test>::RecordAlreadyExists
@@ -116,7 +125,7 @@ fn add_alert_works() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::ABPositive,
+            TEST_COMMITMENT,
             ipfs_hash,
         ));
 
@@ -146,7 +155,7 @@ fn patient_cannot_add_alert() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::APositive,
+            TEST_COMMITMENT,
             ipfs_hash,
         ));
 
@@ -189,7 +198,7 @@ fn add_alert_fails_invalid_severity() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::ONegative,
+            TEST_COMMITMENT,
             ipfs_hash,
         ));
 
@@ -229,7 +238,7 @@ fn update_ipfs_hash_works() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::BPositive,
+            TEST_COMMITMENT,
             old_hash,
         ));
 
@@ -256,7 +265,7 @@ fn patient_cannot_update_ipfs_hash() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::APositive,
+            TEST_COMMITMENT,
             old_hash,
         ));
 
@@ -276,7 +285,7 @@ fn add_alert_respects_max_limit() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::APositive,
+            TEST_COMMITMENT,
             ipfs_hash,
         ));
 
@@ -317,7 +326,7 @@ fn multiple_providers_can_update_record() {
         assert_ok!(MedicalRecords::create_health_record(
             RuntimeOrigin::signed(DOCTOR),
             PATIENT,
-            BloodType::OPositive,
+            TEST_COMMITMENT,
             ipfs_hash,
         ));
 
@@ -343,5 +352,127 @@ fn multiple_providers_can_update_record() {
 
         let record = MedicalRecords::health_records(PATIENT).unwrap();
         assert_eq!(record.last_modified_by, DOCTOR);
+    });
+}
+
+// ============================================================================
+// Emergency capsule commitment (Horizon HZ-003)
+//
+// These replace what were previously plaintext blood-type assertions. The
+// property under test is deliberately different now: not "the chain stores the
+// right blood type" but "the chain stores an opaque commitment, and cannot be
+// made to store a stale one".
+// ============================================================================
+
+/// A provider can publish a capsule commitment, and the version advances.
+#[test]
+fn set_emergency_capsule_commitment_works() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(MedicalRecords::create_health_record(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            TEST_COMMITMENT,
+            b"QmCapsuleBaseRecord123456".to_vec(),
+        ));
+
+        let updated: [u8; 32] = [9u8; 32];
+        assert_ok!(MedicalRecords::set_emergency_capsule_commitment(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            updated,
+            1,
+        ));
+
+        let record = MedicalRecords::health_records(PATIENT).unwrap();
+        assert_eq!(record.emergency_capsule_commitment, updated);
+        assert_eq!(record.emergency_capsule_version, 1);
+    });
+}
+
+/// Replaying an old capsule version must fail: otherwise a superseded capsule
+/// (e.g. one still asserting a since-revoked DNR) could be presented as current.
+#[test]
+fn set_emergency_capsule_commitment_rejects_stale_version() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(MedicalRecords::create_health_record(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            TEST_COMMITMENT,
+            b"QmCapsuleStaleCheck123456".to_vec(),
+        ));
+
+        assert_ok!(MedicalRecords::set_emergency_capsule_commitment(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [9u8; 32],
+            5,
+        ));
+
+        // Same version again.
+        assert_noop!(
+            MedicalRecords::set_emergency_capsule_commitment(
+                RuntimeOrigin::signed(DOCTOR),
+                PATIENT,
+                [1u8; 32],
+                5,
+            ),
+            Error::<Test>::StaleCapsuleVersion
+        );
+
+        // An older version.
+        assert_noop!(
+            MedicalRecords::set_emergency_capsule_commitment(
+                RuntimeOrigin::signed(DOCTOR),
+                PATIENT,
+                [1u8; 32],
+                4,
+            ),
+            Error::<Test>::StaleCapsuleVersion
+        );
+
+        // The stored commitment is unchanged by the rejected attempts.
+        let record = MedicalRecords::health_records(PATIENT).unwrap();
+        assert_eq!(record.emergency_capsule_commitment, [9u8; 32]);
+        assert_eq!(record.emergency_capsule_version, 5);
+    });
+}
+
+/// The extrinsics this replaced (`set_organ_donor_status`/`set_dnr_status`)
+/// accepted any signed origin. Publishing a commitment must not: the commitment
+/// has to correspond to a capsule the clinical system actually holds.
+#[test]
+fn patient_cannot_set_emergency_capsule_commitment() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(MedicalRecords::create_health_record(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            TEST_COMMITMENT,
+            b"QmCapsuleAuthCheck1234567".to_vec(),
+        ));
+
+        assert_noop!(
+            MedicalRecords::set_emergency_capsule_commitment(
+                RuntimeOrigin::signed(PATIENT),
+                PATIENT,
+                [3u8; 32],
+                1,
+            ),
+            Error::<Test>::NotHealthcareProvider
+        );
+    });
+}
+
+#[test]
+fn set_emergency_capsule_commitment_fails_without_a_record() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            MedicalRecords::set_emergency_capsule_commitment(
+                RuntimeOrigin::signed(DOCTOR),
+                PATIENT,
+                [3u8; 32],
+                1,
+            ),
+            Error::<Test>::RecordNotFound
+        );
     });
 }

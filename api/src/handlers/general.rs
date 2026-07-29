@@ -305,6 +305,7 @@ fn build_new_patient(
         patient_id: patient_id.to_string(),
         full_name: req.full_name.clone(),
         date_of_birth: req.date_of_birth.clone(),
+        time_of_birth: req.time_of_birth.clone(),
         national_id: req.national_id.clone(),
         phone: req.phone.clone(),
         emergency_info,
@@ -341,14 +342,20 @@ fn spawn_blockchain_patient_registration(
     let Some(client) = data.substrate_client.clone() else {
         return;
     };
-    let id_hash = hex::encode(<Sha3_256 as Digest>::digest(national_id.as_bytes()));
+    // HZ-005: keyed digest (not a bare hash) — see `crate::support::hash_national_id`.
+    let id_hash = crate::support::hash_national_id(national_id);
     let id_type_str = "national_id".to_string();
     tokio::spawn(async move {
         match client
             .register_patient_on_chain(&patient_id, &id_hash, &id_type_str, &registered_by)
             .await
         {
-            Ok(tx_hash) => log::info!("Patient {} registered on chain: {}", patient_id, tx_hash),
+            Ok(result) => log::info!(
+                "Patient {} registered on chain: {} (finalized={})",
+                patient_id,
+                result.hash,
+                result.finalized
+            ),
             Err(e) => log::warn!("Blockchain patient registration failed (non-fatal): {}", e),
         }
     });
@@ -439,6 +446,18 @@ pub async fn register_patient(
                 message: "Failed to persist patient record".to_string(),
             });
         }
+    }
+
+    // HZ-003: publish the emergency capsule and anchor its commitment on-chain.
+    // The emergency values are no longer stored on-chain in the clear, so this
+    // is what makes them tamper-evident. Non-fatal: a patient who is registered
+    // but whose capsule failed to store is recoverable (the next emergency-info
+    // write republishes), whereas failing the registration outright is not.
+    if let Err(e) =
+        crate::emergency_capsule::publish_capsule(&data, &patient.emergency_info, &current_user_id)
+            .await
+    {
+        log::error!("Emergency capsule publication failed for {patient_id}: {e}");
     }
 
     // Also create a Patient user account for the new patient

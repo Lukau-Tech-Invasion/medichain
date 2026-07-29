@@ -123,6 +123,16 @@ pub use phase4::MemoryChainOfCustodyRepository;
 pub use phase4::MemoryEmsHandoffRepository;
 pub use phase4::MemoryMciRecordRepository;
 
+// Persistent guardian relationships (supersedes the in-memory GuardianRegistry)
+mod guardian_relationships;
+pub use guardian_relationships::MemoryGuardianRelationshipRepository;
+mod legal_holds;
+pub use legal_holds::MemoryLegalHoldRepository;
+mod emergency_capsules;
+pub use emergency_capsules::MemoryEmergencyCapsuleRepository;
+mod retention_execution;
+pub use retention_execution::MemoryRetentionExecutionRepository;
+
 // Phase 7-10 repositories
 mod phase5;
 

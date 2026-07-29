@@ -10,13 +10,14 @@ pub struct AuthChallengeRequest {
     pub wallet_address: String,
 }
 
-/// Get an authentication challenge to sign with your wallet
+/// Get a one-time wallet-ownership challenge to sign with your wallet.
 ///
-/// This endpoint returns a message that must be signed by the wallet's private key
-/// to prove ownership. The signature should be sent in subsequent requests via:
-/// - X-User-Id: wallet_address
-/// - X-Signature: hex-encoded sr25519 signature
-/// - X-Timestamp: the timestamp from this challenge
+/// Proves wallet ownership at a point in time (suited to a login-style
+/// exchange, e.g. `/api/auth/jwt`). This is **not** sufficient on its own to
+/// authenticate a specific subsequent mutating request:
+/// `SignatureAuthMiddleware` requires a signature bound to that request's own
+/// method, path, and body (Horizon HZ-007) — see
+/// `middleware::signature_auth::generate_auth_challenge`'s doc comment.
 #[post("/api/auth/challenge")]
 pub async fn get_auth_challenge(body: web::Json<AuthChallengeRequest>) -> impl Responder {
     // Validate wallet address format

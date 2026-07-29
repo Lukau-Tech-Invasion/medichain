@@ -9,7 +9,7 @@
 //!
 //! Select the active provider with the `TELEHEALTH_PROVIDER` env var.
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

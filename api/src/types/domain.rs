@@ -404,6 +404,13 @@ pub struct PatientProfile {
     pub patient_id: String,
     pub full_name: String,
     pub date_of_birth: String,
+    /// "HH:MM" birth time, optional. Together with `date_of_birth` and
+    /// `national_id`, this is what actually disambiguates twins — `patient_id`
+    /// is already a random UUID (never derived from name/DOB), but any
+    /// human-facing search/lookup UI must show all of these fields rather
+    /// than name+DOB alone, which two twins can share exactly.
+    #[serde(default)]
+    pub time_of_birth: Option<String>,
     pub national_id: String,
     pub phone: String,
     pub emergency_info: EmergencyInfo,
@@ -463,8 +470,8 @@ pub(crate) fn patient_profile_to_entity(
         Some((f, l)) => (f.to_string(), l.to_string()),
         None => (profile.full_name.clone(), String::new()),
     };
-    let national_id_hash =
-        hex::encode(<Sha3_256 as Digest>::digest(profile.national_id.as_bytes()));
+    // HZ-005: keyed digest (not a bare hash) — see `crate::support::hash_national_id`.
+    let national_id_hash = crate::support::hash_national_id(&profile.national_id);
     let primary_contact = profile.emergency_info.emergency_contacts.first();
     // Lossless: encrypt the whole profile JSON into the blob column.
     let extras_encrypted = serde_json::to_vec(profile)

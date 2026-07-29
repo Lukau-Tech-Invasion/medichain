@@ -12,7 +12,7 @@
 //! explicit participant consent. The recording endpoint enforces consent before
 //! a transcript is ever produced (see `clinical_support::telehealth_recording`).
 //!
-//! © 2025-2026 Trustware. MediChain Health ID System.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
 
 use async_trait::async_trait;
 

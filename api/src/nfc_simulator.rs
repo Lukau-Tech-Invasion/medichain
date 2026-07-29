@@ -3,7 +3,7 @@
 //! Simulates NFC card functionality for MediChain emergency access.
 //! In production, this would interface with actual NFC hardware.
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use serde::{Deserialize, Serialize};
 use sha3::{Digest, Sha3_256};

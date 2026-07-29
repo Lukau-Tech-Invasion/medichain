@@ -43,12 +43,19 @@ pub async fn create_trauma(
 }
 
 /// Get trauma assessment
+///
+/// HZ-009 audit: took an unused `_http_req` and returned the full clinical
+/// assessment by bare `{id}` with no authentication at all. Now requires the
+/// same authenticated-caller bar as `create_trauma` above.
 #[get("/api/emergency/trauma/{id}")]
 pub async fn get_trauma(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data
         .repositories
@@ -100,12 +107,19 @@ pub async fn create_stroke(
 }
 
 /// Get stroke assessment
+///
+/// HZ-009 audit: took an unused `_http_req` and returned the full clinical
+/// assessment by bare `{id}` with no authentication at all. Now requires the
+/// same authenticated-caller bar as `create_stroke` above.
 #[get("/api/emergency/stroke/{id}")]
 pub async fn get_stroke(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data
         .repositories
@@ -157,12 +171,19 @@ pub async fn create_sepsis(
 }
 
 /// Get sepsis assessment
+///
+/// HZ-009 audit: took an unused `_http_req` and returned the full clinical
+/// assessment by bare `{id}` with no authentication at all. Now requires the
+/// same authenticated-caller bar as `create_sepsis` above.
 #[get("/api/emergency/sepsis/{id}")]
 pub async fn get_sepsis(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data
         .repositories
@@ -209,12 +230,19 @@ pub async fn create_ems_handoff(
 }
 
 /// Get EMS handoff
+///
+/// HZ-009 audit: took an unused `_http_req` and returned the full clinical
+/// handoff by bare `{id}` with no authentication at all. Now requires the
+/// same authenticated-caller bar as `create_ems_handoff` above.
 #[get("/api/emergency/ems-handoff/{id}")]
 pub async fn get_ems_handoff(
     data: web::Data<AppState>,
-    _http_req: HttpRequest,
+    http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    if get_current_user_id(&http_req).is_none() {
+        return HttpResponse::Unauthorized().finish();
+    }
     let id = path.into_inner();
     match data.repositories.ems_handoffs.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),

@@ -12,6 +12,15 @@
 //! with whichever version the row was originally stamped with via `get(version)` — so
 //! rotating in a new key version is additive and lazy: existing rows re-encrypt to the
 //! new version the next time they're written, with no bulk migration required.
+//!
+//! **Design invariant confirmed for the pediatric/guardian identity architecture**
+//! (see `guardian_relationships` / `handlers::identity_claim`): keys here are
+//! indexed purely by an integer `version`, never by wallet address or
+//! `patient_id`. A guardian relationship changing (divorce, adoption, foster
+//! placement ending) or a patient claiming their own identity at adulthood
+//! therefore never requires re-encrypting that patient's history — the
+//! medical identity's encrypted data is already independent of who currently
+//! holds an account or a guardian relationship over it.
 
 use base64::Engine as _;
 use medichain_crypto::EncryptionKey;
@@ -119,6 +128,43 @@ impl EncryptionKeyring {
     pub fn versions_newest_first(&self) -> impl Iterator<Item = (u32, &EncryptionKey)> {
         self.keys.iter().rev().map(|(v, k)| (*v, k))
     }
+
+    /// Durably destroy a key version (Horizon HZ-006 — interim mitigation).
+    ///
+    /// The removed `EncryptionKey` is dropped here, which zeroizes its bytes in
+    /// memory (`#[zeroize(drop)]` on `EncryptionKey`, `crypto/src/lib.rs`). It is
+    /// also gone from `self.keys`, so no later call to `get(version)` can recover
+    /// it — decrypting any row still stamped with this version becomes
+    /// permanently impossible from this point on.
+    ///
+    /// # This is not per-patient crypto-shredding
+    ///
+    /// A key version is shared by every record encrypted while it was current —
+    /// retiring it destroys **every** such record's decryptability, not one
+    /// patient's. There is currently no finer-grained mechanism: true per-record
+    /// crypto-shredding needs the envelope-encryption feature
+    /// (`key_management::KeyEnvelope`/`wrap_for_recipient`/`unwrap_envelope`) to
+    /// actually be activated — today it exists only as a stubbed adapter
+    /// (`LegacyDeploymentKeyringAdapter`) that refuses every envelope operation.
+    /// Use this method only when destroying an entire version's worth of data is
+    /// the intended outcome (e.g. a full-tenant erasure), not for a single
+    /// data-subject's POPIA erasure request.
+    ///
+    /// Refuses to retire the current version — that would leave the keyring with
+    /// no key for new writes. Retire the versions below `current_version` only,
+    /// or rotate to a new version first.
+    pub fn retire(&mut self, version: u32) -> Result<(), String> {
+        if version == self.current_version {
+            return Err(format!(
+                "cannot retire version {version}: it is the current version new writes use; \
+                 rotate to a newer version first"
+            ));
+        }
+        if self.keys.remove(&version).is_none() {
+            return Err(format!("no such key version: {version}"));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -171,5 +217,40 @@ mod tests {
             medichain_crypto::decrypt(keyring.get(keyring.current_version()).unwrap(), &encrypted)
                 .unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    /// HZ-006 regression: retiring a non-current version removes only that
+    /// version, leaves the current version and `current_version()` untouched.
+    #[test]
+    fn retire_removes_only_the_named_version() {
+        let raw = format!("1:{},2:{}", b64_key(1), b64_key(2));
+        let mut keyring = EncryptionKeyring::parse(&raw).expect("should parse");
+
+        keyring.retire(1).expect("retiring a non-current version should succeed");
+
+        assert!(keyring.get(1).is_none(), "retired version must be gone");
+        assert!(keyring.get(2).is_some(), "other versions must be unaffected");
+        assert_eq!(keyring.current_version(), 2, "current_version must be unaffected");
+    }
+
+    /// Retiring the current version is refused — it would leave the keyring
+    /// with no key for new writes.
+    #[test]
+    fn retire_refuses_the_current_version() {
+        let raw = format!("1:{},2:{}", b64_key(1), b64_key(2));
+        let mut keyring = EncryptionKeyring::parse(&raw).expect("should parse");
+
+        let result = keyring.retire(2);
+
+        assert!(result.is_err());
+        assert!(keyring.get(2).is_some(), "current version must survive a refused retire");
+    }
+
+    /// Retiring an unknown version is an error, not a silent no-op.
+    #[test]
+    fn retire_unknown_version_is_an_error() {
+        let raw = format!("1:{}", b64_key(1));
+        let mut keyring = EncryptionKeyring::parse(&raw).expect("should parse");
+        assert!(keyring.retire(99).is_err());
     }
 }

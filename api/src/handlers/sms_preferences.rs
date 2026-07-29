@@ -115,22 +115,67 @@ pub async fn get_sms_opt_out_status(
 
 /// Africa's Talking inbound-SMS callback payload (subset used here).
 /// AT posts `application/x-www-form-urlencoded` with `from`/`to`/`text`/`id`/`date`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct InboundSmsPayload {
     pub from: String,
     pub text: String,
 }
 
+/// Constant-time byte comparison, matching the pattern already reviewed and
+/// used in `clinical_endpoints::emergency_access::ct_eq`.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// The shared secret AT is configured to append to the callback URL
+/// (`?secret=...`), verifying the request actually came from the configured
+/// webhook, not an arbitrary caller. Resolution order mirrors other
+/// project secrets: required in production, a fixed dev-only fallback that
+/// `validate_production_secrets` rejects outside demo mode.
+fn sms_inbound_webhook_secret() -> String {
+    std::env::var("SMS_INBOUND_WEBHOOK_SECRET")
+        .unwrap_or_else(|_| "medichain-dev-sms-webhook-secret-change-in-production".to_string())
+}
+
 /// Inbound SMS webhook — honors a real "reply STOP" from the carrier.
-/// Configure this URL as the account's inbound-messages callback in the
-/// Africa's Talking dashboard. No auth (carrier-to-server webhook, not a
-/// user action); always returns 200 so AT doesn't retry-storm on our logic.
+///
+/// Configure this URL, **including the `secret` query parameter**, as the
+/// account's inbound-messages callback in the Africa's Talking dashboard:
+/// `https://<host>/api/notifications/sms/inbound?secret=<SMS_INBOUND_WEBHOOK_SECRET>`.
+///
+/// Horizon finding (surfaced during remediation, not one of HZ-001..011):
+/// this endpoint previously had **no verification at all** that a request
+/// actually came from the SMS provider — `from` and `text` were both taken
+/// as attacker-controlled with zero authentication, so anyone could opt out
+/// an arbitrary phone number from medication/appointment-reminder SMS by
+/// posting a spoofed `from` + a STOP keyword. A carrier webhook cannot sign
+/// with a wallet signature (there is no user session), so this uses a
+/// shared secret in the callback URL instead — the same class of mitigation
+/// most webhook providers without built-in request signing rely on.
+///
+/// Always returns 200 regardless of secret validity so AT doesn't retry-storm
+/// on our logic — an invalid secret is silently dropped (does not run the
+/// opt-out logic), not reported via status code, so a prober cannot use the
+/// response to tell a valid secret from an invalid one.
 #[post("/api/notifications/sms/inbound")]
 pub async fn sms_inbound_webhook(
     data: web::Data<AppState>,
+    query: web::Query<std::collections::HashMap<String, String>>,
     req: web::Form<InboundSmsPayload>,
 ) -> impl Responder {
-    if crate::notifications::is_sms_stop_keyword(&req.text) {
+    let secret_ok = query
+        .get("secret")
+        .map(|provided| ct_eq(provided.as_bytes(), sms_inbound_webhook_secret().as_bytes()))
+        .unwrap_or(false);
+
+    if secret_ok && crate::notifications::is_sms_stop_keyword(&req.text) {
         let entity = crate::repositories::traits::SmsOptOutEntity {
             phone_number: req.from.clone(),
             opted_out_at: Utc::now(),
@@ -140,4 +185,70 @@ pub async fn sms_inbound_webhook(
         let _ = data.repositories.sms_opt_outs.add_opt_out(entity).await;
     }
     HttpResponse::Ok().finish()
+}
+
+#[cfg(test)]
+mod hz_webhook_regression_tests {
+    use super::*;
+    use actix_web::test;
+
+    #[actix_web::test]
+    async fn missing_secret_does_not_opt_out_the_spoofed_number() {
+        std::env::set_var("SMS_INBOUND_WEBHOOK_SECRET", "real-secret");
+        let state = crate::AppState::new();
+        let app_state = web::Data::new(state);
+        let app = actix_web::App::new()
+            .app_data(app_state.clone())
+            .service(sms_inbound_webhook);
+        let app = test::init_service(app).await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/notifications/sms/inbound")
+            .set_form(&InboundSmsPayload {
+                from: "+27000000000".to_string(),
+                text: "STOP".to_string(),
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        // Always 200 (no retry-storm signal) ...
+        assert!(resp.status().is_success());
+        // ... but the spoofed number must NOT actually be opted out.
+        let opted_out = app_state
+            .repositories
+            .sms_opt_outs
+            .is_opted_out("+27000000000")
+            .await
+            .unwrap_or(false);
+        assert!(!opted_out, "an unauthenticated caller must not be able to opt out an arbitrary number");
+        std::env::remove_var("SMS_INBOUND_WEBHOOK_SECRET");
+    }
+
+    #[actix_web::test]
+    async fn correct_secret_honors_a_real_stop_reply() {
+        std::env::set_var("SMS_INBOUND_WEBHOOK_SECRET", "real-secret");
+        let state = crate::AppState::new();
+        let app_state = web::Data::new(state);
+        let app = actix_web::App::new()
+            .app_data(app_state.clone())
+            .service(sms_inbound_webhook);
+        let app = test::init_service(app).await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/notifications/sms/inbound?secret=real-secret")
+            .set_form(&InboundSmsPayload {
+                from: "+27111111111".to_string(),
+                text: "STOP".to_string(),
+            })
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
+        let opted_out = app_state
+            .repositories
+            .sms_opt_outs
+            .is_opted_out("+27111111111")
+            .await
+            .unwrap_or(false);
+        assert!(opted_out, "a correctly authenticated STOP reply must still work");
+        std::env::remove_var("SMS_INBOUND_WEBHOOK_SECRET");
+    }
 }

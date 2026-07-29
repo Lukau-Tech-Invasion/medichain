@@ -5553,6 +5553,18 @@ pub struct DataRetentionPolicyEntity {
     pub policy_name: String,
     pub entity_type: String,
     pub retention_period_days: i32,
+    /// Retention period in whole years — the value the evaluator uses.
+    /// `retention_period_days` cannot express a legally-defined period like
+    /// "6 years" exactly once leap years are involved (migration
+    /// 20260729000003).
+    pub retention_period_years: Option<i32>,
+    /// `RetentionRule` discriminant: `years_from_last_entry`,
+    /// `years_from_event`, `later_of_age_or_years_from_last_entry`, `lifetime`.
+    pub retention_rule_kind: Option<String>,
+    /// Age threshold for age-based rules (e.g. 21 for "until the 21st birthday").
+    pub minimum_age_years: Option<i32>,
+    /// Human-readable citation for the period.
+    pub legal_source: Option<String>,
     pub retention_period_type: Option<String>,
     pub archive_after_days: Option<i32>,
     pub delete_after_days: Option<i32>,
@@ -5680,12 +5692,24 @@ pub trait RetentionJobRunRepository: Send + Sync {
 }
 
 /// Consent record entity
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// # Lawful-basis fields
+///
+/// The `popia_*`/`consent_status`/`emergency_*` fields were added after a POPIA
+/// legal review (2026-07-28) found `consent_given: bool` legally insufficient —
+/// see `crate::types::legal_basis` for what each ground means and
+/// `docs/PRODUCTION_READINESS_GATES.md` §2 for the review itself. Store the
+/// `as_str()` form of the corresponding enum, never a free-text string.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
 pub struct ConsentRecordEntity {
     pub id: String,
     pub patient_id: String,
     pub consent_type: String,
+    /// DEPRECATED — retained for backwards compatibility only. Derived from
+    /// `consent_status` via `ConsentStatus::as_legacy_bool()`; a bare boolean
+    /// cannot distinguish "refused" from "withdrawn" from "not required
+    /// because another §11 ground applies". Read `consent_status` instead.
     pub consent_given: bool,
     pub consent_datetime: chrono::DateTime<chrono::Utc>,
     pub expiration_datetime: Option<chrono::DateTime<chrono::Utc>>,
@@ -5708,6 +5732,194 @@ pub struct ConsentRecordEntity {
     pub version: Option<String>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+
+    // --- POPIA lawful-basis provenance (migration 20260729000001) ---
+    /// `PopiaSection11Basis::as_str()` — the lawful-processing ground.
+    pub popia_section_11_basis: String,
+    /// `SpecialInformationBasis::as_str()` — §27/§32 health-data authorisation.
+    pub special_information_basis: String,
+    /// `ChildInformationBasis::as_str()` — §34/§35 ground, or `not_applicable`.
+    pub child_information_basis: String,
+    /// False when processing relies on a non-consent §11 ground.
+    pub consent_required: bool,
+    /// `ConsentStatus::as_str()` — authoritative lifecycle state.
+    pub consent_status: String,
+    /// Who actually gave consent; may differ from `patient_id`.
+    pub consent_given_by: Option<String>,
+    /// `ConsentGiverCapacity::as_str()`.
+    pub consent_giver_capacity: Option<String>,
+    /// `guardian_relationships.id` evidencing a third party's authority to
+    /// consent. Required when the capacity is guardian/competent_person/
+    /// legal_proxy.
+    pub guardian_authority_evidence_id: Option<String>,
+    /// Which privacy-notice version the data subject was shown.
+    pub privacy_notice_version: Option<String>,
+    /// `EmergencyBasis::as_str()` — National Health Act emergency ground.
+    pub emergency_basis: String,
+    /// Required whenever `emergency_basis` is not `none`.
+    pub emergency_justification: Option<String>,
+    /// The clinician's finding that a child of 12+ has sufficient maturity to
+    /// consent to their own treatment (Children's Act §129). Required whenever
+    /// `consent_giver_capacity` is `child_over_12_mature` — age alone does not
+    /// establish the capacity.
+    #[serde(default)]
+    pub child_maturity_assessment: Option<String>,
+    /// Who made the maturity finding.
+    #[serde(default)]
+    pub child_maturity_assessed_by: Option<String>,
+}
+
+impl ConsentRecordEntity {
+    /// Parse the stored lawful-basis strings back into their enums, listing any
+    /// that are not recognised.
+    ///
+    /// Stored values are plain strings, so a hand-edited row, a partially
+    /// applied migration, or a future code version writing an unknown variant
+    /// would otherwise flow through the API as an opaque string that reads like
+    /// a valid legal basis. Surfacing the mismatch turns a silent data-integrity
+    /// problem into a visible one.
+    pub fn validate_lawful_basis(&self) -> Result<(), Vec<String>> {
+        use crate::types::{
+            ChildInformationBasis, ConsentStatus, EmergencyBasis, PopiaSection11Basis,
+            SpecialInformationBasis,
+        };
+
+        let mut problems = Vec::new();
+
+        if PopiaSection11Basis::parse(&self.popia_section_11_basis).is_none() {
+            problems.push(format!(
+                "unrecognised popia_section_11_basis '{}'",
+                self.popia_section_11_basis
+            ));
+        }
+        if SpecialInformationBasis::parse(&self.special_information_basis).is_none() {
+            problems.push(format!(
+                "unrecognised special_information_basis '{}'",
+                self.special_information_basis
+            ));
+        }
+        if ChildInformationBasis::parse(&self.child_information_basis).is_none() {
+            problems.push(format!(
+                "unrecognised child_information_basis '{}'",
+                self.child_information_basis
+            ));
+        }
+        if ConsentStatus::parse(&self.consent_status).is_none() {
+            problems.push(format!(
+                "unrecognised consent_status '{}'",
+                self.consent_status
+            ));
+        }
+        if EmergencyBasis::parse(&self.emergency_basis).is_none() {
+            problems.push(format!(
+                "unrecognised emergency_basis '{}'",
+                self.emergency_basis
+            ));
+        }
+        if let Some(capacity) = &self.consent_giver_capacity {
+            if crate::types::ConsentGiverCapacity::parse(capacity).is_none() {
+                problems.push(format!("unrecognised consent_giver_capacity '{}'", capacity));
+            }
+        }
+
+        // An emergency basis with no justification is unauditable — the same
+        // rule the write path enforces, checked again on read so rows that
+        // predate that enforcement are visible.
+        if let Some(basis) = EmergencyBasis::parse(&self.emergency_basis) {
+            if basis.requires_justification()
+                && self
+                    .emergency_justification
+                    .as_ref()
+                    .map(|j| j.trim().is_empty())
+                    .unwrap_or(true)
+            {
+                problems.push(format!(
+                    "emergency_basis '{}' recorded without a justification",
+                    self.emergency_basis
+                ));
+            }
+        }
+
+        // Children's Act §129 capacity rests on a maturity finding, not on age
+        // alone. Checked on read as well as write for the same reason as the
+        // emergency justification above: rows written before this rule existed
+        // should surface rather than pass silently.
+        if self.consent_giver_capacity.as_deref() == Some("child_over_12_mature")
+            && self
+                .child_maturity_assessment
+                .as_ref()
+                .map(|a| a.trim().is_empty())
+                .unwrap_or(true)
+        {
+            problems.push(
+                "consent_giver_capacity 'child_over_12_mature' recorded without a \
+                 maturity assessment"
+                    .to_string(),
+            );
+        }
+
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems)
+        }
+    }
+}
+
+/// Hand-written rather than derived: the lawful-basis fields hold the `as_str()`
+/// form of a closed enum, and a derived `Default` would fill them with `""`,
+/// which parses back as `None` and would silently produce a consent record with
+/// no readable lawful basis. Defaults here are the ordinary-clinical-care case.
+impl Default for ConsentRecordEntity {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            patient_id: String::new(),
+            consent_type: String::new(),
+            consent_given: false,
+            consent_datetime: chrono::Utc::now(),
+            expiration_datetime: None,
+            scope_description: None,
+            data_types_covered: None,
+            purpose: None,
+            recipient_organization: None,
+            collection_method: None,
+            witness_name: None,
+            witness_signature: None,
+            collector_id: None,
+            collector_name: None,
+            revoked: Some(false),
+            revoked_datetime: None,
+            revocation_reason: None,
+            revoked_by: None,
+            document_url: None,
+            document_ipfs_hash: None,
+            regulatory_requirement: None,
+            version: None,
+            created_at: None,
+            updated_at: None,
+            popia_section_11_basis: crate::types::PopiaSection11Basis::Consent
+                .as_str()
+                .to_string(),
+            special_information_basis: crate::types::SpecialInformationBasis::S32Treatment
+                .as_str()
+                .to_string(),
+            child_information_basis: crate::types::ChildInformationBasis::NotApplicable
+                .as_str()
+                .to_string(),
+            consent_required: true,
+            // `consent_given` defaults to false, so the status must agree.
+            consent_status: crate::types::ConsentStatus::Refused.as_str().to_string(),
+            consent_given_by: None,
+            consent_giver_capacity: None,
+            guardian_authority_evidence_id: None,
+            privacy_notice_version: None,
+            emergency_basis: crate::types::EmergencyBasis::None.as_str().to_string(),
+            emergency_justification: None,
+            child_maturity_assessment: None,
+            child_maturity_assessed_by: None,
+        }
+    }
 }
 
 /// Consent record repository trait
@@ -5814,9 +6026,779 @@ pub trait JsonRecordRepository: Send + Sync + fmt::Debug {
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
 }
 
+// =============================================================================
+// Guardian relationships — persistent, permission-granular. Supersedes the
+// Horizon HZ-008 in-memory `guardian_relationships::GuardianRegistry`: a
+// parent/guardian relationship must survive restarts and can span years
+// (divorce, adoption, foster care), so it cannot live only in a
+// process-lifetime RwLock, and a single "is guardian" boolean can't express
+// "may view records but may not sign consent."
+// =============================================================================
+
+/// The kind of relationship a guardian has to the ward.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardianRelationshipType {
+    /// Parent or legal guardian of a minor.
+    ParentOrGuardian,
+    /// Court-appointed or documented proxy for an incapacitated adult, or a
+    /// foster carer (use `expires_at` for a time-limited foster placement).
+    LegalProxy,
+    /// Appointed power of attorney for healthcare decisions.
+    PowerOfAttorney,
+}
+
+impl GuardianRelationshipType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ParentOrGuardian => "parent_or_guardian",
+            Self::LegalProxy => "legal_proxy",
+            Self::PowerOfAttorney => "power_of_attorney",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "parent_or_guardian" => Some(Self::ParentOrGuardian),
+            "legal_proxy" => Some(Self::LegalProxy),
+            "power_of_attorney" => Some(Self::PowerOfAttorney),
+            _ => None,
+        }
+    }
+}
+
+/// A granular capability a guardian may exercise on behalf of a ward.
+/// Replaces the HZ-008 boolean "is an active guardian" check with an
+/// explicit, auditable grant per capability.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardianPermission {
+    ViewRecords,
+    BookAppointments,
+    /// DEPRECATED — consenting to *treatment* and consenting to *data
+    /// processing* are distinct decisions under South African law (Children's
+    /// Act §129 vs POPIA §35) and the 2026-07-28 legal review was explicit that
+    /// they must not collapse into one flag. Retained so existing stored grants
+    /// keep working: it satisfies both successors (see `satisfied_by`).
+    /// New grants should use `ConsentToTreatment` / `ConsentToDataProcessing`.
+    GiveConsent,
+    /// Consent to medical treatment on the ward's behalf.
+    ConsentToTreatment,
+    /// Consent to processing of the ward's personal information.
+    ConsentToDataProcessing,
+    UploadVaccinations,
+    DownloadReports,
+    ApproveSurgery,
+}
+
+impl GuardianPermission {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ViewRecords => "view_records",
+            Self::BookAppointments => "book_appointments",
+            Self::GiveConsent => "give_consent",
+            Self::ConsentToTreatment => "consent_to_treatment",
+            Self::ConsentToDataProcessing => "consent_to_data_processing",
+            Self::UploadVaccinations => "upload_vaccinations",
+            Self::DownloadReports => "download_reports",
+            Self::ApproveSurgery => "approve_surgery",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "view_records" => Some(Self::ViewRecords),
+            "book_appointments" => Some(Self::BookAppointments),
+            "give_consent" => Some(Self::GiveConsent),
+            "consent_to_treatment" => Some(Self::ConsentToTreatment),
+            "consent_to_data_processing" => Some(Self::ConsentToDataProcessing),
+            "upload_vaccinations" => Some(Self::UploadVaccinations),
+            "download_reports" => Some(Self::DownloadReports),
+            "approve_surgery" => Some(Self::ApproveSurgery),
+            _ => None,
+        }
+    }
+
+    /// Whether a stored grant of `granted` satisfies a request for `self`.
+    ///
+    /// Normally exact equality. The exception is the deprecated blanket
+    /// `give_consent`, which satisfies both of its successors so relationships
+    /// created before the split keep functioning. The reverse does NOT hold:
+    /// holding only `consent_to_treatment` must not satisfy a request for
+    /// `consent_to_data_processing`, which is the whole point of splitting them.
+    pub fn satisfied_by(&self, granted: &str) -> bool {
+        if granted == self.as_str() {
+            return true;
+        }
+        granted == Self::GiveConsent.as_str()
+            && matches!(self, Self::ConsentToTreatment | Self::ConsentToDataProcessing)
+    }
+}
+
+/// The kind of document establishing a guardian's legal authority.
+///
+/// Recording *that* an Admin verified a relationship is not the same as
+/// recording *what they saw*. Without this, "verified" is an unfalsifiable
+/// assertion — see `docs/PRODUCTION_READINESS_GATES.md` §3.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardianAuthorityEvidence {
+    BirthCertificate,
+    CourtOrder,
+    AdoptionOrder,
+    PowerOfAttorneyDocument,
+    FosterPlacementOrder,
+    Affidavit,
+    Other,
+}
+
+impl GuardianAuthorityEvidence {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::BirthCertificate => "birth_certificate",
+            Self::CourtOrder => "court_order",
+            Self::AdoptionOrder => "adoption_order",
+            Self::PowerOfAttorneyDocument => "power_of_attorney_document",
+            Self::FosterPlacementOrder => "foster_placement_order",
+            Self::Affidavit => "affidavit",
+            Self::Other => "other",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "birth_certificate" => Some(Self::BirthCertificate),
+            "court_order" => Some(Self::CourtOrder),
+            "adoption_order" => Some(Self::AdoptionOrder),
+            "power_of_attorney_document" => Some(Self::PowerOfAttorneyDocument),
+            "foster_placement_order" => Some(Self::FosterPlacementOrder),
+            "affidavit" => Some(Self::Affidavit),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+
+/// Whether the ward participated in the decision, per the Children's Act.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildAssentStatus {
+    /// Ward is an adult.
+    NotApplicable,
+    /// Should have been sought and wasn't. A deliberate value rather than
+    /// leaving the field null, so the omission is visible instead of ambiguous.
+    NotSought,
+    Given,
+    /// Recorded even where a guardian may still lawfully consent — a child's
+    /// refusal is legally and ethically relevant even when not decisive.
+    Refused,
+    /// Too young, or clinically unable to participate.
+    Unable,
+}
+
+impl ChildAssentStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotApplicable => "not_applicable",
+            Self::NotSought => "not_sought",
+            Self::Given => "given",
+            Self::Refused => "refused",
+            Self::Unable => "unable",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "not_applicable" => Some(Self::NotApplicable),
+            "not_sought" => Some(Self::NotSought),
+            "given" => Some(Self::Given),
+            "refused" => Some(Self::Refused),
+            "unable" => Some(Self::Unable),
+            _ => None,
+        }
+    }
+}
+
+/// A guardian's relationship to a ward patient, persisted.
+///
+/// Creation requires Admin verification (mirrors `assign_role`'s Admin-only,
+/// can't-self-grant pattern) — a guardian relationship is asserted by an
+/// operator with real authority to verify it (e.g. having reviewed
+/// guardianship documentation), never self-declared by the guardian.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct GuardianRelationshipEntity {
+    pub id: String,
+    pub guardian_wallet: String,
+    pub ward_patient_id: String,
+    /// `GuardianRelationshipType::as_str()` value.
+    pub relationship_type: String,
+    /// `GuardianPermission::as_str()` values.
+    pub permissions: Vec<String>,
+    pub verified_by: String,
+    pub verified_at: DateTime<Utc>,
+    pub active: bool,
+    /// Time-limited grants (e.g. foster care) expire on their own without
+    /// needing an explicit revoke.
+    pub expires_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub revoked_reason: Option<String>,
+
+    // --- Legal-authority evidence (migration 20260729000002) ---
+    // Admin verification alone does not establish that a person is *legally*
+    // authorised rather than merely an adult relative — see
+    // `docs/PRODUCTION_READINESS_GATES.md` §3.
+    /// `GuardianAuthorityEvidence::as_str()` value.
+    pub authority_evidence_type: Option<String>,
+    /// Pointer (record id / IPFS hash) to the document — never its contents.
+    pub authority_evidence_reference: Option<String>,
+    pub authority_issuing_authority: Option<String>,
+    /// Role/title of the verifier; `verified_by` is only a wallet address.
+    pub authority_verified_by_role: Option<String>,
+    pub authority_evidence_recorded_at: Option<DateTime<Utc>>,
+    /// Periodic review date. Distinct from `expires_at` — an indefinite
+    /// relationship still needs re-verification.
+    pub next_reverification_due: Option<DateTime<Utc>>,
+
+    // --- Child participation (Children's Act) ---
+    /// `ChildAssentStatus::as_str()` value.
+    pub child_assent_status: Option<String>,
+    pub child_assent_recorded_at: Option<DateTime<Utc>>,
+    pub child_assent_notes: Option<String>,
+
+    // --- Guardianship changes and disputes ---
+    /// The relationship this one replaces (custody transfer chain).
+    pub supersedes_relationship_id: Option<String>,
+    /// Flagged for human review. Deliberately does not by itself revoke access:
+    /// unilaterally cutting a disputed guardian off could itself cause harm.
+    pub dispute_flag: bool,
+    pub dispute_notes: Option<String>,
+}
+
+impl GuardianRelationshipEntity {
+    /// Whether this relationship currently grants `permission` — active, not
+    /// revoked, and (if time-limited) not yet expired.
+    ///
+    /// Permission matching goes through `GuardianPermission::satisfied_by` so a
+    /// relationship holding the deprecated blanket `give_consent` still
+    /// satisfies the treatment/data-processing successors that replaced it.
+    pub fn grants(&self, permission: GuardianPermission, now: DateTime<Utc>) -> bool {
+        self.active
+            && self
+                .expires_at
+                .map(|expires| expires > now)
+                .unwrap_or(true)
+            && self
+                .permissions
+                .iter()
+                .any(|p| permission.satisfied_by(p.as_str()))
+    }
+}
+
+/// Guardian relationship repository trait.
+#[async_trait]
+pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
+    /// Record a new verified relationship.
+    async fn create(
+        &self,
+        relationship: GuardianRelationshipEntity,
+    ) -> RepositoryResult<GuardianRelationshipEntity>;
+
+    /// All relationships (active or not) naming this ward — used to build
+    /// "who may act for this patient" views (emergency contact surfacing,
+    /// admin review).
+    async fn get_by_ward(
+        &self,
+        ward_patient_id: &str,
+    ) -> RepositoryResult<Vec<GuardianRelationshipEntity>>;
+
+    /// All relationships naming this guardian — drives the "my children" /
+    /// profile-switcher list.
+    async fn get_by_guardian(
+        &self,
+        guardian_wallet: &str,
+    ) -> RepositoryResult<Vec<GuardianRelationshipEntity>>;
+
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<Option<GuardianRelationshipEntity>>;
+
+    /// Adjust an existing relationship's permission set and/or expiry
+    /// in-place, without revoking and re-verifying it.
+    async fn update_permissions(
+        &self,
+        id: &str,
+        permissions: Vec<String>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> RepositoryResult<GuardianRelationshipEntity>;
+
+    /// Revoke a previously verified relationship (e.g. the ward reaches
+    /// majority, guardianship is legally terminated, or the assertion was
+    /// made in error).
+    async fn revoke(&self, id: &str, reason: Option<String>) -> RepositoryResult<()>;
+}
+
+// =============================================================================
+// Legal holds (migration 20260729000003)
+//
+// A litigation or regulatory hold suspends retention-based disposal for the
+// records it covers. The pre-existing `data_retention_policies.legal_hold_override`
+// is a policy-level boolean and cannot express "this patient's records are
+// under hold for matter 2026/114", which is what a hold actually is.
+// =============================================================================
+
+/// A hold suspending retention-based disposal.
+///
+/// Scoped to a patient, an entity type, or both. Released holds are retained
+/// rather than deleted: the period during which records were held is itself
+/// part of the audit trail.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct LegalHoldEntity {
+    pub id: String,
+    /// `None` means the hold is not limited to one patient.
+    pub patient_id: Option<String>,
+    /// `None` means the hold is not limited to one entity type.
+    pub entity_type: Option<String>,
+    pub reason: String,
+    /// Case or matter reference.
+    pub reference: Option<String>,
+    pub applied_by: String,
+    pub applied_at: DateTime<Utc>,
+    pub released_by: Option<String>,
+    pub released_at: Option<DateTime<Utc>>,
+    pub release_reason: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+impl LegalHoldEntity {
+    /// A hold is active until it is explicitly released.
+    pub fn is_active(&self) -> bool {
+        self.released_at.is_none()
+    }
+}
+
+/// Legal hold repository trait.
+#[async_trait]
+pub trait LegalHoldRepository: Send + Sync + fmt::Debug {
+    async fn create(&self, hold: LegalHoldEntity) -> RepositoryResult<LegalHoldEntity>;
+    async fn get_by_id(&self, id: &str) -> RepositoryResult<LegalHoldEntity>;
+    /// Every unreleased hold.
+    async fn get_active(&self) -> RepositoryResult<Vec<LegalHoldEntity>>;
+    async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<LegalHoldEntity>>;
+    /// Release a hold, recording who released it and why.
+    async fn release(
+        &self,
+        id: &str,
+        released_by: &str,
+        reason: Option<String>,
+    ) -> RepositoryResult<LegalHoldEntity>;
+}
+
+/// An operator's authorisation to execute one specific retention assessment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct RetentionApprovalEntity {
+    pub token: String,
+    /// SHA3-256 over the assessment this token authorises. Re-derived at
+    /// execution; a mismatch means the record set moved and the approval no
+    /// longer describes what would happen.
+    pub assessment_digest: String,
+    pub assessed_on: chrono::NaiveDate,
+    pub due_count: i32,
+    pub requested_by: String,
+    pub requested_at: DateTime<Utc>,
+    pub approved_by: Option<String>,
+    pub approved_at: Option<DateTime<Utc>>,
+    pub executed_by: Option<String>,
+    pub executed_at: Option<DateTime<Utc>>,
+    /// `pending` | `approved` | `executed` | `rejected` | `expired`
+    pub status: String,
+    pub expires_at: DateTime<Utc>,
+    pub rejection_reason: Option<String>,
+}
+
+impl RetentionApprovalEntity {
+    /// Whether this token may still be executed at `now`.
+    pub fn is_executable(&self, now: DateTime<Utc>) -> bool {
+        self.status == "approved" && self.executed_at.is_none() && now < self.expires_at
+    }
+}
+
+/// A POPIA processing restriction: the record is retained, but processing is
+/// limited to storage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct ProcessingRestrictionEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub entity_type: String,
+    pub reason: String,
+    pub policy_id: Option<String>,
+    pub approval_token: Option<String>,
+    pub restricted_by: String,
+    pub restricted_at: DateTime<Utc>,
+    pub lifted_by: Option<String>,
+    pub lifted_at: Option<DateTime<Utc>>,
+    pub lift_reason: Option<String>,
+}
+
+impl ProcessingRestrictionEntity {
+    pub fn is_active(&self) -> bool {
+        self.lifted_at.is_none()
+    }
+}
+
+/// Evidence that a retention decision was carried out.
+///
+/// Deliberately carries no clinical payload — a register that copied a record's
+/// contents to prove the record was disposed of would defeat the disposal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct DeletionRegisterEntity {
+    pub id: String,
+    pub patient_id: String,
+    pub entity_type: String,
+    /// `restricted` today; `deleted`/`de_identified` reserved for destructive
+    /// execution, which is not built.
+    pub action: String,
+    pub policy_id: Option<String>,
+    pub policy_name: Option<String>,
+    /// Why the record was due, in the evaluator's terms.
+    pub basis: String,
+    pub approval_token: Option<String>,
+    pub executed_by: String,
+    pub executed_at: DateTime<Utc>,
+}
+
+/// Retention execution repository.
+///
+/// One trait rather than three because approvals, restrictions, and register
+/// entries are a single aggregate: a restriction without the approval that
+/// authorised it, or a register entry without either, is not a meaningful
+/// record. Keeping them behind one boundary makes it impossible to persist one
+/// without access to the others.
+#[async_trait]
+pub trait RetentionExecutionRepository: Send + Sync + fmt::Debug {
+    async fn create_approval(
+        &self,
+        approval: RetentionApprovalEntity,
+    ) -> RepositoryResult<RetentionApprovalEntity>;
+
+    async fn get_approval(&self, token: &str) -> RepositoryResult<RetentionApprovalEntity>;
+
+    /// Approvals that are still pending or approved, newest first.
+    async fn list_open_approvals(&self) -> RepositoryResult<Vec<RetentionApprovalEntity>>;
+
+    /// Move a `pending` approval to `approved` or `rejected`.
+    async fn decide_approval(
+        &self,
+        token: &str,
+        approved: bool,
+        decided_by: &str,
+        reason: Option<String>,
+    ) -> RepositoryResult<RetentionApprovalEntity>;
+
+    /// Mark an approval executed. Must fail if it was already executed, so a
+    /// replayed request cannot restrict the same records twice.
+    async fn mark_executed(
+        &self,
+        token: &str,
+        executed_by: &str,
+    ) -> RepositoryResult<RetentionApprovalEntity>;
+
+    async fn record_restriction(
+        &self,
+        restriction: ProcessingRestrictionEntity,
+    ) -> RepositoryResult<ProcessingRestrictionEntity>;
+
+    /// Whether this patient currently has any unlifted restriction.
+    async fn is_restricted(&self, patient_id: &str) -> RepositoryResult<bool>;
+
+    async fn list_active_restrictions(&self)
+        -> RepositoryResult<Vec<ProcessingRestrictionEntity>>;
+
+    async fn lift_restriction(
+        &self,
+        id: &str,
+        lifted_by: &str,
+        reason: Option<String>,
+    ) -> RepositoryResult<ProcessingRestrictionEntity>;
+
+    async fn append_register_entry(
+        &self,
+        entry: DeletionRegisterEntity,
+    ) -> RepositoryResult<DeletionRegisterEntity>;
+
+    async fn list_register(&self, limit: i64)
+        -> RepositoryResult<Vec<DeletionRegisterEntity>>;
+}
+
+/// A stored emergency capsule version (Horizon HZ-003).
+///
+/// The plaintext values live only inside `capsule_encrypted`; everything else
+/// on this row is metadata that must be queryable without decrypting.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct EmergencyCapsuleEntity {
+    pub patient_id: String,
+    pub version: i32,
+    /// Hex-encoded SHA3-256 commitment, as published on-chain.
+    pub commitment: String,
+    #[serde(skip_serializing)]
+    pub capsule_encrypted: Vec<u8>,
+    pub key_version: i32,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+    pub revoked_by: Option<String>,
+    pub revocation_reason: Option<String>,
+    pub chain_tx_hash: Option<String>,
+    /// `false` with a hash present means a placeholder, not an anchored
+    /// commitment. See `blockchain::ChainTxResult`.
+    pub chain_finalized: bool,
+}
+
+impl EmergencyCapsuleEntity {
+    /// A capsule is live until explicitly revoked.
+    pub fn is_live(&self) -> bool {
+        self.revoked_at.is_none()
+    }
+}
+
+/// One break-glass read of a capsule.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+pub struct EmergencyCapsuleAccessEntity {
+    pub id: String,
+    pub patient_id: String,
+    /// `None` when no capsule existed to read — still recorded, because a
+    /// failed break-glass attempt is an access attempt.
+    pub capsule_version: Option<i32>,
+    pub accessed_by: String,
+    /// The emergency grant under which the read happened.
+    pub grant_id: Option<String>,
+    pub reason_code: String,
+    pub reason_text: Option<String>,
+    /// Fields actually returned to the caller.
+    pub fields_revealed: Vec<String>,
+    /// Whether the capsule still matched its on-chain commitment at read time.
+    pub commitment_verified: bool,
+    pub accessed_at: DateTime<Utc>,
+}
+
+/// Emergency capsule repository trait.
+///
+/// Capsules are append-only: `put` adds a new version rather than mutating an
+/// existing one, and `revoke` marks a version dead without removing it. There
+/// is deliberately no `update` and no `delete` — an emergency directive's
+/// history is part of the clinical record.
+#[async_trait]
+pub trait EmergencyCapsuleRepository: Send + Sync + fmt::Debug {
+    /// Store a new capsule version.
+    ///
+    /// Must reject a version that is not strictly greater than the newest
+    /// stored version for that patient, mirroring the pallet's own rule.
+    async fn put(
+        &self,
+        capsule: EmergencyCapsuleEntity,
+    ) -> RepositoryResult<EmergencyCapsuleEntity>;
+
+    /// Newest non-revoked capsule for a patient, if any.
+    async fn current(&self, patient_id: &str)
+        -> RepositoryResult<Option<EmergencyCapsuleEntity>>;
+
+    /// Newest version number stored for a patient, revoked or not.
+    ///
+    /// Used to allocate the next version. Counts revoked versions so a revoked
+    /// version number is never reissued.
+    async fn latest_version(&self, patient_id: &str) -> RepositoryResult<i32>;
+
+    /// Every stored version, newest first.
+    async fn history(&self, patient_id: &str) -> RepositoryResult<Vec<EmergencyCapsuleEntity>>;
+
+    /// Mark a version revoked.
+    async fn revoke(
+        &self,
+        patient_id: &str,
+        version: i32,
+        revoked_by: &str,
+        reason: Option<String>,
+    ) -> RepositoryResult<EmergencyCapsuleEntity>;
+
+    /// Record the outcome of the on-chain commitment submission.
+    async fn record_chain_result(
+        &self,
+        patient_id: &str,
+        version: i32,
+        tx_hash: &str,
+        finalized: bool,
+    ) -> RepositoryResult<()>;
+
+    /// Append a break-glass access record.
+    async fn log_access(
+        &self,
+        access: EmergencyCapsuleAccessEntity,
+    ) -> RepositoryResult<EmergencyCapsuleAccessEntity>;
+
+    /// Access history for a patient, newest first.
+    async fn access_history(
+        &self,
+        patient_id: &str,
+        limit: i64,
+    ) -> RepositoryResult<Vec<EmergencyCapsuleAccessEntity>>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A relationship created before consent was split into treatment vs.
+    /// data-processing must keep working — otherwise this change silently
+    /// revokes every existing guardian's ability to consent.
+    #[test]
+    fn deprecated_give_consent_satisfies_both_successor_permissions() {
+        let granted = GuardianPermission::GiveConsent.as_str();
+        assert!(GuardianPermission::ConsentToTreatment.satisfied_by(granted));
+        assert!(GuardianPermission::ConsentToDataProcessing.satisfied_by(granted));
+    }
+
+    /// The reverse must NOT hold: a guardian granted only treatment consent
+    /// must not thereby be able to consent to data processing. Collapsing these
+    /// back together would undo the whole point of splitting them.
+    #[test]
+    fn narrow_consent_permissions_do_not_satisfy_each_other() {
+        assert!(!GuardianPermission::ConsentToDataProcessing
+            .satisfied_by(GuardianPermission::ConsentToTreatment.as_str()));
+        assert!(!GuardianPermission::ConsentToTreatment
+            .satisfied_by(GuardianPermission::ConsentToDataProcessing.as_str()));
+    }
+
+    /// The blanket grant must not widen anything beyond consent.
+    #[test]
+    fn give_consent_does_not_satisfy_unrelated_permissions() {
+        let granted = GuardianPermission::GiveConsent.as_str();
+        assert!(!GuardianPermission::ViewRecords.satisfied_by(granted));
+        assert!(!GuardianPermission::ApproveSurgery.satisfied_by(granted));
+    }
+
+    #[test]
+    fn grants_honours_the_deprecated_permission_through_the_entity() {
+        let relationship = GuardianRelationshipEntity {
+            id: "GR-1".into(),
+            guardian_wallet: "guardian".into(),
+            ward_patient_id: "ward".into(),
+            relationship_type: GuardianRelationshipType::ParentOrGuardian
+                .as_str()
+                .to_string(),
+            permissions: vec![GuardianPermission::GiveConsent.as_str().to_string()],
+            verified_by: "admin".into(),
+            verified_at: Utc::now(),
+            active: true,
+            expires_at: None,
+            revoked_at: None,
+            revoked_reason: None,
+            authority_evidence_type: None,
+            authority_evidence_reference: None,
+            authority_issuing_authority: None,
+            authority_verified_by_role: None,
+            authority_evidence_recorded_at: None,
+            next_reverification_due: None,
+            child_assent_status: None,
+            child_assent_recorded_at: None,
+            child_assent_notes: None,
+            supersedes_relationship_id: None,
+            dispute_flag: false,
+            dispute_notes: None,
+        };
+
+        let now = Utc::now();
+        assert!(relationship.grants(GuardianPermission::ConsentToDataProcessing, now));
+        assert!(relationship.grants(GuardianPermission::ConsentToTreatment, now));
+        assert!(!relationship.grants(GuardianPermission::ViewRecords, now));
+    }
+
+    /// A consent record with a valid basis set passes; garbage is reported
+    /// rather than passed through as if it were a real legal basis.
+    #[test]
+    fn lawful_basis_validation_accepts_valid_and_reports_invalid() {
+        let valid = ConsentRecordEntity {
+            id: "C-1".into(),
+            consent_status: crate::types::ConsentStatus::Granted.as_str().to_string(),
+            consent_given: true,
+            ..Default::default()
+        };
+        assert!(valid.validate_lawful_basis().is_ok());
+
+        let invalid = ConsentRecordEntity {
+            id: "C-2".into(),
+            popia_section_11_basis: "vibes".into(),
+            ..Default::default()
+        };
+        let problems = invalid.validate_lawful_basis().unwrap_err();
+        assert!(problems.iter().any(|p| p.contains("popia_section_11_basis")));
+    }
+
+    /// An emergency basis without a justification is unauditable and must be
+    /// reported even on rows written before that rule was enforced.
+    #[test]
+    fn emergency_basis_without_justification_is_reported() {
+        let record = ConsentRecordEntity {
+            id: "C-3".into(),
+            emergency_basis: crate::types::EmergencyBasis::NhaEmergency
+                .as_str()
+                .to_string(),
+            emergency_justification: None,
+            ..Default::default()
+        };
+        let problems = record.validate_lawful_basis().unwrap_err();
+        assert!(problems.iter().any(|p| p.contains("without a justification")));
+    }
+
+    /// Children's Act §129 capacity depends on a maturity finding. A row
+    /// claiming mature-minor capacity without one is not a valid record, and
+    /// must be visible as such even if it was written before the write path
+    /// enforced it.
+    #[test]
+    fn mature_child_capacity_without_assessment_is_rejected() {
+        let record = ConsentRecordEntity {
+            id: "C-4".into(),
+            consent_giver_capacity: Some("child_over_12_mature".into()),
+            child_maturity_assessment: None,
+            ..Default::default()
+        };
+
+        let problems = record.validate_lawful_basis().unwrap_err();
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("without a maturity assessment")));
+    }
+
+    #[test]
+    fn mature_child_capacity_with_assessment_is_accepted() {
+        let record = ConsentRecordEntity {
+            id: "C-5".into(),
+            consent_giver_capacity: Some("child_over_12_mature".into()),
+            child_maturity_assessment: Some(
+                "14y, understands the procedure, risks and alternatives".into(),
+            ),
+            ..Default::default()
+        };
+
+        assert!(record.validate_lawful_basis().is_ok());
+    }
+
+    /// Whitespace is not an assessment. Without this the required-field check
+    /// is trivially satisfied by a space.
+    #[test]
+    fn blank_maturity_assessment_does_not_satisfy_the_requirement() {
+        let record = ConsentRecordEntity {
+            id: "C-6".into(),
+            consent_giver_capacity: Some("child_over_12_mature".into()),
+            child_maturity_assessment: Some("   ".into()),
+            ..Default::default()
+        };
+
+        assert!(record.validate_lawful_basis().is_err());
+    }
 
     #[test]
     fn test_pagination() {

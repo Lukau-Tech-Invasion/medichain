@@ -101,16 +101,28 @@ impl IdentityContextStore {
         person_id
     }
 
+    /// Issue a patient context for `wallet_address`. `target_patient_id`
+    /// selects which medical identity to enter: `None` looks up the caller's
+    /// own linked patient profile (unchanged, back-compatible behavior);
+    /// `Some(id)` enters that identity directly — the "choose profile" flow
+    /// for a guardian switching into a ward's record. Callers MUST verify
+    /// authorization for `target_patient_id` (self, Admin, or an active
+    /// guardian relationship — see `support::caller_may_access_patient`)
+    /// *before* calling this; it trusts the id it's given.
     pub fn issue_patient_context(
         &self,
         wallet_address: &str,
+        target_patient_id: Option<&str>,
     ) -> Result<LoginContext, &'static str> {
-        let patient_profile_id = self
-            .patient_profiles
-            .read()
-            .ok()
-            .and_then(|profiles| profiles.get(wallet_address).cloned())
-            .ok_or("No patient profile is linked to this identity")?;
+        let patient_profile_id = match target_patient_id {
+            Some(target) => target.to_string(),
+            None => self
+                .patient_profiles
+                .read()
+                .ok()
+                .and_then(|profiles| profiles.get(wallet_address).cloned())
+                .ok_or("No patient profile is linked to this identity")?,
+        };
         self.store_context(LoginContext {
             id: Uuid::new_v4().to_string(),
             person_id: self.person_id_for(wallet_address),
@@ -197,10 +209,21 @@ mod tests {
         let wallet = "5TestIdentityContext";
         store.register_legacy_user(wallet, Some("patient-1"), "Doctor");
         let work = store.issue_work_context(wallet).unwrap();
-        let patient = store.issue_patient_context(wallet).unwrap();
+        let patient = store.issue_patient_context(wallet, None).unwrap();
         assert_eq!(work.context_type, ContextType::Professional);
         assert!(work.patient_profile_id.is_none());
         assert_eq!(patient.context_type, ContextType::Patient);
         assert!(patient.organization_id.is_none());
+    }
+
+    #[test]
+    fn target_patient_id_switches_into_a_wards_identity() {
+        let store = IdentityContextStore::new();
+        let wallet = "5GuardianWallet";
+        store.register_legacy_user(wallet, None, "Patient");
+        let context = store
+            .issue_patient_context(wallet, Some("PAT-ward-123"))
+            .unwrap();
+        assert_eq!(context.patient_profile_id.as_deref(), Some("PAT-ward-123"));
     }
 }

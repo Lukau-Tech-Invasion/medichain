@@ -18,6 +18,21 @@ pub struct GrantBoundEmergencyAccessResponse {
     pub grant_id: String,
     pub expires_at: chrono::DateTime<Utc>,
     pub emergency_info: EmergencyInfo,
+
+    /// Whether the DNR directive should actually be acted on, per the committed
+    /// capsule: true only when a DNR is recorded, verified, and not revoked.
+    ///
+    /// This is deliberately separate from `emergency_info.dnr_status`, which is
+    /// the bare recorded flag. An unverified or revoked directive reads as
+    /// "resuscitate" here, because wrongly withholding resuscitation is not a
+    /// recoverable error. `None` means no capsule was on file to interpret —
+    /// which must not be read as "no DNR", only as "unknown".
+    pub dnr_actionable: Option<bool>,
+
+    /// Whether the off-chain capsule still matched its on-chain commitment.
+    /// `false` means the emergency data is being shown but its integrity could
+    /// not be confirmed.
+    pub commitment_verified: bool,
 }
 
 /// Return the minimum emergency summary only after validating a live work
@@ -158,10 +173,43 @@ pub async fn grant_bound_emergency_access(
         serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
         Utc::now(),
     );
+
+    // HZ-003: record the break-glass disclosure at field granularity, and check
+    // the off-chain capsule against its commitment. The generic audit row above
+    // records that a grant was issued; it cannot answer "which of this
+    // patient's emergency fields were actually shown, and was the copy intact".
+    let verified = crate::emergency_capsule::load_current_verified(&data, &grant.patient_id).await;
+    let (capsule_version, fields_revealed, commitment_verified) = match &verified {
+        Some(v) => (
+            Some(v.version),
+            crate::emergency_capsule::revealed_fields(&v.capsule),
+            v.commitment_verified,
+        ),
+        // No capsule on file. The read still happened and is still logged; an
+        // empty field list is the honest record of what was disclosed from the
+        // capsule store. `commitment_verified` is false because nothing was
+        // verified, not because verification failed.
+        None => (None, Vec::new(), false),
+    };
+    crate::emergency_capsule::log_access(
+        &data,
+        &grant.patient_id,
+        capsule_version,
+        &grant.requesting_person_id,
+        Some(grant.id.clone()),
+        &body.reason_code,
+        body.reason_text.clone(),
+        fields_revealed,
+        commitment_verified,
+    )
+    .await;
+
     HttpResponse::Ok().json(GrantBoundEmergencyAccessResponse {
         grant_id: grant.id,
         expires_at: grant.expires_at,
         emergency_info,
+        dnr_actionable: verified.as_ref().map(|v| v.capsule.dnr_is_actionable()),
+        commitment_verified,
     })
 }
 
@@ -175,4 +223,145 @@ fn emergency_error(
         error: error.into(),
         code: code.into(),
     })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NfcTokenExchangeRequest {
+    pub patient_id: String,
+    pub nfc_hash: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NfcTokenExchangeResponse {
+    pub token: String,
+    pub expires_in_secs: i64,
+}
+
+/// Exchange a tapped NFC card hash for a short-lived signed emergency token
+/// (Horizon HZ-001).
+///
+/// `nfc_hash` (the card's `tag_uid`) never rotates for the card's lifetime, so
+/// accepting it directly as a PHI-release credential meant a value captured
+/// once (e.g. via a proxy/access log, since it travelled as a URL query
+/// parameter) could be replayed indefinitely. This endpoint keeps the "tap a
+/// card, get emergency data fast" flow intact — no login required, matching
+/// the reduced-auth posture of the emergency path — while the actual
+/// PHI-releasing endpoints (`get_emergency_medical_id`, `get_lockscreen_medical_id`)
+/// now only accept the exchanged, time-boxed `token`.
+#[post("/api/emergency/nfc-token")]
+pub async fn exchange_nfc_hash_for_token(
+    data: web::Data<AppState>,
+    body: web::Json<NfcTokenExchangeRequest>,
+) -> impl Responder {
+    if body.nfc_hash.trim().is_empty() {
+        return emergency_error(
+            HttpResponse::BadRequest(),
+            "nfc_hash is required",
+            "MISSING_NFC_HASH",
+        );
+    }
+
+    let tags = match data
+        .repositories
+        .nfc_tags
+        .get_by_patient(&body.patient_id)
+        .await
+    {
+        Ok(tags) => tags,
+        Err(_) => {
+            return emergency_error(
+                HttpResponse::Unauthorized(),
+                "Emergency access requires a matching NFC card hash",
+                "EMERGENCY_ACCESS_DENIED",
+            )
+        }
+    };
+
+    if !crate::clinical_endpoints::emergency_access::nfc_hash_matches(&body.nfc_hash, &tags) {
+        return emergency_error(
+            HttpResponse::Unauthorized(),
+            "Emergency access requires a matching NFC card hash",
+            "EMERGENCY_ACCESS_DENIED",
+        );
+    }
+
+    let token = crate::clinical_endpoints::emergency_access::issue_emergency_token(
+        &body.patient_id,
+        crate::clinical_endpoints::emergency_access::NFC_EXCHANGE_TOKEN_TTL_SECS,
+    );
+
+    HttpResponse::Ok().json(NfcTokenExchangeResponse {
+        token,
+        expires_in_secs: crate::clinical_endpoints::emergency_access::NFC_EXCHANGE_TOKEN_TTL_SECS,
+    })
+}
+
+#[cfg(test)]
+mod hz_001_exchange_tests {
+    use super::*;
+    use actix_web::test;
+
+    async fn seed_tag(state: &AppState, patient_id: &str, tag_uid: &str) {
+        state
+            .repositories
+            .nfc_tags
+            .create(crate::repositories::traits::NfcTagEntity {
+                id: "tag-1".to_string(),
+                tag_uid: tag_uid.to_string(),
+                patient_id: patient_id.to_string(),
+                tag_type: "emergency".to_string(),
+                is_active: true,
+                pin_hash: None,
+                issued_at: Utc::now(),
+                expires_at: None,
+                last_used_at: None,
+                use_count: 0,
+                issued_by: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[actix_web::test]
+    async fn matching_hash_yields_a_verifiable_token() {
+        let state = AppState::new();
+        seed_tag(&state, "PAT-EX-1", "correct-hash").await;
+        let app_state = web::Data::new(state);
+        let app = actix_web::App::new()
+            .app_data(app_state.clone())
+            .service(exchange_nfc_hash_for_token);
+        let app = test::init_service(app).await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/emergency/nfc-token")
+            .set_json(serde_json::json!({"patient_id": "PAT-EX-1", "nfc_hash": "correct-hash"}))
+            .to_request();
+        let resp: NfcTokenExchangeResponse = test::call_and_read_body_json(&app, req).await;
+
+        assert!(
+            crate::clinical_endpoints::emergency_access::verify_emergency_token(
+                &resp.token,
+                "PAT-EX-1"
+            ),
+            "the issued token must verify for the patient it was issued for"
+        );
+    }
+
+    #[actix_web::test]
+    async fn mismatched_hash_is_rejected() {
+        let state = AppState::new();
+        seed_tag(&state, "PAT-EX-2", "correct-hash").await;
+        let app_state = web::Data::new(state);
+        let app = actix_web::App::new()
+            .app_data(app_state.clone())
+            .service(exchange_nfc_hash_for_token);
+        let app = test::init_service(app).await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/emergency/nfc-token")
+            .set_json(serde_json::json!({"patient_id": "PAT-EX-2", "nfc_hash": "wrong-hash"}))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
 }

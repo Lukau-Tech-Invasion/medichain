@@ -4,6 +4,7 @@
 
 pub mod user;
 
-// Re-export commonly used types
-#[allow(unused_imports)]
-pub use user::{DbSession, DbUser, DbUserProfile, UserResponse};
+// Re-export commonly used types. `DbUserProfile` is intentionally not
+// re-exported here — its only consumer (`handlers::auth_challenge`) reaches
+// it via the fully-qualified `crate::models::user::DbUserProfile` path.
+pub use user::DbUser;

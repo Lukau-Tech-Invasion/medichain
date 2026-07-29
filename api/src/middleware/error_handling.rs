@@ -3,7 +3,7 @@
 //! Provides consistent error handling patterns to replace `.unwrap()` calls
 //! and improve API stability.
 //!
-//! © 2025-2026 Trustware. All rights reserved.
+//! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 /// Common error codes
 #[allow(dead_code)]

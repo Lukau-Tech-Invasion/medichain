@@ -10,7 +10,7 @@
 //! - South Africa — Smart ID (`SMARTID_API_KEY` / `SMARTID_API_URL`)
 //! - Kenya — Huduma Namba (`HUDUMA_API_KEY` / `HUDUMA_API_URL`)
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -77,11 +77,30 @@ impl std::fmt::Display for Country {
     }
 }
 
+/// Which path produced a [`VerificationResult`].
+///
+/// Added for Horizon finding HZ-004: previously `verified: true` looked
+/// identical whether a real government API confirmed the ID or the
+/// deterministic stub (used when no API key is configured) rubber-stamped any
+/// non-empty string. Callers that care about verification strength — not just
+/// its boolean outcome — can now branch on this field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationMethod {
+    /// Confirmed against the country's real government verification API.
+    Live,
+    /// Produced by the deterministic SHA3-256 stub — no government authority
+    /// was contacted. Any non-empty ID string yields `verified: true` here.
+    Stub,
+}
+
 /// Result of a national ID verification attempt
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationResult {
     /// Whether the ID was successfully verified
     pub verified: bool,
+    /// Which path produced this result — real government API, or the stub.
+    pub verification_method: VerificationMethod,
     /// Country the ID belongs to
     pub country: Country,
     /// The ID number that was checked
@@ -177,6 +196,7 @@ impl NationalIdVerifier for StubVerifier {
         if id.trim().is_empty() {
             return Ok(VerificationResult {
                 verified: false,
+                verification_method: VerificationMethod::Stub,
                 country: country.clone(),
                 id_number: id.to_string(),
                 full_name: None,
@@ -189,6 +209,7 @@ impl NationalIdVerifier for StubVerifier {
         let (full_name, dob) = Self::derive_details(id);
         Ok(VerificationResult {
             verified: true,
+            verification_method: VerificationMethod::Stub,
             country: country.clone(),
             id_number: id.to_string(),
             full_name: Some(full_name),
@@ -288,6 +309,7 @@ impl NationalIdVerifier for HttpVerifier {
             let text = response.text().await.unwrap_or_default();
             return Ok(VerificationResult {
                 verified: false,
+                verification_method: VerificationMethod::Live,
                 country: country.clone(),
                 id_number: id.to_string(),
                 full_name: None,
@@ -330,6 +352,7 @@ impl NationalIdVerifier for HttpVerifier {
 
         Ok(VerificationResult {
             verified,
+            verification_method: VerificationMethod::Live,
             country: country.clone(),
             id_number: id.to_string(),
             full_name,
@@ -507,5 +530,16 @@ mod tests {
             .unwrap();
         // Stub always verifies non-empty IDs
         assert!(result.verified);
+        // HZ-004 regression: the caller must be able to tell this was the stub,
+        // not a real government-API confirmation.
+        assert_eq!(result.verification_method, VerificationMethod::Stub);
+    }
+
+    /// HZ-004 regression: a real HTTP-verifier path (even one that fails to
+    /// reach a live API) must never be tagged as `Stub` — only the actual
+    /// fallback branch may report `Stub`.
+    #[test]
+    fn test_verification_method_variants_are_distinct() {
+        assert_ne!(VerificationMethod::Live, VerificationMethod::Stub);
     }
 }

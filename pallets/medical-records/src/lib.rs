@@ -87,8 +87,29 @@ pub mod pallet {
     pub struct HealthRecord<T: Config> {
         /// Patient account
         pub patient: T::AccountId,
-        /// Blood type
-        pub blood_type: BloodType,
+        /// Commitment to the patient's off-chain emergency capsule (blood type,
+        /// organ-donor status, DNR status).
+        ///
+        /// **This replaced a plaintext `blood_type: BloodType` field**
+        /// (Horizon HZ-003). A POPIA legal review on 2026-07-28 found the
+        /// plaintext design unsound for real patient data: publishing health
+        /// information permanently on an immutable ledger cannot satisfy the
+        /// correction, deletion, and retention-limitation duties POPIA imposes,
+        /// and pseudonymity does not cure it — the Information Regulator's
+        /// de-identification standard asks whether data can be re-linked by a
+        /// "reasonably foreseeable method", and an `AccountId` correlated to a
+        /// real identity is exactly that.
+        ///
+        /// The emergency-read requirement that motivated the original design is
+        /// unaffected: the paramedic path reads the capsule from off-chain
+        /// storage (never from chain — it never did), and this commitment lets
+        /// that copy be verified as untampered. See
+        /// `api/src/emergency_capsule.rs` and
+        /// `docs/PRODUCTION_READINESS_GATES.md` §1.
+        pub emergency_capsule_commitment: [u8; 32],
+        /// Version of the committed capsule, so a stale off-chain copy is
+        /// distinguishable from a tampered one.
+        pub emergency_capsule_version: u32,
         /// IPFS hash of encrypted full record
         pub ipfs_hash: BoundedVec<u8, ConstU32<MAX_IPFS_HASH_LENGTH>>,
         /// Medical alerts (allergies, conditions)
@@ -139,6 +160,13 @@ pub mod pallet {
             new_hash: BoundedVec<u8, ConstU32<MAX_IPFS_HASH_LENGTH>>,
             updated_by: T::AccountId,
         },
+        /// Emergency capsule commitment published [patient, version, updated_by].
+        /// Carries only the version, never the capsule contents.
+        EmergencyCapsuleCommitmentUpdated {
+            patient: T::AccountId,
+            version: u32,
+            updated_by: T::AccountId,
+        },
     }
 
     #[pallet::error]
@@ -155,6 +183,8 @@ pub mod pallet {
         NotHealthcareProvider,
         /// Invalid severity level
         InvalidSeverity,
+        /// Capsule commitment version is not newer than the stored one
+        StaleCapsuleVersion,
     }
 
     #[pallet::call]
@@ -166,7 +196,8 @@ pub mod pallet {
         ///
         /// # Arguments
         /// * `patient` - Patient account to create record for
-        /// * `blood_type` - Patient's blood type
+        /// * `emergency_capsule_commitment` - Commitment to the off-chain
+        ///   emergency capsule. Pass `[0u8; 32]` when no capsule exists yet.
         /// * `ipfs_hash` - IPFS hash of encrypted full record
         ///
         /// # Errors
@@ -178,7 +209,7 @@ pub mod pallet {
         pub fn create_health_record(
             origin: OriginFor<T>,
             patient: T::AccountId,
-            blood_type: BloodType,
+            emergency_capsule_commitment: [u8; 32],
             ipfs_hash: Vec<u8>,
         ) -> DispatchResult {
             let provider = ensure_signed(origin)?;
@@ -202,7 +233,10 @@ pub mod pallet {
 
             let record = HealthRecord {
                 patient: patient.clone(),
-                blood_type,
+                emergency_capsule_commitment,
+                // Version 0 means "no capsule committed yet"; the first real
+                // commitment via `set_emergency_capsule_commitment` starts at 1.
+                emergency_capsule_version: 0,
                 ipfs_hash: bounded_hash.clone(),
                 alerts: BoundedVec::default(),
                 created_at: current_block,
@@ -324,6 +358,69 @@ pub mod pallet {
                 Self::deposit_event(Event::IpfsHashUpdated {
                     patient: patient.clone(),
                     new_hash: bounded_hash,
+                    updated_by: provider,
+                });
+
+                Ok(())
+            })
+        }
+
+        /// Publish a new commitment to the patient's off-chain emergency
+        /// capsule (blood type, organ-donor status, DNR status).
+        ///
+        /// Replaces the previous design where those values were written to
+        /// chain in the clear (Horizon HZ-003). Only the commitment goes
+        /// on-chain; the capsule itself stays in controlled off-chain storage
+        /// where it can be corrected and deleted, which POPIA requires and an
+        /// immutable ledger cannot offer.
+        ///
+        /// # Arguments
+        /// * `patient` - Patient account
+        /// * `commitment` - 32-byte commitment to the capsule contents
+        /// * `version` - Monotonically increasing capsule version
+        ///
+        /// # Errors
+        /// * `NotHealthcareProvider` - Caller is not authorized
+        /// * `RecordNotFound` - No health record for patient
+        /// * `StaleCapsuleVersion` - `version` is not newer than the stored one
+        #[pallet::call_index(3)]
+        #[pallet::weight(<T as crate::pallet::Config>::WeightInfo::update_ipfs_hash())]
+        pub fn set_emergency_capsule_commitment(
+            origin: OriginFor<T>,
+            patient: T::AccountId,
+            commitment: [u8; 32],
+            version: u32,
+        ) -> DispatchResult {
+            let provider = ensure_signed(origin)?;
+
+            // Unlike the self-service `set_organ_donor_status`/`set_dnr_status`
+            // extrinsics this replaces, publishing a capsule commitment is
+            // provider-gated: the commitment must correspond to a capsule the
+            // clinical system actually holds, so an arbitrary signed account
+            // must not be able to overwrite it.
+            ensure!(
+                pallet_access_control::Pallet::<T>::can_edit_medical_records(&provider),
+                Error::<T>::NotHealthcareProvider
+            );
+
+            HealthRecords::<T>::try_mutate(&patient, |maybe_record| -> DispatchResult {
+                let record = maybe_record.as_mut().ok_or(Error::<T>::RecordNotFound)?;
+
+                // Strictly increasing: replaying an older commitment would
+                // otherwise let a superseded capsule be presented as current.
+                ensure!(
+                    version > record.emergency_capsule_version,
+                    Error::<T>::StaleCapsuleVersion
+                );
+
+                record.emergency_capsule_commitment = commitment;
+                record.emergency_capsule_version = version;
+                record.updated_at = <frame_system::Pallet<T>>::block_number();
+                record.last_modified_by = provider.clone();
+
+                Self::deposit_event(Event::EmergencyCapsuleCommitmentUpdated {
+                    patient: patient.clone(),
+                    version,
                     updated_by: provider,
                 });
 

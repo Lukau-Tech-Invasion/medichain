@@ -7,7 +7,7 @@
 //! - Glasgow Coma Scale (GCS) with automatic scoring
 //! - Vital Signs Flowsheet with time-series tracking
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 // Allow medical acronyms to be in uppercase (medical standard naming)
 #![allow(clippy::upper_case_acronyms)]
