@@ -14,16 +14,89 @@ feature-depth = 1
 # ---------------------------------------------------------------------------
 # Security advisories (RustSec) — fail the build on known vulnerabilities.
 # ---------------------------------------------------------------------------
+#
+# Horizon HZ-011: this list was previously empty with CI running report-only,
+# meaning no advisory had actually been individually reviewed. Each entry below
+# was checked for reachability (is the flagged code path something MediChain
+# actually exercises) before being added — see the reasoning per entry.
+#
+# CI still runs this in report-only mode (`.github/workflows/ci.yml`) — that
+# is a deliberate, NOT-yet-made decision, not an oversight. Flip it once the
+# remaining reachable advisories are resolved or explicitly risk-accepted —
+# that is the owner's call, not something to change silently inside a
+# remediation pass.
+#
+# Status 2026-07-29: was 5 reachable open advisories, now 4.
+#   * RUSTSEC-2024-0363 (sqlx) is RESOLVED — sqlx upgraded 0.7.4 -> 0.8.6.
+#     The upgrade was expected to carry "real API-surface risk across
+#     repositories/postgres/"; in the event it needed zero source changes and
+#     all 302 binary tests passed unchanged.
+#   * The 4 rustls-webpki advisories remain. Re-checked on 2026-07-29 by
+#     running `cargo update` against all three versions in the tree
+#     (0.101.7 / 0.102.8 / 0.103.13): no newer semver-compatible release
+#     exists, so there is still nothing to upgrade to. The older two lines are
+#     transitive pull-ins behind older `rustls` majors, not direct deps.
 [advisories]
 version = 2
-# NOTE: the substrate/subxt dependency tree pulls in several upstream-flagged
-# advisories (unmaintained crates such as `instant`, `paste`, `parity-wasm`,
-# `proc-macro-error`, and older transitive CVEs) that this project cannot fix
-# directly. CI runs the advisories check in report-only mode until this list is
-# curated with the specific RUSTSEC IDs + justification. Add IDs here as they
-# are reviewed, e.g.:
-#   ignore = ["RUSTSEC-2024-XXXX"]
-ignore = []
+ignore = [
+    # Deprecated by author; pulled in transitively via the substrate/frame
+    # WASM-execution stack. MediChain's Substrate node (`node/`) is a stub —
+    # no pallet WASM is actually compiled or executed by this codebase today.
+    "RUSTSEC-2022-0061", # parity-wasm
+
+    # proc-macro-only crates: no runtime attack surface, nothing to reach.
+    "RUSTSEC-2024-0370", # proc-macro-error
+    "RUSTSEC-2024-0436", # paste
+
+    # `instant` (cross-platform monotonic time shim): unmaintained notice only,
+    # no known vulnerability; no fixed successor changes its transitive pull-in
+    # (parking_lot / substrate stack).
+    "RUSTSEC-2024-0384",
+
+    # protobuf's uncontrolled-recursion advisory is a *decoding* (parse) issue.
+    # The only consumer in this tree is `prometheus`, which uses protobuf to
+    # *serialize* MediChain's own metrics for the `/api/metrics` scrape
+    # endpoint — MediChain never decodes attacker-supplied protobuf bytes.
+    "RUSTSEC-2024-0437",
+
+    # rustls-pemfile parses PEM files only at startup/config load, from
+    # operator-controlled certificate/key files — not attacker-reachable at
+    # request time.
+    "RUSTSEC-2025-0134",
+
+    # libsecp256k1 is pulled in generically by sp-core's multi-curve support.
+    # MediChain's signing exclusively uses sr25519 (Schnorrkel) — no code path
+    # in this codebase constructs or verifies a secp256k1 key/signature.
+    "RUSTSEC-2025-0161",
+
+    # lopdf's stack-overflow advisory requires *parsing* a maliciously deeply
+    # nested PDF. `api/src/pdf.rs` only calls `PdfDocument::new(...)` to
+    # generate PDFs (via `printpdf`) — this codebase never loads/parses an
+    # externally supplied PDF file.
+    "RUSTSEC-2026-0187",
+
+    # ttf-parser (unmaintained, no CVE): only parses bundled, trusted font
+    # files for PDF/QR rendering — never a user-uploaded font.
+    "RUSTSEC-2026-0192",
+
+    # --- Reviewed but NOT ignored — reachable, no safe fix landed yet ---
+    # These remain intentionally absent from this list. Once CI is switched to
+    # blocking mode (see the header comment above), leaving them unignored is
+    # what makes them fail the build — that is deliberate: silencing a
+    # reachable, unfixed advisory would defeat the point of this gate. See the
+    # decision log / HZ-011 finding for the owner-facing writeup:
+    #   RUSTSEC-2024-0363 (sqlx) — RESOLVED 2026-07-29 by upgrading to
+    #     sqlx 0.8.6. Kept listed here only so the history is legible; it is
+    #     no longer an open item.
+    #   RUSTSEC-2026-0049, 0098, 0099, 0104 (rustls-webpki CRL / name-
+    #     constraint issues) — reachable via every outbound HTTPS call
+    #     (IPFS, national-ID APIs, SMS/notifications, blockchain node,
+    #     telehealth), but exploitation requires a malicious/compromised CA or
+    #     a MITM presenting a certificate crafted to the specific edge case
+    #     each advisory describes. No fixed release available via `cargo
+    #     update` at review time. Re-run `cargo deny check advisories`
+    #     periodically until upstream ships a fix.
+]
 
 # ---------------------------------------------------------------------------
 # License compliance — only permissive / health-data-safe licenses allowed.
