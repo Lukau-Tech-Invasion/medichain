@@ -156,14 +156,23 @@ graph LR
     LB --> RP
 ```
 
-**Known structural weakness.** Authentication is centralised in middleware;
-**authorization is not**. Role and ownership checks are re-implemented per
-handler across 386 handlers, which is the root cause behind an authorization
-finding in the internal assessment. An `AuthorizedUser` extractor exists and
-makes it hard to *forget* authentication for new code, but a single authorization
-chokepoint has not been retrofitted across the existing surface. This is the
-largest outstanding architectural debt and is recorded as such rather than
-smoothed over.
+**Structural note — authorization is per-handler.** Authentication is
+centralised in middleware; role and ownership checks are made in each handler.
+Live testing during the internal assessment confirmed those checks hold:
+cross-patient IDOR attempts against patient records and vitals returned 403, and
+of the 386 handlers, every one authenticates, authorizes, or is a justified
+public route. A static scan initially suggested dozens were "open"; probing the
+running server with no credentials reduced that to one real bug
+(`simulate-nfc-tap`, since fixed and demo-gated — HZ-019) plus one open compute
+endpoint (`translate`, since gated).
+
+So the per-handler pattern is not a present vulnerability. Its weakness is
+maintainability: without a single chokepoint, a *new* handler can forget to
+check. That gap is closed at build time by `scripts/check-endpoint-auth.py`,
+wired into CI as a hard gate — a new handler with no auth decision, and not on
+the justified allowlist, fails the build. A runtime chokepoint refactor across
+all 386 handlers remains a possible future hardening, but the enforceable
+invariant now exists without it.
 
 ---
 

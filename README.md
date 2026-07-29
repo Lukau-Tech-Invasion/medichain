@@ -112,8 +112,14 @@ commands in [docs/architecture.md](docs/architecture.md#verifying-these-numbers)
 - **Irreversible deletion is not implemented** — retention restricts and
   registers, which is reversible on purpose while retention periods await legal
   confirmation.
-- **Authorization is not enforced at a single chokepoint.** Authentication is
-  centralised; role and ownership checks are still per-handler across 386 routes.
+- **Authorization is per-handler, not at a single runtime chokepoint.**
+  Authentication is centralised in middleware; role and ownership checks live in
+  each handler. Live testing confirms the checks hold — cross-patient access
+  attempts return 403, and every one of the 386 handlers authenticates,
+  authorizes, or is a justified public route (enforced in CI by
+  `scripts/check-endpoint-auth.py`). The residual risk is maintainability, not a
+  present hole: a future handler could forget, which is exactly what the CI gate
+  now catches.
 - **49 integration/e2e tests do not run** — `tests/*.rs` belongs to no workspace
   member, so it is never compiled. Tracked in
   [docs/TECHNICAL_DEBT_REGISTER.md](docs/TECHNICAL_DEBT_REGISTER.md).
