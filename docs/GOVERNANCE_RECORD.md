@@ -28,19 +28,32 @@ Regulator before formally taking up POPIA duties**.
 
 ```json
 {
-  "organisation": "TO BE COMPLETED — legal entity operating MediChain",
-  "registration_number": "TO BE COMPLETED — company registration number",
+  "organisation": "Lukau Invasion (Pty) Ltd",
+  "jurisdiction": "Republic of South Africa",
+  "registration_number": "2026/600804/07",
+  "registered_with": "Companies and Intellectual Property Commission (CIPC)",
+  "registered_on": "2026-07-29",
+  "entity_type": "Private company (Pty) Ltd — single director, single shareholder",
   "information_officer": {
-    "name": "TO BE COMPLETED — named natural person",
-    "role": "Chief Executive Officer / Information Officer",
-    "business_email": "TO BE COMPLETED",
-    "appointed_at": "TO BE COMPLETED — YYYY-MM-DD",
+    "name": "Rakau Keorapetswe Lucas Kgoatlha",
+    "role": "Director / Head of the body — Information Officer by operation of law",
+    "business_email": "kkgawatlh9@gmail.com",
+    "appointed_at": "NOT YET FORMALLY APPOINTED",
     "regulator_registration_status": "not_started",
-    "registration_evidence_location": "TO BE COMPLETED — restricted store reference"
+    "registration_evidence_location": "none — nothing to evidence yet"
   },
   "deputy_information_officers": []
 }
 ```
+
+**Status: the legal entity now exists; the Information Officer appointment does
+not.** Under the POPIA/PAIA framework the head of a private body is ordinarily
+the Information Officer, so the role falls to the sole director by default — but
+"falls to by default" is not the same as appointed and registered. The officer
+must be **registered with the Information Regulator** before formally taking up
+POPIA duties, and that registration has not been made.
+
+Treat this item as **unfulfilled** until the registration evidence exists.
 
 ### Where the appointment must also be recorded
 
@@ -52,9 +65,11 @@ Regulator before formally taking up POPIA duties**.
 - [ ] Processing-activity register
 - [ ] This governance record (pointer only, no identifying details)
 
-**Note on scope:** MediChain currently has no legal entity recorded anywhere in
-this repository. Appointing an Information Officer presupposes one. That is the
-first blocking step, and it is a company-formation task, not an engineering one.
+**Note on scope (updated 2026-07-30):** the first blocking step — incorporation —
+is now done. Lukau Invasion (Pty) Ltd was registered on 29 July 2026. What remains
+is the appointment itself and registration with the Information Regulator, plus
+recording it in the PAIA manual, the privacy notice, and the processing-activity
+register. None of that is an engineering task.
 
 ---
 

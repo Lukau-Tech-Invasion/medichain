@@ -241,8 +241,14 @@ Documentation index: **[docs/README.md](docs/README.md)**.
 
 ## Contact
 
-**Keorapetswe Kgoatlha** — Founder & Engineer
+**Rakau Keorapetswe Lucas Kgoatlha** — Founder & Engineer
 kkgawatlh9@gmail.com
+Soweto, Johannesburg, South Africa
+
+Built and operated by **Lukau Invasion (Pty) Ltd**, a private company registered
+with the South African Companies and Intellectual Property Commission (CIPC) on
+29 July 2026, registration number **2026/600804/07**.
+
 [github.com/Lukau-Tech-Invasion/medichain](https://github.com/Lukau-Tech-Invasion/medichain)
 
 ---
