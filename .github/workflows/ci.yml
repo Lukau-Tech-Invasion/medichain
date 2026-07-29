@@ -90,17 +90,33 @@ jobs:
                   command: check
                   command-arguments: bans sources
 
-            # Report-only for now: the substrate/subxt transitive tree carries
-            # several upstream-flagged advisories (unmaintained crates, older
-            # CVEs) and licenses we don't directly control. Surface them in logs
-            # without failing the build until the deny.toml ignore-list/license
-            # exceptions are curated (tracked follow-up).
-            - name: cargo-deny (advisories + licenses, report-only)
+            # Advisories: curated (Horizon HZ-011) — every RUSTSEC ID in the
+            # dependency tree has been individually reviewed for reachability;
+            # see deny.toml's [advisories] section for the reasoning per ID.
+            # Still report-only: 5 reachable advisories (sqlx, 4x
+            # rustls-webpki) remain genuinely open with no safe fix available,
+            # so flipping to blocking now would fail every future PR on
+            # pre-existing issues rather than ones it introduces. Flip
+            # `continue-on-error` to `false` once those are resolved or
+            # explicitly risk-accepted.
+            - name: cargo-deny (advisories, report-only pending sqlx/webpki fixes)
               uses: EmbarkStudios/cargo-deny-action@v2
               continue-on-error: true
               with:
                   command: check
-                  command-arguments: advisories licenses
+                  command-arguments: advisories
+
+            # Licenses: NOT part of the HZ-011 advisories review — separate,
+            # still-unaddressed issues (deprecated SPDX identifiers on the
+            # subxt crates, an unmatched Unicode-DFS-2016 allowance). Kept
+            # report-only and split from advisories so resolving one doesn't
+            # block on the other.
+            - name: cargo-deny (licenses, report-only)
+              uses: EmbarkStudios/cargo-deny-action@v2
+              continue-on-error: true
+              with:
+                  command: check
+                  command-arguments: licenses
 
             # Generate a CycloneDX Software Bill of Materials for compliance.
             - name: Install cargo-cyclonedx

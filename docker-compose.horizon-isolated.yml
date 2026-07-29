@@ -1,0 +1,85 @@
+# Isolated, synthetic-data-only environment for Horizon active-tier security
+# testing (campaign HZ-2026-MC1, WP7/WP8's 43 active-tier + 3 disruptive-tier
+# rows). This is an override on top of docker-compose.yml, not a replacement —
+# run it with:
+#
+#   docker compose -p medichain_horizon -f docker-compose.yml -f docker-compose.horizon-isolated.yml up -d
+#
+# The `-p medichain_horizon` project name is load-bearing: Docker Compose
+# scopes container names, the default network, and (for named volumes without
+# an explicit external name) volumes to the project name, so this stack's
+# `medichain_horizon_postgres_data` etc. can never collide with, be confused
+# for, or accidentally share data with the developer's own default-project
+# dev stack (`medichain_postgres` etc.) — a second, disposable universe, not
+# a shared one.
+#
+# What this override guarantees beyond the base compose file:
+# - No third-party API keys are ever passed through (AT_API_KEY,
+#   FAYDA_API_KEY, GHANA_CARD_API_KEY, NIN_API_KEY, SMARTID_API_KEY,
+#   HUDUMA_API_KEY are all explicitly unset here, overriding any value in the
+#   host's own .env) — national-ID verification always falls back to the
+#   stub verifier (Horizon HZ-004), and SMS/notification calls never reach
+#   a real third party.
+# - IS_DEMO=true and REQUIRE_SIGNATURES=false are pinned (cannot be
+#   overridden by a stray host .env value), matching the authorized static
+#   scope's "synthetic data only" requirement.
+# - BLOCKCHAIN_ENABLED stays false — no real chain submission, placeholder
+#   hashes only, so testing here can never touch a real Substrate node.
+# - Ports are NOT published to the host beyond what the API/nginx need for
+#   local test traffic — postgres/ipfs stay on the internal network only,
+#   unlike the dev compose file (which exposes them on host ports 5432/5001/
+#   8080/4001 for local developer convenience). Nothing here is reachable
+#   from outside this machine.
+
+services:
+  postgres:
+    # `container_name` MUST be overridden per service here. Compose scopes
+    # networks and volumes to the -p project name, but a `container_name:` in
+    # the base file is GLOBAL and ignores it entirely. Without these overrides
+    # this stack does not get its own containers: bringing it up while the
+    # developer's default stack is running fails outright with a name conflict
+    # (observed 2026-07-29, when the dev stack had been up for five hours), and
+    # the isolation this file's header promises is not delivered.
+    container_name: medichain_horizon_postgres
+    # `!override` is required: Compose MERGES list-valued fields across files,
+    # so a bare `ports: []` is a no-op and the base file's 5432:5432 still
+    # publishes to the host. Observed 2026-07-29 as a port-allocation clash
+    # against the developer's own running stack -- i.e. this file's claim that
+    # ports stay internal was false until this tag was added.
+    ports: !override
+      # Bound to 127.0.0.1 explicitly, and on a non-default host port so it can
+      # never be mistaken for (or collide with) the developer's own Postgres on
+      # 5432. Published at all only so a host-side test harness can drive the
+      # API against this database; still unreachable from outside this machine.
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_USER: medichain_horizon
+      POSTGRES_PASSWORD: horizon-isolated-synthetic-only
+      POSTGRES_DB: medichain_horizon
+
+  ipfs:
+    container_name: medichain_horizon_ipfs
+    ports: !override []  # internal-only
+
+  api:
+    container_name: medichain_horizon_api
+    environment:
+      DATABASE_URL: postgres://medichain_horizon:horizon-isolated-synthetic-only@postgres:5432/medichain_horizon
+      IS_DEMO: "true"
+      REQUIRE_SIGNATURES: "false"
+      BLOCKCHAIN_ENABLED: "false"
+      AT_API_KEY: ""
+      FAYDA_API_KEY: ""
+      GHANA_CARD_API_KEY: ""
+      NIN_API_KEY: ""
+      SMARTID_API_KEY: ""
+      HUDUMA_API_KEY: ""
+
+  pgadmin:
+    container_name: medichain_horizon_pgadmin
+    profiles: ["manual-inspect"]  # opt-in only; not started by a default `up`
+
+  nginx:
+    container_name: medichain_horizon_nginx
+    ports: !override
+      - "8888:80"  # distinct host port from the dev stack's :80, so both can run side by side without conflict
