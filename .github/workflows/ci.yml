@@ -15,6 +15,31 @@ env:
 
 jobs:
     # ============================================================================
+    # Endpoint authorization gate (Horizon HZ-010 / HZ-019)
+    # ----------------------------------------------------------------------------
+    # MediChain authorizes per handler rather than at a runtime chokepoint. That
+    # works, but a NEW handler can silently forget to check. This gate makes the
+    # invariant enforceable: every HTTP handler must authenticate, authorize, or
+    # be a justified entry in the script's public/delegated allowlists. A hard
+    # gate on purpose — a new unprotected endpoint should fail the build, not a
+    # review.
+    # ============================================================================
+    endpoint-auth:
+        name: Endpoint authorization gate
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.12'
+
+            - name: Every endpoint has an auth decision
+              run: python scripts/check-endpoint-auth.py
+
+    # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================
     rust:

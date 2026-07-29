@@ -137,10 +137,23 @@ pub async fn get_language_preference(
 /// request body (no patient/user data read or written), so `not_applicable`.
 #[post("/api/platform/translate")]
 pub async fn translate_content(
-    _data: web::Data<crate::AppState>,
-    _http_req: HttpRequest,
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
     req: web::Json<TranslateContentRequest>,
 ) -> impl Responder {
+    // HZ-019: require a known authenticated caller. This is an unauthenticated
+    // compute endpoint that echoes submitted content; in production it would
+    // proxy an LLM/translation API, so leaving it open invites resource abuse
+    // by anyone. It handles no stored data, so authentication (not per-resource
+    // authorization) is the appropriate control.
+    let caller = match require_x_user_id_header(&http_req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    if let Err(resp) = require_known_user(&data, &caller) {
+        return resp;
+    }
+
     // In production, this would call an LLM or translation API
     let translated = format!("[TRANSLATED to {}]: {}", req.target_language, req.content);
 
