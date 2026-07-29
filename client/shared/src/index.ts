@@ -4,7 +4,7 @@
  * Blockchain-based health ID system shared library.
  * All authentication is wallet-based using Substrate addresses.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 // Configuration

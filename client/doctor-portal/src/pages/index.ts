@@ -1,5 +1,5 @@
 // Page component exports for MediChain Doctor Portal
-// © 2025 Trustware. All rights reserved.
+// © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 // Authentication & Core
 export { default as LoginPage } from './LoginPage';

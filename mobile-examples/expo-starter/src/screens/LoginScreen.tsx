@@ -1,7 +1,7 @@
 /**
  * Wallet login screen (Phase 8.3).
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 import React, { useState } from 'react';

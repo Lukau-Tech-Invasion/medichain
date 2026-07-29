@@ -109,7 +109,7 @@ interface MedicalIdData {
  * Apple Health-style Medical ID that can be shown on lock screen.
  * Critical information for first responders.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MedicalIdPage() {
   const navigate = useNavigate();

@@ -50,6 +50,6 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "author": "Trustware",
+  "author": "Lukau Invasion (Pty) Ltd",
   "license": "Apache-2.0"
 }

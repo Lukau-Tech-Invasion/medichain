@@ -60,7 +60,7 @@ const DEMO_PATIENTS: DemoPatient[] = [
  * Wallet-based authentication for patients to access their medical records.
  * Supports wallet connection and demo wallet generation.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function LoginPage() {
   const navigate = useNavigate();
@@ -338,7 +338,7 @@ export function LoginPage() {
 
       {/* Footer */}
       <footer className="p-6 text-center text-sm text-neutral-500">
-        © 2025 Trustware. All rights reserved.
+        © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
       </footer>
     </div>
   );

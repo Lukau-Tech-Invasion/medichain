@@ -56,7 +56,7 @@ interface EmergencyData {
  * Display QR code and NFC card information for emergency access.
  * First responders can scan to access critical medical data.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function EmergencyCardPage() {
   const { t, locale } = useTranslation();

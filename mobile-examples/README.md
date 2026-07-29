@@ -174,5 +174,5 @@ For production apps, consider adding:
 
 ---
 
-*© 2025-2026 Trustware. MediChain Health ID System.*
+*© 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.*
 

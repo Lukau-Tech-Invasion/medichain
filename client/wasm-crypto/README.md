@@ -101,4 +101,4 @@ wasm-pack test --headless --chrome
 
 ## 📄 License
 
-MIT © 2025 Trustware
+MIT © 2025 Lukau Invasion (Pty) Ltd

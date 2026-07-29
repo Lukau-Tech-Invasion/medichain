@@ -1,7 +1,7 @@
 /**
  * My Records screen (Phase 8.3) — lists the patient's medical record references.
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';

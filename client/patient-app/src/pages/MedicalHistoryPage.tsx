@@ -59,7 +59,7 @@ type Tab = 'immunizations' | 'family-history' | 'documents';
  * - Family History: GET /api/clinical/family-history/{patientId}
  * - Documents: GET /api/records/{patientId}
  *
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MedicalHistoryPage() {
   const navigate = useNavigate();

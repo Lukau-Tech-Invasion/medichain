@@ -19,7 +19,7 @@ interface FamilyGroup {
  * - Create new group (POST /api/family/groups)
  * - Add member to group (POST /api/family/groups/{id}/members)
  *
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function FamilyGroupPage() {
   const { t } = useTranslation();

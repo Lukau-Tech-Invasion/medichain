@@ -4,7 +4,7 @@
  * Substrate blockchain wallet types for identity management.
  * Uses SS58 address encoding compatible with Polkadot ecosystem.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 // Import Role from canonical types definition

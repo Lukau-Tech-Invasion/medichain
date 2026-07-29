@@ -34,7 +34,7 @@ import Constants from 'expo-constants';
  * - EXPO_PUBLIC_API_URL: API server URL (e.g., http://192.168.1.100:8080)
  * - EXPO_PUBLIC_SUBSTRATE_WS_URL: WebSocket URL (e.g., ws://192.168.1.100:9944)
  * 
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 // ============================================================================

@@ -4,7 +4,7 @@
  * Wallet-based authentication for patient accounts.
  * Uses Substrate SS58 addresses and health IDs.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 import { create } from 'zustand';

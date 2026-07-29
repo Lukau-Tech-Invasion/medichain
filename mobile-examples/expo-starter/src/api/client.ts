@@ -6,7 +6,7 @@
  * and obtains a JWT via the wallet challenge endpoint. Kept dependency-free so
  * it runs anywhere React Native does.
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 import Constants from 'expo-constants';

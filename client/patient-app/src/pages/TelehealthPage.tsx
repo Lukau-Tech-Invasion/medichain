@@ -48,7 +48,7 @@ interface JoinResponse {
  * - View past sessions with duration/status
  * - Opens patient_join_url in new tab
  *
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function TelehealthPage() {
   const { t } = useTranslation();

@@ -206,7 +206,7 @@ function LoginPage() {
         {/* Footer */}
         <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
           <p className="text-xs text-gray-500">
-            © 2025 Trustware • Rust Africa Hackathon 2026
+            © 2025 Lukau Invasion (Pty) Ltd • Rust Africa Hackathon 2026
           </p>
         </div>
       </div>

@@ -49,7 +49,7 @@ interface AppSettings {
  * 
  * Account settings, notifications, privacy, and app preferences.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -484,7 +484,7 @@ export function SettingsPage() {
       {/* App Version */}
       <div className="text-center text-xs text-neutral-400 space-y-1">
         <p>MediChain Patient App v1.0.0</p>
-        <p>© 2025 Trustware. All rights reserved.</p>
+        <p>© 2025 Lukau Invasion (Pty) Ltd. All rights reserved.</p>
       </div>
 
       {/* Logout Confirmation Modal */}

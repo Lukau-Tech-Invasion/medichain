@@ -9,7 +9,7 @@
  * - Connection health monitoring
  * - Proper error recovery
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 import type { ApiError } from '../types';
@@ -22,6 +22,21 @@ import {
   getConnectedWalletAddress 
 } from '../config';
 import { OfflineQueue } from '../utils/offlineQueue';
+
+/**
+ * SHA-256 hex digest of `text`, empty-string input hashing to the digest of
+ * an empty body. Used to bind a request's signature to its exact body
+ * (Horizon HZ-007) — same `crypto.subtle.digest` pattern already used in
+ * `wallet/service.ts`'s `blake2Hash`.
+ */
+async function sha256Hex(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 export interface ApiClientConfig {
   baseUrl: string;
@@ -397,7 +412,13 @@ export class ApiClient {
           // If a signature provider is available, sign a challenge
           if (this.signatureProvider) {
             const timestamp = Math.floor(Date.now() / 1000).toString();
-            const message = `${timestamp}:${this.userId}`;
+            // Bind the signature to this exact method, path, and body
+            // (Horizon HZ-007) — must match exactly what the server's
+            // `SignatureAuthMiddleware` observes and what is actually sent
+            // below (`body ? JSON.stringify(body) : undefined`).
+            const bodyText = body ? JSON.stringify(body) : '';
+            const bodyHash = await sha256Hex(bodyText);
+            const message = `${timestamp}:${this.userId}:${method}:${path}:${bodyHash}`;
             try {
               const signature = await this.signatureProvider(message);
               headers['X-Signature'] = signature;

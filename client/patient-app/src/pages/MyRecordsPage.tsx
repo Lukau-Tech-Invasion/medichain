@@ -49,7 +49,7 @@ interface MedicalRecord {
  * View and download medical records stored on IPFS.
  * Records are encrypted and blockchain-verified.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyRecordsPage() {
   const { t } = useTranslation();

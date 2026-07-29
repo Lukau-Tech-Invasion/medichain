@@ -6,7 +6,7 @@
  * - Biometric (fingerprint/face) gate on app open / resume for ePHI access,
  *   satisfying the Zero-Trust posture from Phase 11.3 on the mobile surface.
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';

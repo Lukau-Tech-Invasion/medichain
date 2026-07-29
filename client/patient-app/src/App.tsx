@@ -94,7 +94,7 @@ function PageLoader() {
  * - Symptom checking and tracking
  * - Insurance and billing information
  *
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 function App() {
   return (

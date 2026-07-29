@@ -44,7 +44,7 @@ interface Appointment {
  * - Request new appointments
  * - Manage appointment details
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function AppointmentsPage() {
   const navigate = useNavigate();

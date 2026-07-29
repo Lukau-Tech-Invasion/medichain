@@ -13,7 +13,7 @@
  * RBAC'd to "view your own QR only") for both the display and the payload
  * scanned back off of it — no new backend contract needed.
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';

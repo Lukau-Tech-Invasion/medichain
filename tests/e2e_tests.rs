@@ -3,7 +3,7 @@
 //! Comprehensive E2E tests simulating real-world usage scenarios.
 //! Tests cover the complete flow from patient registration to emergency access.
 //!
-//! © 2025 Trustware. All rights reserved.
+//! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 
 use std::collections::HashMap;
 

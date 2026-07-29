@@ -2,10 +2,10 @@
 name = "medichain-wasm-crypto"
 version = "0.1.0"
 edition = "2021"
-authors = ["Trustware <dev@trustware.io>"]
+authors = ["Lukau Invasion (Pty) Ltd <dev@lukau-invasion.io>"]
 description = "MediChain WebAssembly cryptographic module for browser-based encryption"
 license = "MIT"
-repository = "https://github.com/trustware/medichain"
+repository = "https://github.com/lukau-invasion/medichain"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

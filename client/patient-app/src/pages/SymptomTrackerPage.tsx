@@ -50,7 +50,7 @@ interface SymptomCategory {
  * - Share with healthcare providers
  * - View symptom history
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function SymptomTrackerPage() {
   const navigate = useNavigate();

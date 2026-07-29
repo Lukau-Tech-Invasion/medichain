@@ -59,7 +59,7 @@ interface MedicationReminder {
  * - Track doses taken
  * - Refill requests
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MedicationsPage() {
   const navigate = useNavigate();

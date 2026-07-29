@@ -51,7 +51,7 @@ interface AccessRequest {
  * Manage who can access your medical records.
  * Grant, revoke, and review access permissions.
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 interface SignedConsent {
   consent_id: string;

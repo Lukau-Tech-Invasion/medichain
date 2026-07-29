@@ -6,7 +6,7 @@
  * 
  * Uses: ss58 address encoding, ed25519 keypairs (simulated)
  * 
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 
 import type { Role } from '../types';

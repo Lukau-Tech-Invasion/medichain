@@ -4,7 +4,7 @@
  * Shows blood type, allergies, conditions and emergency contact from the
  * patient's own record (`GET /api/my-records`). Mirrors the web EmergencyCardPage.
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';

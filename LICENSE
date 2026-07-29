@@ -1,8 +1,72 @@
+PROPRIETARY SOFTWARE LICENCE
 
-MIT License
+MediChain
+Copyright (c) 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
-Copyright (c) 2025
+Lukau Invasion (Pty) Ltd, a private company registered in the Republic of South
+Africa (registration number 2026/600804/07), is the sole owner of all right,
+title and interest in and to the MediChain software, including all source code,
+object code, documentation, designs, database schemas, diagrams and related
+materials contained in this repository (collectively, the "Software").
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+1. NO LICENCE GRANTED
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+No licence, right or interest in the Software is granted to any person by virtue
+of access to this repository. The Software is made visible for evaluation,
+reference and assessment purposes only.
+
+2. PROHIBITED WITHOUT PRIOR WRITTEN PERMISSION
+
+Except as expressly permitted in writing and signed by an authorised
+representative of Lukau Invasion (Pty) Ltd, no person may:
+
+   (a) copy, reproduce or store the Software, in whole or in part;
+   (b) modify, adapt, translate or create derivative works of the Software;
+   (c) distribute, publish, sublicense, sell, rent, lease or otherwise transfer
+       the Software or any interest in it;
+   (d) use the Software for any commercial purpose, or deploy or operate it in
+       any production, clinical or patient-facing environment;
+   (e) reverse engineer, decompile or disassemble the Software, except to the
+       limited extent such restriction is prohibited by applicable law;
+   (f) remove, obscure or alter any copyright, trade mark or proprietary notice.
+
+3. PERMITTED
+
+Viewing the Software in this repository, and privately running it locally with
+synthetic data solely to evaluate it, is permitted. This does not extend to any
+of the activities listed in clause 2.
+
+4. NO PATIENT DATA
+
+The Software has not been authorised for the processing of real personal or
+health information. It must not be used to process any real patient data. See
+docs/PRODUCTION_READINESS_GATES.md.
+
+5. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. THE SOFTWARE IS NOT A
+MEDICAL DEVICE AND IS NOT CERTIFIED FOR CLINICAL USE. NO CLINICAL DECISION MAY
+BE TAKEN IN RELIANCE ON IT.
+
+6. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, LUKAU INVASION (PTY) LTD SHALL NOT BE
+LIABLE FOR ANY CLAIM, DAMAGE, LOSS OR OTHER LIABILITY, WHETHER IN CONTRACT,
+DELICT, TORT OR OTHERWISE, ARISING FROM OR IN CONNECTION WITH THE SOFTWARE OR
+ITS USE.
+
+7. THIRD-PARTY COMPONENTS
+
+The Software incorporates third-party open-source components, each of which
+remains subject to its own licence terms. Those licences apply to those
+components only and grant no rights in the Software as a whole.
+
+8. GOVERNING LAW
+
+This licence is governed by the laws of the Republic of South Africa.
+
+9. ENQUIRIES
+
+Licensing, evaluation and partnership enquiries: kkgawatlh9@gmail.com

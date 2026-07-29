@@ -46,7 +46,7 @@ interface CdsAlert {
  * - CDS clinical alerts from /api/cds/patient/{patientId}/alerts
  * - Severity indicator for alerts (High/Medium/Low)
  *
- * © 2025 Trustware. All rights reserved.
+ * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function NotificationsPage() {
   const navigate = useNavigate();

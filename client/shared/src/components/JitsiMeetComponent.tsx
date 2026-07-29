@@ -16,7 +16,7 @@ import { useSSE } from '../hooks';
  * Moderator-only controls (recording) appear only when `isModerator` is true, so
  * the same component serves providers (moderators) and patients (participants).
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 // Minimal typing for the externally-loaded Jitsi IFrame API (no @types package).

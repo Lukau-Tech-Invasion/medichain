@@ -19,7 +19,7 @@
  * what this environment can produce; this screen is the real, typed,
  * `tsc --noEmit`-verified implementation ready for whoever has both.
  *
- * © 2025-2026 Trustware. MediChain Health ID System.
+ * © 2025-2026 Lukau Invasion (Pty) Ltd. MediChain Health ID System.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
