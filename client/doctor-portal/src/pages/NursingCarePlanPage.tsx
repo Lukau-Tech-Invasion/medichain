@@ -82,7 +82,7 @@ const NursingCarePlanPage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/clinical/nursing-care-plans'), {
+        const response = await fetch(apiUrl('/api/emergency/care-plan/list'), {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': user.walletAddress,

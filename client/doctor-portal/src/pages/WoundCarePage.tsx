@@ -81,7 +81,7 @@ const WoundCarePage: React.FC = () => {
       }
 
       try {
-        const response = await fetch(apiUrl('/api/clinical/wound-assessments'), {
+        const response = await fetch(apiUrl('/api/emergency/wound/list'), {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': user.walletAddress,

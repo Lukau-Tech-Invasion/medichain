@@ -118,7 +118,7 @@ const ImagingPage: React.FC = () => {
     if (!user) return;
     const fetchOrders = async () => {
       try {
-        const res = await fetch(apiUrl('/api/clinical/radiology/orders'), {
+        const res = await fetch(apiUrl('/api/platform/list/radiology-orders'), {
           headers: {
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role || 'Doctor',

@@ -204,8 +204,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_care_plans)
         .service(clinical_endpoints::get_care_plan)
         .service(clinical_endpoints::create_wound)
-        .service(clinical_endpoints::get_wound)
+        // list before {id}: Actix matches in registration order, so
+        // `/wound/list` must be registered before `/wound/{id}` or it binds to
+        // the id handler as id="list" and 404s.
         .service(clinical_endpoints::list_wound_assessments)
+        .service(clinical_endpoints::get_wound)
         .service(clinical_endpoints::create_iv_site)
         .service(clinical_endpoints::get_iv_site)
         .service(clinical_endpoints::create_shift_handoff)
