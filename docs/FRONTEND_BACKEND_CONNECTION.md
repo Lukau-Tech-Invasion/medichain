@@ -70,10 +70,10 @@ still breaks the page.
 | `/api/clinical/immunizations` | `/api/platform/list/immunizations` (GET list) |
 | `/api/clinical/intake-output` | `/api/platform/list/intake-output` |
 | `/api/clinical/progress-notes` | `/api/platform/list/progress-notes` |
-| `/api/clinical/family-history/{id}` | `/api/surgical/family-history/{id}` |
-| `/api/clinical/operative-note/{id}` | `/api/surgical/operative-note/{id}` |
-| `/api/clinical/pre-op/{id}` | `/api/surgical/pre-op/{id}` |
-| `/api/clinical/post-op/{id}` | `/api/surgical/post-op/{id}` |
+| `/api/clinical/family-history/{id}` | `/api/surgical/family-history/{id}` — but see the surgical note below |
+| `/api/clinical/operative-note/{id}` | `/api/surgical/operative-note/{id}` — see below |
+| `/api/clinical/pre-op/{id}` | `/api/surgical/pre-op/{id}` — see below |
+| `/api/clinical/post-op/{id}` | `/api/surgical/post-op/{id}` — see below |
 | `/api/clinical/wound/{id}` | `/api/emergency/wound/{id}` |
 | `/api/access/patient/{id}/grants` | `/api/emergency/grants` family (shape differs — check) |
 | `/api/clinical/radiology/orders` | `/api/clinical/orders` (confirm filter semantics) |
@@ -93,6 +93,25 @@ These pages cannot be connected by a rename; the backend endpoint is missing.
   server-side.
 - `/api/lab-results/{id}` — no route (lab results are under `/api/lab/...`).
 - `/api/barcode/scan-history` — no route (only `/api/barcode/{id}/history`).
+
+### Surgical pages need the storage migration first
+
+The surgical handlers (`get_pre_op`, `get_post_op`, `get_operative_note`) read
+from **legacy in-memory `HashMap`s on `AppState`** (`data.pre_op_assessments`
+etc.), not from `data.repositories.*` — even though the repositories exist and
+implement `get_by_patient`. The create handlers write to the HashMap. So:
+
+- A rename alone still 404s: the frontend passes a *patient* id, the backend
+  route takes an *assessment* id.
+- Adding a repo-backed list-by-patient route (as was done cleanly for the
+  emergency assessments, which are fully repository-backed) would return an
+  empty list, because created records live in the HashMap, not the repository.
+
+Connecting the surgical pages therefore requires first migrating these handlers
+off the `AppState` HashMaps onto their repositories — the same legacy cleanup
+tracked in `TECHNICAL_DEBT_REGISTER.md`. Doing a bare URL rename would produce a
+**200 that silently returns nothing** — a false "connected" signal — which is
+why it was not done here.
 
 ## How this list was produced
 
