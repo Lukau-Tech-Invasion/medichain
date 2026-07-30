@@ -106,7 +106,7 @@ const OperativeNotePage: React.FC = () => {
     if (activeTab === 'history' && selectedPatient && user) {
       const fetchHistory = async () => {
         try {
-          const res = await fetch(apiUrl(`/api/clinical/operative-note/${selectedPatient}`), {
+          const res = await fetch(apiUrl(`/api/surgical/operative-note/patient/${selectedPatient}`), {
             headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
           });
           if (res.ok) {

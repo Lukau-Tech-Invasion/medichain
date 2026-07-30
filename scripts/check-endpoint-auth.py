@@ -34,6 +34,7 @@ AUTH_MARKERS = [
     # Authorization helpers / role + ownership checks
     'require_admin', 'require_provider', 'require_demo_mode',
     'require_emergency_list_access', 'require_card_access',
+    'require_surgical_list_access',
     'resolve_patient_access', 'is_healthcare_provider', 'is_admin(',
     'can_edit', 'has_permission', 'ensure_not_restricted', 'is_permitted',
     'INSUFFICIENT_ROLE', 'linked_patient_id',

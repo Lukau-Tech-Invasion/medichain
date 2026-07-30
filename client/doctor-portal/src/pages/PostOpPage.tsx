@@ -107,7 +107,7 @@ const PostOpPage: React.FC = () => {
     if (activeTab === 'history' && selectedPatient && user) {
       const fetchHistory = async () => {
         try {
-          const res = await fetch(apiUrl(`/api/clinical/post-op/${selectedPatient}`), {
+          const res = await fetch(apiUrl(`/api/surgical/post-op/patient/${selectedPatient}`), {
             headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
           });
           if (res.ok) {

@@ -74,6 +74,34 @@ pub async fn get_pre_op(
     }
 }
 
+/// List a patient's pre-operative assessments (provider or the patient).
+///
+/// Reads the same store `create_pre_op` writes, so listing sees created
+/// records. Added to connect the doctor portal's Pre-Op page, which fetched a
+/// per-patient list from a route that did not exist.
+#[get("/api/surgical/pre-op/patient/{patient_id}")]
+pub async fn list_patient_pre_op(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_surgical_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data.pre_op_assessments.read() {
+        Ok(assessments) => {
+            let items: Vec<_> = assessments
+                .values()
+                .filter(|a| a.patient_id == patient_id)
+                .cloned()
+                .collect();
+            HttpResponse::Ok().json(items)
+        }
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
 /// Create operative note
 #[post("/api/surgical/operative-note")]
 pub async fn create_operative_note(
@@ -145,6 +173,30 @@ pub async fn get_operative_note(
     }
 }
 
+/// List a patient's operative notes (provider or the patient).
+#[get("/api/surgical/operative-note/patient/{patient_id}")]
+pub async fn list_patient_operative_notes(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_surgical_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data.operative_notes.read() {
+        Ok(notes) => {
+            let items: Vec<_> = notes
+                .values()
+                .filter(|n| n.patient_id == patient_id)
+                .cloned()
+                .collect();
+            HttpResponse::Ok().json(items)
+        }
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
 /// Create post-operative note
 #[post("/api/surgical/post-op")]
 pub async fn create_post_op(
@@ -212,6 +264,30 @@ pub async fn get_post_op(
             .get(&id)
             .map(|note| HttpResponse::Ok().json(note))
             .unwrap_or_else(|| HttpResponse::NotFound().finish()),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
+/// List a patient's post-operative notes (provider or the patient).
+#[get("/api/surgical/post-op/patient/{patient_id}")]
+pub async fn list_patient_post_op(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_surgical_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data.post_op_notes.read() {
+        Ok(notes) => {
+            let items: Vec<_> = notes
+                .values()
+                .filter(|n| n.patient_id == patient_id)
+                .cloned()
+                .collect();
+            HttpResponse::Ok().json(items)
+        }
         Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }

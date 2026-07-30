@@ -107,11 +107,17 @@ implement `get_by_patient`. The create handlers write to the HashMap. So:
   emergency assessments, which are fully repository-backed) would return an
   empty list, because created records live in the HashMap, not the repository.
 
-Connecting the surgical pages therefore requires first migrating these handlers
-off the `AppState` HashMaps onto their repositories — the same legacy cleanup
-tracked in `TECHNICAL_DEBT_REGISTER.md`. Doing a bare URL rename would produce a
-**200 that silently returns nothing** — a false "connected" signal — which is
-why it was not done here.
+**Update 2026-07-30 — surgical pages now connected.** Rather than the full
+repository migration (deferred), added list-by-patient routes that read the
+*same* `AppState` HashMap the create handlers write
+(`/api/surgical/{pre-op,post-op,operative-note}/patient/{patient_id}`, provider-
+or-self), returning the flat domain type the pages expect. The three pages
+(PreOp/PostOp/OperativeNote) were repointed to these routes; they already parsed
+bare arrays tolerantly. Verified: build clean, routes registered + authz'd, list
+returns a valid 200 array, and the list reads the create's store (inspection-
+confirmed). The proper HashMap→repository migration remains tracked in
+`TECHNICAL_DEBT_REGISTER.md`, but the connection now works against the live
+store.
 
 ## How this list was produced
 

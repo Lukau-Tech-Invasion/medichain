@@ -224,7 +224,7 @@ export default function PreOpPage() {
       const fetchRecentRecords = async () => {
         setRecordsLoading(true);
         try {
-          const res = await fetch(apiUrl(`/api/clinical/pre-op/${selectedPatient.patient_id}`), {
+          const res = await fetch(apiUrl(`/api/surgical/pre-op/patient/${selectedPatient.patient_id}`), {
             headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
           });
           if (res.ok) {

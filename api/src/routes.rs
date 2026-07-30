@@ -267,10 +267,13 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Phase 9: Surgical Documentation endpoints
         .service(clinical_endpoints::create_pre_op)
         .service(clinical_endpoints::get_pre_op)
+        .service(clinical_endpoints::list_patient_pre_op)
         .service(clinical_endpoints::create_operative_note)
         .service(clinical_endpoints::get_operative_note)
+        .service(clinical_endpoints::list_patient_operative_notes)
         .service(clinical_endpoints::create_post_op)
         .service(clinical_endpoints::get_post_op)
+        .service(clinical_endpoints::list_patient_post_op)
         // Phase 10: Anesthesia endpoints
         .service(clinical_endpoints::create_anesthesia)
         .service(clinical_endpoints::get_anesthesia)
