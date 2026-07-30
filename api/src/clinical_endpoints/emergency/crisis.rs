@@ -159,3 +159,28 @@ pub async fn get_cardiac(
         Err(_) => HttpResponse::NotFound().finish(),
     }
 }
+
+/// List a patient's cardiac events (provider or the patient themselves).
+///
+/// Connects the Emergency Protocols page's cardiac tab; the repository already
+/// supported `get_by_patient`.
+#[get("/api/emergency/cardiac/patient/{patient_id}")]
+pub async fn list_patient_cardiac(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .cardiac_events_repo
+        .get_by_patient(&patient_id, Pagination::new(0, 50))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}

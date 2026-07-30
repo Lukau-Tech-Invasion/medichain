@@ -68,6 +68,33 @@ pub async fn get_trauma(
     }
 }
 
+/// List a patient's trauma assessments (provider or the patient themselves).
+///
+/// Added to connect the doctor portal's Emergency Protocols page, which fetches
+/// per-type lists by patient. The repository already supported `get_by_patient`
+/// (the aggregate `get_patient_emergency_records` uses it); this exposes it as
+/// its own route, mirroring `list_patient_code_blues`.
+#[get("/api/emergency/trauma/patient/{patient_id}")]
+pub async fn list_patient_trauma(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .trauma_assessments_repo
+        .get_by_patient(&patient_id, Pagination::new(0, 50))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
 /// Create stroke assessment
 #[post("/api/emergency/stroke")]
 pub async fn create_stroke(
@@ -132,6 +159,28 @@ pub async fn get_stroke(
     }
 }
 
+/// List a patient's stroke assessments (provider or the patient themselves).
+#[get("/api/emergency/stroke/patient/{patient_id}")]
+pub async fn list_patient_stroke(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .stroke_assessments_repo
+        .get_by_patient(&patient_id, Pagination::new(0, 50))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
 /// Create sepsis assessment
 #[post("/api/emergency/sepsis")]
 pub async fn create_sepsis(
@@ -193,6 +242,28 @@ pub async fn get_sepsis(
     {
         Ok(record) => HttpResponse::Ok().json(record),
         Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+/// List a patient's sepsis assessments (provider or the patient themselves).
+#[get("/api/emergency/sepsis/patient/{patient_id}")]
+pub async fn list_patient_sepsis(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .sepsis_assessments_repo
+        .get_by_patient(&patient_id, Pagination::new(0, 50))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
 
