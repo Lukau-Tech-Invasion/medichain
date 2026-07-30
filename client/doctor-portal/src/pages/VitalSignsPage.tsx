@@ -187,7 +187,7 @@ function VitalSignsPage() {
         notes: newVitals.notes || null,
       };
 
-      const response = await fetch(apiUrl('/api/clinical/vitals/record'), {
+      const response = await fetch(apiUrl('/api/clinical/vitals'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

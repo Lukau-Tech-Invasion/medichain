@@ -122,7 +122,7 @@ const WoundCarePage: React.FC = () => {
     if (!selectedWound || !user?.walletAddress) return;
     const fetchWoundDetail = async () => {
       try {
-        const response = await fetch(apiUrl(`/api/clinical/wound/${selectedWound.id}`), {
+        const response = await fetch(apiUrl(`/api/emergency/wound/${selectedWound.id}`), {
           headers: {
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role || 'Nurse',

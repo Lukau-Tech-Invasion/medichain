@@ -126,6 +126,34 @@ store.
 `#[get/post/...("/api/...")]` in `api/src`. Path params are wildcarded so
 `{id}` / `${var}` / `:param` compare equal. Re-run after any endpoint change.
 
+## Remaining drift, file-attributed (2026-07-30)
+
+A comment-excluded audit leaves 43 flagged `/api/*` literals. They break down:
+
+**~12 are test fixtures** (`*.test.tsx`) — mock paths like
+`/api/access/patient/HEALTH123/grants`, `/api/vitals/PAT-001`,
+`/api/patients/p1`. Not application code; not real connections.
+
+**~8 are the client batch abstraction** (`client/shared/src/api/batch.ts`) —
+`/api/batch`, `/api/{analytics,audit-logs,lab-results,medical-records,patients}/batch`,
+`/api/lab-results/{id}`, `/api/medical-records/{id}`. There is no server-side
+batch endpoint; either build one or retire the abstraction.
+
+**Real page drift still open** (each needs bespoke work, not a rename):
+
+| Page | Path | What it needs |
+|---|---|---|
+| ConsentManagementPage (patient) | `/api/access/patient/{id}/grants`, `/requests`, `/requests/{id}/approve\|deny` | Access-request workflow — **not built server-side** |
+| MedicalHistoryPage (patient) | `/api/clinical/immunizations`, `/api/clinical/family-history/{id}` | Per-patient routes (platform list is all-patients, provider-only) |
+| NursingPage / CarePlanPage | `/api/nursing/mar`, `/api/nursing/intake-output`, `/api/nursing/care-plans` | `/api/nursing/*` prefix has no backend; map to `/api/emergency/*` or build |
+| IntakeOutputPage | `/api/clinical/io/{p}/{date}/{shift}` | Maps to `/api/emergency/io/{patient_id}/{type}/{timestamp}` — param semantics differ |
+| IVSitePage | `/api/clinical/iv-sites/{id}` | `/api/emergency/iv-site/{id}` — patient-vs-assessment id mismatch |
+| ShiftHandoffPage | `/api/clinical/shift-handoff/{wallet}` | `/api/emergency/handoff/{id}` — id semantics differ |
+| CardiacPage | `/api/clinical/patient/{id}/emergency` | Use the aggregate `/api/emergency/patient/{id}` |
+| OrdersPage | `/api/clinical/orders/{id}/status` | Confirm the status-update route |
+| MyRecordsPage (patient) | `/api/records/{id}/download` | Confirm the download route |
+| LabResultsPage | `/api/lab/submissions?{status}` | Base route exists; query-arg only |
+
 ## Status summary
 
 - **Connection mechanism**: working (proxy fixed, env-configurable).
