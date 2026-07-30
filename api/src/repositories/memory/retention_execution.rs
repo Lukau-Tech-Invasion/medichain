@@ -146,14 +146,16 @@ impl RetentionExecutionRepository for MemoryRetentionExecutionRepository {
             .any(|r| r.patient_id == patient_id && r.is_active()))
     }
 
-    async fn list_active_restrictions(
-        &self,
-    ) -> RepositoryResult<Vec<ProcessingRestrictionEntity>> {
+    async fn list_active_restrictions(&self) -> RepositoryResult<Vec<ProcessingRestrictionEntity>> {
         let restrictions = self
             .restrictions
             .read()
             .map_err(|e| RepositoryError::Database(e.to_string()))?;
-        Ok(restrictions.iter().filter(|r| r.is_active()).cloned().collect())
+        Ok(restrictions
+            .iter()
+            .filter(|r| r.is_active())
+            .cloned()
+            .collect())
     }
 
     async fn lift_restriction(
@@ -234,7 +236,9 @@ mod tests {
         let pending = repo.get_approval("T-1").await.unwrap();
         assert!(!pending.is_executable(Utc::now()));
 
-        repo.decide_approval("T-1", true, "admin", None).await.unwrap();
+        repo.decide_approval("T-1", true, "admin", None)
+            .await
+            .unwrap();
         let approved = repo.get_approval("T-1").await.unwrap();
         assert!(approved.is_executable(Utc::now()));
     }
@@ -244,7 +248,9 @@ mod tests {
     async fn an_approval_can_only_be_executed_once() {
         let repo = MemoryRetentionExecutionRepository::new();
         repo.create_approval(approval("T-2")).await.unwrap();
-        repo.decide_approval("T-2", true, "admin", None).await.unwrap();
+        repo.decide_approval("T-2", true, "admin", None)
+            .await
+            .unwrap();
 
         repo.mark_executed("T-2", "admin").await.unwrap();
         assert!(repo.mark_executed("T-2", "admin").await.is_err());
@@ -260,7 +266,10 @@ mod tests {
 
         let rejected = repo.get_approval("T-3").await.unwrap();
         assert!(!rejected.is_executable(Utc::now()));
-        assert_eq!(rejected.rejection_reason.as_deref(), Some("periods unconfirmed"));
+        assert_eq!(
+            rejected.rejection_reason.as_deref(),
+            Some("periods unconfirmed")
+        );
     }
 
     /// An approval that sat unused past its expiry describes a record set that
@@ -271,7 +280,9 @@ mod tests {
         let mut stale = approval("T-4");
         stale.expires_at = Utc::now() - Duration::hours(1);
         repo.create_approval(stale).await.unwrap();
-        repo.decide_approval("T-4", true, "admin", None).await.unwrap();
+        repo.decide_approval("T-4", true, "admin", None)
+            .await
+            .unwrap();
 
         let approved = repo.get_approval("T-4").await.unwrap();
         assert!(!approved.is_executable(Utc::now()));
@@ -283,9 +294,14 @@ mod tests {
     async fn a_decided_approval_cannot_be_decided_again() {
         let repo = MemoryRetentionExecutionRepository::new();
         repo.create_approval(approval("T-5")).await.unwrap();
-        repo.decide_approval("T-5", true, "admin", None).await.unwrap();
+        repo.decide_approval("T-5", true, "admin", None)
+            .await
+            .unwrap();
 
-        assert!(repo.decide_approval("T-5", false, "admin", None).await.is_err());
+        assert!(repo
+            .decide_approval("T-5", false, "admin", None)
+            .await
+            .is_err());
     }
 
     #[tokio::test]

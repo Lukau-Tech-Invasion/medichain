@@ -226,11 +226,20 @@ mod tests {
         let raw = format!("1:{},2:{}", b64_key(1), b64_key(2));
         let mut keyring = EncryptionKeyring::parse(&raw).expect("should parse");
 
-        keyring.retire(1).expect("retiring a non-current version should succeed");
+        keyring
+            .retire(1)
+            .expect("retiring a non-current version should succeed");
 
         assert!(keyring.get(1).is_none(), "retired version must be gone");
-        assert!(keyring.get(2).is_some(), "other versions must be unaffected");
-        assert_eq!(keyring.current_version(), 2, "current_version must be unaffected");
+        assert!(
+            keyring.get(2).is_some(),
+            "other versions must be unaffected"
+        );
+        assert_eq!(
+            keyring.current_version(),
+            2,
+            "current_version must be unaffected"
+        );
     }
 
     /// Retiring the current version is refused — it would leave the keyring
@@ -243,7 +252,10 @@ mod tests {
         let result = keyring.retire(2);
 
         assert!(result.is_err());
-        assert!(keyring.get(2).is_some(), "current version must survive a refused retire");
+        assert!(
+            keyring.get(2).is_some(),
+            "current version must survive a refused retire"
+        );
     }
 
     /// Retiring an unknown version is an error, not a silent no-op.

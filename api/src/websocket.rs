@@ -113,7 +113,9 @@ impl EventScope {
     fn allows(&self, event: &PushEvent) -> bool {
         match self {
             EventScope::AllEvents => true,
-            EventScope::OwnPatientOnly(own_id) => event.patient_id.as_deref() == Some(own_id.as_str()),
+            EventScope::OwnPatientOnly(own_id) => {
+                event.patient_id.as_deref() == Some(own_id.as_str())
+            }
         }
     }
 }

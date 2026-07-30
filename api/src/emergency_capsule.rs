@@ -338,8 +338,8 @@ pub async fn load_current_verified(
         .encryption_keyring
         .get(stored.key_version as u32)
         .and_then(|key| {
-            let envelope = medichain_crypto::EncryptedData::from_bytes(&stored.capsule_encrypted)
-                .ok()?;
+            let envelope =
+                medichain_crypto::EncryptedData::from_bytes(&stored.capsule_encrypted).ok()?;
             medichain_crypto::decrypt(key, &envelope).ok()
         })
         .and_then(|bytes| serde_json::from_slice::<EmergencyCapsule>(&bytes).ok());
@@ -413,12 +413,7 @@ pub async fn log_access(
         accessed_at: chrono::Utc::now(),
     };
 
-    if let Err(e) = data
-        .repositories
-        .emergency_capsules
-        .log_access(entry)
-        .await
-    {
+    if let Err(e) = data.repositories.emergency_capsules.log_access(entry).await {
         log::error!("Emergency capsule access log write FAILED for {patient_id}: {e}");
     }
 }

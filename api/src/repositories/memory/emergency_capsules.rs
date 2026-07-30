@@ -54,10 +54,7 @@ impl EmergencyCapsuleRepository for MemoryEmergencyCapsuleRepository {
         Ok(capsule)
     }
 
-    async fn current(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Option<EmergencyCapsuleEntity>> {
+    async fn current(&self, patient_id: &str) -> RepositoryResult<Option<EmergencyCapsuleEntity>> {
         let capsules = self
             .capsules
             .read()

@@ -76,7 +76,9 @@ impl RetentionAssessment {
 ///
 /// Failures are logged rather than propagated: this runs on a timer, and a
 /// retention *assessment* failing must never take down request handling.
-pub async fn run_retention_assessment(data: &actix_web::web::Data<AppState>) -> RetentionAssessment {
+pub async fn run_retention_assessment(
+    data: &actix_web::web::Data<AppState>,
+) -> RetentionAssessment {
     let today = Utc::now().date_naive();
     let mut assessment = RetentionAssessment {
         assessed_on: today,
@@ -94,8 +96,7 @@ pub async fn run_retention_assessment(data: &actix_web::web::Data<AppState>) -> 
             // a routine condition. Callers are told explicitly rather than
             // being handed an empty result that looks like a clean run.
             log::error!("retention assessment: could not load policies: {}", e);
-            assessment.incomplete_reason =
-                Some(format!("could not load retention policies: {e}"));
+            assessment.incomplete_reason = Some(format!("could not load retention policies: {e}"));
             return assessment;
         }
     };
@@ -256,9 +257,7 @@ fn rule_for(policy: &DataRetentionPolicyEntity) -> Option<RetentionRule> {
         .retention_period_years
         .and_then(|y| u32::try_from(y).ok())
         .unwrap_or(0);
-    let min_age = policy
-        .minimum_age_years
-        .and_then(|a| u32::try_from(a).ok());
+    let min_age = policy.minimum_age_years.and_then(|a| u32::try_from(a).ok());
     RetentionRule::from_policy(kind, years, min_age)
 }
 
@@ -317,10 +316,12 @@ async fn persist_job_run(data: &actix_web::web::Data<AppState>, assessment: &Ret
         error_details: Some(serde_json::json!(assessment
             .policies
             .iter()
-            .filter_map(|p| p.configuration_error.as_ref().map(|e| serde_json::json!({
-                "policy_id": p.policy_id,
-                "error": e,
-            })))
+            .filter_map(
+                |p| p.configuration_error.as_ref().map(|e| serde_json::json!({
+                    "policy_id": p.policy_id,
+                    "error": e,
+                }))
+            )
             .collect::<Vec<_>>())),
         run_by: Some("system:retention-assessment".to_string()),
         dry_run: Some(true),

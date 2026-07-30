@@ -47,10 +47,7 @@ fn require_admin(data: &web::Data<AppState>, req: &HttpRequest) -> Result<String
 /// assessment evaluates and reports, and has no code path that disposes of a
 /// record.
 #[get("/api/admin/retention/report")]
-pub async fn get_retention_report(
-    data: web::Data<AppState>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_retention_report(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     if let Err(resp) = require_admin(&data, &req) {
         return resp;
     }
@@ -392,15 +389,17 @@ pub async fn list_retention_approvals(
 /// The deletion register: what was acted on, under which policy, on whose
 /// authority. Carries no clinical payload by design.
 #[get("/api/admin/retention/register")]
-pub async fn get_deletion_register(
-    data: web::Data<AppState>,
-    req: HttpRequest,
-) -> impl Responder {
+pub async fn get_deletion_register(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
     if let Err(resp) = require_admin(&data, &req) {
         return resp;
     }
 
-    match data.repositories.retention_execution.list_register(500).await {
+    match data
+        .repositories
+        .retention_execution
+        .list_register(500)
+        .await
+    {
         Ok(entries) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "count": entries.len(),

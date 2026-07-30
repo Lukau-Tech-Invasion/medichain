@@ -339,7 +339,11 @@ pub async fn verify_guardian_relationship(
         guardian_wallet: body.guardian_wallet.clone(),
         ward_patient_id: body.ward_patient_id.clone(),
         relationship_type: body.relationship_type.as_str().to_string(),
-        permissions: body.permissions.iter().map(|p| p.as_str().to_string()).collect(),
+        permissions: body
+            .permissions
+            .iter()
+            .map(|p| p.as_str().to_string())
+            .collect(),
         verified_by: current_user_id.clone(),
         verified_at: now,
         active: true,

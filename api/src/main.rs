@@ -287,8 +287,7 @@ async fn main() -> std::io::Result<()> {
             ));
             loop {
                 interval.tick().await;
-                let assessment =
-                    crate::retention::run_retention_assessment(&retention_state).await;
+                let assessment = crate::retention::run_retention_assessment(&retention_state).await;
                 if assessment.total_due > 0 || assessment.total_held > 0 {
                     log::info!(
                         "retention assessment {}: {} due, {} held, 0 deleted (report-only)",

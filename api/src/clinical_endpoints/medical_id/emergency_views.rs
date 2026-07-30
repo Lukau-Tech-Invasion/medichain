@@ -28,7 +28,13 @@ async fn primary_guardian_contact_json(
         .await
         .unwrap_or_default();
     relationships.retain(|r| r.active && r.expires_at.map(|e| e > now).unwrap_or(true));
-    relationships.sort_by_key(|r| if r.relationship_type == "parent_or_guardian" { 0 } else { 1 });
+    relationships.sort_by_key(|r| {
+        if r.relationship_type == "parent_or_guardian" {
+            0
+        } else {
+            1
+        }
+    });
 
     let Some(primary) = relationships.into_iter().next() else {
         return serde_json::Value::Null;
@@ -235,7 +241,10 @@ pub async fn get_emergency_medical_id(
                     result.hash,
                     result.finalized
                 ),
-                Err(e) => log::warn!("Blockchain emergency-access logging failed (non-fatal): {}", e),
+                Err(e) => log::warn!(
+                    "Blockchain emergency-access logging failed (non-fatal): {}",
+                    e
+                ),
             }
         });
     }
@@ -423,7 +432,10 @@ pub async fn get_lockscreen_medical_id(
                         result.hash,
                         result.finalized
                     ),
-                    Err(e) => log::warn!("Blockchain lockscreen-access logging failed (non-fatal): {}", e),
+                    Err(e) => log::warn!(
+                        "Blockchain lockscreen-access logging failed (non-fatal): {}",
+                        e
+                    ),
                 }
             });
         }
@@ -541,10 +553,8 @@ mod hz_001_regression_tests {
             .await
             .unwrap();
 
-        let valid_token =
-            super::super::emergency_access::issue_emergency_token(patient_id, 120);
-        let expired_token =
-            super::super::emergency_access::issue_emergency_token(patient_id, -10);
+        let valid_token = super::super::emergency_access::issue_emergency_token(patient_id, 120);
+        let expired_token = super::super::emergency_access::issue_emergency_token(patient_id, -10);
 
         let app_state = web::Data::new(state);
         let app = actix_web::App::new()
@@ -566,6 +576,9 @@ mod hz_001_regression_tests {
             ))
             .to_request();
         let expired_resp = test::call_service(&app, expired_req).await;
-        assert_eq!(expired_resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            expired_resp.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
     }
 }

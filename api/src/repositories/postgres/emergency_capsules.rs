@@ -71,10 +71,7 @@ impl EmergencyCapsuleRepository for PgEmergencyCapsuleRepository {
         })
     }
 
-    async fn current(
-        &self,
-        patient_id: &str,
-    ) -> RepositoryResult<Option<EmergencyCapsuleEntity>> {
+    async fn current(&self, patient_id: &str) -> RepositoryResult<Option<EmergencyCapsuleEntity>> {
         let result = sqlx::query_as::<Postgres, EmergencyCapsuleEntity>(&format!(
             "SELECT {CAPSULE_COLUMNS} FROM emergency_capsules
              WHERE patient_id = $1 AND revoked_at IS NULL

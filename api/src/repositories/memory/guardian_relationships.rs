@@ -31,10 +31,9 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         &self,
         relationship: GuardianRelationshipEntity,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
-        let mut relationships = self
-            .relationships
-            .write()
-            .map_err(|_| RepositoryError::Internal("guardian relationship store poisoned".into()))?;
+        let mut relationships = self.relationships.write().map_err(|_| {
+            RepositoryError::Internal("guardian relationship store poisoned".into())
+        })?;
         relationships.insert(relationship.id.clone(), relationship.clone());
         Ok(relationship)
     }
@@ -43,10 +42,9 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         &self,
         ward_patient_id: &str,
     ) -> RepositoryResult<Vec<GuardianRelationshipEntity>> {
-        let relationships = self
-            .relationships
-            .read()
-            .map_err(|_| RepositoryError::Internal("guardian relationship store poisoned".into()))?;
+        let relationships = self.relationships.read().map_err(|_| {
+            RepositoryError::Internal("guardian relationship store poisoned".into())
+        })?;
         Ok(relationships
             .values()
             .filter(|r| r.ward_patient_id == ward_patient_id)
@@ -58,10 +56,9 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         &self,
         guardian_wallet: &str,
     ) -> RepositoryResult<Vec<GuardianRelationshipEntity>> {
-        let relationships = self
-            .relationships
-            .read()
-            .map_err(|_| RepositoryError::Internal("guardian relationship store poisoned".into()))?;
+        let relationships = self.relationships.read().map_err(|_| {
+            RepositoryError::Internal("guardian relationship store poisoned".into())
+        })?;
         Ok(relationships
             .values()
             .filter(|r| r.guardian_wallet == guardian_wallet)
@@ -70,10 +67,9 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<Option<GuardianRelationshipEntity>> {
-        let relationships = self
-            .relationships
-            .read()
-            .map_err(|_| RepositoryError::Internal("guardian relationship store poisoned".into()))?;
+        let relationships = self.relationships.read().map_err(|_| {
+            RepositoryError::Internal("guardian relationship store poisoned".into())
+        })?;
         Ok(relationships.get(id).cloned())
     }
 
@@ -83,10 +79,9 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         permissions: Vec<String>,
         expires_at: Option<chrono::DateTime<Utc>>,
     ) -> RepositoryResult<GuardianRelationshipEntity> {
-        let mut relationships = self
-            .relationships
-            .write()
-            .map_err(|_| RepositoryError::Internal("guardian relationship store poisoned".into()))?;
+        let mut relationships = self.relationships.write().map_err(|_| {
+            RepositoryError::Internal("guardian relationship store poisoned".into())
+        })?;
         let relationship = relationships
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(id.to_string()))?;
@@ -96,10 +91,9 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
     }
 
     async fn revoke(&self, id: &str, reason: Option<String>) -> RepositoryResult<()> {
-        let mut relationships = self
-            .relationships
-            .write()
-            .map_err(|_| RepositoryError::Internal("guardian relationship store poisoned".into()))?;
+        let mut relationships = self.relationships.write().map_err(|_| {
+            RepositoryError::Internal("guardian relationship store poisoned".into())
+        })?;
         let relationship = relationships
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(id.to_string()))?;

@@ -5818,7 +5818,10 @@ impl ConsentRecordEntity {
         }
         if let Some(capacity) = &self.consent_giver_capacity {
             if crate::types::ConsentGiverCapacity::parse(capacity).is_none() {
-                problems.push(format!("unrecognised consent_giver_capacity '{}'", capacity));
+                problems.push(format!(
+                    "unrecognised consent_giver_capacity '{}'",
+                    capacity
+                ));
             }
         }
 
@@ -6131,7 +6134,10 @@ impl GuardianPermission {
             return true;
         }
         granted == Self::GiveConsent.as_str()
-            && matches!(self, Self::ConsentToTreatment | Self::ConsentToDataProcessing)
+            && matches!(
+                self,
+                Self::ConsentToTreatment | Self::ConsentToDataProcessing
+            )
     }
 }
 
@@ -6284,10 +6290,7 @@ impl GuardianRelationshipEntity {
     /// satisfies the treatment/data-processing successors that replaced it.
     pub fn grants(&self, permission: GuardianPermission, now: DateTime<Utc>) -> bool {
         self.active
-            && self
-                .expires_at
-                .map(|expires| expires > now)
-                .unwrap_or(true)
+            && self.expires_at.map(|expires| expires > now).unwrap_or(true)
             && self
                 .permissions
                 .iter()
@@ -6513,8 +6516,7 @@ pub trait RetentionExecutionRepository: Send + Sync + fmt::Debug {
     /// Whether this patient currently has any unlifted restriction.
     async fn is_restricted(&self, patient_id: &str) -> RepositoryResult<bool>;
 
-    async fn list_active_restrictions(&self)
-        -> RepositoryResult<Vec<ProcessingRestrictionEntity>>;
+    async fn list_active_restrictions(&self) -> RepositoryResult<Vec<ProcessingRestrictionEntity>>;
 
     async fn lift_restriction(
         &self,
@@ -6528,8 +6530,7 @@ pub trait RetentionExecutionRepository: Send + Sync + fmt::Debug {
         entry: DeletionRegisterEntity,
     ) -> RepositoryResult<DeletionRegisterEntity>;
 
-    async fn list_register(&self, limit: i64)
-        -> RepositoryResult<Vec<DeletionRegisterEntity>>;
+    async fn list_register(&self, limit: i64) -> RepositoryResult<Vec<DeletionRegisterEntity>>;
 }
 
 /// A stored emergency capsule version (Horizon HZ-003).
@@ -6603,8 +6604,7 @@ pub trait EmergencyCapsuleRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<EmergencyCapsuleEntity>;
 
     /// Newest non-revoked capsule for a patient, if any.
-    async fn current(&self, patient_id: &str)
-        -> RepositoryResult<Option<EmergencyCapsuleEntity>>;
+    async fn current(&self, patient_id: &str) -> RepositoryResult<Option<EmergencyCapsuleEntity>>;
 
     /// Newest version number stored for a patient, revoked or not.
     ///
@@ -6734,7 +6734,9 @@ mod tests {
             ..Default::default()
         };
         let problems = invalid.validate_lawful_basis().unwrap_err();
-        assert!(problems.iter().any(|p| p.contains("popia_section_11_basis")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("popia_section_11_basis")));
     }
 
     /// An emergency basis without a justification is unauditable and must be
@@ -6750,7 +6752,9 @@ mod tests {
             ..Default::default()
         };
         let problems = record.validate_lawful_basis().unwrap_err();
-        assert!(problems.iter().any(|p| p.contains("without a justification")));
+        assert!(problems
+            .iter()
+            .any(|p| p.contains("without a justification")));
     }
 
     /// Children's Act §129 capacity depends on a maturity finding. A row

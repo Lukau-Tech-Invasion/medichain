@@ -179,9 +179,7 @@ impl RetentionExecutionRepository for PgRetentionExecutionRepository {
         Ok(restricted)
     }
 
-    async fn list_active_restrictions(
-        &self,
-    ) -> RepositoryResult<Vec<ProcessingRestrictionEntity>> {
+    async fn list_active_restrictions(&self) -> RepositoryResult<Vec<ProcessingRestrictionEntity>> {
         let result = sqlx::query_as::<Postgres, ProcessingRestrictionEntity>(&format!(
             "SELECT {RESTRICTION_COLUMNS} FROM processing_restrictions
              WHERE lifted_at IS NULL

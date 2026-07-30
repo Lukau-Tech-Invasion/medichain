@@ -23,10 +23,7 @@ use crate::middleware::error_handling::{error_codes, error_envelope_json};
 /// `set_emergency_capsule_commitment`: the commitment must correspond to a
 /// capsule the clinical system actually holds, so an arbitrary authenticated
 /// account must not be able to mint one.
-fn require_provider(
-    data: &web::Data<AppState>,
-    req: &HttpRequest,
-) -> Result<String, HttpResponse> {
+fn require_provider(data: &web::Data<AppState>, req: &HttpRequest) -> Result<String, HttpResponse> {
     let uid = get_current_user_id(req).ok_or_else(|| {
         HttpResponse::Unauthorized().json(error_envelope_json(
             error_codes::UNAUTHORIZED,
@@ -154,11 +151,7 @@ pub async fn revoke_emergency_capsule(
             "revoked_by": capsule.revoked_by,
         })),
         Err(crate::repositories::traits::RepositoryError::NotFound(msg)) => {
-            HttpResponse::NotFound().json(error_envelope_json(
-                error_codes::NOT_FOUND,
-                &msg,
-                None,
-            ))
+            HttpResponse::NotFound().json(error_envelope_json(error_codes::NOT_FOUND, &msg, None))
         }
         Err(e) => {
             log::error!("Capsule revocation failed for {patient_id}: {e}");

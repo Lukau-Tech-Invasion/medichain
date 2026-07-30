@@ -34,16 +34,18 @@ impl RetentionRule {
     /// `minimum_age_years` is only consulted by the age-based rule, and its
     /// absence there is an error rather than a silent default — a policy that
     /// says "retain until adulthood" without saying which age is not a policy.
-    pub fn from_policy(kind: &str, period_years: u32, minimum_age_years: Option<u32>) -> Option<Self> {
+    pub fn from_policy(
+        kind: &str,
+        period_years: u32,
+        minimum_age_years: Option<u32>,
+    ) -> Option<Self> {
         match kind {
             "years_from_last_entry" => Some(Self::YearsFromLastEntry(period_years)),
             "years_from_event" => Some(Self::YearsFromEvent(period_years)),
-            "later_of_age_or_years_from_last_entry" => {
-                Some(Self::LaterOfAgeOrYearsFromLastEntry {
-                    age_years: minimum_age_years?,
-                    years: period_years,
-                })
-            }
+            "later_of_age_or_years_from_last_entry" => Some(Self::LaterOfAgeOrYearsFromLastEntry {
+                age_years: minimum_age_years?,
+                years: period_years,
+            }),
             "lifetime" => Some(Self::Lifetime),
             _ => None,
         }
@@ -312,12 +314,7 @@ mod tests {
 
     #[test]
     fn lifetime_policy_is_never_due() {
-        let decision = evaluate(
-            RetentionRule::Lifetime,
-            &facts(),
-            &[],
-            date(2999, 12, 31),
-        );
+        let decision = evaluate(RetentionRule::Lifetime, &facts(), &[], date(2999, 12, 31));
         assert!(matches!(decision, RetentionDecision::Excluded { .. }));
     }
 
@@ -403,7 +400,12 @@ mod tests {
             created_on: date(2010, 1, 1),
             ..facts()
         };
-        let decision = evaluate(RetentionRule::YearsFromLastEntry(6), &f, &[], date(2016, 1, 1));
+        let decision = evaluate(
+            RetentionRule::YearsFromLastEntry(6),
+            &f,
+            &[],
+            date(2016, 1, 1),
+        );
         assert_eq!(
             decision,
             RetentionDecision::Due {
@@ -418,7 +420,12 @@ mod tests {
             last_clinical_entry_on: Some(date(2020, 2, 29)),
             ..facts()
         };
-        let decision = evaluate(RetentionRule::YearsFromLastEntry(1), &f, &[], date(2021, 3, 1));
+        let decision = evaluate(
+            RetentionRule::YearsFromLastEntry(1),
+            &f,
+            &[],
+            date(2021, 3, 1),
+        );
         assert_eq!(
             decision,
             RetentionDecision::Due {
@@ -449,6 +456,9 @@ mod tests {
             RetentionRule::from_policy("later_of_age_or_years_from_last_entry", 6, None),
             None
         );
-        assert_eq!(RetentionRule::from_policy("delete_everything", 6, None), None);
+        assert_eq!(
+            RetentionRule::from_policy("delete_everything", 6, None),
+            None
+        );
     }
 }

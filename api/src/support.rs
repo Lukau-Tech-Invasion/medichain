@@ -350,7 +350,12 @@ pub async fn caller_may_access_patient(
 /// encrypted `patients.date_of_birth_encrypted` column through the same
 /// keyring path as `patient_entity_to_profile`.
 pub async fn patient_age_years(data: &web::Data<AppState>, patient_id: &str) -> Option<u32> {
-    let entity = data.repositories.patients.get_by_id(patient_id).await.ok()?;
+    let entity = data
+        .repositories
+        .patients
+        .get_by_id(patient_id)
+        .await
+        .ok()?;
     let profile = crate::types::patient_entity_to_profile(&entity, &data.encryption_keyring)?;
     age_in_years(&profile.date_of_birth, Utc::now().date_naive())
 }
@@ -405,14 +410,14 @@ pub fn require_demo_mode() -> Result<(), HttpResponse> {
     if is_demo_mode() {
         return Ok(());
     }
-    Err(HttpResponse::Forbidden().json(
-        crate::middleware::error_handling::error_envelope_json(
+    Err(
+        HttpResponse::Forbidden().json(crate::middleware::error_handling::error_envelope_json(
             "DEMO_ONLY_ENDPOINT",
             "This endpoint is a simulation aid available only when IS_DEMO=true. \
              It is disabled in this deployment.",
             None,
-        ),
-    ))
+        )),
+    )
 }
 
 /// Who may lawfully consent to this patient's own medical treatment, on the
@@ -486,15 +491,16 @@ pub async fn ensure_not_restricted(
         .await
     {
         Ok(false) => Ok(()),
-        Ok(true) => Err(HttpResponse::Forbidden().json(
-            crate::middleware::error_handling::error_envelope_json(
+        Ok(true) => {
+            Err(HttpResponse::Forbidden()
+                .json(crate::middleware::error_handling::error_envelope_json(
                 "PROCESSING_RESTRICTED",
                 "This patient's records are under a POPIA processing restriction: the retention \
                  period has elapsed and processing is limited to storage. An administrator must \
                  lift the restriction before new processing.",
                 None,
-            ),
-        )),
+            )))
+        }
         Err(e) => {
             log::error!(
                 "processing-restriction check FAILED for {patient_id} ({e}); allowing the \
@@ -611,7 +617,10 @@ mod tests {
     fn treatment_consent_capacity_boundaries() {
         use TreatmentConsentCapacity::*;
 
-        assert_eq!(treatment_consent_capacity(Some(11)), CompetentPersonRequired);
+        assert_eq!(
+            treatment_consent_capacity(Some(11)),
+            CompetentPersonRequired
+        );
         assert_eq!(treatment_consent_capacity(Some(12)), MatureChildEligible);
         assert_eq!(treatment_consent_capacity(Some(17)), MatureChildEligible);
         assert_eq!(treatment_consent_capacity(Some(18)), Adult);
@@ -644,13 +653,19 @@ mod tests {
         // Unset and explicitly-false must both be refused. Anything other than
         // exactly "true" is production, and the gate must deny.
         std::env::remove_var("IS_DEMO");
-        assert!(require_demo_mode().is_err(), "unset IS_DEMO must be refused");
+        assert!(
+            require_demo_mode().is_err(),
+            "unset IS_DEMO must be refused"
+        );
 
         std::env::set_var("IS_DEMO", "false");
         assert!(require_demo_mode().is_err());
 
         std::env::set_var("IS_DEMO", "1");
-        assert!(require_demo_mode().is_err(), "only the literal 'true' enables demo");
+        assert!(
+            require_demo_mode().is_err(),
+            "only the literal 'true' enables demo"
+        );
 
         std::env::set_var("IS_DEMO", "true");
         assert!(require_demo_mode().is_ok());

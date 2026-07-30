@@ -901,7 +901,10 @@ mod tests {
             .await
             .expect("pending_extrinsic should not fail");
 
-        assert!(!result.finalized, "a placeholder result must not claim finalized");
+        assert!(
+            !result.finalized,
+            "a placeholder result must not claim finalized"
+        );
         assert!(result.hash.starts_with("0x"), "hash must be 0x-prefixed");
         // Strip prefix and check hex length: 32 bytes × 2 hex chars = 64.
         let hex_part = &result.hash[2..];
@@ -934,7 +937,10 @@ mod tests {
             .unwrap();
 
         // Different call names → different hashes.
-        assert_ne!(h1.hash, h2.hash, "different call names must yield different hashes");
+        assert_ne!(
+            h1.hash, h2.hash,
+            "different call names must yield different hashes"
+        );
         assert!(!h1.finalized && !h2.finalized);
 
         // Both should still be correctly formatted.

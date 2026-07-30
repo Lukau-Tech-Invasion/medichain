@@ -330,9 +330,7 @@ pub async fn sign_consent(
             ChildInformationBasis::S129MatureChildSelfConsent
         }
         None => match treatment_capacity {
-            crate::support::TreatmentConsentCapacity::Adult => {
-                ChildInformationBasis::NotApplicable
-            }
+            crate::support::TreatmentConsentCapacity::Adult => ChildInformationBasis::NotApplicable,
             // Unknown age (undecryptable or absent DOB): don't guess that the
             // subject is an adult — leaving it not_applicable would assert
             // something unverified. Log and treat as the safer child ground.
@@ -365,7 +363,9 @@ pub async fn sign_consent(
             .unwrap_or("000")
     );
     let now = chrono::Utc::now();
-    let validity_days = body.expires_in_days.unwrap_or(DEFAULT_CONSENT_VALIDITY_DAYS);
+    let validity_days = body
+        .expires_in_days
+        .unwrap_or(DEFAULT_CONSENT_VALIDITY_DAYS);
 
     let entity = ConsentRecordEntity {
         id: consent_id,

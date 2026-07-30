@@ -488,7 +488,10 @@ mod tests {
             ConsentGiverCapacity::ChildOver12Mature,
             ConsentGiverCapacity::LegalProxy,
         ] {
-            assert_eq!(ConsentGiverCapacity::parse(capacity.as_str()), Some(capacity));
+            assert_eq!(
+                ConsentGiverCapacity::parse(capacity.as_str()),
+                Some(capacity)
+            );
         }
 
         for basis in [

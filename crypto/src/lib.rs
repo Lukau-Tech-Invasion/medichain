@@ -863,7 +863,13 @@ pub mod signature {
             let signature = sign_hex(&pair, &message);
 
             let result = verify_wallet_signature_bound(
-                &signature, &message, &wallet, "POST", "/api/x", "bodyhash-b", timestamp,
+                &signature,
+                &message,
+                &wallet,
+                "POST",
+                "/api/x",
+                "bodyhash-b",
+                timestamp,
             );
             assert_eq!(result, Err(SignatureError::VerificationFailed));
         }

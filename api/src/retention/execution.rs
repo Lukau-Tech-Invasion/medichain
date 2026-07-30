@@ -70,7 +70,10 @@ pub enum ExecutionError {
     NotFound(String),
     NotExecutable(String),
     /// The record set changed between approval and execution.
-    AssessmentDrifted { approved: String, current: String },
+    AssessmentDrifted {
+        approved: String,
+        current: String,
+    },
     Repository(String),
 }
 

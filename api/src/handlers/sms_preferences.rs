@@ -219,7 +219,10 @@ mod hz_webhook_regression_tests {
             .is_opted_out("+27000000000")
             .await
             .unwrap_or(false);
-        assert!(!opted_out, "an unauthenticated caller must not be able to opt out an arbitrary number");
+        assert!(
+            !opted_out,
+            "an unauthenticated caller must not be able to opt out an arbitrary number"
+        );
         std::env::remove_var("SMS_INBOUND_WEBHOOK_SECRET");
     }
 
@@ -248,7 +251,10 @@ mod hz_webhook_regression_tests {
             .is_opted_out("+27111111111")
             .await
             .unwrap_or(false);
-        assert!(opted_out, "a correctly authenticated STOP reply must still work");
+        assert!(
+            opted_out,
+            "a correctly authenticated STOP reply must still work"
+        );
         std::env::remove_var("SMS_INBOUND_WEBHOOK_SECRET");
     }
 }
