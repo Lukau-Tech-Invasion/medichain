@@ -31,10 +31,15 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        // Docker exposes the API through the public Nginx gateway on port 80.
-        // Port 8080 belongs to the IPFS gateway, so proxying there made browser
-        // API calls fail despite a healthy MediChain API container.
-        target: 'http://127.0.0.1',
+        // Where the dev server forwards /api/* to. Configurable so both
+        // deployment shapes work:
+        //   - Standalone API (the README quickstart, no Docker): the API binds
+        //     127.0.0.1:8080 directly — this is the default here.
+        //   - Full Docker stack: the API sits behind the Nginx gateway on :80;
+        //     set VITE_API_PROXY_TARGET=http://127.0.0.1 to point there.
+        // Previously this hardcoded :80, so the documented no-Docker quickstart
+        // could not reach the API at all — every frontend call 503'd.
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080',
         changeOrigin: true,
         secure: false,
         // Add timeout and error handling
