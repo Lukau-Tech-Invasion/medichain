@@ -55,6 +55,23 @@ pub async fn list_insurance_cards(
         return resp;
     }
     let patient_id = path.into_inner();
+
+    // HZ-019 IDOR follow-up: require_auth only proves the caller is authenticated,
+    // not that they own these cards. Without this an unrelated patient could list
+    // another patient's insurance cards. Apply provider-or-self.
+    if let Some(uid) = get_current_user_id(&req) {
+        let is_provider = get_user(&data, &uid)
+            .map(|u| u.role.is_healthcare_provider())
+            .unwrap_or(false);
+        if !is_provider && uid != patient_id {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Access denied".to_string(),
+                code: "ACCESS_DENIED".to_string(),
+            });
+        }
+    }
+
     match data
         .repositories
         .insurance_cards

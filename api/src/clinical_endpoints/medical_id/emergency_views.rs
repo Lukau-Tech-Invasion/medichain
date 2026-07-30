@@ -286,14 +286,34 @@ pub async fn get_lockscreen_medical_id(
         .map(|t| super::emergency_access::verify_emergency_token(t, &patient_id))
         .unwrap_or(false);
 
-    if current_user_id.is_none() && !token_ok {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Lock-screen access requires an authenticated identity or a valid signed \
-                    emergency token. Exchange your NFC card hash via POST /api/emergency/nfc-token first."
-                .to_string(),
-            code: "IDENTITY_BINDING_REQUIRED".to_string(),
-        });
+    // Access requires a valid signed emergency token, OR an authenticated caller
+    // who is either a healthcare provider or the patient themselves.
+    //
+    // HZ-019 IDOR follow-up: the prior check was `authenticated OR token`, which
+    // let ANY authenticated account — including an unrelated patient — read this
+    // patient's lock-screen PHI. Its sibling `/api/medical-id/{id}` already
+    // enforced provider-or-self; lock-screen silently did not. A systematic
+    // cross-patient sweep caught the divergence.
+    if !token_ok {
+        let authorized = match &current_user_id {
+            Some(uid) => {
+                *uid == patient_id
+                    || get_user(&data, uid)
+                        .map(|u| u.role.is_healthcare_provider())
+                        .unwrap_or(false)
+            }
+            None => false,
+        };
+        if !authorized {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Lock-screen access requires a valid signed emergency token, or an \
+                        authenticated healthcare provider, or the patient themselves. Exchange \
+                        an NFC card hash via POST /api/emergency/nfc-token for token access."
+                    .to_string(),
+                code: "IDENTITY_BINDING_REQUIRED".to_string(),
+            });
+        }
     }
 
     // Get allergies from repository

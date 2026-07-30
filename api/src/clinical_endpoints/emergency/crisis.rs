@@ -72,10 +72,28 @@ pub async fn list_patient_code_blues(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
-    }
     let patient_id = path.into_inner();
+
+    // HZ-019 IDOR follow-up: previously authenticated-only, so an unrelated
+    // patient could read this patient's code-blue records. A cross-patient sweep
+    // masked it (the victim had no records); code inspection confirmed the gap.
+    // Apply provider-or-self, matching the clinical endpoints.
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    match get_user(&data, &current_user_id) {
+        Some(u) if u.role.is_healthcare_provider() || current_user_id == patient_id => {}
+        Some(_) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Access denied".to_string(),
+                code: "ACCESS_DENIED".to_string(),
+            })
+        }
+        None => return HttpResponse::Unauthorized().finish(),
+    }
+
     let pagination = Pagination::new(0, 50);
     match data
         .repositories

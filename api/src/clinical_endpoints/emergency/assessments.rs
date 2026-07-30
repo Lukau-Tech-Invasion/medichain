@@ -258,8 +258,34 @@ pub async fn get_patient_emergency_records(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+
+    // HZ-019 IDOR follow-up: this previously checked only that SOME X-User-Id
+    // header was present, so any authenticated account — including an unrelated
+    // patient — could read any patient's emergency records. Apply the same
+    // provider-or-self rule the clinical endpoints use (e.g. get_patient_vitals):
+    // a healthcare provider, or the patient reading their own record. The
+    // token-based break-glass path is separate (POST /api/emergency/nfc-token
+    // then the medical-id endpoints).
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
     }
 
     let pagination = Pagination::new(0, 10);
