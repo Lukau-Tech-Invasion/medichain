@@ -12,7 +12,7 @@
     "dev:doctor": "npm run dev --workspace=doctor-portal",
     "dev:patient": "npm run dev --workspace=patient-app",
     "dev:all": "npm run dev:doctor & npm run dev:patient",
-    "build:shared": "npm run build --workspace=shared",
+    "build:shared": "npm run typecheck --workspace=shared",
     "build:doctor": "npm run build --workspace=doctor-portal",
     "build:patient": "npm run build --workspace=patient-app",
     "build:all": "npm run build:shared && npm run build:doctor && npm run build:patient",
