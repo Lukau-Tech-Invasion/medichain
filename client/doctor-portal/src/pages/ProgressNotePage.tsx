@@ -60,18 +60,31 @@ const ProgressNotePage: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        const response = await fetch(apiUrl('/api/clinical/progress-notes'), {
+        const response = await fetch(apiUrl('/api/platform/list/progress-notes'), {
           headers: {
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role,
             'Content-Type': 'application/json',
           },
         });
-        
+
         if (response.ok) {
           const data = await response.json();
-          // Transform API response to match ProgressNote interface
-          const transformedNotes: ProgressNote[] = (data.notes || []).map((note: Record<string, unknown>) => ({
+          // The list endpoint returns a bare array of record entities of the
+          // shape { id, patient_id, data: {...the note...}, created_at }. Flatten
+          // the inner `data` up so the note's own fields (note_type, status, …)
+          // are readable, while keeping the entity's id/patient_id/timestamps.
+          // Tolerant of a bare array, a { notes } or { items } envelope, and a
+          // record that is already flat.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const rawItems: Record<string, any>[] = Array.isArray(data)
+            ? data
+            : (data.notes || data.items || []);
+          const transformedNotes: ProgressNote[] = rawItems.map((item) => {
+            const inner = (item.data && typeof item.data === 'object' ? item.data : {});
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const note: Record<string, any> = { ...item, ...inner };
+            return ({
             id: note.note_id || note.id,
             patientId: note.patient_id,
             patientName: note.patient_name || t('docProgressNote.unknownPatient'),
@@ -88,7 +101,8 @@ const ProgressNotePage: React.FC = () => {
             plan: note.plan as string || '',
             signedAt: note.signed_at ? new Date(note.signed_at as string) : undefined,
             cosigner: note.cosigner as string | undefined,
-          }));
+            });
+          });
           setNotes(transformedNotes);
         } else {
           setError(t('docProgressNote.failFetch'));
