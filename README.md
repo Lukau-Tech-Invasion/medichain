@@ -4,7 +4,7 @@
 
 [![Rust](https://img.shields.io/badge/Rust-1.97-orange.svg)](https://www.rust-lang.org/)
 [![Substrate](https://img.shields.io/badge/Substrate-polkadot--sdk-blue.svg)](https://substrate.io/)
-[![Tests](https://img.shields.io/badge/tests-351%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-380%20passing-brightgreen.svg)](#testing)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 MediChain is a national health-ID and emergency medical records system for African
@@ -96,7 +96,7 @@ commands in [docs/architecture.md](docs/architecture.md#verifying-these-numbers)
 | **Storage** | Working, dual backend | In-memory (default, ephemeral) and PostgreSQL (`MEDICHAIN_STORAGE=postgres`); 38 migrations → 179 tables. Both implement the same repository traits |
 | **Blockchain** | Working, opt-in | Real `subxt` extrinsic submission when `BLOCKCHAIN_ENABLED=true` and an operator key is configured; deterministic placeholder hash otherwise. Every call returns `ChainTxResult { hash, finalized }` so callers can tell which they got |
 | **Substrate node** | Real node | `node/` builds a genuine node (chain spec, service, RPC) on polkadot-sdk — not a mock |
-| **Pallets** | Working | `access-control`, `medical-records`, `patient-identity` — 46 tests |
+| **Pallets** | Working | `access-control` (21), `medical-records` (19), `patient-identity` (12) — 52 tests |
 | **Crypto** | Working | ChaCha20-Poly1305 AEAD, Argon2id KDF, SHA3-256, Sr25519 signatures, zeroization on drop |
 | **Emergency access** | Working | Grant-bound break-glass requiring live work context + approved device; short-lived signed NFC token exchange; field-level disclosure logging |
 | **Consent / legal basis** | Working | POPIA §11 grounds, §32 health authorisation, §34/35 children's information, Children's Act §129 mature-minor rules — not a boolean |
@@ -184,15 +184,16 @@ Full setup, environment variables and troubleshooting:
 
 ```bash
 cargo test -p medichain-api --bin medichain-api    # 305 tests
-cargo test -p pallet-access-control                # 19
-cargo test -p pallet-medical-records               # 17
-cargo test -p pallet-patient-identity              # 10
+cargo test -p medichain-crypto                     # 23
+cargo test -p pallet-access-control                # 21
+cargo test -p pallet-medical-records               # 19
+cargo test -p pallet-patient-identity              # 12
 bash scripts/synthetic-e2e-test.sh                 # 40 live-API assertions
 ```
 
-**351 automated tests pass** (305 API + 46 pallet), plus 40 end-to-end assertions
-against a running server. Four of the 305 require a live PostgreSQL and are
-skipped without one:
+**380 automated tests pass** (305 API + 23 crypto + 52 pallet), plus 40
+end-to-end assertions against a running server. Four of the 305 require a live
+PostgreSQL and are skipped without one:
 
 ```bash
 DATABASE_URL=postgres://... cargo test -p medichain-api --bin medichain-api

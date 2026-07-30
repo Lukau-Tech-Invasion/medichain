@@ -97,9 +97,9 @@ graph TB
 
     subgraph chain["Blockchain tier — polkadot-sdk"]
         RT["<b>runtime</b><br/>construct_runtime!"]
-        P1["pallet-access-control<br/>19 tests"]
-        P2["pallet-medical-records<br/>17 tests"]
-        P3["pallet-patient-identity<br/>10 tests"]
+        P1["pallet-access-control<br/>21 tests"]
+        P2["pallet-medical-records<br/>19 tests"]
+        P3["pallet-patient-identity<br/>12 tests"]
         ND["<b>node</b><br/>chain spec · service · RPC"]
         RT --- P1
         RT --- P2
@@ -505,7 +505,8 @@ find client/patient-app/src/pages   -name '*.tsx' | wc -l                       
 # Tests
 cargo test -p medichain-api --bin medichain-api                                 # 305
 for p in access-control medical-records patient-identity; do
-  grep -c '#\[test\]' pallets/$p/src/tests.rs; done                             # 19 17 10
+  cargo test -p pallet-$p 2>&1 | grep 'test result'; done                       # 21, 19, 12
+cargo test -p medichain-crypto 2>&1 | grep 'test result'                        # 23
 bash scripts/synthetic-e2e-test.sh                                              # 40 assertions
 ```
 
