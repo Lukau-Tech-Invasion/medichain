@@ -41,6 +41,49 @@ fn require_auth(req: &HttpRequest) -> Result<String, HttpResponse> {
     })
 }
 
+/// Fetch a card by id and confirm the caller may act on it: the card's owner, or
+/// a healthcare provider. Otherwise the appropriate error response.
+///
+/// HZ-020 (resource-id IDOR): the card mutators previously gated on `require_auth`
+/// only — any authenticated account could update, image, or delete another
+/// patient's card by its id. `cancel_appointment` already applied owner-or-
+/// provider after fetching the resource; the card handlers had not. This
+/// centralises that check for the three mutators.
+async fn require_card_access(
+    data: &web::Data<AppState>,
+    caller: &str,
+    card_id: &str,
+) -> Result<crate::repositories::traits::JsonRecordEntity, HttpResponse> {
+    let existing = match data.repositories.insurance_cards.get_by_id(card_id).await {
+        Ok(Some(e)) => e,
+        Ok(None) => {
+            return Err(HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Insurance card not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            }))
+        }
+        Err(e) => {
+            return Err(HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: e.to_string(),
+                code: "REPOSITORY_ERROR".to_string(),
+            }))
+        }
+    };
+    let is_provider = get_user(data, caller)
+        .map(|u| u.role.is_healthcare_provider())
+        .unwrap_or(false);
+    if !is_provider && existing.owner_id != caller {
+        return Err(HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        }));
+    }
+    Ok(existing)
+}
+
 /// List a patient's insurance cards, cursor-paginated (Phase 9.3).
 ///
 /// GET /api/insurance/cards/{patient_id}?limit=N&cursor=<opaque>
@@ -154,28 +197,17 @@ pub async fn update_insurance_card(
     path: web::Path<String>,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    if let Err(resp) = require_auth(&req) {
-        return resp;
-    }
+    let caller = match require_auth(&req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     let id = path.into_inner();
 
-    // Preserve ownership + created_at from the existing record.
-    let existing = match data.repositories.insurance_cards.get_by_id(&id).await {
-        Ok(Some(e)) => e,
-        Ok(None) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Insurance card not found".to_string(),
-                code: "NOT_FOUND".to_string(),
-            })
-        }
-        Err(e) => {
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
-                error: e.to_string(),
-                code: "REPOSITORY_ERROR".to_string(),
-            })
-        }
+    // HZ-020: owner-or-provider check (was require_auth only). Also preserves
+    // ownership + created_at from the existing record.
+    let existing = match require_card_access(&data, &caller, &id).await {
+        Ok(e) => e,
+        Err(resp) => return resp,
     };
 
     let entity = crate::repositories::traits::JsonRecordEntity {
@@ -224,22 +256,10 @@ pub async fn upload_insurance_card_image(
     };
     let id = path.into_inner();
 
-    let existing = match data.repositories.insurance_cards.get_by_id(&id).await {
-        Ok(Some(e)) => e,
-        Ok(None) => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "Insurance card not found".to_string(),
-                code: "NOT_FOUND".to_string(),
-            })
-        }
-        Err(e) => {
-            return HttpResponse::InternalServerError().json(ErrorResponse {
-                success: false,
-                error: e.to_string(),
-                code: "REPOSITORY_ERROR".to_string(),
-            })
-        }
+    // HZ-020: owner-or-provider check (was require_auth only).
+    let existing = match require_card_access(&data, &uploader, &id).await {
+        Ok(e) => e,
+        Err(resp) => return resp,
     };
 
     let bytes = match base64::engine::general_purpose::STANDARD.decode(body.image_base64.trim()) {
@@ -319,10 +339,19 @@ pub async fn delete_insurance_card(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(resp) = require_auth(&req) {
+    let caller = match require_auth(&req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let id = path.into_inner();
+
+    // HZ-020: previously delete gated on require_auth only and did not even
+    // fetch the card, so any authenticated account could delete anyone's card
+    // by id. Confirm owner-or-provider first.
+    if let Err(resp) = require_card_access(&data, &caller, &id).await {
         return resp;
     }
-    let id = path.into_inner();
+
     match data.repositories.insurance_cards.delete(&id).await {
         Ok(()) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
