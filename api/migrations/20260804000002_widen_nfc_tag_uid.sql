@@ -1,0 +1,23 @@
+-- Widen nfc_tags.tag_uid so a SHA3-256 card hash actually fits.
+--
+-- `tag_uid` stores the value returned by `support::generate_nfc_hash`, which is
+-- `hex::encode(Sha3_256)` — 64 characters. The column was VARCHAR(32), exactly
+-- half the required width, so every INSERT failed with
+--     value too long for type character varying(32)
+--
+-- Patient registration writes the patient row and the NFC tag in ONE
+-- transaction (`create_patient_with_nfc`), so this failure rolled back the whole
+-- registration: **no patient could be registered on the PostgreSQL backend at
+-- all.** It surfaced as "Patient persistence failed", which pointed at the
+-- patients table rather than the real culprit.
+--
+-- The in-memory backend has no column widths, so it accepted the 64-character
+-- hash happily. Every end-to-end run in this project used the memory backend,
+-- which is why a total failure of the production storage path went unnoticed:
+-- the two backends implement the same trait but do not enforce the same
+-- constraints, and only one of them was ever exercised.
+--
+-- 64 rather than TEXT to keep the column's intent (a fixed-width hex digest)
+-- expressed in the schema.
+
+ALTER TABLE nfc_tags ALTER COLUMN tag_uid TYPE VARCHAR(64);
