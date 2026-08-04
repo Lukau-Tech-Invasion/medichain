@@ -178,8 +178,35 @@ async fn main() -> std::io::Result<()> {
                     println!("  [DB] Running database migrations...");
                     if let Err(e) = db::run_migrations(&pool).await {
                         if demo {
-                            eprintln!("  [WARN] Migration warning: {}", e);
-                            eprintln!("       (demo mode — starting anyway)");
+                            // Demo mode still starts, but the previous message
+                            // ("Migration warning: ...", then a healthy boot)
+                            // was indistinguishable from success in a scrolling
+                            // log. It hid a database sitting 31 migrations
+                            // behind the code — 8 of 39 applied — because sqlx
+                            // halts the ENTIRE chain when one already-applied
+                            // migration's checksum changes. Endpoints then fail
+                            // on missing tables that look like ordinary bugs.
+                            let applied = db::applied_migration_count(&pool).await;
+                            let on_disk = db::available_migration_count();
+                            eprintln!("\n=================================================");
+                            eprintln!("  [WARN] DATABASE MIGRATIONS DID NOT APPLY");
+                            eprintln!("  {e}");
+                            match (applied, on_disk) {
+                                (Some(a), Some(d)) if d > a => eprintln!(
+                                    "  Schema is STALE: {a} of {d} migrations applied — {} missing.\n  \
+                                     Tables added by the missing {} will not exist, and any endpoint \
+                                     touching them will fail at runtime.",
+                                    d - a, d - a
+                                ),
+                                _ => eprintln!(
+                                    "  Schema state is unknown; assume it does not match the code."
+                                ),
+                            }
+                            eprintln!(
+                                "  Starting anyway because IS_DEMO=true. This would ABORT startup \
+                                 in any non-demo deployment."
+                            );
+                            eprintln!("=================================================\n");
                         } else {
                             eprintln!("\n[ERROR] STARTUP ABORTED: database migrations failed: {e}");
                             eprintln!(
