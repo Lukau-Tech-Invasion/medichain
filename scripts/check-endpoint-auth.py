@@ -107,9 +107,68 @@ def body_after(text: str, start: int) -> str:
     return text[i:]
 
 
+# --------------------------------------------------------------------------
+# Tiered classification.
+#
+# The original gate asked one question — "does this handler mention any auth
+# marker?" — and `X-User-Id` was one of the markers. So a handler that merely
+# READ the header passed, including handlers that then ran an unscoped
+# `list_all()`. It reported "408 scanned, 0 unclassified, PASS" over exactly the
+# endpoints an external review then walked straight through with a forged
+# identity. A green result that does not distinguish "saw a header" from
+# "authorized this caller for this resource" is worse than no gate, because
+# release decisions get made on it.
+#
+# Tiers are ordered; a handler is classified at the highest tier it evidences.
+# --------------------------------------------------------------------------
+T_NONE, T_PRESENCE, T_KNOWN, T_ROLE, T_RESOURCE = 0, 1, 2, 3, 4
+
+TIER_NAMES = {
+    T_NONE: 'no auth decision',
+    T_PRESENCE: 'identity PRESENCE only (header read, caller never verified)',
+    T_KNOWN: 'registered identity resolved',
+    T_ROLE: 'role authorization',
+    T_RESOURCE: 'resource/patient scope authorization',
+}
+
+# Reads the header but proves nothing about who the caller is.
+PRESENCE_MARKERS = ['X-User-Id', 'get_current_user_id', 'require_x_user_id_header',
+                    'require_auth(']
+# Resolves the caller against the user store — proves they are registered.
+KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'AuthorizedUser']
+# Checks what the caller is allowed to do at all.
+ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
+                'can_edit_medical_records', 'can_view_medical_records', 'is_admin(',
+                'require_demo_mode', 'is_demo_mode']
+# Ties the decision to the specific patient/resource being touched.
+RESOURCE_MARKERS = ['resolve_patient_access', 'caller_may_access_patient',
+                    'require_emergency_list_access', 'require_card_access',
+                    'require_surgical_list_access', 'is_permitted()']
+
+# Unscoped bulk reads. `list_all()` returns every row for every organization;
+# filtering afterwards in Rust is not isolation, and at 10-100 hospitals it is
+# the multi-tenant breach path.
+BULK_MARKERS = ['list_all(']
+
+BASELINE = pathlib.Path(__file__).resolve().parent.parent / '.endpoint-auth-baseline'
+
+
+def classify(scope: str) -> int:
+    if any(k in scope for k in RESOURCE_MARKERS):
+        return T_RESOURCE
+    if any(k in scope for k in ROLE_MARKERS):
+        return T_ROLE
+    if any(k in scope for k in KNOWN_MARKERS):
+        return T_KNOWN
+    if any(k in scope for k in PRESENCE_MARKERS):
+        return T_PRESENCE
+    return T_NONE
+
+
 def main() -> int:
     root = pathlib.Path(__file__).resolve().parent.parent / 'api' / 'src'
-    unclassified = []
+    unclassified, weak, bulk = [], [], []
+    tiers = {t: 0 for t in TIER_NAMES}
     total = 0
     for path in sorted(root.rglob('*.rs')):
         text = path.read_text(encoding='utf-8', errors='replace')
@@ -123,26 +182,71 @@ def main() -> int:
             sig = text[fm.end():sig_end] if sig_end != -1 else ''
             body = body_after(text, fm.end())
             scope = sig + body
-            if any(k in scope for k in AUTH_MARKERS):
-                continue
+            rel = str(path.relative_to(root.parent.parent))
+            entry = (m.group(1).upper(), route, fm.group(1), rel)
+
             if route in PUBLIC_ROUTES or route in DELEGATED_AUTH:
                 continue
-            unclassified.append((m.group(1).upper(), route, fm.group(1),
-                                 str(path.relative_to(root.parent.parent))))
+
+            tier = classify(scope)
+            tiers[tier] += 1
+            if tier == T_NONE:
+                unclassified.append(entry)
+            elif tier == T_PRESENCE:
+                weak.append(entry)
+            if any(k in scope for k in BULK_MARKERS) and tier < T_RESOURCE:
+                bulk.append(entry)
 
     print(f'endpoint-auth gate: {total} handlers scanned, '
-          f'{len(PUBLIC_ROUTES)} allowlisted public, '
-          f'{len(DELEGATED_AUTH)} delegated, '
-          f'{len(unclassified)} unclassified')
+          f'{len(PUBLIC_ROUTES)} allowlisted public, {len(DELEGATED_AUTH)} delegated')
+    for t in sorted(TIER_NAMES, reverse=True):
+        print(f'  tier {t} — {TIER_NAMES[t]:58} {tiers[t]:4}')
+    print(f'  unscoped bulk reads (list_all without resource scope): {len(bulk)}')
+
+    failed = False
     if unclassified:
-        print('\nFAIL — these handlers have no auth decision and are not on the '
-              'public allowlist:\n')
+        failed = True
+        print('\nFAIL — no auth decision at all, and not on the public allowlist:\n')
         for method, route, fn, f in unclassified:
             print(f'  {method:6} {route:52} {fn}  ({f})')
-        print('\nFix by adding an auth check to the handler, or — if it is '
-              'genuinely public — adding it to PUBLIC_ROUTES with a reason.')
+
+    # Presence-only handlers are a RATCHET, not an immediate hard failure: there
+    # is a real backlog of them and failing outright would just get the gate
+    # disabled. The count may never rise. Delete the baseline file to re-record.
+    prev = int(BASELINE.read_text().strip()) if BASELINE.exists() else None
+    if prev is None:
+        BASELINE.write_text(str(len(weak)))
+        print(f'\n[baseline] recorded {len(weak)} presence-only handlers as the '
+              f'ceiling. This count must not increase.')
+    elif len(weak) > prev:
+        failed = True
+        print(f'\nFAIL — presence-only handlers rose {prev} -> {len(weak)}. '
+              f'A new handler reads X-User-Id without verifying the caller.')
+        for method, route, fn, f in weak:
+            print(f'  {method:6} {route:52} {fn}  ({f})')
+    elif len(weak) < prev:
+        BASELINE.write_text(str(len(weak)))
+        print(f'\n[baseline] presence-only handlers fell {prev} -> {len(weak)}; '
+              f'ceiling tightened.')
+
+    if weak:
+        print(f'\nNOTE: {len(weak)} handler(s) only check that X-User-Id is PRESENT. '
+              f'A forged header satisfies them. Run with --list-weak to enumerate.')
+    if bulk:
+        print(f'NOTE: {len(bulk)} handler(s) call list_all() without resource-scope '
+              f'authorization — cross-organization exposure risk.')
+    if '--list-weak' in sys.argv:
+        print('\nPresence-only handlers:')
+        for method, route, fn, f in weak:
+            print(f'  {method:6} {route:52} {fn}  ({f})')
+        print('\nUnscoped bulk reads:')
+        for method, route, fn, f in bulk:
+            print(f'  {method:6} {route:52} {fn}  ({f})')
+
+    if failed:
         return 1
-    print('PASS — every handler authenticates, authorizes, or is a justified public route.')
+    print('\nPASS — no handler is entirely without an auth decision, and the '
+          'presence-only backlog did not grow.')
     return 0
 
 
