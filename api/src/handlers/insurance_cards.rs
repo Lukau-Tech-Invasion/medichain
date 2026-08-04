@@ -151,9 +151,10 @@ pub async fn create_insurance_card(
     req: HttpRequest,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    if let Err(resp) = require_auth(&req) {
-        return resp;
-    }
+    let caller_id = match require_auth(&req) {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
     let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
         Some(p) if !p.is_empty() => p.to_string(),
         _ => {
@@ -164,6 +165,30 @@ pub async fn create_insurance_card(
             })
         }
     };
+
+    // HZ-020 covered the card MUTATORS (update/image/delete) but not create, so
+    // any authenticated caller could file an insurance card against any
+    // patient's record. Creation needs the same owner-or-provider rule the
+    // mutators got: `require_auth` only proves a header was sent.
+    let caller = match get_user(&data, &caller_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    let is_self =
+        caller.linked_patient_id.as_deref() == Some(patient_id.as_str()) || caller_id == patient_id;
+    if !is_self && !caller.role.is_healthcare_provider() && !caller.role.is_admin() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "You may not create an insurance card for this patient".to_string(),
+            code: "ACCESS_FORBIDDEN".to_string(),
+        });
+    }
 
     let now = Utc::now();
     let entity = crate::repositories::traits::JsonRecordEntity {

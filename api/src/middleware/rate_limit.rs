@@ -200,13 +200,28 @@ where
     }
 }
 
-/// Extract client identifier from request
+/// Whether `X-User-Id` names a caller that actually exists in the user store.
+///
+/// The header is caller-supplied and unverified at this layer, so its mere
+/// presence proves nothing. Resolving it against the store is what separates
+/// "a registered clinician" from "any string".
+fn resolves_to_known_user(req: &ServiceRequest) -> Option<String> {
+    let id = req.headers().get("X-User-Id")?.to_str().ok()?;
+    let state = req.app_data::<actix_web::web::Data<crate::AppState>>()?;
+    crate::support::get_user(state, id).map(|_| id.to_owned())
+}
+
+/// Extract the rate-limit bucket for a request.
+///
+/// Buckets are per-**registered** user, otherwise per-IP. Previously any
+/// `X-User-Id` string created its own bucket, so an attacker could rotate
+/// arbitrary ids to get a fresh quota per request — defeating the limiter
+/// entirely — while growing the bucket map without bound, which is itself a
+/// memory-exhaustion vector. An unknown id now shares the caller's IP bucket,
+/// so forging identities cannot buy either extra quota or extra memory.
 fn get_client_identifier(req: &ServiceRequest) -> String {
-    // Prefer user ID from header if present
-    if let Some(user_id) = req.headers().get("X-User-Id") {
-        if let Ok(id) = user_id.to_str() {
-            return format!("user:{}", id);
-        }
+    if let Some(id) = resolves_to_known_user(req) {
+        return format!("user:{}", id);
     }
 
     // Fall back to IP address
@@ -222,11 +237,14 @@ fn get_client_identifier(req: &ServiceRequest) -> String {
 /// (e.g. `X-User-Role`). Such a header is spoofable, so honoring it would let a
 /// caller hand itself the elevated `admin_limit`. Role-based authorization is
 /// resolved per-handler from the server-side user store (see `support::get_user`),
-/// never here. The tier is therefore derived only from whether the request
-/// carries an identity (`X-User-Id`) at all.
+/// never here.
+///
+/// The elevated tier now requires the identity to RESOLVE to a registered user,
+/// not merely to be present. Granting `authenticated_limit` on the presence of
+/// a header meant an anonymous caller could opt themselves into the higher quota
+/// by inventing one.
 fn get_rate_limit(req: &ServiceRequest, config: &RateLimitConfig) -> u32 {
-    // Check if user ID is present (basic authentication / identified caller).
-    if req.headers().get("X-User-Id").is_some() {
+    if resolves_to_known_user(req).is_some() {
         return config.authenticated_limit;
     }
 

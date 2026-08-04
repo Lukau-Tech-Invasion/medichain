@@ -447,7 +447,14 @@ pub async fn download_offline_data(
     };
 
     // Auth check
-    if current_user_id != patient_id && !current_user_id.starts_with("0xPROV") {
+    // Horizon HZ-024: this used to accept any caller whose id merely *began*
+    // with "0xPROV". Wallet addresses are opaque, caller-supplied identifiers,
+    // so that let an unauthenticated request forge provider status with a
+    // header and read any patient. Resolve the role from the user store, as
+    // `get_symptom_checker_history` already does.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
+    if current_user_id != patient_id && !is_provider {
         return HttpResponse::Forbidden().finish();
     }
 

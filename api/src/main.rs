@@ -43,7 +43,6 @@ mod device_lifecycle;
 mod emergency_capsule;
 mod emergency_grants;
 mod ipfs;
-mod key_management;
 mod middleware;
 mod mobile_records;
 mod national_id;
@@ -51,6 +50,7 @@ mod nfc_simulator;
 mod notifications;
 mod organization_keys;
 mod pagination;
+mod patient_access;
 mod pdf;
 mod retention;
 mod security;
@@ -121,7 +121,14 @@ async fn main() -> std::io::Result<()> {
     // otherwise the human-readable `env_logger` is used.
     init_logging();
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
+    // docker-compose publishes on the host. When the API bound 8080 it stole that
+    // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then
+    // resolved back to the API itself — every encrypted-record download fetched
+    // the API, got a 404, and surfaced as a misleading "Record content not found".
+    // Inside Docker the API keeps 8080 (its own container namespace; nginx proxies
+    // to `api:8080`), set explicitly as `PORT` in docker-compose.yml.
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8090".to_string());
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let bind_addr = format!("{}:{}", host, port);
 
@@ -155,6 +162,14 @@ async fn main() -> std::io::Result<()> {
                 .ok()
                 .and_then(|v| v.parse().ok());
 
+            // Fail-closed outside demo mode. Previously a migration failure was a
+            // warning and a connection failure silently fell back to volatile
+            // in-memory storage, so the API could report "ready" while running on
+            // an incompatible schema — or while every clinical write was destined
+            // to vanish on restart. A health application must not advertise
+            // readiness in either state. In demo mode the fallback is retained
+            // deliberately: that profile is synthetic-data-only by definition.
+            let demo = crate::support::is_demo_mode();
             match db::create_pool_with_retry(&database_url, max_retries, None).await {
                 Ok(pool) => {
                     println!("  [OK] Database connection established");
@@ -162,8 +177,20 @@ async fn main() -> std::io::Result<()> {
                     // Run migrations
                     println!("  [DB] Running database migrations...");
                     if let Err(e) = db::run_migrations(&pool).await {
-                        eprintln!("  [WARN] Migration warning: {}", e);
-                        eprintln!("       (Demo users may need manual setup)");
+                        if demo {
+                            eprintln!("  [WARN] Migration warning: {}", e);
+                            eprintln!("       (demo mode — starting anyway)");
+                        } else {
+                            eprintln!("\n[ERROR] STARTUP ABORTED: database migrations failed: {e}");
+                            eprintln!(
+                                "        Starting now would serve clinical traffic against an \
+                                 unknown schema. Fix the migration, or set IS_DEMO=true for a \
+                                 synthetic-data demo."
+                            );
+                            return Err(std::io::Error::other(format!(
+                                "database migrations failed: {e}"
+                            )));
+                        }
                     } else {
                         println!("  [OK] Migrations completed");
                     }
@@ -171,16 +198,42 @@ async fn main() -> std::io::Result<()> {
                     Some(pool)
                 }
                 Err(e) => {
-                    eprintln!("  [WARN] Database connection failed: {}", e);
-                    eprintln!("       Falling back to in-memory storage");
-                    eprintln!("       (Demo users will be lost on restart)");
-                    None
+                    if demo {
+                        eprintln!("  [WARN] Database connection failed: {}", e);
+                        eprintln!("       Falling back to in-memory storage (demo mode)");
+                        None
+                    } else {
+                        eprintln!(
+                            "\n[ERROR] STARTUP ABORTED: DATABASE_URL is set but the \
+                                   database is unreachable: {e}"
+                        );
+                        eprintln!(
+                            "        Refusing to fall back to volatile in-memory storage: \
+                             clinical writes would be lost on restart while the API reported \
+                             healthy. Fix connectivity, or set IS_DEMO=true for a \
+                             synthetic-data demo."
+                        );
+                        return Err(std::io::Error::other(format!("database unreachable: {e}")));
+                    }
                 }
             }
         }
         Err(_) => {
-            println!("  [INFO] No DATABASE_URL set - using in-memory storage");
-            println!("       Set DATABASE_URL for persistent demo users");
+            // No DATABASE_URL at all. Outside demo mode this is a configuration
+            // error, not a default: it silently selects volatile storage.
+            if !crate::support::is_demo_mode() {
+                eprintln!(
+                    "\n[ERROR] STARTUP ABORTED: no DATABASE_URL set and IS_DEMO is not true."
+                );
+                eprintln!(
+                    "        In-memory storage is a demo-only profile. Set DATABASE_URL for a \
+                     persistent deployment, or IS_DEMO=true to run on synthetic data."
+                );
+                return Err(std::io::Error::other(
+                    "no DATABASE_URL set outside demo mode",
+                ));
+            }
+            println!("  [INFO] No DATABASE_URL set - using in-memory storage (demo mode)");
             None
         }
     };

@@ -139,7 +139,11 @@ pub async fn get_medication_reminders(
         None => return HttpResponse::Unauthorized().finish(),
     };
 
-    if current_user_id != patient_id && !current_user_id.starts_with("0xPROV") {
+    // Horizon HZ-024: a "0xPROV" id prefix is not authorization — see the note
+    // in `download_offline_data`. Resolve the role from the user store.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
+    if current_user_id != patient_id && !is_provider {
         return HttpResponse::Forbidden().finish();
     }
 
