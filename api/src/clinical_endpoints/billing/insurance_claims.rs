@@ -51,8 +51,8 @@ pub async fn create_insurance_claim(
     http_req: HttpRequest,
     req: web::Json<CreateInsuranceClaimRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -187,8 +187,8 @@ pub async fn submit_insurance_claim(
 ) -> impl Responder {
     let claim_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -260,15 +260,9 @@ pub async fn get_insurance_claim(
 ) -> impl Responder {
     let claim_id = path.into_inner();
 
-    let _current_user_id = match http_req.headers().get("X-User-Id") {
-        Some(id) => id.to_str().unwrap_or("").to_string(),
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let _current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let claim: crate::clinical::InsuranceClaim = match data
@@ -309,8 +303,8 @@ pub async fn get_patient_insurance_claims(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 

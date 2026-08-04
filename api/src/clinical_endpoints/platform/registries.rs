@@ -158,14 +158,19 @@ pub async fn list_my_immunizations(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    // Deliberately `require_registered_caller`, NOT `require_clinical_staff`:
+    // this is the patient's own record, so demanding a clinical role would lock
+    // patients out of their own immunization history. The caller is still
+    // resolved, so a forged header is refused; the data is then scoped to that
+    // caller, which is what makes it safe.
+    let current_user = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
     };
-    let patient_id = match get_user(&data, &current_user_id) {
-        Some(user) => user.linked_patient_id.unwrap_or(current_user_id),
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    let patient_id = current_user
+        .linked_patient_id
+        .clone()
+        .unwrap_or(current_user.wallet_address);
     match data
         .repositories
         .immunization_records
@@ -281,9 +286,9 @@ pub async fn record_vital_signs(
     http_req: HttpRequest,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let patient_id = body

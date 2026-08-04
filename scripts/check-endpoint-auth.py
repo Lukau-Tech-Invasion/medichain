@@ -88,6 +88,19 @@ DELEGATED_AUTH = {
     '/api/mobile/devices/register': 'get_current_user_id via helper taking req; live-verified',
     '/api/mobile/records/authorise': 'get_current_user_id via helper taking req; live-verified',
     '/api/mobile/devices/{id}/revoke': 'get_current_user_id via helper taking req; live-verified 401',
+    # Break-glass. These authorize through the identity-context / grant model
+    # rather than the user store, which this scan cannot follow — they are
+    # false positives of the tier classifier, NOT unprotected handlers:
+    #   grant_bound_emergency_access requires an ACTIVE PROFESSIONAL identity
+    #     context bound to the caller's wallet (data.identity_contexts
+    #     .active_context(work_context_id, wallet), ContextType::Professional).
+    #   get_emergency_grant performs a resource-ownership check
+    #     (grant.requesting_person_id == user_id) and 403s on mismatch.
+    # Deliberately NOT wrapped in require_registered_caller: emergency access is
+    # safety-critical and an extra gate here risks blocking break-glass in the
+    # exact situation it exists for. Re-verify by hand if either is changed.
+    '/api/emergency/access': 'break-glass: requires an active Professional identity context',
+    '/api/emergency/grants/{id}': 'break-glass: ownership-checked (requesting_person_id)',
 }
 
 

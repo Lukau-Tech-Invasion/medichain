@@ -15,8 +15,8 @@ pub async fn create_cds_alert(
     http_req: HttpRequest,
     req: web::Json<CreateCDSAlertRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -105,8 +105,8 @@ pub async fn get_cds_alerts(
     http_req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -178,8 +178,8 @@ pub async fn get_cds_alert(
 ) -> impl Responder {
     let alert_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -234,8 +234,8 @@ pub async fn respond_to_cds_alert(
 ) -> impl Responder {
     let alert_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -328,8 +328,8 @@ pub async fn get_patient_cds_alerts(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 

@@ -29,8 +29,8 @@ pub async fn book_appointment(
     http_req: HttpRequest,
     req: web::Json<BookAppointmentRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -196,8 +196,8 @@ pub async fn get_patient_appointments(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -237,8 +237,8 @@ pub async fn get_provider_appointments(
 ) -> impl Responder {
     let provider_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -285,8 +285,8 @@ pub async fn cancel_appointment(
 ) -> impl Responder {
     let appointment_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -346,8 +346,8 @@ pub async fn get_appointment(
 ) -> impl Responder {
     let appointment_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -395,8 +395,8 @@ pub async fn check_in_appointment(
 ) -> impl Responder {
     let appointment_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 

@@ -7,18 +7,14 @@ use super::*;
 /// Available consent form types
 #[get("/api/consent/types")]
 pub async fn get_consent_types(
-    _data: web::Data<AppState>,
+    // Was `_data`. The list itself is static reference data, but the endpoint
+    // still needs to know the caller is real rather than merely header-bearing.
+    data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Unauthorized".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let _current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let consent_types = vec![
@@ -135,15 +131,9 @@ pub async fn sign_consent(
     http_req: HttpRequest,
     body: web::Json<SignConsentRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Unauthorized".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let current_user = match get_user(&data, &current_user_id) {
@@ -459,9 +449,9 @@ pub async fn get_patient_consents(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Horizon HZ-024: a "0xPROV" id prefix is not authorization — see the note
@@ -773,9 +763,9 @@ pub async fn get_barcode_scan_history(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let records = match data
@@ -933,12 +923,15 @@ pub async fn get_note_templates(
 /// Use a template to generate a note
 #[post("/api/templates/notes/use")]
 pub async fn use_note_template(
-    _data: web::Data<AppState>,
+    // Was `_data`. Clinical note templates are staff tooling, so this now
+    // resolves the caller and requires a clinical role rather than accepting
+    // any request that carries a header.
+    data: web::Data<AppState>,
     http_req: HttpRequest,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
 
     let template_id = body

@@ -24,12 +24,8 @@ pub async fn sms_opt_out(
     http_req: HttpRequest,
     req: web::Json<SmsOptPreferenceRequest>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Missing X-User-Id header".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        });
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
+        return resp;
     }
 
     let entity = crate::repositories::traits::SmsOptOutEntity {
@@ -58,12 +54,8 @@ pub async fn sms_opt_in(
     http_req: HttpRequest,
     req: web::Json<SmsOptPreferenceRequest>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Missing X-User-Id header".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        });
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
+        return resp;
     }
 
     match data
@@ -91,12 +83,8 @@ pub async fn get_sms_opt_out_status(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Missing X-User-Id header".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        });
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
+        return resp;
     }
 
     let phone_number = path.into_inner();

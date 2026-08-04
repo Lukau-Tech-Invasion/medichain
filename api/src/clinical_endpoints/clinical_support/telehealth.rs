@@ -28,8 +28,8 @@ pub async fn create_telehealth_session(
     http_req: HttpRequest,
     req: web::Json<CreateTelehealthSessionRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -176,8 +176,8 @@ pub async fn get_telehealth_session(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -224,8 +224,8 @@ pub async fn join_telehealth_session(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -398,15 +398,9 @@ pub async fn telehealth_event(
     body: web::Json<TelehealthEventRequest>,
 ) -> impl Responder {
     let session_id = path.into_inner();
-    let actor = match crate::support::get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Authentication required".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let actor = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let now = chrono::Utc::now();
 
@@ -463,15 +457,9 @@ pub async fn telehealth_recording(
     body: web::Json<RecordingRequest>,
 ) -> impl Responder {
     let session_id = path.into_inner();
-    let actor = match crate::support::get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Authentication required".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let actor = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Only a healthcare provider (moderator) may control recording.
@@ -585,8 +573,8 @@ pub async fn end_telehealth_session(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -689,12 +677,15 @@ pub struct DeviceCheckRequest {
 /// Submit device check results
 #[post("/api/telehealth/device-check")]
 pub async fn submit_device_check(
-    _data: web::Data<crate::AppState>,
+    // Was `_data`: the handler ignored application state entirely, which is
+    // exactly why it could only check that a header was present. It now
+    // resolves the caller against the user store.
+    data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     req: web::Json<DeviceCheckRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -781,8 +772,8 @@ pub async fn get_patient_telehealth_sessions(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -870,14 +861,17 @@ pub async fn telehealth_join_redirect(path: web::Path<String>) -> impl Responder
 /// URL as a PNG (base64) so a patient/paramedic can scan and join in-browser
 /// without installing anything. Auth-gated like the other session endpoints.
 #[get("/api/telehealth/sessions/{session_id}/qr")]
-pub async fn telehealth_join_qr(http_req: HttpRequest, path: web::Path<String>) -> impl Responder {
+pub async fn telehealth_join_qr(
+    // Took no application state, so "auth-gated" meant only that a header was
+    // present. The QR encodes a session join URL, so an unresolved caller could
+    // mint a joinable link for any session id.
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
     let session_id = path.into_inner();
-    if crate::support::get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Authentication required".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        });
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
+        return resp;
     }
     let join_url = in_app_join_url(&session_id);
     match crate::support::generate_qr_code_base64(&join_url) {

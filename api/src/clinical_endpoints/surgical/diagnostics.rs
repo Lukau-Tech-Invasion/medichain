@@ -78,8 +78,8 @@ pub async fn get_anesthesia(
 /// List all anesthesia records (Admin/Audit)
 #[get("/api/surgical/anesthesia/list")]
 pub async fn list_anesthesia(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if !http_req.headers().contains_key("X-User-Id") {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data.anesthesia_records.read() {
         Ok(records) => HttpResponse::Ok().json(records.values().cloned().collect::<Vec<_>>()),

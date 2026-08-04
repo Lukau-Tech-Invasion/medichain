@@ -475,6 +475,21 @@ check "patient-facing sync still serves the patient" 200 \
   "$(code GET /api/sync/conflicts '' "$PAT_ADULT")"
 
 # ---------------------------------------------------------------------------
+say "16. Presence-only handlers eliminated (SEC-11 closed)"
+
+# The tiered gate now reports ZERO presence-only handlers: every endpoint either
+# resolves the caller against the user store, is a justified public route, or is
+# break-glass authorizing through the identity-context/grant model. These probe
+# the last batch converted — a forged header must be refused everywhere.
+for ep in /api/consent/types /api/messages /api/barcode/scans/my \
+          /api/auth/mfa/status /api/surgical/anesthesia/list; do
+  check "forged identity refused: $ep" 401 "$(code GET "$ep" '' 0xPROVforged)"
+done
+check "consent types still serve a real caller"    200 "$(code GET /api/consent/types '' "$DOCTOR")"
+check "messages still serve a real caller"         200 "$(code GET /api/messages '' "$DOCTOR")"
+check "MFA status still serves a real caller"      200 "$(code GET /api/auth/mfa/status '' "$DOCTOR")"
+
+# ---------------------------------------------------------------------------
 say "RESULTS"
 printf '  passed=%d failed=%d\n' "$PASS" "$FAIL"
 printf '%s\n' "${RESULTS[@]}" > /tmp/synthetic-results.txt

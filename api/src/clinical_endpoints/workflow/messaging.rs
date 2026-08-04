@@ -11,15 +11,9 @@ pub async fn log_symptom(
     http_req: HttpRequest,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Unauthorized".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let current_user = match get_user(&data, &current_user_id) {
@@ -152,9 +146,9 @@ pub async fn get_symptom_history(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Horizon HZ-024: a "0xPROV" id prefix is not authorization — see the note
@@ -206,15 +200,9 @@ pub async fn send_message(
     http_req: HttpRequest,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Unauthorized".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let current_user = match get_user(&data, &current_user_id) {
@@ -349,9 +337,9 @@ pub async fn get_messages(
     http_req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let folder = query.get("folder").map(|s| s.as_str()).unwrap_or("inbox");

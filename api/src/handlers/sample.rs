@@ -24,15 +24,9 @@ pub async fn create_sample_history(
     http_req: HttpRequest,
     req: web::Json<CreateSAMPLEHistoryRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let current_user = match get_user(&data, &current_user_id) {
         Some(u) => u,
@@ -116,12 +110,8 @@ pub async fn get_sample_history(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Missing X-User-Id header".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        });
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories

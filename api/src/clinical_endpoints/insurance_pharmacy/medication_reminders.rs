@@ -34,8 +34,8 @@ pub async fn create_medication_reminder(
     http_req: HttpRequest,
     req: web::Json<CreateMedicationReminderRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -114,8 +114,8 @@ pub async fn get_patient_reminders(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -175,8 +175,8 @@ pub async fn log_medication_adherence(
     http_req: HttpRequest,
     req: web::Json<LogAdherenceRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -261,8 +261,8 @@ pub async fn delete_medication_reminder(
 ) -> impl Responder {
     let reminder_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
