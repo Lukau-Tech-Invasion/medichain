@@ -315,12 +315,19 @@ export async function connectRealWallet(): Promise<WalletAccount[]> {
     throw new Error('No Polkadot extension found. Please install Polkadot.js or Talisman.');
   }
 
+  // `publicKey` was `bytesToHex(new Uint8Array(32))` — 32 zero bytes, i.e. the
+  // same all-zero key returned for EVERY connected wallet. Anything downstream
+  // that treated it as a real key would have compared signatures against zeros,
+  // or seen two different wallets as identical. The real key is recoverable:
+  // an SS58 address IS the public key plus a network prefix and checksum, so
+  // decode it rather than invent one.
+  const { decodeAddress } = await import('@polkadot/util-crypto');
   const allAccounts = await web3Accounts();
   return allAccounts.map(account => ({
     address: account.address,
     name: account.meta.name,
     role: 'Patient', // Default role, should be fetched from chain
-    publicKey: bytesToHex(new Uint8Array(32)), // Placeholder
+    publicKey: bytesToHex(decodeAddress(account.address)),
     verified: false,
   }));
 }

@@ -382,7 +382,11 @@ export default function PharmacistDashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {/* Show controlled substances from prescriptions or mock data */}
+              {/* Controlled substances, filtered from the real prescription
+                  list. The comment here used to say "or mock data", which was
+                  stale — no mock branch exists — but a reader auditing for
+                  fabricated clinical data had no way to know that without
+                  tracing the code. */}
               {data?.prescriptions?.list?.filter(rx => 
                 rx.medication_name.toLowerCase().includes('morphine') ||
                 rx.medication_name.toLowerCase().includes('oxycodone') ||

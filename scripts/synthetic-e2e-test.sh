@@ -490,6 +490,31 @@ check "messages still serve a real caller"         200 "$(code GET /api/messages
 check "MFA status still serves a real caller"      200 "$(code GET /api/auth/mfa/status '' "$DOCTOR")"
 
 # ---------------------------------------------------------------------------
+say "17. Emergency card shows REAL medications and conditions"
+
+# The paramedic-facing emergency view returned hardcoded empty vectors for
+# medications and conditions behind a "Phase 2 repository" TODO. An empty
+# `conditions` array on an emergency card does not read as "not retrieved" —
+# it reads as "no known conditions", which is the most dangerous thing this
+# screen can say about an anticoagulated or diabetic patient.
+c=$(code POST /api/register "{\"full_name\":\"Conditions Synthetic\",\"date_of_birth\":\"1980-05-05\",\"national_id\":\"SYN-COND-E2E\",\"phone\":\"+27000000077\",\"blood_type\":\"A+\",\"allergies\":[\"penicillin\"],\"current_medications\":[\"Warfarin 5mg\"],\"chronic_conditions\":[\"Atrial Fibrillation\"],\"emergency_contact_name\":\"Kin\",\"emergency_contact_phone\":\"+27000000000\",\"emergency_contact_relationship\":\"parent\",\"organ_donor\":true,\"dnr_status\":false,\"languages\":[\"en\"]}" "$DOCTOR")
+check "register a patient WITH conditions and medications" 201 "$c" "$(body)"
+PAT_COND=$(jget patient_id)
+
+if [ -n "$PAT_COND" ]; then
+  code POST /api/simulate-nfc-tap "{\"patient_id\":\"$PAT_COND\"}" >/dev/null
+  COND_HASH=$(body | python -c 'import sys,json;print(json.load(sys.stdin)["tag_data"]["hash"])' 2>/dev/null)
+  code POST /api/emergency/nfc-token "{\"patient_id\":\"$PAT_COND\",\"nfc_hash\":\"$COND_HASH\"}" >/dev/null
+  COND_TOK=$(jget token)
+  c=$(code GET "/api/medical-id/$PAT_COND/emergency?token=$COND_TOK" '')
+  check "emergency card readable with a valid token" 200 "$c" "$(body)"
+  check "emergency card lists the patient's real medication" yes \
+    "$(body | grep -q 'Warfarin' && echo yes || echo no)" "$(body)"
+  check "emergency card lists the patient's real condition" yes \
+    "$(body | grep -q 'Atrial Fibrillation' && echo yes || echo no)" "$(body)"
+fi
+
+# ---------------------------------------------------------------------------
 say "RESULTS"
 printf '  passed=%d failed=%d\n' "$PASS" "$FAIL"
 printf '%s\n' "${RESULTS[@]}" > /tmp/synthetic-results.txt

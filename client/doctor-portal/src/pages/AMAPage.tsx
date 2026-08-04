@@ -156,10 +156,20 @@ const AMAPage: React.FC = () => {
         diagnosis,
         recommendedTreatment: recommendedTreatment,
         patientStatement: patientStatement,
-        patientSigned: true, // Mocked as signed in this simple demo flow
-        witnessSigned: !!witnessName,
+        // An AMA discharge is the legal record that a patient left against
+        // medical advice, and its whole evidentiary value is the signatures.
+        // These were hardcoded `true` while `status` was 'pending-signatures'
+        // — the record simultaneously claimed both parties had signed and that
+        // signatures were outstanding. Worse, it asserted a PATIENT's signature
+        // that nobody captured.
+        //
+        // This form has no signature-capture step, so the only truthful value
+        // is `false`: the record exists, the signatures do not yet. That is now
+        // consistent with the 'pending-signatures' status it is created under.
+        patientSigned: false,
+        witnessSigned: false,
         witnessName: witnessName,
-        providerSigned: true,
+        providerSigned: false,
       };
 
       await createAMADischarge(newRecord);

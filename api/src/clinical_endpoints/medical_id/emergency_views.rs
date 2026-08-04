@@ -144,6 +144,11 @@ pub async fn get_emergency_medical_id(
 
     let guardian_contact = primary_guardian_contact_json(&data, &patient_id).await;
 
+    // Real chronic conditions and current medications, read off the decrypted
+    // profile. Returns `(conditions, medications)`.
+    let (emergency_conditions, emergency_medications) =
+        crate::clinical_endpoints::patient_conditions_and_meds(&data, &patient_id).await;
+
     // Emergency view - ONLY critical information
     let emergency_data = serde_json::json!({
         "type": "EMERGENCY_MEDICAL_ID",
@@ -186,11 +191,17 @@ pub async fn get_emergency_medical_id(
         // ORGAN DONOR
         "organ_donor": patient.organ_donor,
 
-        // CRITICAL MEDICATIONS
-        "medications": Vec::<String>::new(), // TODO: Phase 2 repository
-
-        // CRITICAL CONDITIONS
-        "conditions": Vec::<String>::new(), // TODO: Phase 2 repository
+        // CRITICAL MEDICATIONS / CONDITIONS
+        //
+        // These returned hardcoded empty vectors with a "Phase 2 repository"
+        // TODO. On a paramedic-facing emergency card an empty `conditions`
+        // array does not read as "not retrieved" — it reads as "no known
+        // conditions", which is the most dangerous thing this screen could say
+        // if the patient is diabetic, epileptic or anticoagulated. The data was
+        // already reachable: `patient_conditions_and_meds` (used by the CDS
+        // wiring) reads exactly these two lists off the decrypted profile.
+        "medications": emergency_medications,
+        "conditions": emergency_conditions,
 
         // PRIMARY EMERGENCY CONTACT — verified guardian when one exists,
         // otherwise null (the free-text emergency_contact_* fields aren't
