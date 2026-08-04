@@ -29,9 +29,9 @@ alone — an issue that blocks the clinic demo outranks a worse one that doesn't
 | SEC-11 | **Presence-only handlers: 144 → 103** (`PARTIAL`) | 41 fixed via two shared gates (`require_registry_reader`, `require_clinical_staff`): 15 platform registries + 26 surgical/public-health/diagnostics/perioperative/emergency-assessment handlers. Verified forged→401, anon→401, patient→403, clinician served. Remaining clusters: `emergency/management.rs` (20), `platform/sync.rs` (6), `engagement/wearables.rs` (6), `engagement/family.rs` (5), `clinical_support/telehealth.rs` (5). Ratchet holds the ceiling at 103. |
 | SEC-12 | **41 unscoped `list_all()` bulk reads** (`PARTIAL`) | Callers are now resolved and role-checked, and registry reads are **audited** — but `list_all()` still returns deployment-wide data. This narrows *who may call*, not *what is returned*. True isolation needs SEC-16/SEC-18. Full list: `python scripts/check-endpoint-auth.py --list-weak`. |
 | SEC-33 | Hardcoded blood-bank inventory (`FIXED`) | Returned "O-Pos: 12 units, adequate" / "A-Neg: 2 units, low" regardless of real stock. Unit counts drive transfusion decisions. Now empty + `inventory_available:false`. |
-| SEC-13 | **No frontend served by Docker** — `/` is a bare nginx 404; 5173/5174 refuse | A clinic demo cannot start with "run two Vite servers". Needs one deterministic entry point. |
+| SEC-13 | **No frontend served by Docker** (`FIXED`) | `client/Dockerfile` now builds both portals into the nginx image: `/` landing page with a synthetic-data banner, `/doctor/`, `/patient/`, `/api/` proxied. SPA deep links survive a refresh. `bash scripts/demo-smoke-test.sh` — **18/18**. Verified against the real compose stack. |
 | SEC-14 | Docs/README contradict runtime | Partly addressed by `WHERE_WE_ARE.md`; README still overstates. |
-| SEC-15 | No visual/accessibility audit possible | Requires SEC-13 first. Keyboard, focus, contrast, RTL, small-screen all uncertified. |
+| SEC-15 | No visual/accessibility audit yet | **Unblocked by SEC-13** — the portals are now served, so this can finally be done. Keyboard reach, focus order/visibility, screen-reader names, contrast, zoom, RTL, small-screen, form-error association and empty/offline/error states remain uncertified. Needs a browser, not curl. |
 
 ## P1 — blocks any real-patient pilot
 

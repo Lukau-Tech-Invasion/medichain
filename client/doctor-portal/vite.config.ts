@@ -5,6 +5,13 @@ import path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Served under /doctor/ by the Docker nginx so both portals share one origin
+  // (and therefore one `/api` proxy and one set of cookies). Set via env so the
+  // standalone dev server keeps serving from `/` — `npm run dev` is unaffected.
+  // Must stay in sync with the router basename in src/main.tsx and the nginx
+  // location block; if they disagree the app loads and then routes to a blank
+  // page, which is worse than failing outright.
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [
     react(),
     // Bundle treemap on demand: `ANALYZE=1 npm run build` -> dist/stats.html

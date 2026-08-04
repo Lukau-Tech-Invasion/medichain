@@ -5,6 +5,10 @@ import path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Served under /patient/ by the Docker nginx. See the note in the
+  // doctor-portal vite config — base, router basename and the nginx location
+  // must agree.
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [
     react(),
     // Bundle treemap on demand: `ANALYZE=1 npm run build` -> dist/stats.html
