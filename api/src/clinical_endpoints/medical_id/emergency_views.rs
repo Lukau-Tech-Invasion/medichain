@@ -8,6 +8,61 @@
 
 use super::*;
 
+/// Every allergy known for a patient, merged from the allergies repository and
+/// the patient's own encrypted profile.
+///
+/// Patient registration writes allergies into the profile's `emergency_info`
+/// and **never** into the allergies repository. Both first-responder views read
+/// only the repository, so every allergy captured at registration was invisible
+/// on the card whose entire purpose is to stop a responder administering
+/// something that will harm the patient. Merged by allergen name, repository
+/// entries winning (a clinician-entered record carries a real severity
+/// assessment; a registration entry does not).
+async fn merged_allergies(
+    data: &web::Data<AppState>,
+    patient: &crate::repositories::traits::PatientEntity,
+    patient_id: &str,
+) -> Vec<crate::repositories::traits::AllergyEntity> {
+    let mut allergies = data
+        .repositories
+        .allergies
+        .get_by_patient(patient_id)
+        .await
+        .unwrap_or_default();
+
+    if let Some(profile) = crate::patient_entity_to_profile(patient, &data.encryption_keyring) {
+        let known: std::collections::HashSet<String> = allergies
+            .iter()
+            .map(|a| a.allergen.to_lowercase())
+            .collect();
+        let now = Utc::now();
+        for a in profile.emergency_info.allergies {
+            if known.contains(&a.name.to_lowercase()) {
+                continue;
+            }
+            allergies.push(crate::repositories::traits::AllergyEntity {
+                id: format!("ALG-PROFILE-{}-{}", patient_id, a.name.to_lowercase()),
+                patient_id: patient_id.to_string(),
+                allergen: a.name,
+                allergen_type: "unspecified".to_string(),
+                reaction: a.reaction,
+                severity: a.severity.to_string(),
+                onset_date: None,
+                last_occurrence: None,
+                verified: false,
+                verified_by: None,
+                verified_at: a.verified_at,
+                source: Some("patient_registration".to_string()),
+                created_at: now,
+                updated_at: now,
+                created_by: "registration".to_string(),
+                is_active: true,
+            });
+        }
+    }
+    allergies
+}
+
 /// The active, verified primary guardian's contact info for a ward, if any —
 /// surfaced to first responders and on the lock screen so emergency access
 /// shows a *verified* guardian (name + phone from their own account) rather
@@ -94,13 +149,7 @@ pub async fn get_emergency_medical_id(
         }
     };
 
-    // Get allergies from repository
-    let allergies = data
-        .repositories
-        .allergies
-        .get_by_patient(&patient_id)
-        .await
-        .unwrap_or_default();
+    let allergies = merged_allergies(&data, &patient, &patient_id).await;
 
     // DNR STATUS - LEGAL REQUIREMENT
     // Only emit the authoritative "DO NOT RESUSCITATE" flag when the advance
@@ -176,13 +225,31 @@ pub async fn get_emergency_medical_id(
         },
 
         // CRITICAL ALLERGIES - LIFE THREATENING
+        // EVERY known allergy, with the severe ones flagged — not just the
+        // severe ones.
+        //
+        // This filtered to Severe/Moderate/LifeThreatening, which silently
+        // dropped anything recorded as Mild or Unknown. Registration records
+        // bare allergen names with no assessment, so those are exactly the
+        // entries that got hidden: a patient registered with a penicillin
+        // allergy presented an EMPTY allergy list to a responder. A recorded
+        // severity describes one past reaction; it is not a promise about the
+        // next one, and anaphylaxis on re-exposure does not care what the last
+        // episode looked like. Withholding a known allergen from an emergency
+        // card is never the safer default.
         "critical_allergies": allergies.iter()
-            .filter(|a| a.severity == "Severe" || a.severity == "Moderate" || a.severity == "LifeThreatening")
-            .map(|a| serde_json::json!({
-                "allergen": a.allergen.to_uppercase(),
-                "severity": a.severity.to_uppercase(),
-                "reaction": a.reaction
-            }))
+            .map(|a| {
+                let sev = a.severity.to_uppercase();
+                serde_json::json!({
+                    "allergen": a.allergen.to_uppercase(),
+                    "severity": sev,
+                    "reaction": a.reaction,
+                    // Lets a client emphasise the confirmed-dangerous ones
+                    // without hiding the rest.
+                    "critical": matches!(sev.as_str(), "SEVERE" | "MODERATE" | "LIFETHREATENING"),
+                    "severity_assessed": !matches!(sev.as_str(), "UNKNOWN" | ""),
+                })
+            })
             .collect::<Vec<_>>(),
 
         // DNR STATUS - LEGAL REQUIREMENT (computed above; gated on verification)
@@ -327,13 +394,7 @@ pub async fn get_lockscreen_medical_id(
         }
     }
 
-    // Get allergies from repository
-    let allergies = data
-        .repositories
-        .allergies
-        .get_by_patient(&patient_id)
-        .await
-        .unwrap_or_default();
+    let allergies = merged_allergies(&data, &patient, &patient_id).await;
 
     // LINE 3: DNR Warning (if applicable). Computed before the json! macro
     // because a block expression cannot be a json! value.
@@ -391,25 +452,29 @@ pub async fn get_lockscreen_medical_id(
             "text_color": "#FFFFFF"
         },
 
-        // LINE 2: Critical Allergies
+        // LINE 2: Allergies.
+        //
+        // This listed only Severe/LifeThreatening allergens and otherwise
+        // printed the literal words "No Critical Allergies" — an affirmative
+        // claim, on a lock screen a responder reads in seconds, that was FALSE
+        // for any patient whose allergies were recorded without a severity
+        // assessment (which is every allergy captured at registration). It now
+        // lists every known allergen and only says "None on file" when the list
+        // is genuinely empty. "Nothing recorded" and "nothing to worry about"
+        // are different statements and must not render identically.
         "allergies_line": {
-            "text": if allergies.iter().any(|a| a.severity == "Severe" || a.severity == "LifeThreatening") {
+            "text": if allergies.is_empty() {
+                "No allergies on file".to_string()
+            } else {
                 format!("ALLERGIC: {}",
                     allergies.iter()
-                        .filter(|a| a.severity == "Severe" || a.severity == "LifeThreatening")
                         .map(|a| a.allergen.to_uppercase())
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
-            } else {
-                "No Critical Allergies".to_string()
             },
             "font_size": "20px",
-            "color": if allergies.iter().any(|a| a.severity == "Severe" || a.severity == "LifeThreatening") {
-                "#FCA5A5"
-            } else {
-                "#9CA3AF"
-            }
+            "color": if allergies.is_empty() { "#9CA3AF" } else { "#FCA5A5" }
         },
 
         // LINE 3: DNR Warning (computed above; gated on verification)

@@ -512,6 +512,25 @@ if [ -n "$PAT_COND" ]; then
     "$(body | grep -q 'Warfarin' && echo yes || echo no)" "$(body)"
   check "emergency card lists the patient's real condition" yes \
     "$(body | grep -q 'Atrial Fibrillation' && echo yes || echo no)" "$(body)"
+
+  # Allergies were doubly hidden: registration writes them to the patient
+  # profile but never to the allergies repository the card reads, AND the card
+  # filtered out anything not Severe/Moderate — which is every allergy captured
+  # at registration, since those carry no severity assessment. A patient
+  # registered with a penicillin allergy showed an EMPTY allergy list.
+  check "emergency card lists an allergy captured at registration" yes \
+    "$(body | grep -qi 'penicillin' && echo yes || echo no)" "$(body)"
+  check "unassessed allergy is marked as such, not silently dropped" yes \
+    "$(body | grep -q '"severity_assessed":false' && echo yes || echo no)" "$(body)"
+
+  # The lock screen printed the literal words "No Critical Allergies" for the
+  # same patient — an affirmative false statement a responder reads in seconds.
+  c=$(code GET "/api/medical-id/$PAT_COND/lockscreen?token=$COND_TOK" '')
+  check "lockscreen readable with a valid token" 200 "$c" "$(body)"
+  check "lockscreen does NOT claim 'No Critical Allergies' for an allergic patient" yes \
+    "$(body | grep -q 'No Critical Allergies' && echo no || echo yes)" "$(body)"
+  check "lockscreen shows the allergen" yes \
+    "$(body | grep -qi 'PENICILLIN' && echo yes || echo no)" "$(body)"
 fi
 
 # ---------------------------------------------------------------------------

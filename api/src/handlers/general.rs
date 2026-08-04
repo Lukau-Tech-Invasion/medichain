@@ -276,7 +276,13 @@ fn build_new_patient(
             .iter()
             .map(|name| Allergy {
                 name: name.clone(),
-                severity: AllergySeverity::Mild, // Default to Mild, can be updated later
+                // `Unknown`, not `Mild`. Registration receives a bare allergen
+                // name — nobody assessed the reaction — so recording "Mild" is
+                // a fabricated clinical judgement, and a dangerous one: the
+                // emergency card used to filter Mild allergies out entirely, so
+                // a patient registered with a penicillin allergy showed NO
+                // allergies to a paramedic. Unknown severity is the truth here.
+                severity: AllergySeverity::Unknown,
                 reaction: None,
                 verified_at: None,
             })
