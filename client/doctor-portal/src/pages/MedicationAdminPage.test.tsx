@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   listMar: vi.fn(),
   administerMedication: vi.fn(),
@@ -58,7 +59,7 @@ describe('MedicationAdminPage', () => {
     render(<MedicationAdminPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Electronic MAR/i)).toBeInTheDocument();
+      expect(screen.getByText(/Medication Administration Record \(eMAR\)/i)).toBeInTheDocument();
       expect(screen.getByText(/Aspirin/i)).toBeInTheDocument();
       expect(screen.getByText(/100mg/i)).toBeInTheDocument();
     });

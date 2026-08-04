@@ -112,21 +112,25 @@ export function MyRecordsPage() {
       
       if (recordsResponse.ok) {
         const data = await recordsResponse.json();
+        // The backend returns bare MedicalRecordReference objects
+        // ({ content_hash, metadata_hash, record_type, uploaded_at, ... }).
+        // Records are keyed for download by their content_hash — the
+        // GET /api/records/{content_hash}/download route streams the decrypted
+        // bytes. (There is no per-record provider/description in the reference.)
         const medRecords = (data.records || []).map((rec: {
-          record_id: string;
+          content_hash: string;
+          metadata_hash: string;
           record_type: string;
-          metadata: { description?: string; content_hash?: string; metadata_hash?: string };
-          created_by: string;
-          created_at: string;
+          uploaded_at: number;
         }) => ({
-          id: rec.record_id,
+          id: rec.content_hash,
           type: rec.record_type,
           title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-          description: rec.metadata?.description || t('records.defaultDescription'),
-          provider: rec.created_by,
-          date: new Date(rec.created_at).toISOString().split('T')[0],
-          contentHash: rec.metadata?.content_hash || `rec-${rec.record_id}`,
-          metadataHash: rec.metadata?.metadata_hash || `meta-${rec.record_id}`,
+          description: t('records.defaultDescription'),
+          provider: 'MediChain',
+          date: rec.uploaded_at ? new Date(rec.uploaded_at * 1000).toISOString().split('T')[0] : '',
+          contentHash: rec.content_hash,
+          metadataHash: rec.metadata_hash,
           verified: true,
         }));
         allRecords.push(...medRecords);

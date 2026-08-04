@@ -53,7 +53,7 @@ describe('OrdersPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Clinical Orders/i)).toBeInTheDocument();
+      expect(screen.getByText(/Physician Orders/i)).toBeInTheDocument();
       expect(screen.getByText(/CBC with diff/i)).toBeInTheDocument();
       expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
     });

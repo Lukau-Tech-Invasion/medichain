@@ -120,12 +120,24 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Provider-less fallback: toasts are dropped, nothing else breaks.
+ *
+ * `useToast` used to throw without a `ToastProvider` above it. A hook throw
+ * unmounts the whole React tree, so a page whose only use of toasts is an
+ * error banner would render as a blank screen instead — in a clinical UI that
+ * trades a missing notification for a lost page. It also made every component
+ * using toasts untestable without a wrapper. Losing a toast is recoverable;
+ * losing the page is not. Mount `ToastProvider` to actually surface them.
+ */
+const FALLBACK_TOAST: ToastContextType = {
+  toasts: [],
+  addToast: () => {},
+  removeToast: () => {},
+};
+
 export function useToast() {
-  const context = useContext(ToastContext);
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider');
-  }
-  return context;
+  return useContext(ToastContext) ?? FALLBACK_TOAST;
 }
 
 export function useToastActions() {

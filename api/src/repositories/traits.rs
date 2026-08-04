@@ -6170,19 +6170,6 @@ impl GuardianAuthorityEvidence {
             Self::Other => "other",
         }
     }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "birth_certificate" => Some(Self::BirthCertificate),
-            "court_order" => Some(Self::CourtOrder),
-            "adoption_order" => Some(Self::AdoptionOrder),
-            "power_of_attorney_document" => Some(Self::PowerOfAttorneyDocument),
-            "foster_placement_order" => Some(Self::FosterPlacementOrder),
-            "affidavit" => Some(Self::Affidavit),
-            "other" => Some(Self::Other),
-            _ => None,
-        }
-    }
 }
 
 /// Whether the ward participated in the decision, per the Children's Act.
@@ -6210,17 +6197,6 @@ impl ChildAssentStatus {
             Self::Given => "given",
             Self::Refused => "refused",
             Self::Unable => "unable",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "not_applicable" => Some(Self::NotApplicable),
-            "not_sought" => Some(Self::NotSought),
-            "given" => Some(Self::Given),
-            "refused" => Some(Self::Refused),
-            "unable" => Some(Self::Unable),
-            _ => None,
         }
     }
 }

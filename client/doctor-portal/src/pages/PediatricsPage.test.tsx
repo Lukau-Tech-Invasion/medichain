@@ -6,7 +6,7 @@ describe('PediatricsPage', () => {
   it('renders pediatrics page', () => {
     render(<PediatricsPage />);
 
-    expect(screen.getByText(/Pediatric Care Dashboard/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pediatric Assessment/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Search pediatric patients/i)).toBeInTheDocument();
   });
 

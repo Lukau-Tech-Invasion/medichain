@@ -57,7 +57,7 @@ describe('LabResultPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Laboratory Test Result/i)).toBeInTheDocument();
+      expect(screen.getByText(/Lab Results/i)).toBeInTheDocument();
       expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
       expect(screen.getByText(/Complete Blood Count/i)).toBeInTheDocument();
     });

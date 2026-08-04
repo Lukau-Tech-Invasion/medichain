@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared API
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatientReminders: vi.fn(),
   createMedicationReminder: vi.fn(),
 }));

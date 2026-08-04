@@ -60,7 +60,7 @@ Plus **12 South African patients** automatically created by the server with vari
 3. Access patient records, create clinical notes, etc.
 
 ### Patient App (http://localhost:5174)
-1. Get a patient ID from the API: `curl http://localhost:8080/api/patients -H 'X-User-Id: DOC-001'`
+1. Get a patient ID from the API: `curl http://localhost:8090/api/patients -H 'X-User-Id: DOC-001'`
 2. Use a patient ID like `PAT-SA-001` or `PAT-9fea3920`
 3. View own medical records (read-only)
 
@@ -96,29 +96,29 @@ Plus **12 South African patients** automatically created by the server with vari
 
 ```bash
 # Health check
-curl http://localhost:8080/health
+curl http://localhost:8090/health
 
 # List all patients (as doctor)
-curl http://localhost:8080/api/patients -H 'X-User-Id: DOC-001'
+curl http://localhost:8090/api/patients -H 'X-User-Id: DOC-001'
 
 # Get specific patient
-curl http://localhost:8080/api/patients/PAT-SA-001 -H 'X-User-Id: DOC-001'
+curl http://localhost:8090/api/patients/PAT-SA-001 -H 'X-User-Id: DOC-001'
 
 # Emergency access (NFC simulation)
-curl -X POST http://localhost:8080/api/emergency-access \
+curl -X POST http://localhost:8090/api/emergency-access \
   -H 'Content-Type: application/json' \
   -H 'X-User-Id: DOC-001' \
   -d '{"patient_id": "PAT-SA-001", "reason": "Unconscious patient"}'
 
 # View access logs
-curl http://localhost:8080/api/access-logs/PAT-SA-001 -H 'X-User-Id: DOC-001'
+curl http://localhost:8090/api/access-logs/PAT-SA-001 -H 'X-User-Id: DOC-001'
 ```
 
 ## Server Ports
 
 | Service | Port | URL |
 |---------|------|-----|
-| API Server | 8080 | http://localhost:8080 |
+| API Server | 8090 | http://localhost:8090 |
 | Doctor Portal | 5173 | http://localhost:5173 |
 | Patient App | 5174 | http://localhost:5174 |
 

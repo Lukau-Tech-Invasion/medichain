@@ -117,7 +117,12 @@ const IntakeOutputPage: React.FC = () => {
     const fetchDetailedIO = async () => {
       const shift = 'day'; // Default shift
       try {
-        const response = await fetch(apiUrl(`/api/clinical/io/${selectedPatient.patientId}/${selectedDate}/${shift}`), {
+        // Route is `/api/emergency/io/{patient_id}/{type}/{timestamp}` — there is
+        // no `/api/clinical/io/...`, so this 404'd. The handler reads the 1st and
+        // 3rd segments (`IO-{patient_id}-{date}`) and ignores the middle, so the
+        // shift goes in the middle slot and the date must be last — sending
+        // (patient, date, shift) put the shift where the date belongs.
+        const response = await fetch(apiUrl(`/api/emergency/io/${selectedPatient.patientId}/${shift}/${selectedDate}`), {
           headers: {
             'X-User-Id': user.walletAddress,
             'X-Provider-Role': user.role || 'Doctor',

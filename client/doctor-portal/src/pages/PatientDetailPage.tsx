@@ -108,9 +108,18 @@ function PatientDetailPage() {
   }, [patientId, user]);
 
   if (loading) {
+    // role="status" + a text label: a bare spinner announces nothing to a
+    // screen reader, so a clinician using assistive tech got silence while the
+    // record loaded. The label is visually hidden; the spinner stays the visual
+    // affordance.
     return (
-      <div className="p-8 flex items-center justify-center min-h-[400px]">
+      <div
+        className="p-8 flex items-center justify-center min-h-[400px]"
+        role="status"
+        aria-live="polite"
+      >
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent"></div>
+        <span className="sr-only">Loading patient information…</span>
       </div>
     );
   }

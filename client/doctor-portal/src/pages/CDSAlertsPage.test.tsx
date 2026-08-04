@@ -53,7 +53,7 @@ describe('CDSAlertsPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Clinical Decision Support Alerts/i)).toBeInTheDocument();
+      expect(screen.getByText(/CDS Alerts Configuration/i)).toBeInTheDocument();
       expect(screen.getByText(/Drug Interaction Warning/i)).toBeInTheDocument();
       expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
     });

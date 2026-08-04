@@ -24,7 +24,7 @@ describe('NoteTemplatesPage', () => {
   it('renders note templates page', () => {
     render(<NoteTemplatesPage />);
 
-    expect(screen.getByText(/Clinical Note Templates/i)).toBeInTheDocument();
+    expect(screen.getByText(/Note Templates/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Search templates/i)).toBeInTheDocument();
   });
 

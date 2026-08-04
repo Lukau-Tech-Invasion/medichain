@@ -75,6 +75,22 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_emergency_grant)
         .service(revoke_emergency_grant)
         .service(grant_bound_emergency_access)
+        // Patient-controlled access grants + provider requests (Consent
+        // Management page). List before the {id} action routes so the
+        // patient/ segment is never shadowed.
+        .service(list_patient_access_grants)
+        .service(list_patient_access_requests)
+        .service(create_patient_access_request)
+        .service(approve_access_request)
+        .service(deny_access_request)
+        .service(revoke_access_grant)
+        // Nursing dashboard + care plans (doctor-portal NursingPage/CarePlanPage):
+        // `{records}`/`{plans}` envelopes over the repository-backed stores.
+        .service(nursing_list_mar)
+        .service(nursing_list_intake_output)
+        .service(nursing_list_care_plans)
+        .service(nursing_administer_medication)
+        .service(nursing_record_fluid)
         // NFC-hash-to-token exchange (Horizon HZ-001)
         .service(exchange_nfc_hash_for_token)
         // Phase 6 encrypted patient mobile-record capabilities.
@@ -133,6 +149,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(ipfs_health_check)
         .service(upload_medical_record)
         .service(download_medical_record)
+        .service(download_medical_record_by_hash)
         .service(list_patient_records)
         // Lab result submission endpoints (approval workflow)
         .service(submit_lab_results)
@@ -210,8 +227,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_wound_assessments)
         .service(clinical_endpoints::get_wound)
         .service(clinical_endpoints::create_iv_site)
+        .service(clinical_endpoints::list_patient_iv_sites)
         .service(clinical_endpoints::get_iv_site)
         .service(clinical_endpoints::create_shift_handoff)
+        .service(clinical_endpoints::list_provider_handoffs)
         .service(clinical_endpoints::get_shift_handoff)
         .service(clinical_endpoints::create_incident)
         .service(clinical_endpoints::get_incident)
@@ -466,6 +485,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::download_offline_data)
         // Phase 34: List/Queue endpoints for frontend
         .service(clinical_endpoints::list_orders)
+        .service(clinical_endpoints::update_order_status)
         .service(clinical_endpoints::list_discharges)
         .service(clinical_endpoints::approve_discharge)
         .service(clinical_endpoints::administer_medication)
@@ -477,6 +497,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_radiology_orders)
         .service(clinical_endpoints::list_pathology)
         .service(clinical_endpoints::list_immunizations)
+        .service(clinical_endpoints::list_my_immunizations)
         .service(clinical_endpoints::list_blood_bank)
         .service(clinical_endpoints::list_autopsy)
         .service(clinical_endpoints::list_autopsy_reports)

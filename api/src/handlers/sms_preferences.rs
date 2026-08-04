@@ -192,8 +192,18 @@ mod hz_webhook_regression_tests {
     use super::*;
     use actix_web::test;
 
+    /// Both tests below mutate the same **process-global** env var, and cargo
+    /// runs tests in parallel threads within one process. Without this lock,
+    /// whichever test finished first called `remove_var` while the other was
+    /// still mid-request, so the second saw no configured secret and failed —
+    /// intermittently, and only under the full parallel run (each passed in
+    /// isolation). Observed 2026-07-31. Serialise them instead of pretending
+    /// env vars are per-test state.
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[actix_web::test]
     async fn missing_secret_does_not_opt_out_the_spoofed_number() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("SMS_INBOUND_WEBHOOK_SECRET", "real-secret");
         let state = crate::AppState::new();
         let app_state = web::Data::new(state);
@@ -228,6 +238,7 @@ mod hz_webhook_regression_tests {
 
     #[actix_web::test]
     async fn correct_secret_honors_a_real_stop_reply() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("SMS_INBOUND_WEBHOOK_SECRET", "real-secret");
         let state = crate::AppState::new();
         let app_state = web::Data::new(state);

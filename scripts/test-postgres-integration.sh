@@ -13,7 +13,7 @@ echo "==========================================================================
 echo ""
 
 # Configuration
-API_URL="${API_URL:-http://localhost:8080}"
+API_URL="${API_URL:-http://localhost:8090}"
 ADMIN_WALLET="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 DOCTOR_WALLET="5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
 PATIENT_WALLET="5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z"

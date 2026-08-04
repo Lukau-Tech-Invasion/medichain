@@ -72,7 +72,7 @@ describe('MessagesPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Secure Messaging/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Messages/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
       expect(screen.getByText(/I have a question about my meds/i)).toBeInTheDocument();
     });

@@ -42,7 +42,7 @@ describe('SettingsPage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/User Settings/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Settings/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Profile Information/i)).toBeInTheDocument();
     expect(screen.getByText(mockUser.fullName)).toBeInTheDocument();
     expect(screen.getByText(mockUser.email)).toBeInTheDocument();

@@ -63,7 +63,7 @@ export default function TraumaPage() {
     if (!user || !patientId) return;
     setHistoryLoading(true);
     try {
-      const res = await fetch(apiUrl(`/api/clinical/patient/${patientId}/emergency`), {
+      const res = await fetch(apiUrl(`/api/emergency/trauma/patient/${patientId}`), {
         headers: { 'X-User-Id': user.walletAddress, 'X-Provider-Role': user.role },
       });
       if (res.ok) {

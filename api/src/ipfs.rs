@@ -183,6 +183,16 @@ impl IpfsClient {
         }
     }
 
+    /// The configured IPFS API endpoint (for health/diagnostics reporting).
+    pub fn api_url(&self) -> &str {
+        &self.api_url
+    }
+
+    /// The configured IPFS gateway endpoint (for health/diagnostics reporting).
+    pub fn gateway_url(&self) -> &str {
+        &self.gateway_url
+    }
+
     /// Check if IPFS daemon is running and accessible
     pub async fn health_check(&self) -> Result<bool, IpfsError> {
         let url = format!("{}/api/v0/id", self.api_url);

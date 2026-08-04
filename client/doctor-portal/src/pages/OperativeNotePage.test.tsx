@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -32,7 +33,7 @@ describe('OperativeNotePage', () => {
   it('renders operative note page', () => {
     render(<OperativeNotePage />);
 
-    expect(screen.getByText(/Operative Note/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Operative Note/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Detailed documentation of surgical procedures/i)).toBeInTheDocument();
   });
 

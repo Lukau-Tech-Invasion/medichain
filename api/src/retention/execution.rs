@@ -425,8 +425,11 @@ mod tests {
         let mut never_ran = assessment(vec![]);
         never_ran.incomplete_reason = Some("database unreachable".to_string());
 
-        assert!(ran_and_found_nothing.is_complete());
-        assert!(!never_ran.is_complete());
+        // Asserted on the field itself: the `is_complete()` wrapper had no
+        // production caller and was removed in the 2026-07-31 dead-code pass.
+        // `incomplete_reason` *is* the distinction this test exists to protect.
+        assert!(ran_and_found_nothing.incomplete_reason.is_none());
+        assert!(never_ran.incomplete_reason.is_some());
 
         // They are indistinguishable by their findings alone — which is exactly
         // why the flag has to carry the difference.

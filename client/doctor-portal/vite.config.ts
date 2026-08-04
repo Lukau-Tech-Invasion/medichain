@@ -34,12 +34,13 @@ export default defineConfig({
         // Where the dev server forwards /api/* to. Configurable so both
         // deployment shapes work:
         //   - Standalone API (the README quickstart, no Docker): the API binds
-        //     127.0.0.1:8080 directly — this is the default here.
+        //     127.0.0.1:8090 directly — this is the default here. (8090, not
+        //     8080: 8080 is the IPFS gateway's port, see api/src/main.rs.)
         //   - Full Docker stack: the API sits behind the Nginx gateway on :80;
         //     set VITE_API_PROXY_TARGET=http://127.0.0.1 to point there.
         // Previously this hardcoded :80, so the documented no-Docker quickstart
         // could not reach the API at all — every frontend call 503'd.
-        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8090',
         changeOrigin: true,
         secure: false,
         // Add timeout and error handling

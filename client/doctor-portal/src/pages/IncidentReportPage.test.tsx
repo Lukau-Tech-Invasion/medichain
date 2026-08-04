@@ -24,7 +24,7 @@ describe('IncidentReportPage', () => {
   it('renders incident report page', () => {
     render(<IncidentReportPage />);
 
-    expect(screen.getByText(/Clinical Incident Reporting/i)).toBeInTheDocument();
+    expect(screen.getByText(/Incident Reporting/i)).toBeInTheDocument();
     expect(screen.getByText(/Document and track patient safety incidents/i)).toBeInTheDocument();
   });
 

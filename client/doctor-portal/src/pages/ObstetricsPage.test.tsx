@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   createOb: vi.fn(),
   apiUrl: (path: string) => path,
@@ -47,7 +48,7 @@ describe('ObstetricsPage', () => {
     render(<ObstetricsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Obstetrics Assessment/i)).toBeInTheDocument();
+      expect(screen.getByText(/Obstetric Emergency/i)).toBeInTheDocument();
       expect(screen.getByText(/Fetal Heart Monitoring/i)).toBeInTheDocument();
     });
   });

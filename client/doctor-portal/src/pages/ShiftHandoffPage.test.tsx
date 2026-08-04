@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -32,7 +33,7 @@ describe('ShiftHandoffPage', () => {
   it('renders shift handoff page', () => {
     render(<ShiftHandoffPage />);
 
-    expect(screen.getByText(/Nursing Shift Handoff/i)).toBeInTheDocument();
+    expect(screen.getByText(/Shift Handoff \(SBAR\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Structured ISBAR communication for clinical handovers/i)).toBeInTheDocument();
   });
 

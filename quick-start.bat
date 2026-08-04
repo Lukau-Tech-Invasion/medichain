@@ -43,10 +43,10 @@ echo.
 echo [4/4] Starting API server...
 echo.
 echo ==============================================================================
-echo   API will start at: http://localhost:8080
-echo   Health check:      http://localhost:8080/health
-echo   DB health:         http://localhost:8080/health/db
-echo   Demo info:         http://localhost:8080/api/demo/info
+echo   API will start at: http://localhost:8090
+echo   Health check:      http://localhost:8090/health
+echo   DB health:         http://localhost:8090/health/db
+echo   Demo info:         http://localhost:8090/api/demo/info
 echo ==============================================================================
 echo.
 echo   DEMO ACCOUNTS (use X-User-Id header):
@@ -56,7 +56,7 @@ echo   Doctor:   5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
 echo   Nurse:    5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL
 echo   Patient:  5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z
 echo.
-echo   Example: curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" http://localhost:8080/api/users
+echo   Example: curl -H "X-User-Id: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" http://localhost:8090/api/users
 echo ==============================================================================
 echo.
 

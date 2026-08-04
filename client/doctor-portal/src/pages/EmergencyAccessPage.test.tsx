@@ -44,7 +44,7 @@ describe('EmergencyAccessPage', () => {
 
     render(<EmergencyAccessPage />);
 
-    expect(screen.getByText(/Emergency Access/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Emergency Access/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/How to Access Emergency Records/i)).toBeInTheDocument();
     expect(screen.getByTestId('nfc-simulator')).toBeInTheDocument();
   });

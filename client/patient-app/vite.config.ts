@@ -22,9 +22,10 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/api': {
-        // Standalone API on :8080 by default; set VITE_API_PROXY_TARGET to
-        // point at the Docker Nginx gateway (http://127.0.0.1) instead.
-        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080',
+        // Standalone API on :8090 by default (8080 is the IPFS gateway's port —
+        // see api/src/main.rs); set VITE_API_PROXY_TARGET to point at the Docker
+        // Nginx gateway (http://127.0.0.1) instead.
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8090',
         changeOrigin: true,
       },
     },

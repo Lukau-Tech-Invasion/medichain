@@ -53,7 +53,7 @@ describe('RadiologyPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Radiology & Imaging/i)).toBeInTheDocument();
+      expect(screen.getByText(/Radiology Worklist/i)).toBeInTheDocument();
       expect(screen.getByText(/Jane Doe/i)).toBeInTheDocument();
       expect(screen.getByText(/Chest X-Ray/i)).toBeInTheDocument();
     });

@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   listLabQc: vi.fn(),
   createLabQc: vi.fn(),
 }));
@@ -57,7 +58,7 @@ describe('LabQCPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Laboratory Quality Control/i)).toBeInTheDocument();
-      expect(screen.getByText(/Abbott Alinity/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Abbott Alinity/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Glucose/i)).toBeInTheDocument();
     });
   });

@@ -47,7 +47,7 @@ describe('LabTechDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Laboratory Technician Dashboard/i)).toBeInTheDocument();
+      expect(screen.getByText(/Laboratory Dashboard/i)).toBeInTheDocument();
       expect(screen.getByText(/Pending Tests/i)).toBeInTheDocument();
       expect(screen.getByText('10')).toBeInTheDocument();
       expect(screen.getByText(/QC Status/i)).toBeInTheDocument();

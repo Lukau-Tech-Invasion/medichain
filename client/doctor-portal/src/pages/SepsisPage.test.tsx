@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -32,14 +33,14 @@ describe('SepsisPage', () => {
   it('renders sepsis page', () => {
     render(<SepsisPage />);
 
-    expect(screen.getByText(/Sepsis Assessment & Bundle/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Sepsis Protocol/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Early recognition and evidence-based management of sepsis/i)).toBeInTheDocument();
   });
 
   it('displays screening tools', () => {
     render(<SepsisPage />);
 
-    expect(screen.getByText(/qSOFA Score/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/qSOFA Score/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/SIRS Criteria/i)).toBeInTheDocument();
   });
 

@@ -142,10 +142,10 @@ impl EncryptionKeyring {
     /// A key version is shared by every record encrypted while it was current —
     /// retiring it destroys **every** such record's decryptability, not one
     /// patient's. There is currently no finer-grained mechanism: true per-record
-    /// crypto-shredding needs the envelope-encryption feature
-    /// (`key_management::KeyEnvelope`/`wrap_for_recipient`/`unwrap_envelope`) to
-    /// actually be activated — today it exists only as a stubbed adapter
-    /// (`LegacyDeploymentKeyringAdapter`) that refuses every envelope operation.
+    /// crypto-shredding needs envelope encryption (a per-record data key, wrapped
+    /// for each recipient), which is **not implemented** — a stub key-management
+    /// boundary existed but was never wired to any caller and was removed in the
+    /// 2026-07-30 dead-code pass rather than left as misleading scaffolding.
     /// Use this method only when destroying an entire version's worth of data is
     /// the intended outcome (e.g. a full-tenant erasure), not for a single
     /// data-subject's POPIA erasure request.

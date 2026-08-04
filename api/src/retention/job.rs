@@ -65,13 +65,6 @@ pub struct RetentionAssessment {
     pub incomplete_reason: Option<String>,
 }
 
-impl RetentionAssessment {
-    /// Whether this assessment actually ran to completion.
-    pub fn is_complete(&self) -> bool {
-        self.incomplete_reason.is_none()
-    }
-}
-
 /// Evaluate every active policy and persist a dry-run job record.
 ///
 /// Failures are logged rather than propagated: this runs on a timer, and a

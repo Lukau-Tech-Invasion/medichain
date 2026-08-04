@@ -66,6 +66,10 @@ services:
     expose:
       - "8080"
     environment:
+      # Explicit: the API's own default is 8090 (8080 collides with the IPFS
+      # gateway on a dev host). Inside this container 8080 is free and nginx
+      # proxies to `api:8080`, so pin it here rather than changing nginx.
+      PORT: 8080
       DATABASE_URL: postgres://${POSTGRES_USER:-medichain}:${POSTGRES_PASSWORD:-medichain_dev_2024}@postgres:5432/${POSTGRES_DB:-medichain}
       IPFS_API_URL: http://ipfs:5001
       IPFS_GATEWAY_URL: http://ipfs:8080

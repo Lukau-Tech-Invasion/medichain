@@ -8,10 +8,16 @@ vi.mock('../store/authStore', () => ({
   useAuthStore: vi.fn(),
 }));
 
-// Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+/**
+ * Assertions rewritten 2026-07-31 against what the page renders today. The old
+ * ones expected an "Inventory Overview" section and a bare "O+" unit listing;
+ * the page is an order browser (Orders / New Order / Transfusion) with search
+ * and status filters. Strings verified against `docBloodBank` in
+ * shared/src/i18n/locales/en-US.ts.
+ */
 describe('BloodBankPage', () => {
   const mockUser = {
     walletAddress: '5GrwvaEF...mock',
@@ -22,36 +28,37 @@ describe('BloodBankPage', () => {
     vi.clearAllMocks();
     (useAuthStore as any).mockReturnValue({
       user: mockUser,
+      isAuthenticated: true,
     });
-
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({
-        inventory: [
-          { group: 'O+', units: 25, status: 'Stable' },
-          { group: 'A-', units: 5, status: 'Low' },
-        ],
-      }),
-    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ orders: [] }),
+      })
+    );
   });
 
-  it('renders blood bank page', async () => {
+  it('renders the blood bank header', async () => {
     render(<BloodBankPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Blood Bank Management/i)).toBeInTheDocument();
-      expect(screen.getByText(/Inventory Overview/i)).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getAllByText(/Blood Bank/i).length).toBeGreaterThan(0));
+    expect(screen.getByText(/Transfusion Medicine Services/i)).toBeInTheDocument();
   });
 
-  it('displays blood groups and units', async () => {
+  it('offers the order tabs', async () => {
     render(<BloodBankPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('O+')).toBeInTheDocument();
-      expect(screen.getByText('25')).toBeInTheDocument();
-      expect(screen.getByText('A-')).toBeInTheDocument();
-      expect(screen.getByText('5')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getAllByText(/Orders/i).length).toBeGreaterThan(0));
+    expect(screen.getByText(/New Order/i)).toBeInTheDocument();
+  });
+
+  it('offers search and status filtering', async () => {
+    render(<BloodBankPage />);
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Order ID, patient, product/i)).toBeInTheDocument()
+    );
+    expect(screen.getByText(/All Statuses/i)).toBeInTheDocument();
   });
 });

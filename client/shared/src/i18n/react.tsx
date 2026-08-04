@@ -86,10 +86,25 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
+/**
+ * Provider-less fallback: real en-US translations, no-op locale switching.
+ *
+ * `useTranslation` used to throw when no `I18nProvider` was above it. In an
+ * emergency medical UI that is the wrong failure mode — a missing provider took
+ * out the whole page (React unmounts the tree on a hook throw) rather than
+ * degrading to English, and it made every component untestable without a
+ * wrapper (226 component tests failed on exactly this). Rendering English is
+ * strictly better than rendering nothing; `I18nProvider` is still what enables
+ * locale switching and RTL.
+ */
+const FALLBACK_I18N: I18nState = {
+  locale: 'en-US',
+  setLocale: () => {},
+  t: createTranslator(enUS),
+};
+
 export function useTranslation(): I18nState {
-  const ctx = useContext(I18nContext);
-  if (!ctx) throw new Error('useTranslation must be used within an I18nProvider');
-  return ctx;
+  return useContext(I18nContext) ?? FALLBACK_I18N;
 }
 
 /** A minimal language switcher (native select) usable in any app shell. */

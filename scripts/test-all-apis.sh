@@ -3,7 +3,7 @@
 # MediChain Comprehensive API Test Suite
 # ============================================================================
 
-BASE_URL="http://localhost:8080"
+BASE_URL="${BASE_URL:-http://localhost:8090}"
 ADMIN="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 DOCTOR="5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty"
 NURSE="5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL"
@@ -55,6 +55,31 @@ test_endpoint() {
         FAILED=$((FAILED + 1))
     fi
 }
+
+# ---------------------------------------------------------------------------
+# Bootstrap the accounts this suite tests with.
+#
+# Without this the suite is permanently red against a fresh in-memory server:
+# the wallets above were only *declared*, never registered, so every
+# role-scoped call returned 401 (unknown user) and `/api/auth/me` returned 404.
+# Those were failures of the fixture, not of the API — which is worse than no
+# test, because a red suite that is *expected* to be red stops being a signal.
+# Idempotent: re-running against an already-seeded server is fine.
+# ---------------------------------------------------------------------------
+seed_accounts() {
+  curl -s -o /dev/null -X POST "$BASE_URL/api/auth/bootstrap" \
+    -H 'Content-Type: application/json' \
+    -d "{\"wallet_address\":\"$ADMIN\",\"name\":\"Suite Admin\",\"username\":\"suiteadmin\",\"secret_key\":\"${MEDICHAIN_BOOTSTRAP_KEY:-synthetic-test-bootstrap-key-2026}\"}"
+  for pair in "$DOCTOR:Doctor:suitedoc" "$NURSE:Nurse:suitenurse" \
+              "$LABTECH:LabTechnician:suitelab" "$PHARMACIST:Pharmacist:suitepharm" \
+              "$PATIENT:Patient:suitepatient"; do
+    w="${pair%%:*}"; rest="${pair#*:}"; role="${rest%%:*}"; uname="${rest##*:}"
+    curl -s -o /dev/null -X POST "$BASE_URL/api/auth/register" \
+      -H 'Content-Type: application/json' -H "X-User-Id: $ADMIN" \
+      -d "{\"wallet_address\":\"$w\",\"name\":\"Suite $role\",\"username\":\"$uname\",\"role\":\"$role\"}"
+  done
+}
+seed_accounts
 
 echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║         MEDICHAIN COMPREHENSIVE API TEST SUITE                   ║${NC}"
@@ -118,7 +143,7 @@ test_endpoint "GET" "/api/messages" "$PATIENT" "200"
 # ============================================================================
 echo -e "\n${YELLOW}═══ NURSE TASKS ═══${NC}"
 # ============================================================================
-test_endpoint "GET" "/api/tasks/nurse" "$NURSE" "200"
+test_endpoint "GET" "/api/nurse/tasks" "$NURSE" "200"
 
 # ============================================================================
 echo -e "\n${YELLOW}═══ BARCODE ENDPOINTS ═══${NC}"

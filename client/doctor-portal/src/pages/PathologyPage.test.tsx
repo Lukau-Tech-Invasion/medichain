@@ -11,7 +11,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -33,7 +34,7 @@ describe('PathologyPage', () => {
   it('renders pathology page', () => {
     render(<PathologyPage />);
 
-    expect(screen.getByText(/Pathology & Laboratory/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pathology Laboratory/i)).toBeInTheDocument();
     expect(screen.getByText(/Documentation and analysis of tissue samples and specimens/i)).toBeInTheDocument();
   });
 

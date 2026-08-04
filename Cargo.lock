@@ -4640,7 +4640,6 @@ dependencies = [
  "jsonwebtoken",
  "log",
  "medichain-crypto",
- "parity-scale-codec",
  "printpdf",
  "prometheus",
  "proptest",

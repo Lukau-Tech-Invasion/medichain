@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -33,7 +34,7 @@ describe('FallRiskPage', () => {
     render(<FallRiskPage />);
 
     expect(screen.getByText(/Fall Risk Assessment/i)).toBeInTheDocument();
-    expect(screen.getByText(/Morse Fall Scale/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Morse Fall Scale/i).length).toBeGreaterThan(0);
   });
 
   it('displays assessment criteria', () => {

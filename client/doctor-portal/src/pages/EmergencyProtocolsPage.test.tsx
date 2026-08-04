@@ -6,7 +6,7 @@ describe('EmergencyProtocolsPage', () => {
   it('renders emergency protocols page', () => {
     render(<EmergencyProtocolsPage />);
 
-    expect(screen.getByText(/Emergency Medical Protocols/i)).toBeInTheDocument();
+    expect(screen.getByText(/Emergency Protocols/i)).toBeInTheDocument();
     expect(screen.getByText(/Select a protocol to view guidelines and checklists/i)).toBeInTheDocument();
   });
 

@@ -50,7 +50,7 @@ describe('EPrescribePage', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/Electronic Prescription/i)).toBeInTheDocument();
+    expect(screen.getByText(/E-Prescribing/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Search for medication/i)).toBeInTheDocument();
   });
 

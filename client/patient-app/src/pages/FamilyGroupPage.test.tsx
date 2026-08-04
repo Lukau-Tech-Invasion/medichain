@@ -11,7 +11,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getMyFamilyGroups: vi.fn(),
   createFamilyGroup: vi.fn(),
   addFamilyMember: vi.fn(),

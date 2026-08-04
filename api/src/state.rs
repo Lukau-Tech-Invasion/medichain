@@ -55,6 +55,10 @@ pub struct AppState {
     pub device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore,
     /// Phase 5 server-side grants; expires independently of any frontend timer.
     pub emergency_grants: crate::emergency_grants::EmergencyGrantStore,
+    /// Patient-controlled standing access: provider requests + patient-approved
+    /// grants backing the Consent Management page (consent-based, revocable —
+    /// the counterpart to the break-glass `emergency_grants`).
+    pub patient_access: crate::patient_access::PatientAccessStore,
     /// Phase 6 patient-owned mobile devices and ciphertext access capabilities.
     pub mobile_records: crate::mobile_records::MobileRecordStore,
     /// Phase 7 policy metadata for sensitive telehealth artifact retention.
@@ -289,6 +293,7 @@ impl AppState {
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
             emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            patient_access: crate::patient_access::PatientAccessStore::new(),
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
             telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
@@ -448,6 +453,7 @@ impl AppState {
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
             emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            patient_access: crate::patient_access::PatientAccessStore::new(),
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
             telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),

@@ -11,7 +11,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   createCardiac: vi.fn(),
   apiUrl: (path: string) => path,
@@ -43,7 +44,7 @@ describe('CardiacPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Cardiac Event Assessment/i)).toBeInTheDocument();
+      expect(screen.getByText(/Cardiac Event Documentation/i)).toBeInTheDocument();
       expect(screen.getByText(/ECG Monitoring/i)).toBeInTheDocument();
     });
   });

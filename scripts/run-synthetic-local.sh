@@ -22,6 +22,13 @@ unset GHANA_CARD_API_KEY
 export MEDICHAIN_BOOTSTRAP_KEY=synthetic-test-bootstrap-key-2026
 
 export RUST_LOG=info
-export PORT=8080
+
+# 8090 is the API's default (see api/src/main.rs): 8080 belongs to the IPFS
+# (kubo) gateway, and an API bound there steals it — every record download then
+# resolves IPFS_GATEWAY_URL back to the API itself and 404s as a misleading
+# "Record content not found". Stated explicitly here so the port is obvious.
+export PORT=${PORT:-8090}
+export IPFS_API_URL=${IPFS_API_URL:-http://127.0.0.1:5001}
+export IPFS_GATEWAY_URL=${IPFS_GATEWAY_URL:-http://127.0.0.1:8080}
 
 exec ./target/debug/medichain-api.exe

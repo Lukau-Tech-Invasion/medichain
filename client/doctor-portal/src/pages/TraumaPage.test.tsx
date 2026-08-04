@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TraumaPage from './TraumaPage';
 import { useAuthStore } from '../store/authStore';
@@ -9,12 +9,22 @@ vi.mock('../store/authStore', () => ({
   useAuthStore: vi.fn(),
 }));
 
-// Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+// Mock only the data call; the rest of the package (i18n, apiUrl) stays real so
+// the component renders its actual copy.
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
+/**
+ * Assertions rewritten 2026-07-31 against what the page renders today. The old
+ * ones expected a subtitle ("Primary and Secondary Trauma Survey") and bare
+ * ABCD labels that no longer exist: the survey is labelled "Primary Survey
+ * (ABCDE)" with "A - Airway"-style rows, and the Glasgow score is
+ * "GCS Score (3-15)". Every string below is verified against `docTrauma` in
+ * shared/src/i18n/locales/en-US.ts, the source of truth for this copy.
+ */
 describe('TraumaPage', () => {
   const mockUser = {
     walletAddress: '5GrwvaEF...mock',
@@ -29,25 +39,28 @@ describe('TraumaPage', () => {
     (shared.getPatients as any).mockResolvedValue([]);
   });
 
-  it('renders trauma page', () => {
+  it('renders the trauma assessment header', () => {
     render(<TraumaPage />);
 
-    expect(screen.getByText(/Trauma Resuscitation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Primary and Secondary Trauma Survey/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trauma Assessment/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Document trauma mechanism, primary survey, and injury severity/i)
+    ).toBeInTheDocument();
   });
 
-  it('displays ABCDE sections', () => {
+  it('displays the ABCDE primary survey sections', () => {
     render(<TraumaPage />);
 
-    expect(screen.getByText(/Airway/i)).toBeInTheDocument();
-    expect(screen.getByText(/Breathing/i)).toBeInTheDocument();
-    expect(screen.getByText(/Circulation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Disability/i)).toBeInTheDocument();
+    expect(screen.getByText(/Primary Survey \(ABCDE\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/A - Airway/i)).toBeInTheDocument();
+    expect(screen.getByText(/B - Breathing/i)).toBeInTheDocument();
+    expect(screen.getByText(/C - Circulation/i)).toBeInTheDocument();
+    expect(screen.getByText(/D - Disability/i)).toBeInTheDocument();
   });
 
-  it('allows calculating GCS', () => {
+  it('offers GCS scoring', () => {
     render(<TraumaPage />);
 
-    expect(screen.getByText(/Glasgow Coma Scale/i)).toBeInTheDocument();
+    expect(screen.getByText(/GCS Score \(3-15\)/i)).toBeInTheDocument();
   });
 });

@@ -46,7 +46,7 @@ describe('VitalSignsPage', () => {
       isAuthenticated: true,
     });
     (usePatientStore as any).mockReturnValue({
-      recentPatients: [{ id: 'PAT-001', name: 'John Doe' }],
+      recentPatients: [{ patientId: 'PAT-001', fullName: 'John Doe' }],
     });
 
     mockFetch.mockImplementation((url) => {

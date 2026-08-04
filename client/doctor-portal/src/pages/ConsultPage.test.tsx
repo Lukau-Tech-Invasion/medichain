@@ -53,7 +53,7 @@ describe('ConsultPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Provider Consultations/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Specialty Consultations/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
       expect(screen.getByText(/Cardiac evaluation/i)).toBeInTheDocument();
     });

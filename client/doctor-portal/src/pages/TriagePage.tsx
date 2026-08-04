@@ -194,7 +194,13 @@ function TriagePage() {
         });
         if (response.ok) {
           const data = await response.json();
-          setTriageQueue(data.assessments || []);
+          // The API returns `{ queue, total, success }` (GET
+          // /api/clinical/triage/queue, api/src/handlers/triage.rs). This read
+          // `data.assessments`, a key the server never sends, so the triage
+          // queue rendered empty in production no matter how many patients were
+          // waiting. The old unit test mocked a third shape (`triage_queue`),
+          // so it agreed with neither and never caught it.
+          setTriageQueue(data.queue || data.assessments || []);
         }
       } catch (err) {
         console.error('Failed to fetch triage queue:', err);

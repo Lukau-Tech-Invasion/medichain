@@ -137,7 +137,7 @@ Requires Rust 1.97+, Node 20+, and Docker (only for the PostgreSQL path).
 
 ```bash
 cargo build -p medichain-api --bin medichain-api
-bash scripts/run-synthetic-local.sh          # API on http://127.0.0.1:8080
+bash scripts/run-synthetic-local.sh          # API on http://127.0.0.1:8090
 ```
 
 In another shell, exercise it end to end:

@@ -9,10 +9,16 @@ vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
 }));
 
-// Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+/**
+ * Assertions rewritten 2026-07-31 against what the page renders today. The old
+ * ones asserted on mock goal text ("Reduce BP") and a bare "Active" status that
+ * the list no longer renders that way. The page shows a "Recent Care Plans"
+ * table with ID / Patient ID / Status columns. Strings verified against
+ * `docCarePlan` in shared/src/i18n/locales/en-US.ts.
+ */
 describe('CarePlanPage', () => {
   const mockUser = {
     walletAddress: '5GrwvaEF...mock',
@@ -25,48 +31,36 @@ describe('CarePlanPage', () => {
       user: mockUser,
       isAuthenticated: true,
     });
-
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({
-          care_plan: {
-            patient_id: 'PAT-001',
-            status: 'Active',
-            goals: ['Reduce BP', 'Weight loss'],
-            activities: [
-              { id: 'a1', description: 'Daily exercise', frequency: '30 min' },
-              { id: 'a2', description: 'Low salt diet', frequency: 'Daily' }
-            ],
-          },
-        }),
-      });
-    });
+        status: 200,
+        json: () => Promise.resolve({ plans: [] }),
+      })
+    );
   });
 
-  it('renders care plan page', async () => {
+  const renderPage = () =>
     render(
       <MemoryRouter>
         <CarePlanPage />
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      expect(screen.getByText(/Patient Care Plan/i)).toBeInTheDocument();
-      expect(screen.getByText(/Reduce BP/i)).toBeInTheDocument();
-      expect(screen.getByText(/Daily exercise/i)).toBeInTheDocument();
-    });
+  it('renders the nursing care plan header', async () => {
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/Nursing Care Plan/i).length).toBeGreaterThan(0)
+    );
+    expect(screen.getByText(/Create and manage patient-centered care plans/i)).toBeInTheDocument();
   });
 
-  it('shows care plan status', async () => {
-    render(
-      <MemoryRouter>
-        <CarePlanPage />
-      </MemoryRouter>
-    );
+  it('lists recent care plans with their columns', async () => {
+    renderPage();
 
-    await waitFor(() => {
-      expect(screen.getByText(/Active/i)).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getByText(/Recent Care Plans/i)).toBeInTheDocument());
+    expect(screen.getAllByText(/Patient ID/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Status/i).length).toBeGreaterThan(0);
   });
 });

@@ -88,6 +88,38 @@ pub async fn list_immunizations(
     }
 }
 
+/// A patient's own immunization records (patient-app Medical History page).
+///
+/// Caller-scoped: returns the authenticated caller's immunizations, resolved via
+/// their linked patient id (falling back to the caller id when that is itself a
+/// patient id). Deliberately distinct from the all-patients
+/// `/api/platform/list/immunizations` above — pointing a patient page at that
+/// list would leak every patient's records (an IDOR), so the patient page gets
+/// this owner-scoped route instead.
+#[get("/api/clinical/immunizations")]
+pub async fn list_my_immunizations(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    let patient_id = match get_user(&data, &current_user_id) {
+        Some(user) => user.linked_patient_id.unwrap_or(current_user_id),
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    match data
+        .repositories
+        .immunization_records
+        .get_by_patient(&patient_id)
+        .await
+    {
+        Ok(records) => HttpResponse::Ok().json(serde_json::json!({ "immunizations": records })),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
 /// List blood bank inventory and screens
 #[get("/api/platform/list/blood-bank")]
 pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {

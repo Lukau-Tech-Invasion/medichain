@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   getFamilyHistory: vi.fn(),
   createFamilyHistory: vi.fn(),
@@ -59,7 +60,7 @@ describe('FamilyHistoryPage', () => {
     render(<FamilyHistoryPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Family Health History/i)).toBeInTheDocument();
+      expect(screen.getByText(/Family History/i)).toBeInTheDocument();
       expect(screen.getByText(/mother/i)).toBeInTheDocument();
       expect(screen.getByText(/Diabetes/i)).toBeInTheDocument();
     });
