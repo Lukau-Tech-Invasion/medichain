@@ -14,6 +14,227 @@ fn json_value<T: serde::Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap_or_default()
 }
 
+/// Append a dose administration to the patient's MAR for today, creating the
+/// day's record if this is the first dose recorded.
+///
+/// Previously `/api/emergency/administer-med` and `/api/nursing/mar/administer`
+/// both returned `{"success": true}` without writing anything, so a nurse could
+/// mark a dose given, see it confirmed, and leave no record of it — the next
+/// nurse reading the MAR would see the dose as outstanding. A medication
+/// administration record is a patient-safety artifact; both endpoints now share
+/// this one writer so they cannot drift apart again.
+///
+/// Returns the MAR record id the administration was appended to.
+pub(crate) async fn append_mar_administration(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+    administered_by: &str,
+    administration: Value,
+) -> Result<String, crate::repositories::traits::RepositoryError> {
+    let today = Utc::now().date_naive();
+    let existing = data
+        .repositories
+        .medication_records
+        .get_by_patient_and_date(patient_id, today)
+        .await?;
+
+    match existing {
+        Some(mut entity) => {
+            push_into_array(&mut entity.data, "administrations", administration);
+            entity.updated_at = Utc::now();
+            let id = entity.id.clone();
+            data.repositories.medication_records.update(entity).await?;
+            Ok(id)
+        }
+        None => {
+            let id = format!("MAR-{}-{}", patient_id, today);
+            let now = Utc::now();
+            let entity = crate::repositories::traits::MedicationRecordEntity {
+                id: id.clone(),
+                patient_id: patient_id.to_string(),
+                record_date: today,
+                scheduled_medications: Value::Array(vec![]),
+                prn_medications: Value::Array(vec![]),
+                infusions: Value::Array(vec![]),
+                completion_status: None,
+                completion_percentage: None,
+                primary_nurse: Some(administered_by.to_string()),
+                created_at: now,
+                updated_at: now,
+                facility_id: None,
+                is_active: true,
+                data: serde_json::json!({ "administrations": [administration] }),
+            };
+            data.repositories.medication_records.create(entity).await?;
+            Ok(id)
+        }
+    }
+}
+
+/// Add a fluid event to the patient's intake/output record for today's shift,
+/// creating it if absent, and keep the stored totals consistent with it.
+///
+/// Same history as [`append_mar_administration`]: the two "record fluid"
+/// endpoints acknowledged without persisting, so a refetch never showed the
+/// entry. Fluid balance drives real clinical decisions, so the running totals
+/// are recomputed here rather than left to the caller.
+pub(crate) async fn append_io_event(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+    shift: &str,
+    recorded_by: &str,
+    category: &str,
+    amount_ml: i32,
+) -> Result<String, crate::repositories::traits::RepositoryError> {
+    let today = Utc::now().date_naive();
+    let now = Utc::now();
+    let event = serde_json::json!({
+        "category": category,
+        "amount_ml": amount_ml,
+        "recorded_by": recorded_by,
+        "recorded_at": now.to_rfc3339(),
+    });
+
+    let existing = data
+        .repositories
+        .io_records
+        .get_by_patient_date_shift(patient_id, today, shift)
+        .await?;
+
+    let mut entity = match existing {
+        Some(e) => e,
+        None => {
+            let id = format!("IO-{}-{}-{}", patient_id, today, shift);
+            crate::repositories::traits::IORecordEntity {
+                id,
+                patient_id: patient_id.to_string(),
+                record_date: today,
+                shift: shift.to_string(),
+                oral_intake: Some(0),
+                iv_intake: Some(0),
+                tube_feeding: Some(0),
+                other_intake: Some(0),
+                total_intake: 0,
+                urine_output: Some(0),
+                emesis: Some(0),
+                drainage: Some(0),
+                stool: Some(0),
+                other_output: Some(0),
+                total_output: 0,
+                net_balance: 0,
+                intake_items: Some(Value::Array(vec![])),
+                output_items: Some(Value::Array(vec![])),
+                notes: None,
+                recorded_by: recorded_by.to_string(),
+                verified_by: None,
+                created_at: now,
+                updated_at: now,
+                facility_id: None,
+                data: serde_json::json!({ "events": [] }),
+            }
+        }
+    };
+
+    // Route the amount to its column. Unknown categories are still recorded as
+    // an event and counted as "other" rather than silently dropped — losing a
+    // documented fluid volume is worse than filing it imprecisely.
+    let bump = |slot: &mut Option<i32>| *slot = Some(slot.unwrap_or(0) + amount_ml);
+    let is_output = match category {
+        "oral" | "oral_intake" => {
+            bump(&mut entity.oral_intake);
+            false
+        }
+        "iv" | "iv_intake" => {
+            bump(&mut entity.iv_intake);
+            false
+        }
+        "tube" | "tube_feeding" => {
+            bump(&mut entity.tube_feeding);
+            false
+        }
+        "urine" | "urine_output" => {
+            bump(&mut entity.urine_output);
+            true
+        }
+        "emesis" => {
+            bump(&mut entity.emesis);
+            true
+        }
+        "drainage" => {
+            bump(&mut entity.drainage);
+            true
+        }
+        "stool" => {
+            bump(&mut entity.stool);
+            true
+        }
+        "output" | "other_output" => {
+            bump(&mut entity.other_output);
+            true
+        }
+        _ => {
+            bump(&mut entity.other_intake);
+            false
+        }
+    };
+
+    entity.total_intake = entity.oral_intake.unwrap_or(0)
+        + entity.iv_intake.unwrap_or(0)
+        + entity.tube_feeding.unwrap_or(0)
+        + entity.other_intake.unwrap_or(0);
+    entity.total_output = entity.urine_output.unwrap_or(0)
+        + entity.emesis.unwrap_or(0)
+        + entity.drainage.unwrap_or(0)
+        + entity.stool.unwrap_or(0)
+        + entity.other_output.unwrap_or(0);
+    entity.net_balance = entity.total_intake - entity.total_output;
+
+    let items = if is_output {
+        &mut entity.output_items
+    } else {
+        &mut entity.intake_items
+    };
+    let mut list = items.take().unwrap_or_else(|| Value::Array(vec![]));
+    if let Value::Array(arr) = &mut list {
+        arr.push(event.clone());
+    }
+    *items = Some(list);
+    push_into_array(&mut entity.data, "events", event);
+    entity.updated_at = now;
+
+    let id = entity.id.clone();
+    let is_new = data
+        .repositories
+        .io_records
+        .get_by_id(&id)
+        .await
+        .ok()
+        .is_none();
+    if is_new {
+        data.repositories.io_records.create(entity).await?;
+    } else {
+        data.repositories.io_records.update(entity).await?;
+    }
+    Ok(id)
+}
+
+/// Push `item` onto `blob[key]`, creating the array if the key is absent.
+fn push_into_array(blob: &mut Value, key: &str, item: Value) {
+    if !blob.is_object() {
+        *blob = serde_json::json!({});
+    }
+    let obj = match blob.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+    match obj.get_mut(key).and_then(|v| v.as_array_mut()) {
+        Some(arr) => arr.push(item),
+        None => {
+            obj.insert(key.to_string(), Value::Array(vec![item]));
+        }
+    }
+}
+
 /// Provider-or-self gate for the per-type emergency list-by-patient endpoints.
 ///
 /// Mirrors the check on `list_patient_code_blues` (HZ-020): a healthcare

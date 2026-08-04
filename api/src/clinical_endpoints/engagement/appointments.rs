@@ -98,7 +98,15 @@ pub async fn book_appointment(
         appointment_id: format!("APT-{}", uuid::Uuid::new_v4()),
         patient_id: req.patient_id.clone(),
         provider_id: req.provider_id.clone(),
-        provider_name: req.provider_name.clone().unwrap_or("Dr. Smith".to_string()),
+        // Horizon HZ-023: this defaulted to the literal "Dr. Smith", stamping an
+        // invented clinician onto a real appointment whenever the caller omitted
+        // a name. Resolve the actual provider from the user store; if the id is
+        // unknown, carry the id itself rather than inventing a person.
+        provider_name: req
+            .provider_name
+            .clone()
+            .or_else(|| get_user(&data, &req.provider_id).map(|u| u.name))
+            .unwrap_or_else(|| req.provider_id.clone()),
         appointment_type,
         visit_reason: req.reason.clone(),
         scheduled_date: req.preferred_date.clone(),

@@ -71,17 +71,45 @@ pub async fn log_symptom(
             .unwrap_or("000")
     );
 
+    let now = chrono::Utc::now();
     let symptom_entry = serde_json::json!({
         "entry_id": entry_id,
+        "id": entry_id,
         "patient_id": patient_id,
         "symptom": symptom,
+        "category": body.get("category").and_then(|c| c.as_str()),
         "severity": severity.min(10), // 0-10 scale
+        "duration": body.get("duration").and_then(|d| d.as_str()),
         "notes": notes,
         "triggers": triggers,
+        "relievedBy": body.get("relieved_by").or_else(|| body.get("relievedBy")),
         "logged_by": current_user_id,
-        "logged_at": chrono::Utc::now().timestamp(),
-        "date": chrono::Utc::now().format("%Y-%m-%d").to_string()
+        "logged_at": now.timestamp(),
+        "timestamp": now.to_rfc3339(),
+        "date": now.format("%Y-%m-%d").to_string()
     });
+
+    // Horizon HZ-023: the entry used to be built and returned but never
+    // stored, so the diary could be written to and never read back.
+    if let Err(e) = data
+        .repositories
+        .symptom_entries
+        .create(crate::repositories::traits::JsonRecordEntity {
+            id: entry_id.clone(),
+            owner_id: patient_id.clone(),
+            data: symptom_entry.clone(),
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+    {
+        log::error!("symptom entry persist failed for {}: {}", patient_id, e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Could not save the symptom entry".to_string(),
+            code: "SYMPTOM_WRITE_FAILED".to_string(),
+        });
+    }
 
     // Log access via repository (persists to memory or postgres backend)
     let _ = data
@@ -109,10 +137,17 @@ pub async fn log_symptom(
     }))
 }
 
-/// Get symptom history for a patient
+/// Get a patient's logged symptom diary.
+///
+/// Horizon HZ-023: this returned invented chronic conditions — Hypertension
+/// and Type 2 Diabetes — for whatever patient id was asked for. It now reads
+/// the entries actually logged via `/api/symptoms/log`. Chronic conditions are
+/// deliberately **not** synthesised here: nothing in this store establishes a
+/// diagnosis, and inferring one from self-reported symptoms would recreate the
+/// original defect in a subtler form.
 #[get("/api/symptoms/{patient_id}")]
 pub async fn get_symptom_history(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
@@ -122,41 +157,41 @@ pub async fn get_symptom_history(
         None => return HttpResponse::Unauthorized().finish(),
     };
 
-    if current_user_id != patient_id && !current_user_id.starts_with("0xPROV") {
+    // Horizon HZ-024: a "0xPROV" id prefix is not authorization — see the note
+    // in `download_offline_data`. Resolve the role from the user store.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
+    if current_user_id != patient_id && !is_provider {
         return HttpResponse::Forbidden().finish();
     }
 
-    // Chronic conditions (Mock)
-    let chronic_conditions = vec![
-        serde_json::json!({"condition": "Hypertension", "diagnosed_at": "2023-01-15"}),
-        serde_json::json!({"condition": "Type 2 Diabetes", "diagnosed_at": "2023-05-20"}),
-    ];
+    let records = match data
+        .repositories
+        .symptom_entries
+        .get_by_owner(&patient_id)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("symptom history load failed for {}: {}", patient_id, e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not load symptom history".to_string(),
+                code: "SYMPTOM_READ_FAILED".to_string(),
+            });
+        }
+    };
+    let mut entries: Vec<serde_json::Value> = records.into_iter().map(|r| r.data).collect();
+    entries.sort_by_key(|e| std::cmp::Reverse(e.get("logged_at").and_then(|v| v.as_i64())));
 
-    // Symptom history (Mock)
-    let symptom_entries = vec![
-        serde_json::json!({
-            "entry_id": "SYM-001",
-            "date": "2024-03-20",
-            "symptom": "Headache",
-            "severity": 4,
-            "triggers": ["Stress", "Lack of sleep"],
-            "notes": "Mild throbbing at temples"
-        }),
-        serde_json::json!({
-            "entry_id": "SYM-002",
-            "date": "2024-03-18",
-            "symptom": "Fatigue",
-            "severity": 6,
-            "triggers": ["Working long hours"],
-            "notes": "Improved after rest"
-        }),
-    ];
-
+    // `entries` is what the patient app's SymptomTrackerPage reads;
+    // `symptom_history` is kept for existing callers of this endpoint.
     HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
         "patient_id": patient_id,
-        "chronic_conditions": chronic_conditions,
-        "symptom_history": symptom_entries,
-        "total_entries": symptom_entries.len()
+        "entries": entries,
+        "symptom_history": entries,
+        "total_entries": entries.len()
     }))
 }
 
@@ -261,6 +296,40 @@ pub async fn send_message(
         "thread_id": body.get("thread_id").and_then(|t| t.as_str()).unwrap_or(&message_id)
     });
 
+    // Horizon HZ-023: this used to return the message without storing it, so
+    // nothing sent was ever retrievable. Persisted twice — once owned by the
+    // recipient (their inbox) and once by the sender (their sent folder) —
+    // because the store is keyed by a single owner and both parties must be
+    // able to read the thread.
+    let now = chrono::Utc::now();
+    let inbox_copy = crate::repositories::traits::JsonRecordEntity {
+        id: format!("{}:in", message_id),
+        owner_id: recipient_id.clone(),
+        data: message.clone(),
+        created_at: now,
+        updated_at: now,
+    };
+    let sent_copy = crate::repositories::traits::JsonRecordEntity {
+        id: format!("{}:out", message_id),
+        owner_id: current_user_id.clone(),
+        data: message.clone(),
+        created_at: now,
+        updated_at: now,
+    };
+    if let Err(e) = data.repositories.messages.create(inbox_copy).await {
+        log::error!("message persist (inbox) failed: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Could not send the message".to_string(),
+            code: "MESSAGE_WRITE_FAILED".to_string(),
+        });
+    }
+    if let Err(e) = data.repositories.messages.create(sent_copy).await {
+        // The recipient already has it, so the message was delivered; only the
+        // sender's own copy is missing. Log rather than fail the send.
+        log::warn!("message persist (sent folder) failed: {}", e);
+    }
+
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
         "message": message,
@@ -268,44 +337,112 @@ pub async fn send_message(
     }))
 }
 
-/// Get messages for current user
+/// Get the caller's messages, grouped into conversations by counterpart.
+///
+/// Horizon HZ-023: this returned a fixed pair of invented messages to every
+/// caller. It now reads the real store. Both `messages` (flat, newest first)
+/// and `conversations` (grouped, which is what the patient app renders) are
+/// returned so neither client has to re-derive the other.
 #[get("/api/messages")]
 pub async fn get_messages(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
+    let current_user_id = match get_current_user_id(&http_req) {
         Some(id) => id,
         None => return HttpResponse::Unauthorized().finish(),
     };
 
     let folder = query.get("folder").map(|s| s.as_str()).unwrap_or("inbox");
+    let records = match data
+        .repositories
+        .messages
+        .get_by_owner(&current_user_id)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("message load failed for {}: {}", current_user_id, e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not load messages".to_string(),
+                code: "MESSAGE_READ_FAILED".to_string(),
+            });
+        }
+    };
 
-    // Mock message store
-    let inbox = vec![
-        serde_json::json!({
-            "message_id": "MSG-001",
-            "sender_id": "0xPROV1",
-            "sender_name": "Dr. Miller",
-            "subject": "Lab Results Review",
-            "sent_at": chrono::Utc::now().timestamp() - 3600,
-            "read": true
-        }),
-        serde_json::json!({
-            "message_id": "MSG-002",
-            "sender_id": "0xPATIENT1",
-            "sender_name": "John Doe",
-            "subject": "Appointment Question",
-            "sent_at": chrono::Utc::now().timestamp() - 7200,
-            "read": false
-        }),
-    ];
+    // `send_message` stores an `:in` copy for the recipient and an `:out` copy
+    // for the sender, so the folder is decided by which copy this is rather
+    // than by re-comparing ids (a user messaging themselves would break that).
+    let wanted_suffix = if folder == "sent" { ":out" } else { ":in" };
+    let mut messages: Vec<serde_json::Value> = records
+        .into_iter()
+        .filter(|r| r.id.ends_with(wanted_suffix))
+        .map(|r| r.data)
+        .collect();
+    messages.sort_by_key(|m| std::cmp::Reverse(m.get("sent_at").and_then(|v| v.as_i64())));
+
+    // Group into conversations by the counterpart, newest message first.
+    let mut order: Vec<String> = Vec::new();
+    let mut grouped: std::collections::HashMap<String, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
+    for m in &messages {
+        let sender = m.get("sender_id").and_then(|v| v.as_str()).unwrap_or("");
+        let recipient = m.get("recipient_id").and_then(|v| v.as_str()).unwrap_or("");
+        let counterpart = if sender == current_user_id {
+            recipient
+        } else {
+            sender
+        }
+        .to_string();
+        if !grouped.contains_key(&counterpart) {
+            order.push(counterpart.clone());
+        }
+        grouped.entry(counterpart).or_default().push(m.clone());
+    }
+    let conversations: Vec<serde_json::Value> = order
+        .into_iter()
+        .map(|counterpart| {
+            let thread = grouped.remove(&counterpart).unwrap_or_default();
+            let latest = thread.first().cloned().unwrap_or(serde_json::Value::Null);
+            let counterpart_name = thread
+                .iter()
+                .find_map(|m| {
+                    let sender = m.get("sender_id").and_then(|v| v.as_str()).unwrap_or("");
+                    if sender == counterpart {
+                        m.get("sender_name").and_then(|v| v.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(&counterpart)
+                .to_string();
+            let unread = thread
+                .iter()
+                .filter(|m| {
+                    m.get("read").and_then(|v| v.as_bool()) == Some(false)
+                        && m.get("sender_id").and_then(|v| v.as_str()) != Some(&current_user_id)
+                })
+                .count();
+            serde_json::json!({
+                "id": counterpart,
+                "providerId": counterpart,
+                "providerName": counterpart_name,
+                "providerRole": latest.get("sender_role"),
+                "lastMessage": latest.get("content"),
+                "lastMessageTime": latest.get("sent_at"),
+                "unreadCount": unread,
+                "messages": thread,
+            })
+        })
+        .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "folder": folder,
-        "messages": inbox,
-        "count": inbox.len()
+        "messages": messages,
+        "conversations": conversations,
+        "count": messages.len()
     }))
 }
