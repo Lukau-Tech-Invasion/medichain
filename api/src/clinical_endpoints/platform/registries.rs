@@ -4,14 +4,71 @@ use super::*;
 // SYSTEM REGISTRIES & LISTS
 // ============================================================================
 
+/// Gate for the deployment-wide clinical registries below.
+///
+/// Every handler in this file previously guarded with
+/// `if http_req.headers().get("X-User-Id").is_none() { 401 }` and then called
+/// `list_all()`. `X-User-Id` is caller-supplied, so that check was satisfied by
+/// any string: an unauthenticated caller could read every pathology report,
+/// critical-value notification, blood-bank record and specimen chain of custody
+/// in the deployment. This is the "authentication mistaken for authorization"
+/// defect at its widest blast radius.
+///
+/// This gate does three things the header check did not:
+///   1. **Resolves** the caller against the user store, so a forged or
+///      unregistered identity is rejected rather than trusted.
+///   2. Requires a clinical role — a patient account has no business reading a
+///      ward-wide registry, and previously could.
+///   3. **Audits** the read. These are bulk PHI reads and were leaving no trace;
+///      an audit trail that records only writes cannot reconstruct a breach.
+///
+/// **Still open (SEC-12/SEC-16/SEC-18):** the underlying `list_all()` remains
+/// deployment-wide. Real multi-hospital isolation needs organization/facility
+/// ownership pushed *into the query*; filtering afterwards is not isolation.
+/// This narrows who can call these endpoints, not what they return.
+async fn require_registry_reader(
+    data: &web::Data<AppState>,
+    http_req: &HttpRequest,
+) -> Result<(), HttpResponse> {
+    let user_id = match get_current_user_id(http_req) {
+        Some(id) => id,
+        None => return Err(HttpResponse::Unauthorized().finish()),
+    };
+    let user = match get_user(data, &user_id) {
+        Some(u) => u,
+        None => {
+            return Err(HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            }))
+        }
+    };
+    if !user.role.can_view_medical_records() {
+        return Err(HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Clinical registries are restricted to clinical staff".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }));
+    }
+    let _ = data.audit_outbox.record(
+        "registry_bulk_read".into(),
+        "clinical_registry".into(),
+        http_req.path().to_string(),
+        serde_json::json!({ "accessor_id": user_id, "accessor_role": user.role.to_string() }),
+        Utc::now(),
+    );
+    Ok(())
+}
+
 /// List lab chain of custody records
 #[get("/api/platform/list/chain-of-custody")]
 pub async fn list_chain_of_custody(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.chain_of_custody.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -22,8 +79,8 @@ pub async fn list_chain_of_custody(
 /// List lab quality control logs
 #[get("/api/platform/list/lab-qc")]
 pub async fn list_lab_qc(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.lab_qc_records.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -37,8 +94,8 @@ pub async fn list_critical_values(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.critical_values.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -52,8 +109,8 @@ pub async fn list_radiology_orders(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.radiology_orders.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -64,8 +121,8 @@ pub async fn list_radiology_orders(
 /// List all pathology reports
 #[get("/api/platform/list/pathology")]
 pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.pathology_reports.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -79,8 +136,8 @@ pub async fn list_immunizations(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.immunization_records.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -123,8 +180,8 @@ pub async fn list_my_immunizations(
 /// List blood bank inventory and screens
 #[get("/api/platform/list/blood-bank")]
 pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     let screens = data
         .repositories
@@ -132,22 +189,29 @@ pub async fn list_blood_bank(data: web::Data<AppState>, http_req: HttpRequest) -
         .list_all()
         .await
         .unwrap_or_default();
-    let inventory = vec![
-        serde_json::json!({"type": "O-Pos", "units": 12, "status": "adequate"}),
-        serde_json::json!({"type": "A-Neg", "units": 2, "status": "low"}),
-    ];
 
+    // Horizon HZ-023 class: `inventory` was a hardcoded literal — "O-Pos: 12
+    // units, adequate", "A-Neg: 2 units, low" — returned regardless of what any
+    // blood bank actually holds. Unit counts drive transfusion decisions and
+    // whether to order in stock, so inventing them is a patient-safety hazard,
+    // not cosmetic demo filler. There is no blood-unit inventory repository, so
+    // the honest response is an empty list plus an explicit flag saying the
+    // subsystem is not implemented — a caller can branch on that, but it cannot
+    // be mistaken for real stock levels.
     HttpResponse::Ok().json(serde_json::json!({
         "screens": screens,
-        "inventory": inventory
+        "inventory": [],
+        "inventory_available": false,
+        "inventory_note": "Blood-unit inventory tracking is not implemented. \
+                           This list is empty by design and must not be read as stock on hand."
     }))
 }
 
 /// List all autopsy requests
 #[get("/api/platform/list/autopsy")]
 pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.autopsy_requests.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -161,8 +225,8 @@ pub async fn list_autopsy_reports(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data.repositories.autopsy_reports.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
@@ -173,8 +237,8 @@ pub async fn list_autopsy_reports(
 /// List all consultation notes
 #[get("/api/platform/list/consults")]
 pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data
         .repositories
@@ -196,8 +260,8 @@ pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> 
 /// List clinical decision support alerts
 #[get("/api/platform/list/cds-alerts")]
 pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data
         .repositories
@@ -284,8 +348,8 @@ pub async fn list_progress_notes(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data
         .repositories
@@ -304,8 +368,8 @@ pub async fn list_incident_reports(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data
         .repositories
@@ -324,8 +388,8 @@ pub async fn list_intake_output(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data
         .repositories
@@ -344,8 +408,8 @@ pub async fn list_ama_discharges(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
     }
     match data
         .repositories

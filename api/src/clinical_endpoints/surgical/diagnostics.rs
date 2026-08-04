@@ -62,8 +62,8 @@ pub async fn get_anesthesia(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.anesthesia_records.read() {
@@ -145,8 +145,8 @@ pub async fn get_radiology_order(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.radiology_orders.read() {
@@ -216,8 +216,8 @@ pub async fn get_radiology_report(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.radiology_reports.read() {
@@ -287,8 +287,8 @@ pub async fn get_pathology(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.pathology_reports.read() {

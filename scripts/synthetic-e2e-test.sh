@@ -413,6 +413,46 @@ check "custody entry names the actual scanner, not 'Nurse Jones'" yes \
   "$(body | grep -q 'Synthetic Bench' && body | grep -qv 'Nurse Jones' && echo yes || echo no)" "$(body)"
 
 # ---------------------------------------------------------------------------
+say "13. Clinical registries reject forged identities (SEC-12)"
+
+# These endpoints guarded on the PRESENCE of X-User-Id and then called
+# list_all(), so any string read every pathology report, critical value,
+# blood-bank record and specimen chain of custody in the deployment. The
+# assertion that matters is the FORGED one: anonymous was already refused, a
+# forged identity was not.
+for ep in pathology critical-values blood-bank chain-of-custody radiology-orders; do
+  check "registry $ep refuses a forged identity" 401 \
+    "$(code GET "/api/platform/list/$ep" '' 0xPROVforged)"
+  check "registry $ep refuses anonymous" 401 "$(code GET "/api/platform/list/$ep" '')"
+  check "registry $ep still serves a clinician" 200 \
+    "$(code GET "/api/platform/list/$ep" '' "$DOCTOR")"
+done
+
+# A patient account has no business reading a ward-wide registry.
+check "registry refuses a patient account" 403 \
+  "$(code GET /api/platform/list/pathology '' "$PAT_ADULT")"
+
+# Blood-bank stock levels were hardcoded ("O-Pos: 12 units, adequate"). Unit
+# counts drive transfusion decisions, so inventing them is a safety hazard.
+c=$(code GET /api/platform/list/blood-bank '' "$DOCTOR")
+check "blood bank does NOT invent stock levels" yes \
+  "$(body | grep -qE '"units"|O-Pos|A-Neg' && echo no || echo yes)" "$(body)"
+check "blood bank declares inventory unavailable rather than faking it" yes \
+  "$(body | grep -q '"inventory_available":false' && echo yes || echo no)" "$(body)"
+
+# ---------------------------------------------------------------------------
+say "14. Clinical-staff gate on surgical/public-health endpoints (SEC-11)"
+
+# 26 handlers across the surgical and emergency-assessment modules guarded with
+# `get_current_user_id(...)` only — presence of a caller-supplied header. They
+# now resolve the identity and require a clinical role.
+check "surgical list refuses a forged identity" 401 \
+  "$(code GET /api/surgical/anesthesia/list '' 0xPROVforged)"
+check "surgical list refuses anonymous" 401 "$(code GET /api/surgical/anesthesia/list '')"
+check "surgical list refuses a patient account" 403 \
+  "$(code GET /api/surgical/anesthesia/list '' "$PAT_ADULT")"
+
+# ---------------------------------------------------------------------------
 say "RESULTS"
 printf '  passed=%d failed=%d\n' "$PASS" "$FAIL"
 printf '%s\n' "${RESULTS[@]}" > /tmp/synthetic-results.txt

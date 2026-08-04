@@ -11,10 +11,9 @@ pub async fn create_immunization(
     http_req: HttpRequest,
     req: web::Json<ImmunizationRecord>,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let record = req.into_inner();
     let id = record.record_id.clone();
@@ -41,8 +40,8 @@ pub async fn get_immunization(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.immunization_records.read() {
@@ -61,10 +60,9 @@ pub async fn create_family_history(
     http_req: HttpRequest,
     req: web::Json<FamilyMedicalHistory>,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let history = req.into_inner();
     let id = history.patient_id.clone();
@@ -91,8 +89,8 @@ pub async fn get_family_history(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.family_histories.read() {
@@ -111,10 +109,9 @@ pub async fn create_blood_type_screen(
     http_req: HttpRequest,
     req: web::Json<BloodTypeScreen>,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let screen = req.into_inner();
     let id = screen.test_id.clone();
@@ -141,8 +138,8 @@ pub async fn get_blood_type_screen(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.blood_type_screens.read() {
@@ -211,8 +208,8 @@ pub async fn get_transfusion(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.transfusion_records.read() {
@@ -281,8 +278,8 @@ pub async fn get_e_prescription(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.e_prescriptions.read() {
@@ -301,10 +298,9 @@ pub async fn create_appointment(
     http_req: HttpRequest,
     req: web::Json<Appointment>,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let appointment = req.into_inner();
     let id = appointment.appointment_id.clone();
@@ -332,8 +328,8 @@ pub async fn get_surgical_appointment(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.appointments.get_by_id(&id).await {
@@ -402,8 +398,8 @@ pub async fn get_death_certificate(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.death_certificates.read() {
@@ -481,8 +477,8 @@ pub async fn get_autopsy_request(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.autopsy_requests.get_by_id(&id).await {
@@ -556,8 +552,8 @@ pub async fn get_autopsy_report(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.autopsy_reports.get_by_id(&id).await {
@@ -577,10 +573,9 @@ pub async fn create_satisfaction_survey(
     http_req: HttpRequest,
     req: web::Json<PatientSatisfactionSurvey>,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let survey = req.into_inner();
     let id = survey.survey_id.clone();
@@ -608,8 +603,8 @@ pub async fn get_satisfaction_survey(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.satisfaction_surveys.read() {
