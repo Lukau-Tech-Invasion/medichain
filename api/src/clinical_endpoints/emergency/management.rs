@@ -11,9 +11,9 @@ pub async fn create_mar(
     req: web::Json<crate::clinical::MedicationAdministrationRecord>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let record = req.into_inner();
@@ -58,8 +58,8 @@ pub async fn get_mar(
     http_req: HttpRequest,
     path: web::Path<(String, String)>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let (patient_id, medication_id) = path.into_inner();
     // Composite ID lookup simulation
@@ -73,8 +73,8 @@ pub async fn get_mar(
 /// List all MAR entries
 #[get("/api/emergency/mar/list")]
 pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -97,9 +97,9 @@ pub async fn administer_medication(
     http_req: HttpRequest,
     req: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let body = req.into_inner();
     let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
@@ -153,10 +153,9 @@ pub async fn create_io(
     req: web::Json<crate::clinical::IntakeOutputRecord>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let record = req.into_inner();
     let id = format!("IO-{}-{}", record.patient_id, record.date);
@@ -177,8 +176,8 @@ pub async fn get_io(
     http_req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let (patient_id, _, date) = path.into_inner();
     let id = format!("IO-{}-{}", patient_id, date);
@@ -191,8 +190,8 @@ pub async fn get_io(
 /// List all I/O records
 #[get("/api/emergency/io/list")]
 pub async fn list_io(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -214,9 +213,9 @@ pub async fn record_fluid(
     http_req: HttpRequest,
     req: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let body = req.into_inner();
     let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
@@ -291,10 +290,9 @@ pub async fn create_care_plan(
     req: web::Json<crate::clinical::NursingCarePlan>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let plan = req.into_inner();
     let id = plan.care_plan_id.clone();
@@ -315,8 +313,8 @@ pub async fn get_care_plan(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.nursing_care_plans.get_by_id(&id).await {
@@ -328,8 +326,8 @@ pub async fn get_care_plan(
 /// List all care plans
 #[get("/api/emergency/care-plan/list")]
 pub async fn list_care_plans(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -349,10 +347,9 @@ pub async fn create_wound(
     req: web::Json<crate::clinical::WoundAssessment>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let assessment = req.into_inner();
     let id = assessment.assessment_id.clone();
@@ -373,8 +370,8 @@ pub async fn get_wound(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.wound_assessments.get_by_id(&id).await {
@@ -389,8 +386,8 @@ pub async fn list_wound_assessments(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -410,10 +407,9 @@ pub async fn create_iv_site(
     req: web::Json<crate::clinical::IVSiteAssessment>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let assessment = req.into_inner();
     let id = assessment.assessment_id.clone();
@@ -434,8 +430,8 @@ pub async fn get_iv_site(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.iv_assessments.get_by_id(&id).await {
@@ -478,10 +474,9 @@ pub async fn create_shift_handoff(
     req: web::Json<crate::clinical::ShiftHandoff>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let handoff = req.into_inner();
     let id = handoff.handoff_id.clone();
@@ -502,8 +497,8 @@ pub async fn get_shift_handoff(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.shift_handoffs.get_by_id(&id).await {
@@ -546,10 +541,9 @@ pub async fn create_incident(
     req: web::Json<crate::clinical::IncidentReport>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let report = req.into_inner();
     let id = report.report_id.clone();
@@ -570,8 +564,8 @@ pub async fn get_incident(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.incident_reports.get_by_id(&id).await {
@@ -587,10 +581,9 @@ pub async fn create_fall_risk(
     req: web::Json<crate::clinical::FallRiskAssessment>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let assessment = req.into_inner();
     let id = assessment.assessment_id.clone();
@@ -611,8 +604,8 @@ pub async fn get_fall_risk(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.fall_risk_assessments.get_by_id(&id).await {
@@ -673,6 +666,33 @@ mod cds_wiring_tests {
     #[actix_web::test]
     async fn create_mar_triggers_condition_and_medication_cds_rule() {
         let state = crate::AppState::new();
+
+        // `create_mar` now RESOLVES the caller against the user store rather
+        // than trusting the presence of an X-User-Id header, so the test has to
+        // register the nurse it claims to be. Previously this passed with an id
+        // belonging to nobody — which is precisely the weakness being removed,
+        // and means this test was asserting CDS behaviour through an
+        // unauthenticated request.
+        state.users.write().unwrap().insert(
+            "nurse_wallet".to_string(),
+            crate::User {
+                wallet_address: "nurse_wallet".to_string(),
+                username: Some("testnurse".to_string()),
+                name: "Test Nurse".to_string(),
+                role: crate::Role::Nurse,
+                created_at: Utc::now(),
+                created_by: None,
+                linked_patient_id: None,
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
+
         let patient_id = "PAT-CDS-MAR-1";
         let profile = test_patient(
             patient_id,

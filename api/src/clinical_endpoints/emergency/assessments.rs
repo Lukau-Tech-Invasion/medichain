@@ -11,9 +11,9 @@ pub async fn create_trauma(
     http_req: HttpRequest,
     req: web::Json<TraumaAssessment>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let assessment = req.into_inner();
@@ -102,9 +102,9 @@ pub async fn create_stroke(
     http_req: HttpRequest,
     req: web::Json<StrokeAssessment>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let assessment = req.into_inner();
@@ -188,9 +188,9 @@ pub async fn create_sepsis(
     http_req: HttpRequest,
     req: web::Json<SepsisAssessment>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let assessment = req.into_inner();
@@ -274,9 +274,9 @@ pub async fn create_ems_handoff(
     http_req: HttpRequest,
     req: web::Json<EMSHandoff>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let handoff = req.into_inner();
@@ -337,9 +337,9 @@ pub async fn get_patient_emergency_records(
     // a healthcare provider, or the patient reading their own record. The
     // token-based break-glass path is separate (POST /api/emergency/nfc-token
     // then the medical-id endpoints).
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let current_user = match get_user(&data, &current_user_id) {
         Some(u) => u,

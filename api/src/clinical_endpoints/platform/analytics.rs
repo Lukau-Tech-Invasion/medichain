@@ -70,8 +70,8 @@ pub async fn get_patient_analytics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
 
     let total_population = data.repositories.patients.count().await.unwrap_or(0);
@@ -89,8 +89,8 @@ pub async fn get_appointment_analytics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
 
     let appointments: Vec<crate::clinical::Appointment> =
@@ -114,8 +114,8 @@ pub async fn get_quality_metrics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
 
     let alerts_count = data

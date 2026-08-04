@@ -420,6 +420,41 @@ pub fn require_demo_mode() -> Result<(), HttpResponse> {
     )
 }
 
+/// Resolve the caller against the user store and return them.
+///
+/// The minimum correct replacement for a bare `get_current_user_id(&req)` on a
+/// **patient-facing** endpoint. `X-User-Id` is caller-supplied and unverified,
+/// so presence alone lets an unregistered caller act as anyone; resolving it
+/// proves the account exists.
+///
+/// Use this — not [`require_clinical_staff`] — where patients legitimately act
+/// for themselves (family groups, symptom checker, wearables, reminders, sync,
+/// notification preferences). Requiring a clinical role there would lock
+/// patients out of their own features.
+///
+/// It proves *who* the caller is, not *what they may touch*: endpoints scoped to
+/// a specific patient still need [`resolve_patient_access`] or an ownership
+/// check on top.
+pub fn require_registered_caller(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+) -> Result<crate::User, HttpResponse> {
+    let user_id = get_current_user_id(req).ok_or_else(|| {
+        HttpResponse::Unauthorized().json(crate::ErrorResponse {
+            success: false,
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        })
+    })?;
+    get_user(data, &user_id).ok_or_else(|| {
+        HttpResponse::Unauthorized().json(crate::ErrorResponse {
+            success: false,
+            error: "User not found".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        })
+    })
+}
+
 /// Resolve the caller and require that they are registered clinical staff.
 ///
 /// The pervasive weak pattern in this codebase is
@@ -441,20 +476,7 @@ pub fn require_clinical_staff(
     data: &web::Data<crate::AppState>,
     req: &HttpRequest,
 ) -> Result<crate::User, HttpResponse> {
-    let user_id = get_current_user_id(req).ok_or_else(|| {
-        HttpResponse::Unauthorized().json(crate::ErrorResponse {
-            success: false,
-            error: "Authentication required".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        })
-    })?;
-    let user = get_user(data, &user_id).ok_or_else(|| {
-        HttpResponse::Unauthorized().json(crate::ErrorResponse {
-            success: false,
-            error: "User not found".to_string(),
-            code: "USER_NOT_FOUND".to_string(),
-        })
-    })?;
+    let user = require_registered_caller(data, req)?;
     if !user.role.can_view_medical_records() {
         return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
             success: false,

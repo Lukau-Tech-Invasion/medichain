@@ -158,9 +158,9 @@ pub async fn create_transfusion(
     http_req: HttpRequest,
     req: web::Json<TransfusionRecord>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let record = req.into_inner();
@@ -228,9 +228,9 @@ pub async fn create_e_prescription(
     http_req: HttpRequest,
     req: web::Json<ElectronicPrescription>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let prescription = req.into_inner();
@@ -348,9 +348,9 @@ pub async fn create_death_certificate(
     http_req: HttpRequest,
     req: web::Json<DeathCertificate>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let certificate = req.into_inner();
@@ -422,9 +422,9 @@ pub async fn create_autopsy_request(
     http_req: HttpRequest,
     req: web::Json<AutopsyRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let request = req.into_inner();
@@ -498,9 +498,9 @@ pub async fn create_autopsy_report(
     http_req: HttpRequest,
     req: web::Json<AutopsyReport>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let report = req.into_inner();

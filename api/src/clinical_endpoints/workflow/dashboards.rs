@@ -112,9 +112,9 @@ pub async fn patient_dashboard(data: web::Data<AppState>, http_req: HttpRequest)
 /// Physician Dashboard
 #[get("/api/dashboard/doctor")]
 pub async fn doctor_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Get assigned patients from repository
@@ -160,9 +160,9 @@ pub async fn doctor_dashboard(data: web::Data<AppState>, http_req: HttpRequest) 
 /// Nursing Station Dashboard
 #[get("/api/dashboard/nurse")]
 pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Get active patients (admitted/ER) from repository
@@ -212,9 +212,9 @@ pub async fn nurse_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
 /// Laboratory Dashboard
 #[get("/api/dashboard/lab")]
 pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Get pending specimens from repository
@@ -252,9 +252,9 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
 /// Administrator / System Dashboard
 #[get("/api/dashboard/admin")]
 pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Check admin role
@@ -307,9 +307,9 @@ pub async fn pharmacist_dashboard(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Get pending e-prescriptions from repository

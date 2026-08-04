@@ -453,6 +453,28 @@ check "surgical list refuses a patient account" 403 \
   "$(code GET /api/surgical/anesthesia/list '' "$PAT_ADULT")"
 
 # ---------------------------------------------------------------------------
+say "15. Forged identities refused across the clinical surface (SEC-11)"
+
+# 60 more handlers were resolved off presence-only checks. Two different gates
+# were used on purpose: clinical endpoints require a clinical ROLE, while
+# patient-facing ones only require the caller to RESOLVE — gating those on a
+# clinical role would lock patients out of their own features.
+for ep in /api/emergency/mar/list /api/emergency/io/list /api/emergency/care-plan/list \
+          /api/emergency/wound/list /api/dashboard/doctor /api/dashboard/nurse \
+          /api/dashboard/lab /api/dashboard/pharmacist; do
+  check "clinical $ep refuses a forged identity" 401 "$(code GET "$ep" '' 0xPROVforged)"
+  check "clinical $ep still serves a clinician"  200 "$(code GET "$ep" '' "$DOCTOR")"
+done
+check "clinical dashboard refuses a patient account" 403 \
+  "$(code GET /api/dashboard/doctor '' "$PAT_ADULT")"
+
+# Patient-facing: forged still refused, but the patient must NOT be locked out.
+check "patient-facing sync refuses a forged identity" 401 \
+  "$(code GET /api/sync/conflicts '' 0xPROVforged)"
+check "patient-facing sync still serves the patient" 200 \
+  "$(code GET /api/sync/conflicts '' "$PAT_ADULT")"
+
+# ---------------------------------------------------------------------------
 say "RESULTS"
 printf '  passed=%d failed=%d\n' "$PASS" "$FAIL"
 printf '%s\n' "${RESULTS[@]}" > /tmp/synthetic-results.txt

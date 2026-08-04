@@ -135,7 +135,8 @@ TIER_NAMES = {
 PRESENCE_MARKERS = ['X-User-Id', 'get_current_user_id', 'require_x_user_id_header',
                     'require_auth(']
 # Resolves the caller against the user store — proves they are registered.
-KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'AuthorizedUser']
+KNOWN_MARKERS = ['get_user(', 'get_current_user(', 'require_known_user', 'AuthorizedUser',
+                 'require_registered_caller']
 # Checks what the caller is allowed to do at all.
 ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
                 'can_edit_medical_records', 'can_view_medical_records', 'is_admin(',

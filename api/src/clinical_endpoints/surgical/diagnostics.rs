@@ -11,9 +11,9 @@ pub async fn create_anesthesia(
     http_req: HttpRequest,
     req: web::Json<AnesthesiaRecord>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let record = req.into_inner();
@@ -94,9 +94,9 @@ pub async fn create_radiology_order(
     http_req: HttpRequest,
     req: web::Json<RadiologyOrder>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let order = req.into_inner();
@@ -165,9 +165,9 @@ pub async fn create_radiology_report(
     http_req: HttpRequest,
     req: web::Json<RadiologyReport>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let report = req.into_inner();
@@ -236,9 +236,9 @@ pub async fn create_pathology(
     http_req: HttpRequest,
     req: web::Json<PathologyReport>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let report = req.into_inner();

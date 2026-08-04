@@ -11,9 +11,9 @@ pub async fn create_code_blue(
     http_req: HttpRequest,
     req: web::Json<CodeBlueRecord>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let record = req.into_inner();
@@ -53,8 +53,8 @@ pub async fn get_code_blue(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.code_blue.get_by_id(&id).await {
@@ -78,9 +78,9 @@ pub async fn list_patient_code_blues(
     // patient could read this patient's code-blue records. A cross-patient sweep
     // masked it (the victim had no records); code inspection confirmed the gap.
     // Apply provider-or-self, matching the clinical endpoints.
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     match get_user(&data, &current_user_id) {
         Some(u) if u.role.is_healthcare_provider() || current_user_id == patient_id => {}
@@ -113,9 +113,9 @@ pub async fn create_cardiac(
     http_req: HttpRequest,
     req: web::Json<CardiacEvent>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let event = req.into_inner();
@@ -150,8 +150,8 @@ pub async fn get_cardiac(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.cardiac_events_repo.get_by_id(&id).await {
