@@ -72,7 +72,10 @@ pub async fn list_chain_of_custody(
     }
     match data.repositories.chain_of_custody.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -84,7 +87,10 @@ pub async fn list_lab_qc(data: web::Data<AppState>, http_req: HttpRequest) -> im
     }
     match data.repositories.lab_qc_records.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -99,7 +105,10 @@ pub async fn list_critical_values(
     }
     match data.repositories.critical_values.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -114,7 +123,10 @@ pub async fn list_radiology_orders(
     }
     match data.repositories.radiology_orders.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -126,7 +138,10 @@ pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) ->
     }
     match data.repositories.pathology_reports.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -141,7 +156,10 @@ pub async fn list_immunizations(
     }
     match data.repositories.immunization_records.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -178,7 +196,10 @@ pub async fn list_my_immunizations(
         .await
     {
         Ok(records) => HttpResponse::Ok().json(serde_json::json!({ "immunizations": records })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -220,7 +241,10 @@ pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> i
     }
     match data.repositories.autopsy_requests.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -235,7 +259,10 @@ pub async fn list_autopsy_reports(
     }
     match data.repositories.autopsy_reports.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -258,7 +285,10 @@ pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> 
                 .filter(|n| n.note_type == "consult")
                 .collect::<Vec<_>>(),
         ),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -275,7 +305,10 @@ pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -343,7 +376,10 @@ pub async fn record_vital_signs(
 
     match data.repositories.vital_signs.create(vitals).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({"success": true})),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -363,7 +399,10 @@ pub async fn list_progress_notes(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -383,7 +422,10 @@ pub async fn list_incident_reports(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -403,7 +445,10 @@ pub async fn list_intake_output(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -423,6 +468,9 @@ pub async fn list_ama_discharges(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("registry read failed on {}: {}", http_req.path(), e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }

@@ -18,6 +18,12 @@ ADMIN=5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
 DOCTOR=5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
 PARAMEDIC=5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy
 PATIENT_ADULT_WALLET=5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw
+# A wallet that is registered NOWHERE. PATIENT_ADULT_WALLET cannot serve this
+# purpose: it is one of the seeded demo accounts on the PostgreSQL backend (a
+# Doctor), so 'unknown caller' assertions using it passed on memory and failed
+# on PostgreSQL for a correct reason — the caller was genuinely authorized
+# there. The assertion was testing the fixture, not the control.
+UNREGISTERED_WALLET=5Cq8Xz9mNbVvTkLrPqWjHdYuEoZaSxCfGiJkMnBpRtUvWxYz
 
 say() { printf '\n\033[1m== %s ==\033[0m\n' "$1"; }
 
@@ -151,7 +157,7 @@ echo "  version=$CAP_V commitment=${CAP_COMMIT:0:16}..."
 check "commitment is 64 hex chars" 64 "${#CAP_COMMIT}"
 check "version incremented past registration's v1" "true" "$([ "${CAP_V:-0}" -ge 2 ] && echo true || echo false)"
 
-c=$(code POST "/api/patients/$PAT_ADULT/emergency-capsule" '' "$PATIENT_ADULT_WALLET")
+c=$(code POST "/api/patients/$PAT_ADULT/emergency-capsule" '' "$UNREGISTERED_WALLET")
 check "unknown caller CANNOT publish a capsule" 401 "$c" "$(body)"
 
 c=$(code GET "/api/patients/$PAT_ADULT/emergency-capsule/access-log" '' "$DOCTOR")

@@ -27,6 +27,22 @@ impl PgRadiologyOrderRepository {
 
 #[async_trait]
 impl RadiologyOrderRepository for PgRadiologyOrderRepository {
+    /// The trait supplies a DEFAULT `list_all` that returns
+    /// `NotFound("list_all not implemented")`. Memory overrides it; this
+    /// PostgreSQL impl did not, so the registry endpoint 500'd at RUNTIME
+    /// instead of failing to compile — and because every end-to-end test ran
+    /// against memory, nobody saw it (Horizon HZ-026).
+    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyOrderEntity>> {
+        // Bounded: these registries are deployment-wide reads and must not be
+        // able to pull an unbounded result set into memory.
+        let rows = sqlx::query_as::<_, RadiologyOrderEntity>(
+            "SELECT * FROM radiology_orders ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, order: RadiologyOrderEntity) -> RepositoryResult<RadiologyOrderEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO radiology_orders (
@@ -364,6 +380,22 @@ impl PgPathologyReportRepository {
 
 #[async_trait]
 impl PathologyReportRepository for PgPathologyReportRepository {
+    /// The trait supplies a DEFAULT `list_all` that returns
+    /// `NotFound("list_all not implemented")`. Memory overrides it; this
+    /// PostgreSQL impl did not, so the registry endpoint 500'd at RUNTIME
+    /// instead of failing to compile — and because every end-to-end test ran
+    /// against memory, nobody saw it (Horizon HZ-026).
+    async fn list_all(&self) -> RepositoryResult<Vec<PathologyReportEntity>> {
+        // Bounded: these registries are deployment-wide reads and must not be
+        // able to pull an unbounded result set into memory.
+        let rows = sqlx::query_as::<_, PathologyReportEntity>(
+            "SELECT * FROM pathology_reports ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         report: PathologyReportEntity,
