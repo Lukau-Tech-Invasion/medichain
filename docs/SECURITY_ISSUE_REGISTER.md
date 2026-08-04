@@ -26,8 +26,9 @@ alone — an issue that blocks the clinic demo outranks a worse one that doesn't
 
 | ID | Issue | Notes |
 |---|---|---|
-| SEC-11 | **144 presence-only handlers** — a forged header satisfies them | The core of review Finding 1. Ratchet baseline recorded; must only fall. Work highest-PHI first. |
-| SEC-12 | **41 unscoped `list_all()` bulk reads** | Cross-organization exposure. Full list: `python scripts/check-endpoint-auth.py --list-weak`. Worst: `/api/platform/list/{pathology,critical-values,blood-bank,radiology-orders,immunizations,chain-of-custody}`, `/api/clinical/specimens`, `/api/emergency/{mar,io,care-plan,wound}/list`. |
+| SEC-11 | **Presence-only handlers: 144 → 103** (`PARTIAL`) | 41 fixed via two shared gates (`require_registry_reader`, `require_clinical_staff`): 15 platform registries + 26 surgical/public-health/diagnostics/perioperative/emergency-assessment handlers. Verified forged→401, anon→401, patient→403, clinician served. Remaining clusters: `emergency/management.rs` (20), `platform/sync.rs` (6), `engagement/wearables.rs` (6), `engagement/family.rs` (5), `clinical_support/telehealth.rs` (5). Ratchet holds the ceiling at 103. |
+| SEC-12 | **41 unscoped `list_all()` bulk reads** (`PARTIAL`) | Callers are now resolved and role-checked, and registry reads are **audited** — but `list_all()` still returns deployment-wide data. This narrows *who may call*, not *what is returned*. True isolation needs SEC-16/SEC-18. Full list: `python scripts/check-endpoint-auth.py --list-weak`. |
+| SEC-33 | Hardcoded blood-bank inventory (`FIXED`) | Returned "O-Pos: 12 units, adequate" / "A-Neg: 2 units, low" regardless of real stock. Unit counts drive transfusion decisions. Now empty + `inventory_available:false`. |
 | SEC-13 | **No frontend served by Docker** — `/` is a bare nginx 404; 5173/5174 refuse | A clinic demo cannot start with "run two Vite servers". Needs one deterministic entry point. |
 | SEC-14 | Docs/README contradict runtime | Partly addressed by `WHERE_WE_ARE.md`; README still overstates. |
 | SEC-15 | No visual/accessibility audit possible | Requires SEC-13 first. Keyboard, focus, contrast, RTL, small-screen all uncertified. |
