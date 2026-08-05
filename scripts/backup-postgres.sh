@@ -54,12 +54,23 @@ MANIFEST_FILE="${DUMP_FILE}.manifest.txt"
 # test schemas the dump omits, every restore would report thousands of
 # "missing" tables and the verification step would cry wolf until someone
 # stopped reading it.
-docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "
-  SELECT schemaname || '.' || relname || ' ' || n_live_tup
-  FROM pg_stat_user_tables
-  WHERE schemaname !~ '${EXCLUDE_SCHEMA_REGEX}'
-  ORDER BY schemaname, relname;
-" > "$MANIFEST_FILE"
+#
+# Counts are EXACT, and come from the same shared query the restore uses — see
+# scripts/lib/row-count-query.sh for why an estimate here made this manifest a
+# list of zeros and let a data-free restore pass verification (Horizon HZ-027).
+# shellcheck source=scripts/lib/row-count-query.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/row-count-query.sh"
+docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A \
+  -c "$(row_count_query "$EXCLUDE_SCHEMA_REGEX")" > "$MANIFEST_FILE"
+
+# A manifest of all zeros is the signature of the HZ-027 defect (estimates
+# instead of counts). It is also, legitimately, what an empty database
+# produces. Distinguish the two rather than guessing: if the dump carries data
+# but every count is zero, the manifest cannot be trusted and a later restore
+# would be "verified" against nothing.
+if [ -s "$MANIFEST_FILE" ] && ! awk '$NF > 0 {found=1; exit} END {exit !found}' "$MANIFEST_FILE"; then
+  echo "NOTE: every table in the manifest has 0 rows — expected only if '$DB_NAME' is genuinely empty." >&2
+fi
 
 sha256sum "$DUMP_FILE" > "$CHECKSUM_FILE"
 
