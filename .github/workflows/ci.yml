@@ -46,6 +46,29 @@ jobs:
         name: Rust CI
         runs-on: ubuntu-latest
 
+        # The four `repositories::postgres::tests` need a live database. Without
+        # this service they do not skip — they FAIL, with `PoolTimedOut` after a
+        # 30s connect timeout each. Mirrors verification.yml's service so the two
+        # workflows exercise the same tests against the same database, rather
+        # than one quietly covering less than the other.
+        services:
+            postgres:
+                image: postgres:16-alpine
+                env:
+                    POSTGRES_USER: medichain
+                    POSTGRES_PASSWORD: medichain_dev_2024
+                    POSTGRES_DB: medichain
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U medichain -d medichain"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 5
+
+        env:
+            DATABASE_URL: postgres://medichain:medichain_dev_2024@localhost:5432/medichain
+
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
@@ -79,8 +102,10 @@ jobs:
             - name: Build
               run: cargo build --release
 
-            # Default features only: the `postgres` feature's repository tests need a
-            # live PostgreSQL service (tracked: add a DB-service CI job to cover them).
+            # The PostgreSQL service declared on this job supplies DATABASE_URL,
+            # so the repository tests run for real here rather than failing on a
+            # connect timeout. (This comment previously said such a job was still
+            # "tracked" — it is the service above.)
             - name: Run tests
               run: cargo test
 
