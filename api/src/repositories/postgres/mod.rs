@@ -187,6 +187,8 @@ mod phase7;
 pub use phase7::{
     PgAutopsyReportRepository,
     PgAutopsyRequestRepository,
+    // Horizon HZ-023: stores replacing fabricated literals
+    PgBarcodeScanRepository,
     // Phase 4.3: CDS thresholds + audit
     PgCdsAuditEntryRepository,
     PgCdsThresholdConfigRepository,
@@ -200,9 +202,11 @@ pub use phase7::{
     PgLabResultSubmissionRepository,
     PgLabTrendResultRepository,
     PgLanguagePreferenceRepository,
+    PgMessageRepository,
     PgSatisfactionSurveyRepository,
     // Round 7: SOAP clinical notes
     PgSoapNoteRecordRepository,
+    PgSymptomEntryRepository,
     PgSymptomSessionRepository,
     // Phase 33: offline-sync device registry
     PgSyncDeviceRepository,

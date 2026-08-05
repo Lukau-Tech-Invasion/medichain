@@ -21,15 +21,35 @@ services:
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
       BLOCKCHAIN_ENABLED: ${BLOCKCHAIN_ENABLED:-false}
 
+  # `!override` is REQUIRED on every `ports:` below. Compose MERGES list-valued
+  # fields across files, so a bare `ports: []` is a no-op and the base file's
+  # publications survive into production. This file previously used bare
+  # `ports: []` and therefore still exposed PostgreSQL on 5432 and pgAdmin on
+  # 5050 to the host — the documented protection did not exist. Same defect
+  # class as Horizon HZ-018, which was fixed in
+  # docker-compose.horizon-isolated.yml but never applied here.
   postgres:
     restart: always
     # Do NOT publish the database to the host in production.
-    ports: []
+    ports: !override []
 
   pgadmin:
     # pgAdmin is a development convenience — keep it off the public network.
-    ports: []
+    # `profiles` keeps it out of a default `up` entirely; the port reset is
+    # belt-and-braces for anyone who runs it explicitly.
+    profiles: ["debug"]
+    ports: !override []
     restart: "no"
+
+  ipfs:
+    restart: always
+    # The Kubo ADMIN API (5001) must never be reachable from a clinic network:
+    # it can read, write and pin arbitrary content and reconfigure the node.
+    # The base file publishes 4001/5001/8080; none of them belong on the host in
+    # production. The API container reaches IPFS over the internal Compose
+    # network, so nothing here needs host publication. Swarm (4001) should be
+    # opened deliberately at the firewall if peering is actually wanted.
+    ports: !override []
 
   nginx:
     restart: always

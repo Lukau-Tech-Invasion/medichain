@@ -35,6 +35,10 @@ initApp();
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter
+      // Derived from Vite's `base` (import.meta.env.BASE_URL) rather than
+      // hardcoded, so the router and the asset paths cannot disagree. Vite
+      // gives BASE_URL a trailing slash ("/doctor/"); react-router wants none.
+      basename={import.meta.env.BASE_URL.replace(/\/$/, '')}
       future={{
         v7_startTransition: true,
         v7_relativeSplatPath: true,

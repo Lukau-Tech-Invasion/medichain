@@ -11,9 +11,9 @@ pub async fn create_pre_op(
     http_req: HttpRequest,
     req: web::Json<PreOperativeAssessment>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let assessment = req.into_inner();
@@ -59,10 +59,9 @@ pub async fn get_pre_op(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let id = path.into_inner();
     match data.pre_op_assessments.read() {
@@ -109,9 +108,9 @@ pub async fn create_operative_note(
     http_req: HttpRequest,
     req: web::Json<OperativeNote>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let note = req.into_inner();
@@ -160,8 +159,8 @@ pub async fn get_operative_note(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.operative_notes.read() {
@@ -204,9 +203,9 @@ pub async fn create_post_op(
     http_req: HttpRequest,
     req: web::Json<PostOperativeNote>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let note = req.into_inner();
@@ -255,8 +254,8 @@ pub async fn get_post_op(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.post_op_notes.read() {

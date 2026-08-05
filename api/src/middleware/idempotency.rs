@@ -7,8 +7,20 @@
 //! cached (status + content-type + body) for 24h and replayed verbatim on any
 //! retry with the same key, so the on-chain/DB write happens only once.
 //!
-//! The cache is in-memory and bounded (size cap + TTL pruning). A multi-instance
-//! deployment should back this with Redis — tracked in the plan.
+//! The cache key is scoped to `subject + method + path + key` (see `call`), so a
+//! cached response can only ever be replayed to the same caller performing the
+//! same operation.
+//!
+//! **Two limitations, stated because they affect when this is safe to rely on:**
+//! 1. The key is not bound to a request-body digest, so a client that reuses one
+//!    key for two *different* bodies on the same route receives the first
+//!    response for both. That is a client defect this cannot detect; binding the
+//!    digest requires buffering the request payload here, which would sit in
+//!    front of large encrypted record uploads.
+//! 2. The cache is process-local, so with more than one API replica retries
+//!    routed to a different replica are **not** idempotent at all. Multi-replica
+//!    deployment requires backing this with Redis or a durable store written
+//!    transactionally with the operation.
 
 use actix_web::{
     body::{to_bytes, BoxBody, MessageBody},
@@ -17,6 +29,7 @@ use actix_web::{
     Error, HttpResponse,
 };
 use futures::future::{ok, LocalBoxFuture, Ready};
+use sha3::{Digest, Sha3_256};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
@@ -120,11 +133,33 @@ where
         let service = self.service.clone();
 
         // Only POST/PUT carrying an Idempotency-Key participate.
+        //
+        // The cache key is SCOPED, not the caller's raw string. Keying by the
+        // header alone meant a key that collided — by guess, by reuse, or across
+        // tenants — could replay one request's cached clinical response to a
+        // different caller, a different route, or a different hospital, and it
+        // did so *before* the handler ran, so it bypassed that handler's
+        // authorization entirely. Binding subject + method + path confines a
+        // replay to the exact caller and operation that produced it.
         let key = req
             .headers()
             .get("Idempotency-Key")
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_owned());
+            .map(|raw| {
+                let subject = req
+                    .headers()
+                    .get("X-User-Id")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("anonymous");
+                let mut hasher = Sha3_256::new();
+                // Length-prefixed so the fields cannot be shifted into one
+                // another to forge a collision.
+                for part in [subject, req.method().as_str(), req.path(), raw] {
+                    hasher.update((part.len() as u64).to_be_bytes());
+                    hasher.update(part.as_bytes());
+                }
+                format!("{:x}", hasher.finalize())
+            });
         let participates = matches!(*req.method(), Method::POST | Method::PUT) && key.is_some();
 
         Box::pin(async move {

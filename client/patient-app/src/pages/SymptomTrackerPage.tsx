@@ -125,7 +125,10 @@ export function SymptomTrackerPage() {
     try {
       const patientId = patient.healthId;
       
-      const response = await fetch(apiUrl(`/api/symptoms/history/${patientId}`), {
+      // Reads the symptom DIARY (what `/api/symptoms/log` below writes), not
+      // `/api/symptoms/history/{id}` — that returns symptom-CHECKER chat
+      // sessions, a different concept, which is why this list was always empty.
+      const response = await fetch(apiUrl(`/api/symptoms/${patientId}`), {
         headers: { 
           'X-User-Id': patient.walletAddress,
           'X-Health-Id': patient.healthId,

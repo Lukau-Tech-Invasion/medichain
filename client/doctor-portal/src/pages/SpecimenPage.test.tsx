@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import SpecimenPage from './SpecimenPage';
 import { useAuthStore } from '../store/authStore';
@@ -9,12 +9,21 @@ vi.mock('../store/authStore', () => ({
   useAuthStore: vi.fn(),
 }));
 
-// Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+// Mock only the data call; the rest of the package (i18n, apiUrl) stays real so
+// the component renders its actual copy.
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
 
+/**
+ * Assertions rewritten 2026-07-31 against what the page renders today. The old
+ * ones expected a "Specimen Details" section and a labelled "Specimen Type"
+ * field; the page is tabbed (All Specimens / Collect Specimen / Tracking) with
+ * summary counters. Strings verified against `docSpecimen` in
+ * shared/src/i18n/locales/en-US.ts.
+ */
 describe('SpecimenPage', () => {
   const mockUser = {
     walletAddress: '5GrwvaEF...mock',
@@ -27,27 +36,38 @@ describe('SpecimenPage', () => {
       user: mockUser,
     });
     (shared.getPatients as any).mockResolvedValue([]);
+    // The component does `data.map(...)` directly, so this endpoint must return
+    // an ARRAY. Handing it an object made `.map` throw inside the effect and the
+    // page never left its loading state.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+      text: async () => '[]',
+    }) as unknown as typeof fetch;
   });
 
-  it('renders specimen collection page', () => {
+  it('renders the specimen collection header', async () => {
     render(<SpecimenPage />);
 
-    expect(screen.getByText(/Specimen Collection/i)).toBeInTheDocument();
-    expect(screen.getByText(/Document the collection of laboratory specimens/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/Specimen Collection/i)).toBeInTheDocument()
+    );
+    expect(screen.getByText(/Track and manage laboratory specimens/i)).toBeInTheDocument();
   });
 
-  it('displays collection details section', () => {
+  it('offers the specimen tabs', async () => {
     render(<SpecimenPage />);
 
-    expect(screen.getByText(/Specimen Details/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Specimen Type/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/All Specimens/i)).toBeInTheDocument());
+    expect(screen.getByText(/Collect Specimen/i)).toBeInTheDocument();
+    expect(screen.getByText(/Tracking/i)).toBeInTheDocument();
   });
 
-  it('allows selecting specimen type', () => {
+  it('shows the STAT orders counter', async () => {
     render(<SpecimenPage />);
 
-    const select = screen.getByLabelText(/Specimen Type/i);
-    fireEvent.change(select, { target: { value: 'Blood' } });
-    expect(select).toHaveValue('Blood');
+    // STAT specimens are time-critical; the counter must stay on the summary row.
+    await waitFor(() => expect(screen.getByText(/STAT Orders/i)).toBeInTheDocument());
   });
 });

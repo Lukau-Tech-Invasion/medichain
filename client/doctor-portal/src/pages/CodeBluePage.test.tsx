@@ -6,7 +6,7 @@ describe('CodeBluePage', () => {
   it('renders code blue page', () => {
     render(<CodeBluePage />);
 
-    expect(screen.getByText(/Code Blue Resuscitation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Code Blue Management/i)).toBeInTheDocument();
     expect(screen.getByText(/Start Code/i)).toBeInTheDocument();
   });
 

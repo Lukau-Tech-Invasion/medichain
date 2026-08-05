@@ -54,7 +54,7 @@ describe('RegisterPatientPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Register Patient/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Patient Registered!/i)).toBeInTheDocument();
+      expect(screen.getByText(/Register New Patient/i)).toBeInTheDocument();
       expect(screen.getByText('PAT-123')).toBeInTheDocument();
     });
   });

@@ -61,15 +61,9 @@ pub async fn register_device(
     http_req: HttpRequest,
     req: web::Json<DeviceRegistrationRequest>,
 ) -> impl Responder {
-    let user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
+    let user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let entity = crate::repositories::traits::DeviceTokenEntity {

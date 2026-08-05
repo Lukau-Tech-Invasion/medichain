@@ -88,17 +88,6 @@ pub enum RetentionDecision {
     Excluded { reason: String },
 }
 
-impl RetentionDecision {
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Due { .. } => "due",
-            Self::NotDue { .. } => "not_due",
-            Self::Held { .. } => "held",
-            Self::Excluded { .. } => "excluded",
-        }
-    }
-}
-
 /// An active legal hold covering a patient and/or an entity type.
 #[derive(Debug, Clone)]
 pub struct ActiveHold {

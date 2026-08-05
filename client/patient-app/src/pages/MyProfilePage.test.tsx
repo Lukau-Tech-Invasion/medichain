@@ -8,7 +8,8 @@ const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   apiUrl: (path: string) => path,
   addEmergencyContact: vi.fn(),
 }));

@@ -95,7 +95,7 @@ const AnalyticsPage: React.FC = () => {
         const { startDate, endDate } = getDateRange(selectedPeriod);
         
         // Fetch dashboard metrics from API with proper date parameters
-        const response = await fetch(apiUrl(`/api/analytics/dashboard?start_date=${startDate}&end_date=${endDate}`), {
+        const response = await fetch(apiUrl(`/api/platform/analytics/dashboard?start_date=${startDate}&end_date=${endDate}`), {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': user.walletAddress,

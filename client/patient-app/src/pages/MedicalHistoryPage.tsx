@@ -94,7 +94,7 @@ export function MedicalHistoryPage() {
     try {
       const [immRes, famRes, docsRes] = await Promise.all([
         fetch(apiUrl('/api/clinical/immunizations'), { headers }),
-        fetch(apiUrl(`/api/clinical/family-history/${patient.healthId}`), { headers }),
+        fetch(apiUrl(`/api/surgical/family-history/${patient.healthId}`), { headers }),
         fetch(apiUrl(`/api/records/${patient.healthId}`), { headers }),
       ]);
 

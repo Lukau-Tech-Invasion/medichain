@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatientConsents: vi.fn().mockResolvedValue({ consents: [] }),
   getConsentTypes: vi.fn().mockResolvedValue({ consent_types: [] }),
   signConsent: vi.fn().mockResolvedValue({}),

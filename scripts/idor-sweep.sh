@@ -9,7 +9,7 @@
 #
 # All data is synthetic. Requires the demo server running (scripts/run-synthetic-local.sh).
 
-BASE="${BASE:-http://127.0.0.1:8080}"
+BASE="${BASE:-http://127.0.0.1:8090}"
 ADMIN=5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
 DOC=5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty
 PASS=0; FAIL=0; LEAKS=()

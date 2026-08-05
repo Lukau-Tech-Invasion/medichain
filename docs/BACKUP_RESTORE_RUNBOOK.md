@@ -24,7 +24,13 @@ command exited zero."
 - `scripts/backup-postgres.sh` / `scripts/backup-postgres.ps1`
 - `scripts/restore-postgres.sh` / `scripts/restore-postgres.ps1`
 
-Both pairs do the same thing; use whichever matches your shell.
+Both pairs do the same thing; use whichever matches your shell. A manifest
+written by either can be verified by either — checked directly, not assumed:
+run against the same database, the two produce byte-identical manifests.
+
+> The `.ps1` pair could not run at all under PowerShell 7 until 2026-08-05
+> (`-Encoding Byte` was removed in PowerShell 6), so the Windows half of this
+> runbook had never been executed. Horizon HZ-028.
 
 ## Backup
 
@@ -39,9 +45,21 @@ Produces three files per backup, all timestamped together:
 2. `medichain-<timestamp>.dump.sha256` — a SHA-256 checksum, so a later
    restore can detect a corrupted or truncated file *before* touching any
    database.
-3. `medichain-<timestamp>.dump.manifest.txt` — a per-table row count taken at
-   backup time (`pg_stat_user_tables.n_live_tup`), the ground truth a restore
-   is checked against.
+3. `medichain-<timestamp>.dump.manifest.txt` — an **exact** per-table row count
+   (`count(*)`) taken at backup time, the ground truth a restore is checked
+   against.
+
+   > This was previously `pg_stat_user_tables.n_live_tup`, a planner estimate
+   > maintained by autovacuum. On a database whose statistics had not been
+   > gathered it read `0` for every table, so the manifest was a list of zeros —
+   > and a restore that recovered **no data at all** compared equal to it and
+   > was reported as verified. Both scripts now use exact counts, from a single
+   > shared query (`scripts/lib/row-count-query.sh`, `lib/RowCountQuery.ps1`) so
+   > the two sides of the comparison cannot drift apart. Horizon HZ-027.
+   >
+   > Cost: exact counting scans every table. That is affordable on a path that
+   > already dumps the whole database, but measure it before pointing this at
+   > production-scale data.
 
 ## Restore
 
@@ -58,38 +76,72 @@ clobber real data. The script:
    existing).
 3. Restores via `pg_restore --no-owner --no-privileges` (portable across
    environments with different role setups).
-4. Runs `ANALYZE`, re-queries `pg_stat_user_tables`, and diffs the result
-   against the backup-time manifest. Any mismatch — including a partially
-   applied restore that "succeeded" but is missing rows — fails loudly rather
-   than reporting success.
+4. Counts every table exactly, using the *same shared query* the manifest was
+   written with, and diffs the result against the manifest. Any mismatch —
+   including a partially applied restore that "succeeded" but is missing rows —
+   fails loudly rather than reporting success. No `ANALYZE` is involved:
+   nothing here depends on planner statistics any more.
 
-## Rehearsal procedure (to run once Docker is responsive)
+## Rehearsal procedure
 
 This is what "verified" means for this control — not "the script exists,"
-but this sequence having actually been run and its output recorded:
+but this sequence having actually been run and its output recorded.
+
+**Last run: 2026-08-05, passed.** Transcript:
+`.horizon/evidence-private/HZ-WP8-RES-005/rehearsal-postgres-2026-08-05.txt`
 
 ```bash
 # 1. Start the stack with synthetic-only demo data (see docker-compose.horizon-isolated.yml)
 docker compose -p medichain_horizon -f docker-compose.yml -f docker-compose.horizon-isolated.yml up -d
 
+# The scripts default to the DEV stack. Point them at the isolated one:
+export MEDICHAIN_PG_CONTAINER=medichain_horizon_postgres
+export POSTGRES_USER=medichain_horizon
+export POSTGRES_DB=medichain_horizon
+
 # 2. Take a backup
 ./scripts/backup-postgres.sh
-# note the row counts in the resulting .manifest.txt
+# note the row counts in the resulting .manifest.txt — if every table reads 0
+# on a database you know has rows, stop: that is the HZ-027 signature.
 
-# 3. Prove the restore is real, not a no-op: deliberately perturb the source
-#    (e.g. delete a synthetic patient row) so a restore that silently does
-#    nothing would be caught by the row-count diff.
-docker exec medichain_horizon-postgres-1 psql -U medichain_horizon -d medichain_horizon \
-  -c "DELETE FROM patients WHERE id = (SELECT id FROM patients LIMIT 1);"
+# 3. Prove the restore is real, not a no-op: deliberately perturb the source so
+#    a restore that silently does nothing would be caught by the row-count diff.
+#    Pick a leaf table; deleting a patient cascades through demographics, NFC
+#    tags and records, which muddies what the diff is telling you.
+docker exec medichain_horizon_postgres psql -U medichain_horizon -d medichain_horizon \
+  -c "DELETE FROM nfc_tags WHERE id = (SELECT id FROM nfc_tags LIMIT 1);"
 
 # 4. Restore into the default throwaway target and verify
 ./scripts/restore-postgres.sh backups/medichain-<timestamp>.dump
 # expect: "PASS: restored row counts match the backup-time manifest exactly"
 
-# 5. Record the terminal output of steps 2-4 as evidence
-#    (.horizon/evidence-private/HZ-WP8-RES-005/rehearsal.txt), then update
-#    the ledger row from "blocked" to "passed".
+# 5. The decisive check — the restored database must hold the PRE-perturbation
+#    count while the source holds one fewer. Equal counts would mean the
+#    "restore" was reading the live database.
+docker exec medichain_horizon_postgres psql -U medichain_horizon \
+  -d medichain_restore_test -t -A -c "SELECT count(*) FROM nfc_tags;"   # expect 5
+docker exec medichain_horizon_postgres psql -U medichain_horizon \
+  -d medichain_horizon      -t -A -c "SELECT count(*) FROM nfc_tags;"   # expect 4
+
+# 6. Record the terminal output as evidence under
+#    .horizon/evidence-private/HZ-WP8-RES-005/ and update the ledger row.
 ```
+
+The container name above is `medichain_horizon_postgres` — set explicitly by
+`container_name:` in the override file. It is **not** the
+`medichain_horizon-postgres-1` that Compose's default naming would suggest;
+this document said the latter until 2026-08-05, and that command fails.
+
+### Automated regression check
+
+```bash
+bash scripts/test-backup-manifest.sh
+```
+
+Asserts the manifest's counts equal direct `count(*)`, that a correct restore
+verifies, and — the case that previously passed while being catastrophically
+wrong — that a restore recovering **no data** is rejected. Exits non-zero on
+failure; skips with exit 2 if the isolated stack is not running.
 
 ## Kill switch / rollback (for the isolated Horizon environment, not production)
 

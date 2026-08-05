@@ -9,10 +9,13 @@ use super::*;
 pub async fn ipfs_health_check(data: web::Data<AppState>) -> impl Responder {
     let connected = data.ipfs_client.health_check().await.unwrap_or(false);
 
+    // Report the *configured* endpoints, not hardcoded strings — this endpoint is
+    // used to diagnose IPFS connectivity, and echoing constants that may not match
+    // IPFS_API_URL/IPFS_GATEWAY_URL actively misleads that diagnosis.
     HttpResponse::Ok().json(IpfsHealthResponse {
         ipfs_connected: connected,
-        api_url: "http://localhost:5001".to_string(),
-        gateway_url: "http://localhost:8080".to_string(),
+        api_url: data.ipfs_client.api_url().to_string(),
+        gateway_url: data.ipfs_client.gateway_url().to_string(),
     })
 }
 
@@ -360,6 +363,137 @@ pub async fn download_medical_record(
         uploaded_by: download_result.metadata.uploaded_by,
         uploaded_at: download_result.metadata.uploaded_at,
     })
+}
+
+/// Download a medical record's decrypted bytes by its content hash.
+///
+/// The patient-app MyRecordsPage links each record by its `content_hash` and
+/// expects a raw file blob it can save directly — unlike the base64-JSON
+/// `POST /api/records/download` above. Same ownership rule: a patient may only
+/// download their own records; a provider may download any.
+#[get("/api/records/{content_hash}/download")]
+pub async fn download_medical_record_by_hash(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user_id = match get_current_user_id(&http_req) {
+        Some(id) => id,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Missing X-User-Id header".to_string(),
+                code: "UNAUTHORIZED".to_string(),
+            })
+        }
+    };
+    let current_user = match get_user(&data, &current_user_id) {
+        Some(u) => u,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "User not found".to_string(),
+                code: "USER_NOT_FOUND".to_string(),
+            })
+        }
+    };
+    let content_hash = path.into_inner();
+
+    // Resolve the record to get its metadata hash and owner.
+    let entity = match data
+        .repositories
+        .medical_records
+        .get_by_ipfs_hash(&content_hash)
+        .await
+    {
+        Ok(e) => e,
+        Err(crate::repositories::traits::RepositoryError::NotFound(_)) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Record not found".to_string(),
+                code: "RECORD_NOT_FOUND".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("Medical record lookup failed: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Lookup failed".to_string(),
+                code: "REPO_ERROR".to_string(),
+            });
+        }
+    };
+    if !current_user.role.is_healthcare_provider() && entity.patient_id != current_user_id {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Patients can only download their own medical records".to_string(),
+            code: "ACCESS_DENIED".to_string(),
+        });
+    }
+    let metadata_hash = match entity.ipfs_metadata_hash {
+        Some(h) => h,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Record has no metadata reference".to_string(),
+                code: "METADATA_MISSING".to_string(),
+            })
+        }
+    };
+
+    let result = match data
+        .ipfs_client
+        .download_decrypted(&content_hash, &metadata_hash, &data.encryption_keyring)
+        .await
+    {
+        Ok(r) => r,
+        Err(IpfsError::NotFound(hash)) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: format!("Record content not found: {}", hash),
+                code: "RECORD_NOT_FOUND".to_string(),
+            })
+        }
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: format!("IPFS download failed: {}", e),
+                code: "IPFS_ERROR".to_string(),
+            })
+        }
+    };
+
+    let _ = data
+        .repositories
+        .access_logs
+        .create(
+            AccessLogEntry {
+                access_id: secure_tokens::generate_access_id(),
+                patient_id: result.metadata.patient_id.clone(),
+                accessor_id: current_user_id,
+                accessor_role: current_user.role.to_string(),
+                access_type: "download_record".to_string(),
+                location: None,
+                timestamp: Utc::now(),
+                emergency: false,
+            }
+            .into(),
+        )
+        .await;
+
+    let filename = result.metadata.filename.clone();
+    let content_type = if result.metadata.content_type.trim().is_empty() {
+        "application/octet-stream".to_string()
+    } else {
+        result.metadata.content_type.clone()
+    };
+    HttpResponse::Ok()
+        .content_type(content_type)
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", filename),
+        ))
+        .body(result.content)
 }
 
 /// List medical records for a patient (paginated)

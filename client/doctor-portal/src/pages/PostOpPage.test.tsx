@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -32,7 +33,7 @@ describe('PostOpPage', () => {
   it('renders post-op page', () => {
     render(<PostOpPage />);
 
-    expect(screen.getByText(/Post-Operative Assessment/i)).toBeInTheDocument();
+    expect(screen.getByText(/Post-Operative Care/i)).toBeInTheDocument();
     expect(screen.getByText(/PACU documentation and recovery monitoring/i)).toBeInTheDocument();
   });
 
@@ -47,6 +48,6 @@ describe('PostOpPage', () => {
   it('allows entering aldrete score', () => {
     render(<PostOpPage />);
 
-    expect(screen.getByText(/Aldrete Score/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Aldrete Score/i).length).toBeGreaterThan(0);
   });
 });

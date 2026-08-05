@@ -526,6 +526,22 @@ impl PgCriticalValueRepository {
 
 #[async_trait]
 impl CriticalValueRepository for PgCriticalValueRepository {
+    /// The trait supplies a DEFAULT `list_all` that returns
+    /// `NotFound("list_all not implemented")`. Memory overrides it; this
+    /// PostgreSQL impl did not, so the registry endpoint 500'd at RUNTIME
+    /// instead of failing to compile — and because every end-to-end test ran
+    /// against memory, nobody saw it (Horizon HZ-026).
+    async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>> {
+        // Bounded: these registries are deployment-wide reads and must not be
+        // able to pull an unbounded result set into memory.
+        let rows = sqlx::query_as::<_, CriticalValueEntity>(
+            "SELECT * FROM critical_values ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, value: CriticalValueEntity) -> RepositoryResult<CriticalValueEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO critical_values (

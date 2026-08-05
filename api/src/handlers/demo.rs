@@ -24,12 +24,18 @@ pub async fn demo_login(
     data: web::Data<AppState>,
     body: web::Json<DemoLoginRequest>,
 ) -> impl Responder {
-    // Check if dev mode is enabled
+    // This endpoint AUTO-CREATES a user account for any wallet address presented,
+    // with no credential. It defaulted to enabled (`unwrap_or(true)`), so a
+    // deployment that never set MEDICHAIN_DEV_MODE shipped an open
+    // account-creation endpoint — anyone could mint themselves an identity and
+    // then satisfy every presence-only handler in the API. It now defaults to
+    // DISABLED and additionally requires demo mode, so enabling it is a
+    // deliberate act in two places rather than an omission in one.
     let dev_mode = std::env::var("MEDICHAIN_DEV_MODE")
         .map(|v| v == "true" || v == "1")
-        .unwrap_or(true); // Default to true for development
+        .unwrap_or(false);
 
-    if !dev_mode {
+    if !dev_mode || !crate::support::is_demo_mode() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Demo login is only available in development mode".to_string(),

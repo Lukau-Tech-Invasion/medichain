@@ -5,7 +5,17 @@ import { usePatientStore } from '../store';
 
 // Mock the components
 vi.mock('../components', () => ({
-  NFCTapSimulator: ({ onEmergencyAccess }: { onEmergencyAccess: Function }) => (
+  // Typed to the shape actually invoked below, not `Function`, which accepts
+  // any callable and would let this mock drift out of step with the real
+  // component's contract without the compiler noticing.
+  NFCTapSimulator: ({
+    onEmergencyAccess,
+  }: {
+    onEmergencyAccess: (access: {
+      patientId: string;
+      emergencyInfo: Record<string, unknown>;
+    }) => void;
+  }) => (
     <div data-testid="nfc-simulator">
       <button onClick={() => onEmergencyAccess({ patientId: 'PAT-123', emergencyInfo: {} })}>
         Simulate NFC Tap
@@ -44,7 +54,7 @@ describe('EmergencyAccessPage', () => {
 
     render(<EmergencyAccessPage />);
 
-    expect(screen.getByText(/Emergency Access/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Emergency Access/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/How to Access Emergency Records/i)).toBeInTheDocument();
     expect(screen.getByTestId('nfc-simulator')).toBeInTheDocument();
   });

@@ -53,7 +53,7 @@ describe('UserManagementPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/User & RBAC Management/i)).toBeInTheDocument();
+      expect(screen.getByText(/User Management/i)).toBeInTheDocument();
       expect(screen.getByText(/John Smith/i)).toBeInTheDocument();
       expect(screen.getByText(/dr_smith/i)).toBeInTheDocument();
     });

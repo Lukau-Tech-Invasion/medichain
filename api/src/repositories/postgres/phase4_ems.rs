@@ -415,6 +415,22 @@ impl PgChainOfCustodyRepository {
 
 #[async_trait]
 impl ChainOfCustodyRepository for PgChainOfCustodyRepository {
+    /// The trait supplies a DEFAULT `list_all` that returns
+    /// `NotFound("list_all not implemented")`. Memory overrides it; this
+    /// PostgreSQL impl did not, so the registry endpoint 500'd at RUNTIME
+    /// instead of failing to compile — and because every end-to-end test ran
+    /// against memory, nobody saw it (Horizon HZ-026).
+    async fn list_all(&self) -> RepositoryResult<Vec<ChainOfCustodyEntity>> {
+        // Bounded: these registries are deployment-wide reads and must not be
+        // able to pull an unbounded result set into memory.
+        let rows = sqlx::query_as::<_, ChainOfCustodyEntity>(
+            "SELECT * FROM chain_of_custody ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, record: ChainOfCustodyEntity) -> RepositoryResult<ChainOfCustodyEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO chain_of_custody (

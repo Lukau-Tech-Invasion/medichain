@@ -52,7 +52,7 @@ describe('ImagingPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Medical Imaging/i)).toBeInTheDocument();
+      expect(screen.getByText(/Imaging Studies/i)).toBeInTheDocument();
       expect(screen.getByText(/Abdominal CT/i)).toBeInTheDocument();
     });
   });

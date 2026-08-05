@@ -48,7 +48,7 @@ describe('NurseDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Nurse Dashboard/i)).toBeInTheDocument();
+      expect(screen.getByText(/Nursing Dashboard/i)).toBeInTheDocument();
       expect(screen.getByText(/Assigned Patients/i)).toBeInTheDocument();
       expect(screen.getByText('5')).toBeInTheDocument();
       expect(screen.getByText(/Pending Meds/i)).toBeInTheDocument();

@@ -7,18 +7,14 @@ use super::*;
 /// Available consent form types
 #[get("/api/consent/types")]
 pub async fn get_consent_types(
-    _data: web::Data<AppState>,
+    // Was `_data`. The list itself is static reference data, but the endpoint
+    // still needs to know the caller is real rather than merely header-bearing.
+    data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Unauthorized".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let _current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let consent_types = vec![
@@ -135,15 +131,9 @@ pub async fn sign_consent(
     http_req: HttpRequest,
     body: web::Json<SignConsentRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Unauthorized".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            })
-        }
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let current_user = match get_user(&data, &current_user_id) {
@@ -459,12 +449,16 @@ pub async fn get_patient_consents(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
-    if current_user_id != patient_id && !current_user_id.starts_with("0xPROV") {
+    // Horizon HZ-024: a "0xPROV" id prefix is not authorization — see the note
+    // in `download_offline_data`. Resolve the role from the user store.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
+    if current_user_id != patient_id && !is_provider {
         return HttpResponse::Forbidden().finish();
     }
 
@@ -640,86 +634,158 @@ pub async fn scan_barcode(
 
     let location = body.get("location").and_then(|l| l.as_str());
 
-    // Mock scan result
-    let entity_info = if barcode_value.contains("SP") {
-        serde_json::json!({
-            "type": "specimen",
-            "id": "SPEC-001",
-            "patient": "John Doe",
-            "test": "CBC with Diff",
-            "collected_at": chrono::Utc::now().timestamp() - 3600
-        })
+    // Horizon HZ-023: this used to invent an entity from the barcode's text —
+    // a specimen "for John Doe", a medication "Amoxicillin 500mg for Jane
+    // Smith" — attaching fabricated patient names to a real scan. The prefix
+    // now classifies the barcode's *kind* only, which is all the value itself
+    // can honestly tell us; anything more must come from a lookup that does
+    // not yet exist, and is reported as unresolved rather than guessed.
+    let entity_type = if barcode_value.contains("SP") {
+        "specimen"
     } else if barcode_value.contains("MED") {
-        serde_json::json!({
-            "type": "medication",
-            "id": "MED-001",
-            "name": "Amoxicillin 500mg",
-            "patient": "Jane Smith"
-        })
+        "medication"
     } else {
-        serde_json::json!({"type": "unknown", "id": barcode_value})
+        "unknown"
     };
+    let entity_info = serde_json::json!({
+        "type": entity_type,
+        "id": barcode_value,
+        "resolved": false,
+        "note": "Barcode registry lookup is not implemented; only the barcode kind is inferred."
+    });
+
+    let scanned_at = chrono::Utc::now();
+    let scan = serde_json::json!({
+        "scan_id": format!("SCAN-{}", uuid::Uuid::new_v4()),
+        "barcode_value": barcode_value,
+        "entity_type": entity_type,
+        "location": location,
+        "scanned_by": current_user.wallet_address,
+        "scanned_by_name": current_user.name,
+        "scanned_by_role": current_user.role.to_string(),
+        "scanned_at": scanned_at.timestamp(),
+        "scanned_at_iso": scanned_at.to_rfc3339(),
+    });
+    if let Err(e) = data
+        .repositories
+        .barcode_scans
+        .create(crate::repositories::traits::JsonRecordEntity {
+            id: scan
+                .get("scan_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            owner_id: current_user.wallet_address.clone(),
+            data: scan.clone(),
+            created_at: scanned_at,
+            updated_at: scanned_at,
+        })
+        .await
+    {
+        // The scan is the custody evidence — if it cannot be recorded, say so
+        // rather than reporting a successful scan that left no trace.
+        log::error!("barcode scan persist failed: {}", e);
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Could not record the scan".to_string(),
+            code: "SCAN_WRITE_FAILED".to_string(),
+        });
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "barcode_value": barcode_value,
         "entity_info": entity_info,
         "location": location,
-        "scanned_at": chrono::Utc::now().timestamp()
+        "scanned_at": scanned_at.timestamp()
     }))
 }
 
-/// Track barcode movement history
+/// A barcode's chain of custody, assembled from the scans actually recorded.
+///
+/// Horizon HZ-023: this used to return an invented custody chain — steps
+/// attributed to "Dr. Smith", "Nurse Jones" and "Lab Tech Brown", none of whom
+/// performed them — for any barcode id. A chain of custody is a forensic and
+/// legal artifact, so it is now built strictly from recorded scan events and an
+/// unscanned barcode honestly returns an empty chain.
 #[get("/api/barcode/{barcode_id}/history")]
 pub async fn track_barcode(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Access denied".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        });
+    }
     let barcode_id = path.into_inner();
 
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
-    }
-
-    let history = vec![
-        serde_json::json!({"status": "generated", "at": chrono::Utc::now().timestamp() - 86400, "by": "Dr. Smith"}),
-        serde_json::json!({"status": "collected", "at": chrono::Utc::now().timestamp() - 82800, "by": "Nurse Jones", "location": "Patient Room 402"}),
-        serde_json::json!({"status": "received_at_lab", "at": chrono::Utc::now().timestamp() - 79200, "by": "Lab Tech Brown", "location": "Main Lab Receiving"}),
-        serde_json::json!({"status": "processing", "at": chrono::Utc::now().timestamp() - 75600, "by": "Lab Tech Brown", "location": "Hematology Section"}),
-    ];
+    // Scans are owned by the scanning user, so a specimen's full chain spans
+    // owners and must be assembled by barcode value across all of them.
+    let all = match data.repositories.barcode_scans.list_all().await {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("barcode history load failed: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not load barcode history".to_string(),
+                code: "SCAN_READ_FAILED".to_string(),
+            });
+        }
+    };
+    let mut history: Vec<serde_json::Value> = all
+        .into_iter()
+        .map(|r| r.data)
+        .filter(|d| d.get("barcode_value").and_then(|v| v.as_str()) == Some(barcode_id.as_str()))
+        .collect();
+    history.sort_by_key(|s| s.get("scanned_at").and_then(|v| v.as_i64()));
 
     HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
         "barcode_id": barcode_id,
-        "history": history
+        "history": history,
+        "count": history.len()
     }))
 }
 
-/// Get history of recent scans by current user
+/// Recent scans performed by the calling user.
+///
+/// Horizon HZ-023: previously a fixed invented list returned to everyone.
 #[get("/api/barcode/scans/my")]
 pub async fn get_barcode_scan_history(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
-    let scan_history = vec![
-        serde_json::json!({
-            "barcode_value": "MCSP452103",
-            "scanned_at": chrono::Utc::now().timestamp() - 300,
-            "entity_type": "specimen",
-            "location": "ER Station 1"
-        }),
-        serde_json::json!({
-            "barcode_value": "MCMED892104",
-            "scanned_at": chrono::Utc::now().timestamp() - 1200,
-            "entity_type": "medication",
-            "location": "Pharmacy Window 2"
-        }),
-    ];
+    let records = match data
+        .repositories
+        .barcode_scans
+        .get_by_owner(&current_user_id)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("scan history load failed for {}: {}", current_user_id, e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not load scan history".to_string(),
+                code: "SCAN_READ_FAILED".to_string(),
+            });
+        }
+    };
+    let mut scan_history: Vec<serde_json::Value> = records.into_iter().map(|r| r.data).collect();
+    scan_history.sort_by_key(|s| std::cmp::Reverse(s.get("scanned_at").and_then(|v| v.as_i64())));
 
     HttpResponse::Ok().json(scan_history)
 }
@@ -857,12 +923,15 @@ pub async fn get_note_templates(
 /// Use a template to generate a note
 #[post("/api/templates/notes/use")]
 pub async fn use_note_template(
-    _data: web::Data<AppState>,
+    // Was `_data`. Clinical note templates are staff tooling, so this now
+    // resolves the caller and requires a clinical role rather than accepting
+    // any request that carries a header.
+    data: web::Data<AppState>,
     http_req: HttpRequest,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
 
     let template_id = body

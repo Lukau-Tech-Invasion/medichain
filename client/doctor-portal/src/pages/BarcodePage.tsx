@@ -85,7 +85,7 @@ const BarcodePage: React.FC = () => {
       }
       
       try {
-        const response = await fetch(apiUrl('/api/barcode/scan-history'), {
+        const response = await fetch(apiUrl('/api/barcode/scans/my'), {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': user.walletAddress,

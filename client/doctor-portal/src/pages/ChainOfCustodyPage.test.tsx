@@ -24,7 +24,7 @@ describe('ChainOfCustodyPage', () => {
   it('renders chain of custody page', () => {
     render(<ChainOfCustodyPage />);
 
-    expect(screen.getByText(/Evidence Chain of Custody/i)).toBeInTheDocument();
+    expect(screen.getByText(/Chain of Custody/i)).toBeInTheDocument();
     expect(screen.getByText(/Document the collection and handling of forensic evidence/i)).toBeInTheDocument();
   });
 

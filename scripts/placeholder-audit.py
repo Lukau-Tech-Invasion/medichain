@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Categorise every TODO / mock / placeholder / simulated / hardcoded reference.
+
+An external review counted "approximately 741 non-test references" and listed it
+as a technical-debt indicator. A raw grep cannot distinguish a fabricated
+diagnosis from a React `placeholder=` attribute, and treating all of them as
+defects would mean "fixing" working UI. This separates them so the actionable
+number is the one that gets worked.
+
+Categories, most actionable first:
+
+  BEHAVIOURAL  Code that fabricates data or does not do what it claims. These
+               are real defects — the HZ-023 class.
+  DEBT_NOTE    TODO/FIXME markers: real backlog, not a live defect.
+  DOCUMENTED   Comments describing a deliberate, documented design decision
+               (e.g. the blockchain placeholder-hash fallback) or a past fix.
+  UI_ATTR      React `placeholder=` / `placeholder:` — input hint text. Not a
+               defect in any sense.
+  TEST_SUPPORT Mocks and fixtures inside test code. Correct by definition.
+
+Usage: python scripts/placeholder-audit.py [--list CATEGORY]
+"""
+from __future__ import annotations
+import pathlib
+import re
+import sys
+from collections import Counter
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+KEYWORDS = re.compile(r"TODO|FIXME|mock|placeholder|simulated|hardcoded|unimplemented", re.I)
+
+# A comment line that merely *describes* one of these is documentation, not a
+# defect. Behavioural findings live in executable statements.
+COMMENT = re.compile(r"^\s*(//|/\*|\*|#)")
+# UI noise: the `placeholder` input attribute, Tailwind's `placeholder-*` colour
+# utilities, and i18n keys ending in "Placeholder". None of these are defects.
+UI_ATTR = re.compile(
+    r"placeholder\s*[=:]|placeholder-[a-z]|[A-Za-z]Placeholder\b|placeholderText", re.I)
+DEBT = re.compile(r"\bTODO\b|\bFIXME\b", re.I)
+# `wiremock` spins up a real HTTP mock SERVER inside #[cfg(test)] blocks that
+# live in production-named files. That is test infrastructure, not a shipped mock.
+TEST_INFRA = re.compile(r"wiremock|mock_server|MockServer|Mock::given|\.mount\(", re.I)
+
+# Phrases that mark a deliberate, recorded decision rather than an oversight.
+DOCUMENTED_MARKERS = (
+    "horizon hz-", "deterministic placeholder", "placeholder hash",
+    "documented", "by design", "deliberate", "was:", "used to", "previously",
+    "no longer", "not implemented", "must not be read as",
+)
+
+
+def classify(path: pathlib.Path, line: str, in_test_mod: bool) -> str:
+    rel = path.as_posix()
+    low = line.lower()
+    if ".test." in rel or "/tests/" in rel or "/test/" in rel or rel.endswith("_tests.rs"):
+        return "TEST_SUPPORT"
+    if in_test_mod or TEST_INFRA.search(line):
+        return "TEST_SUPPORT"
+    if UI_ATTR.search(line):
+        return "UI_ATTR"
+    if DEBT.search(line):
+        return "DEBT_NOTE"
+    if COMMENT.match(line):
+        if any(m in low for m in DOCUMENTED_MARKERS):
+            return "DOCUMENTED"
+        return "DOCUMENTED"          # a comment alone changes no behaviour
+    return "BEHAVIOURAL"
+
+
+def main() -> int:
+    want = None
+    if "--list" in sys.argv:
+        want = sys.argv[sys.argv.index("--list") + 1].upper()
+
+    counts: Counter[str] = Counter()
+    hits: dict[str, list[str]] = {}
+    # Walk explicit source roots. `client/` as a whole is not walkable: it holds
+    # node_modules with broken workspace symlinks that raise mid-iteration.
+    roots = [
+        REPO / "api" / "src",
+        REPO / "client" / "doctor-portal" / "src",
+        REPO / "client" / "patient-app" / "src",
+        REPO / "client" / "shared" / "src",
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        for f in root.rglob("*"):
+            if f.suffix not in {".rs", ".ts", ".tsx"} or "node_modules" in f.parts:
+                continue
+            if "dist" in f.parts:
+                continue
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            # Everything after `#[cfg(test)]` / `mod tests` in a Rust file is
+            # test code even though the file itself is production-named.
+            test_mod_at = len(text)
+            m = re.search(r"#\[cfg\(test\)\]|\bmod tests\b", text)
+            if m:
+                test_mod_at = m.start()
+
+            offset = 0
+            for i, line in enumerate(text.splitlines(), 1):
+                line_start, offset = offset, offset + len(line) + 1
+                if not KEYWORDS.search(line):
+                    continue
+                cat = classify(f.relative_to(REPO), line, line_start >= test_mod_at)
+                counts[cat] += 1
+                hits.setdefault(cat, []).append(
+                    f"{f.relative_to(REPO).as_posix()}:{i}: {line.strip()[:120]}")
+
+    total = sum(counts.values())
+    print(f"total keyword references: {total}\n")
+    order = ["BEHAVIOURAL", "DEBT_NOTE", "DOCUMENTED", "UI_ATTR", "TEST_SUPPORT"]
+    for c in order:
+        print(f"  {c:13} {counts.get(c, 0):5}")
+    print(f"\nACTIONABLE (BEHAVIOURAL): {counts.get('BEHAVIOURAL', 0)}")
+
+    if want:
+        print(f"\n--- {want} ---")
+        for h in hits.get(want, []):
+            print(" ", h)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

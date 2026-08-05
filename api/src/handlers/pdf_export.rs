@@ -28,15 +28,15 @@ pub struct PdfDocumentRequest {
 /// POST /api/pdf/document
 #[post("/api/pdf/document")]
 pub async fn export_pdf_document(
+    // The handler took no application state, so it could only check that an
+    // X-User-Id header existed — and this endpoint renders arbitrary supplied
+    // sections into a downloadable clinical document.
+    data: web::Data<AppState>,
     req: HttpRequest,
     body: web::Json<PdfDocumentRequest>,
 ) -> impl Responder {
-    if get_current_user_id(&req).is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Authentication required".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        });
+    if let Err(resp) = crate::support::require_registered_caller(&data, &req) {
+        return resp;
     }
 
     let sections: Vec<crate::pdf::PdfSection> = body

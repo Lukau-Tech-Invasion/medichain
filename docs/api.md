@@ -102,7 +102,7 @@ The API exposes many clinical endpoints under `/api/clinical/*`. Examples:
 
 MediChain REST API provides secure access to patient identity, medical records, and access control functionality. All endpoints implement role-based access control (RBAC).
 
-**Base URL:** `http://localhost:8080`
+**Base URL:** `http://localhost:8090`
 
 ---
 
@@ -498,7 +498,7 @@ Get demo information and available endpoints.
 
 This section documents implementation details discovered during a repo audit to keep `docs/api.md` aligned with the source.
 
-- Base URL: `http://localhost:8080` (API server default in `api/`)
+- Base URL: `http://localhost:8090` (API server default in `api/`; 8080 is the IPFS gateway)
 - The server expects wallet-based authentication via the `X-User-Id` header (SS58 address). See `docs/DEV_AUTH.md` for developer guidance.
 - There are two health endpoints present in code: `/api/health` and `/api/health/detailed` (use `/api/health/detailed` for richer diagnostics).
 - Some client call-sites use a legacy route `/api/access/logs` while canonical server handlers use `/api/access-logs/{patient_id}`; both are supported by the API to preserve backward compatibility.

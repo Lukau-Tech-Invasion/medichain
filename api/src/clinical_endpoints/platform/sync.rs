@@ -76,9 +76,9 @@ pub async fn get_sync_status(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let device_id = path.into_inner();
 
@@ -104,9 +104,9 @@ pub async fn register_sync_device(
     http_req: HttpRequest,
     req: web::Json<RegisterDeviceRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let device_id = format!(
@@ -216,9 +216,9 @@ pub async fn perform_sync(
     http_req: HttpRequest,
     req: web::Json<SyncRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let existing_items: Vec<crate::clinical::SyncQueueItem> = data
@@ -307,9 +307,9 @@ pub async fn get_sync_conflicts(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let conflicts: Vec<_> = data
@@ -343,9 +343,9 @@ pub async fn resolve_sync_conflict(
     path: web::Path<String>,
     req: web::Json<ResolveConflictRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let conflict_id = path.into_inner();
 
@@ -418,9 +418,9 @@ pub async fn get_sync_queue(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let device_id = path.into_inner();
@@ -441,13 +441,20 @@ pub async fn download_offline_data(
     path: web::Path<String>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     // Auth check
-    if current_user_id != patient_id && !current_user_id.starts_with("0xPROV") {
+    // Horizon HZ-024: this used to accept any caller whose id merely *began*
+    // with "0xPROV". Wallet addresses are opaque, caller-supplied identifiers,
+    // so that let an unauthenticated request forge provider status with a
+    // header and read any patient. Resolve the role from the user store, as
+    // `get_symptom_checker_history` already does.
+    let is_provider = crate::get_user(&data, &current_user_id)
+        .is_some_and(|user| user.role.is_healthcare_provider());
+    if current_user_id != patient_id && !is_provider {
         return HttpResponse::Forbidden().finish();
     }
 

@@ -180,9 +180,9 @@ pub struct MfaEnrollResponse {
 /// The enrollment is not active until a code is confirmed via `/mfa/verify`.
 #[post("/api/auth/mfa/enroll")]
 pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let wallet = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => return unauthorized_missing_user(),
+    let wallet = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let secret = mfa::generate_secret_base32();
@@ -235,9 +235,9 @@ pub async fn mfa_verify(
     req: HttpRequest,
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
-    let wallet = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => return unauthorized_missing_user(),
+    let wallet = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let secret = match data
@@ -294,9 +294,9 @@ pub async fn mfa_challenge(
     req: HttpRequest,
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
-    let wallet = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => return unauthorized_missing_user(),
+    let wallet = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let secret = match data.security.mfa.read().ok().and_then(|m| {
@@ -346,9 +346,9 @@ pub async fn mfa_challenge(
 /// GET /api/auth/mfa/status
 #[get("/api/auth/mfa/status")]
 pub async fn mfa_status(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let wallet = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => return unauthorized_missing_user(),
+    let wallet = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
     let (enrolled, enabled) = data
         .security
@@ -374,9 +374,9 @@ pub async fn mfa_disable(
     req: HttpRequest,
     body: web::Json<MfaCodeRequest>,
 ) -> impl Responder {
-    let wallet = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => return unauthorized_missing_user(),
+    let wallet = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let secret = match data.security.mfa.read().ok().and_then(|m| {

@@ -3,7 +3,8 @@ import { useAuthStore } from './authStore';
 import * as shared from '@medichain/shared';
 
 // Mock shared library
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   apiUrl: (path: string) => `http://localhost:3000${path}`,
   setProviderAuth: vi.fn(),
   clearAuth: vi.fn(),

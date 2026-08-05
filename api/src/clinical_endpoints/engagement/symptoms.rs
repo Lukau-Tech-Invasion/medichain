@@ -21,8 +21,8 @@ pub async fn start_symptom_check(
     http_req: HttpRequest,
     req: web::Json<StartSymptomCheckRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -152,8 +152,8 @@ pub async fn submit_symptom_answers(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -342,8 +342,8 @@ pub async fn get_symptom_session(
 ) -> impl Responder {
     let session_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -399,8 +399,8 @@ pub async fn get_symptom_checker_history(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -470,17 +470,16 @@ pub struct PossibleConditionResult {
 /// Direct symptom analysis endpoint - maps symptoms to possible conditions
 #[post("/api/symptoms/analyze")]
 pub async fn analyze_symptoms(
-    _data: web::Data<crate::AppState>,
+    // Was `_data`, so "authenticated" meant only that a header existed. The
+    // endpoint performs rule-based analysis on submitted symptoms and returns
+    // possible conditions, which is compute worth protecting from anonymous
+    // callers even though it reads no stored record.
+    data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     req: web::Json<AnalyzeSymptomsRequest>,
 ) -> impl Responder {
-    // Validate user is authenticated
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Missing X-User-Id header".to_string(),
-            code: "UNAUTHORIZED".to_string(),
-        });
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
+        return resp;
     }
 
     let symptoms = &req.symptoms;

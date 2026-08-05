@@ -11,9 +11,9 @@ pub async fn create_anesthesia(
     http_req: HttpRequest,
     req: web::Json<AnesthesiaRecord>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let record = req.into_inner();
@@ -62,8 +62,8 @@ pub async fn get_anesthesia(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.anesthesia_records.read() {
@@ -78,8 +78,8 @@ pub async fn get_anesthesia(
 /// List all anesthesia records (Admin/Audit)
 #[get("/api/surgical/anesthesia/list")]
 pub async fn list_anesthesia(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if !http_req.headers().contains_key("X-User-Id") {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data.anesthesia_records.read() {
         Ok(records) => HttpResponse::Ok().json(records.values().cloned().collect::<Vec<_>>()),
@@ -94,9 +94,9 @@ pub async fn create_radiology_order(
     http_req: HttpRequest,
     req: web::Json<RadiologyOrder>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let order = req.into_inner();
@@ -145,8 +145,8 @@ pub async fn get_radiology_order(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.radiology_orders.read() {
@@ -165,9 +165,9 @@ pub async fn create_radiology_report(
     http_req: HttpRequest,
     req: web::Json<RadiologyReport>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let report = req.into_inner();
@@ -216,8 +216,8 @@ pub async fn get_radiology_report(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.radiology_reports.read() {
@@ -236,9 +236,9 @@ pub async fn create_pathology(
     http_req: HttpRequest,
     req: web::Json<PathologyReport>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let report = req.into_inner();
@@ -287,8 +287,8 @@ pub async fn get_pathology(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.pathology_reports.read() {

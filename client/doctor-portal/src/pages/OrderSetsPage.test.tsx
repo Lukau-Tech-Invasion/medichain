@@ -6,7 +6,7 @@ describe('OrderSetsPage', () => {
   it('renders order sets page', () => {
     render(<OrderSetsPage />);
 
-    expect(screen.getByText(/Clinical Order Sets/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Order Sets/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Standardized evidence-based order sets by condition/i)).toBeInTheDocument();
   });
 

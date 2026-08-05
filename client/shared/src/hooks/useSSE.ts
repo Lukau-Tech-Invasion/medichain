@@ -65,7 +65,11 @@ export function useSSE(): UseSSEReturn {
       const decoder = new TextDecoder();
       let buffer = '';
 
-      while (true) {
+      // `for (;;)` rather than `while (true)`: identical behaviour, but it is
+      // the form `no-constant-condition` accepts, so the intent-revealing
+      // infinite read loop needs no disable comment. The loop is bounded by the
+      // stream: it breaks when the reader reports `done`.
+      for (;;) {
         const { value, done } = await reader.read();
         if (done) {
           debugLog('useSSE', 'SSE stream ended');

@@ -2,7 +2,7 @@
 # MediChain Demo Users Creation Script
 # This creates demo users using the OLD demo user format (DOC-001, NURSE-001, etc.)
 
-API_URL="http://localhost:8080"
+API_URL="${API_URL:-http://localhost:8090}"
 
 echo "============================================="
 echo "   MediChain Demo Users Setup"
@@ -158,5 +158,5 @@ echo "  - Aisha Bello (Pregnant, gestational diabetes)"
 echo "  - Oluwaseyi Adeyemi (Pediatric, severe allergies)"
 echo "  - Chidinma Eze (Mental health conditions)"
 echo ""
-echo "To list all patients: curl http://localhost:8080/api/patients -H 'X-User-Id: DOC-001'"
+echo "To list all patients: curl http://localhost:8090/api/patients -H 'X-User-Id: DOC-001'"
 echo ""

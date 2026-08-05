@@ -405,14 +405,12 @@ cargo test -p pallet-medical-records
 # Crypto library tests
 cargo test -p medichain-crypto
 
-# API tests
-cargo test -p medichain-api
+# API tests — note `--bin`: medichain-api is a binary crate, so `--lib` fails
+cargo test --bin medichain-api
 
-# Integration tests
-cargo test --test integration_tests
-
-# E2E tests
-cargo test --test e2e_tests
+# End-to-end, against a live server with synthetic data.
+# Start the API first (scripts/run-synthetic-local.sh), then:
+bash scripts/synthetic-e2e-test.sh
 ```
 
 ### Run Tests with Output

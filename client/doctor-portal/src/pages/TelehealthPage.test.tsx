@@ -1,5 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TelehealthPage from './TelehealthPage';
 import { useAuthStore } from '../store';
@@ -9,10 +8,17 @@ vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
 }));
 
-// Mock fetch
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+/**
+ * Fixture rewritten 2026-07-31. It previously returned sessions shaped
+ * `{ id, patientName, scheduledAt, joinUrl }`, but `TelehealthSession` (and the
+ * API) use snake_case — `session_id`, `session_type`, `scheduled_start`,
+ * `join_url` — so nothing the component keyed on was present and no session row
+ * ever rendered. Copy assertions verified against `docTelehealth` in
+ * shared/src/i18n/locales/en-US.ts.
+ */
 describe('TelehealthPage', () => {
   const mockUser = {
     walletAddress: '5GrwvaEF...mock',
@@ -26,51 +32,52 @@ describe('TelehealthPage', () => {
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation(() => {
-      return Promise.resolve({
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({
-          sessions: [
-            {
-              id: 's1',
-              patientName: 'John Doe',
-              scheduledAt: new Date().toISOString(),
-              status: 'Waiting',
-              joinUrl: 'https://telehealth.medichain.com/room/123',
-            }
-          ],
-        }),
-      });
-    });
+        json: () =>
+          Promise.resolve({
+            sessions: [
+              {
+                session_id: 'TS-001',
+                patient_id: 'PAT-001',
+                provider_id: '5GrwvaEF...mock',
+                scheduled_start: Math.floor(Date.now() / 1000),
+                duration_minutes: 30,
+                session_type: 'consultation',
+                status: 'scheduled',
+                join_url: 'https://telehealth.example.invalid/room/123',
+              },
+            ],
+          }),
+      })
+    );
   });
 
-  it('renders telehealth page', async () => {
-    render(
-      <MemoryRouter>
-        <TelehealthPage />
-      </MemoryRouter>
-    );
+  it('renders the telehealth header', async () => {
+    render(<TelehealthPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Telehealth Consultations/i)).toBeInTheDocument();
-      expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
-    });
+    // The phrase appears in both the page heading and the sessions panel.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Telehealth Sessions/i).length).toBeGreaterThan(0)
+    );
+    expect(screen.getByText(/Manage virtual care appointments/i)).toBeInTheDocument();
   });
 
-  it('allows joining a session', async () => {
-    window.open = vi.fn();
-    
-    render(
-      <MemoryRouter>
-        <TelehealthPage />
-      </MemoryRouter>
+  it('offers creating a new session', async () => {
+    render(<TelehealthPage />);
+
+    await waitFor(() => expect(screen.getByText(/New Session/i)).toBeInTheDocument());
+  });
+
+  it('asks for a patient before listing sessions', async () => {
+    render(<TelehealthPage />);
+
+    // Sessions are fetched per patient (`/api/telehealth/patient/{id}/sessions`),
+    // so the landing state is the lookup form, not a populated list.
+    await waitFor(() =>
+      expect(screen.getByText(/View Sessions for Patient ID/i)).toBeInTheDocument()
     );
-
-    await waitFor(() => {
-      const joinButton = screen.getByText(/Join Session/i);
-      fireEvent.click(joinButton);
-    });
-
-    expect(window.open).toHaveBeenCalledWith('https://telehealth.medichain.com/room/123', '_blank');
+    expect(screen.getByPlaceholderText(/Enter patient ID/i)).toBeInTheDocument();
   });
 });

@@ -65,8 +65,8 @@ pub async fn get_lab_trends(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -166,8 +166,8 @@ pub async fn analyze_lab_trends(
     http_req: HttpRequest,
     req: web::Json<RequestLabTrendRequest>,
 ) -> impl Responder {
-    let current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 
@@ -294,8 +294,8 @@ pub async fn get_lab_trend_result(
 ) -> impl Responder {
     let result_id = path.into_inner();
 
-    let _current_user_id = match require_x_user_id_header(&http_req) {
-        Ok(id) => id,
+    let _current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
 

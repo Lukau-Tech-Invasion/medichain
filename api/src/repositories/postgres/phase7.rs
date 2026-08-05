@@ -142,3 +142,8 @@ pg_json_repo!(PgCdsAuditEntryRepository, "cds_audit_entries");
 
 // Phase 33: offline-sync device registry.
 pg_json_repo!(PgSyncDeviceRepository, "sync_devices");
+
+// Horizon HZ-023: real stores replacing fabricated literals.
+pg_json_repo!(PgMessageRepository, "messages");
+pg_json_repo!(PgSymptomEntryRepository, "symptom_entries");
+pg_json_repo!(PgBarcodeScanRepository, "barcode_scans");

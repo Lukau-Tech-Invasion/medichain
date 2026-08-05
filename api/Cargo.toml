@@ -34,7 +34,8 @@ env_logger = "0.11"
 async-trait = "0.1"
 thiserror = "1.0"
 subxt = { workspace = true }
-parity-scale-codec = { workspace = true }
+# parity-scale-codec removed 2026-07-31: the API crate never used it (no
+# `codec::`, no Encode/Decode derives). The pallets declare it themselves.
 sp-core = { workspace = true, features = ["std"] }
 subxt-signer = { version = "0.37.0", features = ["sr25519"] }
 

@@ -46,9 +46,9 @@ pub async fn set_language_preference(
     http_req: HttpRequest,
     req: web::Json<SetLanguagePreferenceRequest>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let pref = crate::clinical::LanguagePreference {

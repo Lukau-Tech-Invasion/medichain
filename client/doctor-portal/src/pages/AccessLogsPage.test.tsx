@@ -56,7 +56,7 @@ describe('AccessLogsPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Access & Audit Logs/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Access Logs/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
       expect(screen.getByText(/View Record/i)).toBeInTheDocument();
     });

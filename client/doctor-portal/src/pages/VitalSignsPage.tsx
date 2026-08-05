@@ -575,14 +575,17 @@ function VitalSignsPage() {
       )}
 
       {/* Flowsheet History */}
-      {!loading && flowsheet && flowsheet.readings.length > 0 && (
+      {/* `readings` is optional-guarded, not just `flowsheet`: a response that
+          omits the array (or sends null) used to crash the whole page on
+          `.length` — a blank screen instead of a vitals chart. */}
+      {!loading && flowsheet && (flowsheet.readings?.length ?? 0) > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100">
           <button
             onClick={() => setShowHistory(!showHistory)}
             className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
           >
             <h2 className="text-lg font-semibold text-gray-900">
-              {t('docVitalSigns.vitalSignsHistoryTitle', { count: flowsheet.readings.length })}
+              {t('docVitalSigns.vitalSignsHistoryTitle', { count: flowsheet?.readings?.length ?? 0 })}
             </h2>
             {showHistory ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </button>
@@ -640,7 +643,7 @@ function VitalSignsPage() {
       )}
 
       {/* No Data State */}
-      {!loading && selectedPatientId && (!flowsheet || flowsheet.readings.length === 0) && (
+      {!loading && selectedPatientId && (!flowsheet || (flowsheet.readings?.length ?? 0) === 0) && (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <Activity className="mx-auto mb-3 text-gray-300" size={48} />
           <p className="text-gray-500">{t('docVitalSigns.noVitalsRecorded')}</p>

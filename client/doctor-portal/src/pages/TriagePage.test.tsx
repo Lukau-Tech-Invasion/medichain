@@ -30,7 +30,7 @@ describe('TriagePage', () => {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({
-          triage_queue: [
+          queue: [
             {
               id: 't1',
               patientName: 'Alice Smith',
@@ -59,7 +59,7 @@ describe('TriagePage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Emergency Triage/i)).toBeInTheDocument();
+      expect(screen.getByText(/ESI Triage Assessment/i)).toBeInTheDocument();
       expect(screen.getByText(/Alice Smith/i)).toBeInTheDocument();
       expect(screen.getByText(/Bob Jones/i)).toBeInTheDocument();
     });

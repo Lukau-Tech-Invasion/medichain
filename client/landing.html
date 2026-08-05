@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MediChain — Demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center;
+    justify-content: center; padding: 1.5rem;
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f6f7f9; color: #14171f;
+  }
+  @media (prefers-color-scheme: dark) { body { background:#101318; color:#e8eaee; } }
+  .wrap { width: 100%; max-width: 46rem; }
+  .banner {
+    display: flex; gap: .6rem; align-items: flex-start;
+    background: #fff4d6; border: 1px solid #e0b44a; color: #4a3608;
+    border-radius: .6rem; padding: .8rem 1rem; margin-bottom: 1.6rem;
+    font-size: .92rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    .banner { background:#3a2f10; border-color:#7a601c; color:#f3e4b8; }
+  }
+  h1 { font-size: 1.7rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
+  .sub { margin: 0 0 1.8rem; opacity: .72; }
+  .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+  a.card {
+    display: block; padding: 1.15rem 1.25rem; border-radius: .7rem;
+    border: 1px solid #d9dde5; background: #fff; text-decoration: none;
+    color: inherit; transition: border-color .15s, transform .15s;
+  }
+  @media (prefers-color-scheme: dark) { a.card { background:#171b22; border-color:#2b323d; } }
+  a.card:hover, a.card:focus-visible { border-color: #2f6fed; transform: translateY(-2px); }
+  a.card:focus-visible { outline: 2px solid #2f6fed; outline-offset: 2px; }
+  .card h2 { margin: 0 0 .3rem; font-size: 1.05rem; }
+  .card p { margin: 0; font-size: .9rem; opacity: .72; }
+  footer { margin-top: 1.8rem; font-size: .82rem; opacity: .62; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <!-- The review asked for one deterministic demo entry point and an
+       unmistakable synthetic-data banner. Both live here. -->
+  <div class="banner" role="status">
+    <strong>Demo — synthetic data only.</strong>
+    <span>Every record in this deployment is fabricated. Do not enter real
+    patient information. The blockchain layer is not connected.</span>
+  </div>
+
+  <h1>MediChain</h1>
+  <p class="sub">Blockchain-anchored national health ID and emergency medical records. Choose a portal.</p>
+
+  <div class="grid">
+    <a class="card" href="/doctor/">
+      <h2>Clinician portal →</h2>
+      <p>Patient lookup, emergency access, clinical documentation, orders and results.</p>
+    </a>
+    <a class="card" href="/patient/">
+      <h2>Patient app →</h2>
+      <p>Your records, consent and access control, emergency card, appointments.</p>
+    </a>
+  </div>
+
+  <footer>
+    API health: <a href="/health">/health</a> ·
+    Portals share this origin, so <code>/api</code> is proxied to the backend.
+  </footer>
+</main>
+</body>
+</html>

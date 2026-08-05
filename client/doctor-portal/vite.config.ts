@@ -5,6 +5,13 @@ import path from 'path';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Served under /doctor/ by the Docker nginx so both portals share one origin
+  // (and therefore one `/api` proxy and one set of cookies). Set via env so the
+  // standalone dev server keeps serving from `/` — `npm run dev` is unaffected.
+  // Must stay in sync with the router basename in src/main.tsx and the nginx
+  // location block; if they disagree the app loads and then routes to a blank
+  // page, which is worse than failing outright.
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [
     react(),
     // Bundle treemap on demand: `ANALYZE=1 npm run build` -> dist/stats.html
@@ -34,12 +41,13 @@ export default defineConfig({
         // Where the dev server forwards /api/* to. Configurable so both
         // deployment shapes work:
         //   - Standalone API (the README quickstart, no Docker): the API binds
-        //     127.0.0.1:8080 directly — this is the default here.
+        //     127.0.0.1:8090 directly — this is the default here. (8090, not
+        //     8080: 8080 is the IPFS gateway's port, see api/src/main.rs.)
         //   - Full Docker stack: the API sits behind the Nginx gateway on :80;
         //     set VITE_API_PROXY_TARGET=http://127.0.0.1 to point there.
         // Previously this hardcoded :80, so the documented no-Docker quickstart
         // could not reach the API at all — every frontend call 503'd.
-        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8080',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8090',
         changeOrigin: true,
         secure: false,
         // Add timeout and error handling

@@ -6,7 +6,7 @@ describe('LacerationRepairPage', () => {
   it('renders laceration repair page', () => {
     render(<LacerationRepairPage />);
 
-    expect(screen.getByText(/Laceration Repair Documentation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Laceration Repair/i)).toBeInTheDocument();
     expect(screen.getByText(/Procedure Details/i)).toBeInTheDocument();
   });
 

@@ -11,9 +11,9 @@ pub async fn create_mar(
     req: web::Json<crate::clinical::MedicationAdministrationRecord>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
     };
 
     let record = req.into_inner();
@@ -58,8 +58,8 @@ pub async fn get_mar(
     http_req: HttpRequest,
     path: web::Path<(String, String)>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let (patient_id, medication_id) = path.into_inner();
     // Composite ID lookup simulation
@@ -73,8 +73,8 @@ pub async fn get_mar(
 /// List all MAR entries
 #[get("/api/emergency/mar/list")]
 pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -87,18 +87,63 @@ pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl 
     }
 }
 
-/// Administer medication (Workflow shortcut)
+/// Administer medication — appends the dose to the patient's MAR for today.
+///
+/// This used to acknowledge without persisting; see
+/// [`super::append_mar_administration`] for why that mattered.
 #[post("/api/emergency/administer-med")]
 pub async fn administer_medication(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
-    _req: web::Json<serde_json::Value>,
+    req: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let body = req.into_inner();
+    let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
+        Some(p) if !p.trim().is_empty() => p.to_string(),
+        _ => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "patient_id is required".to_string(),
+                code: "MISSING_PATIENT_ID".to_string(),
+            })
+        }
+    };
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+        return resp;
     }
-    HttpResponse::Ok()
-        .json(serde_json::json!({"success": true, "message": "Medication administered and logged"}))
+
+    let administration = serde_json::json!({
+        "administration_id": format!("ADM-{}", uuid::Uuid::new_v4()),
+        "medication_id": body.get("medication_id").and_then(|v| v.as_str()),
+        "medication_name": body.get("medication_name").or_else(|| body.get("medication")).and_then(|v| v.as_str()),
+        "dose": body.get("dose").and_then(|v| v.as_str()),
+        "route": body.get("route").and_then(|v| v.as_str()),
+        "notes": body.get("notes").and_then(|v| v.as_str()),
+        "administered_by": current_user_id,
+        "administered_at": Utc::now().to_rfc3339(),
+    });
+
+    match super::append_mar_administration(&data, &patient_id, &current_user_id, administration)
+        .await
+    {
+        Ok(record_id) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "record_id": record_id,
+            "message": "Medication administered and recorded"
+        })),
+        Err(e) => {
+            log::error!("MAR administration failed for {}: {}", patient_id, e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not record the administration".to_string(),
+                code: "MAR_WRITE_FAILED".to_string(),
+            })
+        }
+    }
 }
 
 /// Create I/O record
@@ -108,10 +153,9 @@ pub async fn create_io(
     req: web::Json<crate::clinical::IntakeOutputRecord>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let record = req.into_inner();
     let id = format!("IO-{}-{}", record.patient_id, record.date);
@@ -132,8 +176,8 @@ pub async fn get_io(
     http_req: HttpRequest,
     path: web::Path<(String, String, String)>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let (patient_id, _, date) = path.into_inner();
     let id = format!("IO-{}-{}", patient_id, date);
@@ -146,8 +190,8 @@ pub async fn get_io(
 /// List all I/O records
 #[get("/api/emergency/io/list")]
 pub async fn list_io(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -160,18 +204,83 @@ pub async fn list_io(data: web::Data<AppState>, http_req: HttpRequest) -> impl R
     }
 }
 
-/// Record fluid (Workflow shortcut)
+/// Record a fluid intake/output event against today's shift record.
+///
+/// This used to acknowledge without persisting; see [`super::append_io_event`].
 #[post("/api/emergency/record-fluid")]
 pub async fn record_fluid(
-    _data: web::Data<AppState>,
+    data: web::Data<AppState>,
     http_req: HttpRequest,
-    _req: web::Json<serde_json::Value>,
+    req: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u.wallet_address,
+        Err(resp) => return resp,
+    };
+    let body = req.into_inner();
+    let patient_id = match body.get("patient_id").and_then(|v| v.as_str()) {
+        Some(p) if !p.trim().is_empty() => p.to_string(),
+        _ => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "patient_id is required".to_string(),
+                code: "MISSING_PATIENT_ID".to_string(),
+            })
+        }
+    };
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+        return resp;
     }
-    HttpResponse::Ok()
-        .json(serde_json::json!({"success": true, "message": "Fluid intake/output recorded"}))
+    let amount_ml = match body
+        .get("amount_ml")
+        .or_else(|| body.get("amount"))
+        .and_then(|v| v.as_i64())
+    {
+        Some(a) if a >= 0 => a as i32,
+        _ => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "amount_ml is required and must be a non-negative number".to_string(),
+                code: "INVALID_AMOUNT".to_string(),
+            })
+        }
+    };
+    let category = body
+        .get("category")
+        .or_else(|| body.get("type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("other")
+        .to_string();
+    let shift = body
+        .get("shift")
+        .and_then(|v| v.as_str())
+        .unwrap_or("day")
+        .to_string();
+
+    match super::append_io_event(
+        &data,
+        &patient_id,
+        &shift,
+        &current_user_id,
+        &category,
+        amount_ml,
+    )
+    .await
+    {
+        Ok(record_id) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "record_id": record_id,
+            "message": "Fluid intake/output recorded"
+        })),
+        Err(e) => {
+            log::error!("I/O write failed for {}: {}", patient_id, e);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Could not record the fluid event".to_string(),
+                code: "IO_WRITE_FAILED".to_string(),
+            })
+        }
+    }
 }
 
 /// Create nursing care plan
@@ -181,10 +290,9 @@ pub async fn create_care_plan(
     req: web::Json<crate::clinical::NursingCarePlan>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let plan = req.into_inner();
     let id = plan.care_plan_id.clone();
@@ -205,8 +313,8 @@ pub async fn get_care_plan(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.nursing_care_plans.get_by_id(&id).await {
@@ -218,8 +326,8 @@ pub async fn get_care_plan(
 /// List all care plans
 #[get("/api/emergency/care-plan/list")]
 pub async fn list_care_plans(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -239,10 +347,9 @@ pub async fn create_wound(
     req: web::Json<crate::clinical::WoundAssessment>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let assessment = req.into_inner();
     let id = assessment.assessment_id.clone();
@@ -263,8 +370,8 @@ pub async fn get_wound(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.wound_assessments.get_by_id(&id).await {
@@ -279,8 +386,8 @@ pub async fn list_wound_assessments(
     data: web::Data<AppState>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if http_req.headers().get("X-User-Id").is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     match data
         .repositories
@@ -300,10 +407,9 @@ pub async fn create_iv_site(
     req: web::Json<crate::clinical::IVSiteAssessment>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let assessment = req.into_inner();
     let id = assessment.assessment_id.clone();
@@ -324,13 +430,40 @@ pub async fn get_iv_site(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.iv_assessments.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
         Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+/// List a patient's IV site assessments (provider or the patient themselves).
+///
+/// Connects the doctor-portal IVSitePage, which fetches by *patient* id — the
+/// bare `/api/emergency/iv-site/{id}` route is by *assessment* id. Mirrors the
+/// `list_patient_*` emergency routes; the repository already supports
+/// `get_by_patient`.
+#[get("/api/clinical/iv-sites/{patient_id}")]
+pub async fn list_patient_iv_sites(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = path.into_inner();
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &patient_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .iv_assessments
+        .get_by_patient(&patient_id, Pagination::new(0, 50))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
 
@@ -341,10 +474,9 @@ pub async fn create_shift_handoff(
     req: web::Json<crate::clinical::ShiftHandoff>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let handoff = req.into_inner();
     let id = handoff.handoff_id.clone();
@@ -365,13 +497,40 @@ pub async fn get_shift_handoff(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.shift_handoffs.get_by_id(&id).await {
         Ok(record) => HttpResponse::Ok().json(record),
         Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
+/// List shift handoffs involving a provider for today.
+///
+/// Connects the doctor-portal ShiftHandoffPage, which fetches by the logged-in
+/// provider's id (the bare `/api/emergency/handoff/{id}` route is by *handoff*
+/// id). Today-scoped via the repository's `get_by_provider`; multi-day history
+/// is tracked in the technical-debt register.
+#[get("/api/clinical/shift-handoff/{provider_id}")]
+pub async fn list_provider_handoffs(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let provider_id = path.into_inner();
+    if let Err(resp) = require_emergency_list_access(&data, &http_req, &provider_id) {
+        return resp;
+    }
+    match data
+        .repositories
+        .shift_handoffs
+        .get_by_provider(&provider_id, Utc::now().date_naive())
+        .await
+    {
+        Ok(handoffs) => HttpResponse::Ok().json(handoffs),
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
 
@@ -382,10 +541,9 @@ pub async fn create_incident(
     req: web::Json<crate::clinical::IncidentReport>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let report = req.into_inner();
     let id = report.report_id.clone();
@@ -406,8 +564,8 @@ pub async fn get_incident(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.incident_reports.get_by_id(&id).await {
@@ -423,10 +581,9 @@ pub async fn create_fall_risk(
     req: web::Json<crate::clinical::FallRiskAssessment>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    let _current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
 
     let assessment = req.into_inner();
     let id = assessment.assessment_id.clone();
@@ -447,8 +604,8 @@ pub async fn get_fall_risk(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if get_current_user_id(&http_req).is_none() {
-        return HttpResponse::Unauthorized().finish();
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
     }
     let id = path.into_inner();
     match data.repositories.fall_risk_assessments.get_by_id(&id).await {
@@ -509,6 +666,33 @@ mod cds_wiring_tests {
     #[actix_web::test]
     async fn create_mar_triggers_condition_and_medication_cds_rule() {
         let state = crate::AppState::new();
+
+        // `create_mar` now RESOLVES the caller against the user store rather
+        // than trusting the presence of an X-User-Id header, so the test has to
+        // register the nurse it claims to be. Previously this passed with an id
+        // belonging to nobody — which is precisely the weakness being removed,
+        // and means this test was asserting CDS behaviour through an
+        // unauthenticated request.
+        state.users.write().unwrap().insert(
+            "nurse_wallet".to_string(),
+            crate::User {
+                wallet_address: "nurse_wallet".to_string(),
+                username: Some("testnurse".to_string()),
+                name: "Test Nurse".to_string(),
+                role: crate::Role::Nurse,
+                created_at: Utc::now(),
+                created_by: None,
+                linked_patient_id: None,
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
+
         let patient_id = "PAT-CDS-MAR-1";
         let profile = test_patient(
             patient_id,

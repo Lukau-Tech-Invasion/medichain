@@ -48,7 +48,7 @@ describe('PharmacistDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Pharmacist Dashboard/i)).toBeInTheDocument();
+      expect(screen.getByText(/Pharmacy Dashboard/i)).toBeInTheDocument();
       expect(screen.getByText(/Pending Prescriptions/i)).toBeInTheDocument();
       expect(screen.getByText('15')).toBeInTheDocument();
       expect(screen.getByText(/Stock Alerts/i)).toBeInTheDocument();

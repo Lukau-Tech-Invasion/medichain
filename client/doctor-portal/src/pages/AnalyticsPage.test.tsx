@@ -51,7 +51,7 @@ describe('AnalyticsPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Hospital Analytics/i)).toBeInTheDocument();
+      expect(screen.getByText(/Analytics Dashboard/i)).toBeInTheDocument();
       expect(screen.getByText(/Patient Volume/i)).toBeInTheDocument();
       expect(screen.getByText(/Diagnosis Distribution/i)).toBeInTheDocument();
     });

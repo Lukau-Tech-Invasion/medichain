@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -32,7 +33,7 @@ describe('AMAPage', () => {
   it('renders AMA page', () => {
     render(<AMAPage />);
 
-    expect(screen.getByText(/Discharge Against Medical Advice/i)).toBeInTheDocument();
+    expect(screen.getByText(/Against Medical Advice \(AMA\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Documentation of patient refusal of care and AMA discharge/i)).toBeInTheDocument();
   });
 

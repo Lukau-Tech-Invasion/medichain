@@ -51,7 +51,7 @@ describe('DischargePage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Discharge Summary/i)).toBeInTheDocument();
+      expect(screen.getByText(/Discharge Planning/i)).toBeInTheDocument();
       expect(screen.getByText(/Pneumonia/i)).toBeInTheDocument();
       expect(screen.getByText(/Amoxicillin/i)).toBeInTheDocument();
     });

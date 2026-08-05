@@ -43,7 +43,12 @@ Write-Output "Restoring into database '$TargetDb' (container '$Container')..."
 
 & docker exec $Container psql -U $DbUser -d postgres -c "DROP DATABASE IF EXISTS $TargetDb;"
 & docker exec $Container psql -U $DbUser -d postgres -c "CREATE DATABASE $TargetDb;"
-Get-Content -Path $DumpFile -Encoding Byte -AsByteStream -Raw | & docker exec -i $Container pg_restore -U $DbUser -d $TargetDb --no-owner --no-privileges
+# Feed the dump in at the OS level, for the same reason the backup redirects out
+# at the OS level (HZ-028): `-Encoding Byte` does not exist in PowerShell 7, and
+# piping through PowerShell would decode the binary dump as text and corrupt it.
+$restoreCmd = "docker exec -i $Container pg_restore -U $DbUser -d $TargetDb --no-owner --no-privileges < `"$DumpFile`""
+& cmd.exe /c $restoreCmd
+if ($LASTEXITCODE -ne 0) { Write-Error "pg_restore failed (exit $LASTEXITCODE)"; exit 1 }
 
 if (-not (Test-Path $ManifestFile)) {
     Write-Warning "No manifest found alongside $DumpFile — skipping row-count verification."
@@ -52,12 +57,15 @@ if (-not (Test-Path $ManifestFile)) {
 }
 
 Write-Output "Verifying row counts against backup-time manifest..."
-& docker exec $Container psql -U $DbUser -d $TargetDb -c "ANALYZE;" | Out-Null
-$actualCounts = & docker exec $Container psql -U $DbUser -d $TargetDb -t -A -c "
-  SELECT schemaname || '.' || relname || ' ' || n_live_tup
-  FROM pg_stat_user_tables
-  ORDER BY schemaname, relname;
-"
+# EXACT counts, from the same shared query the manifest was written with, so
+# both sides of this comparison describe the database identically. This used to
+# read n_live_tup after an ANALYZE while the backup read it WITHOUT one, so a
+# data-free restore compared equal to a manifest of zeros and was reported as
+# verified (Horizon HZ-027). No ANALYZE is needed now — nothing here depends on
+# planner statistics.
+$ExcludeSchemaRegex = if ($env:MEDICHAIN_BACKUP_EXCLUDE_REGEX) { $env:MEDICHAIN_BACKUP_EXCLUDE_REGEX } else { "^medichain_test_" }
+. (Join-Path $PSScriptRoot "lib\RowCountQuery.ps1")
+$actualCounts = & docker exec $Container psql -U $DbUser -d $TargetDb -t -A -c (Get-RowCountQuery -ExcludeRegex $ExcludeSchemaRegex)
 $expectedCounts = Get-Content $ManifestFile
 
 $diff = Compare-Object -ReferenceObject $expectedCounts -DifferenceObject $actualCounts

@@ -49,7 +49,7 @@ describe('AdminDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Admin Dashboard/i)).toBeInTheDocument();
+      expect(screen.getByText(/System Administration/i)).toBeInTheDocument();
       expect(screen.getByText(/System Status/i)).toBeInTheDocument();
       expect(screen.getByText(/100/i)).toBeInTheDocument(); // total users
       expect(screen.getByText(/25/i)).toBeInTheDocument(); // active providers

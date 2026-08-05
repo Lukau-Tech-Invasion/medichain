@@ -10,7 +10,8 @@ vi.mock('../store/authStore', () => ({
 }));
 
 // Mock shared utilities
-vi.mock('@medichain/shared', () => ({
+vi.mock('@medichain/shared', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
@@ -32,14 +33,14 @@ describe('SOAPNotePage', () => {
   it('renders SOAP note page', () => {
     render(<SOAPNotePage />);
 
-    expect(screen.getByText(/SOAP Progress Note/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/SOAP Note/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Structured clinical documentation/i)).toBeInTheDocument();
   });
 
   it('displays SOAP sections', () => {
     render(<SOAPNotePage />);
 
-    expect(screen.getByText(/Subjective/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Subjective/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Objective/i)).toBeInTheDocument();
     expect(screen.getByText(/Assessment/i)).toBeInTheDocument();
     expect(screen.getByText(/Plan/i)).toBeInTheDocument();

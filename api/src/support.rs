@@ -420,6 +420,73 @@ pub fn require_demo_mode() -> Result<(), HttpResponse> {
     )
 }
 
+/// Resolve the caller against the user store and return them.
+///
+/// The minimum correct replacement for a bare `get_current_user_id(&req)` on a
+/// **patient-facing** endpoint. `X-User-Id` is caller-supplied and unverified,
+/// so presence alone lets an unregistered caller act as anyone; resolving it
+/// proves the account exists.
+///
+/// Use this — not [`require_clinical_staff`] — where patients legitimately act
+/// for themselves (family groups, symptom checker, wearables, reminders, sync,
+/// notification preferences). Requiring a clinical role there would lock
+/// patients out of their own features.
+///
+/// It proves *who* the caller is, not *what they may touch*: endpoints scoped to
+/// a specific patient still need [`resolve_patient_access`] or an ownership
+/// check on top.
+pub fn require_registered_caller(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+) -> Result<crate::User, HttpResponse> {
+    let user_id = get_current_user_id(req).ok_or_else(|| {
+        HttpResponse::Unauthorized().json(crate::ErrorResponse {
+            success: false,
+            error: "Authentication required".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        })
+    })?;
+    get_user(data, &user_id).ok_or_else(|| {
+        HttpResponse::Unauthorized().json(crate::ErrorResponse {
+            success: false,
+            error: "User not found".to_string(),
+            code: "USER_NOT_FOUND".to_string(),
+        })
+    })
+}
+
+/// Resolve the caller and require that they are registered clinical staff.
+///
+/// The pervasive weak pattern in this codebase is
+/// `get_current_user_id(&req)` (or a bare `X-User-Id` header check) followed by
+/// the clinical work. `X-User-Id` is **caller-supplied and unverified at that
+/// point**, so those handlers accept any string: an unregistered, unauthenticated
+/// caller satisfies them. An external review counted this as the principal route
+/// to a multi-hospital breach, and it is the same defect as HZ-024.
+///
+/// This helper is the minimum correct replacement — it *resolves* the identity
+/// against the user store and checks a clinical role, so a forged header is
+/// rejected and a patient account cannot reach staff-only endpoints.
+///
+/// It is deliberately **not** a full authorization decision: it says nothing
+/// about which organization, facility or patient the caller may touch. Endpoints
+/// handling a specific patient must additionally use
+/// [`resolve_patient_access`]. Tenant scoping remains open (SEC-16/SEC-18).
+pub fn require_clinical_staff(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+) -> Result<crate::User, HttpResponse> {
+    let user = require_registered_caller(data, req)?;
+    if !user.role.can_view_medical_records() {
+        return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
+            success: false,
+            error: "This endpoint is restricted to clinical staff".to_string(),
+            code: "INSUFFICIENT_ROLE".to_string(),
+        }));
+    }
+    Ok(user)
+}
+
 /// Who may lawfully consent to this patient's own medical treatment, on the
 /// age half of the Children's Act §129 test.
 ///

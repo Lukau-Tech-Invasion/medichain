@@ -72,7 +72,57 @@ pub fn metrics() -> &'static Metrics {
 }
 
 /// `GET /api/metrics` — Prometheus exposition format.
-pub async fn metrics_endpoint() -> impl Responder {
+/// Compare two byte strings without short-circuiting on the first difference.
+///
+/// A plain `==` on a secret leaks its contents through timing: the comparison
+/// returns sooner the earlier it finds a mismatch, so an attacker can recover
+/// the token one byte at a time. Length is folded into the result rather than
+/// checked first, for the same reason.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff = (a.len() ^ b.len()) as u8;
+    for i in 0..a.len().max(b.len()) {
+        let x = a.get(i).copied().unwrap_or(0);
+        let y = b.get(i).copied().unwrap_or(0);
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+pub async fn metrics_endpoint(
+    data: actix_web::web::Data<crate::AppState>,
+    http_req: actix_web::HttpRequest,
+) -> impl Responder {
+    // Metrics describe internal operational behaviour — request volumes, error
+    // rates, latency by route — which is reconnaissance for an attacker and was
+    // previously readable by anyone. Require a known caller. `METRICS_TOKEN`
+    // exists because Prometheus scrapes without a user identity; when it is set,
+    // a matching `Authorization: Bearer` is accepted instead.
+    let authorized = match std::env::var("METRICS_TOKEN") {
+        Ok(token) if !token.is_empty() => http_req
+            .headers()
+            .get(actix_web::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "))
+            .map(|presented| constant_time_eq(presented.as_bytes(), token.as_bytes()))
+            .unwrap_or(false),
+        // RESOLVE the caller, don't just observe a header. A first cut of this
+        // used `get_current_user_id(...).is_some()`, which is satisfied by
+        // `X-User-Id: anything` — the precise "authentication mistaken for
+        // authorization" defect this whole pass exists to remove. The suite's
+        // forged-identity assertion caught it.
+        _ => crate::support::get_current_user_id(&http_req)
+            .and_then(|id| crate::support::get_user(&data, &id))
+            .is_some(),
+    };
+    if !authorized {
+        return HttpResponse::Unauthorized().json(serde_json::json!({
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": "Metrics require an authenticated caller or METRICS_TOKEN bearer token."
+            }
+        }));
+    }
+
     let mut buffer = Vec::new();
     let encoder = TextEncoder::new();
     let families = metrics().registry.gather();
@@ -130,12 +180,19 @@ where
         Box::pin(async move {
             let res = service.call(req).await?;
 
-            // Prefer the registered route pattern to bound label cardinality;
-            // fall back to the raw path for unmatched routes (404s).
+            // Prefer the registered route pattern to bound label cardinality.
+            //
+            // Unmatched requests collapse to the single literal "<unmatched>"
+            // rather than their raw path. Falling back to the raw path let any
+            // caller mint unlimited distinct label values by requesting
+            // /aaa, /aab, /aac… — unbounded Prometheus cardinality and memory
+            // growth from outside the trust boundary — and raw 404 paths can
+            // themselves carry identifiers (e.g. a mistyped /api/patients/<id>),
+            // putting them in a scrape endpoint.
             let path = res
                 .request()
                 .match_pattern()
-                .unwrap_or_else(|| res.request().path().to_owned());
+                .unwrap_or_else(|| "<unmatched>".to_owned());
             let status = res.status().as_u16().to_string();
             let elapsed = start.elapsed().as_secs_f64();
 

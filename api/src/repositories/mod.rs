@@ -252,6 +252,14 @@ pub struct RepositoryContainer {
 
     // Phase 33: offline-sync device registry (JSON-record backed)
     pub sync_devices: Arc<dyn JsonRecordRepository>,
+
+    // Horizon HZ-023: stores backing features that previously returned
+    // fabricated literals. `messages` is owned by the recipient (so an inbox
+    // read is `get_by_owner`), `symptom_entries` by the patient, and
+    // `barcode_scans` by the user who performed the scan.
+    pub messages: Arc<dyn JsonRecordRepository>,
+    pub symptom_entries: Arc<dyn JsonRecordRepository>,
+    pub barcode_scans: Arc<dyn JsonRecordRepository>,
 }
 
 /// The `[start, end)` instant range an appointment occupies.
@@ -473,6 +481,11 @@ impl RepositoryContainer {
 
             // Phase 33: offline-sync device registry (memory)
             sync_devices: Arc::new(memory::MemoryJsonRecordRepository::new()),
+
+            // Horizon HZ-023 (memory)
+            messages: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            symptom_entries: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            barcode_scans: Arc::new(memory::MemoryJsonRecordRepository::new()),
         }
     }
 
@@ -1009,6 +1022,11 @@ impl RepositoryContainer {
 
             // Phase 33: offline-sync device registry (PostgreSQL)
             sync_devices: Arc::new(postgres::PgSyncDeviceRepository::new(pool.clone())),
+
+            // Horizon HZ-023 (PostgreSQL)
+            messages: Arc::new(postgres::PgMessageRepository::new(pool.clone())),
+            symptom_entries: Arc::new(postgres::PgSymptomEntryRepository::new(pool.clone())),
+            barcode_scans: Arc::new(postgres::PgBarcodeScanRepository::new(pool.clone())),
 
             consent_records: Arc::new(postgres::PgConsentRecordRepository::new(pool)),
         })
