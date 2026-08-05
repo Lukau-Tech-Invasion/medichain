@@ -181,6 +181,23 @@ jobs:
               with:
                   args: --severity-threshold=high
 
+            # NO `working-directory:` HERE. It is valid only on `run:` steps, and
+            # putting it on a `uses:` step makes GitHub reject the ENTIRE workflow
+            # file before running anything — every job in this file, not just this
+            # one, and not just this job's own failure. That is exactly what
+            # happened: this workflow failed in 0s on every push from 2026-07-27
+            # to 2026-08-05 and not one of its eight jobs ever ran, including the
+            # endpoint-authorization gate and the dual-backend e2e matrix.
+            #
+            # It went unnoticed because `verification.yml` publishes checks named
+            # "Rust format and tests" and "Client builds", which are green and read
+            # like full CI coverage at a glance.
+            #
+            # Note this job is `if:`-disabled by default, so an invalid key in a
+            # job that never runs still took down everything else.
+            #
+            # `--all-projects` scans from the repository root and picks up
+            # client/**/package.json anyway, so no directory change is needed.
             - name: Snyk — frontend dependencies (npm)
               continue-on-error: true
               uses: snyk/actions/node@master
@@ -189,7 +206,6 @@ jobs:
               with:
                   command: test
                   args: --severity-threshold=high --all-projects
-              working-directory: client
 
     # ============================================================================
     # TypeScript/React Client Apps (doctor-portal, patient-app)
