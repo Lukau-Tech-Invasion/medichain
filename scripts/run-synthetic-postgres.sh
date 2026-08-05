@@ -27,4 +27,15 @@ export RUST_LOG=info
 # 8080 is taken by the IPFS gateway (see docker-compose.yml) — use a distinct port.
 export PORT=8091
 
+# Pin the IPFS endpoints to 127.0.0.1, exactly as run-synthetic-local.sh does.
+# Without these the API falls back to its built-in "http://localhost:8080"
+# default (api/src/ipfs.rs), and on this machine every record DOWNLOAD then
+# fails with "error sending request" while the upload succeeds — so the suite
+# reports 157/160 with three IPFS failures that look like a storage-backend
+# regression and are nothing of the kind. The memory-mode sibling has always
+# set these; this script did not, which made the PostgreSQL leg look three
+# tests worse than the memory leg for purely environmental reasons.
+export IPFS_API_URL=${IPFS_API_URL:-http://127.0.0.1:5001}
+export IPFS_GATEWAY_URL=${IPFS_GATEWAY_URL:-http://127.0.0.1:8080}
+
 exec ./target/debug/medichain-api.exe
