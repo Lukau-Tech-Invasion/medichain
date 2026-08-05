@@ -545,4 +545,17 @@ printf '  passed=%d failed=%d\n' "$PASS" "$FAIL"
 printf '%s\n' "${RESULTS[@]}" > /tmp/synthetic-results.txt
 [ "$FAIL" -gt 0 ] && { echo; echo "  Failures:"; printf '%s\n' "${RESULTS[@]}" | grep '^FAIL'; }
 rm -f /tmp/mc_body
+
+# Exit NON-ZERO when anything failed.
+#
+# This used to `exit 0` unconditionally, so the suite reported "passed=89
+# failed=63" and still told its caller it had succeeded. That is fine while a
+# human is reading the output and wrong the moment anything automated consumes
+# it: wired into CI as-is, this job would have gone green over a completely
+# broken storage backend.
+#
+# Distinct from the "not `set -e`" decision at the top of this file. That is
+# about not ABANDONING the run on the first failure — the whole point is to find
+# out what else breaks. It was never a reason to misreport the final result.
+[ "$FAIL" -gt 0 ] && exit 1
 exit 0

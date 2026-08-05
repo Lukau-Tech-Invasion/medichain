@@ -288,3 +288,150 @@ jobs:
             - name: Run WASM tests
               working-directory: client/wasm-crypto
               run: wasm-pack test --node
+
+    # ============================================================================
+    # End-to-end suite against BOTH storage backends.
+    #
+    # This job exists because running the suite on the memory backend alone hid a
+    # completely broken PostgreSQL path for the life of the project. Memory is a
+    # HashMap: no column widths, no type coercion, no CHECK constraints. Every
+    # end-to-end assertion ran against it, so PostgreSQL-only failures were
+    # invisible until the backend was first exercised — at which point patient
+    # registration turned out to be impossible (a 64-char SHA3 hash into a
+    # VARCHAR(32)), four repository methods were unimplemented, and 16 actor
+    # columns were typed uuid while the application writes wallet addresses.
+    #
+    # The matrix is the point: a defect that only appears on one backend must
+    # fail the build. `scripts/synthetic-e2e-test.sh` already parameterises
+    # BASE, so this needed no new test code.
+    # ============================================================================
+    e2e-both-backends:
+        name: E2E (${{ matrix.backend }} backend)
+        runs-on: ubuntu-latest
+
+        strategy:
+            # Always run both legs — knowing ONLY that postgres broke, without
+            # knowing whether memory also broke, makes triage guesswork.
+            fail-fast: false
+            matrix:
+                backend: [memory, postgres]
+
+        services:
+            # Started for both legs; the memory leg simply ignores it. Keeping
+            # the matrix legs otherwise identical means a difference in results
+            # is a difference in the BACKEND, not in the environment.
+            postgres:
+                image: postgres:16-alpine
+                env:
+                    POSTGRES_USER: medichain
+                    POSTGRES_PASSWORD: medichain_ci
+                    POSTGRES_DB: medichain
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U medichain"
+                    --health-interval 10s
+                    --health-timeout 5s
+                    --health-retries 10
+
+            # Without IPFS the suite SKIPS its whole encrypted-record section
+            # (upload -> encrypt -> IPFS -> download -> decrypt) rather than
+            # failing, so a regression there would go unnoticed while the job
+            # still reported green. A skipped section is not a passing one.
+            ipfs:
+                image: ipfs/kubo:v0.29.0
+                ports:
+                    - 5001:5001
+                    - 8080:8080
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache cargo registry
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      target
+                  key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-cargo-
+
+            # The suite's `jget` helper shells out to `python`, which does not
+            # exist on ubuntu-latest by default (only `python3`).
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+
+            - name: Build API
+              run: cargo build --bin medichain-api
+
+            # Two explicit steps rather than one with conditional env. An
+            # empty-string MEDICHAIN_STORAGE/DATABASE_URL is SET-but-empty, not
+            # unset: the memory leg would still try to open a connection to ""
+            # and log a connection failure, which is noise that looks like a
+            # defect. Being explicit costs a few lines and removes the ambiguity.
+            - name: Start API (memory backend)
+              if: matrix.backend == 'memory'
+              env:
+                  IS_DEMO: "true"
+                  REQUIRE_SIGNATURES: "false"
+                  BLOCKCHAIN_ENABLED: "false"
+                  MEDICHAIN_BOOTSTRAP_KEY: synthetic-test-bootstrap-key-2026
+                  PORT: "8090"
+                  HOST: 127.0.0.1
+                  RUST_LOG: warn
+                  # 127.0.0.1, not `localhost`: the latter can resolve to ::1
+                  # first and the published port is not reachable there.
+                  IPFS_API_URL: http://127.0.0.1:5001
+                  IPFS_GATEWAY_URL: http://127.0.0.1:8080
+              run: ./scripts/ci-start-api.sh
+
+            - name: Start API (postgres backend)
+              if: matrix.backend == 'postgres'
+              env:
+                  IS_DEMO: "true"
+                  REQUIRE_SIGNATURES: "false"
+                  BLOCKCHAIN_ENABLED: "false"
+                  MEDICHAIN_BOOTSTRAP_KEY: synthetic-test-bootstrap-key-2026
+                  PORT: "8090"
+                  HOST: 127.0.0.1
+                  RUST_LOG: warn
+                  MEDICHAIN_STORAGE: postgres
+                  DATABASE_URL: postgres://medichain:medichain_ci@127.0.0.1:5432/medichain
+              run: ./scripts/ci-start-api.sh
+
+            # Migrations must APPLY, not merely be attempted. sqlx halts the
+            # whole chain if one already-applied migration's checksum changed,
+            # and in demo mode that is a warning rather than an abort — which is
+            # exactly how this database drifted 31 migrations behind the code
+            # without anyone noticing.
+            - name: Assert migrations applied (postgres only)
+              if: matrix.backend == 'postgres'
+              run: |
+                  if grep -q "DATABASE MIGRATIONS DID NOT APPLY" /tmp/api.log; then
+                      echo "::error::Migrations did not apply — schema does not match the code"
+                      grep -A 6 "DATABASE MIGRATIONS DID NOT APPLY" /tmp/api.log
+                      exit 1
+                  fi
+                  echo "migrations applied cleanly"
+
+            - name: Synthetic end-to-end suite
+              run: BASE=http://127.0.0.1:8090 bash scripts/synthetic-e2e-test.sh
+
+            - name: Cross-patient IDOR sweep
+              run: BASE=http://127.0.0.1:8090 bash scripts/idor-sweep.sh
+
+            - name: API log on failure
+              if: failure()
+              run: tail -100 /tmp/api.log
+
+            - name: Stop API
+              if: always()
+              run: kill "$(cat /tmp/api.pid)" 2>/dev/null || true

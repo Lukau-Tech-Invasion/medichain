@@ -71,6 +71,8 @@ alone — an issue that blocks the clinic demo outranks a worse one that doesn't
 claims a technical block, but revoking consent still has no technical effect.
 Owner decision, tangled with SEC-16.
 
+| SEC-38 | E2E ran against ONE backend only (`FIXED`) | New CI job `e2e-both-backends` runs the suite plus the IDOR sweep against **memory and PostgreSQL** in a matrix, with `fail-fast: false` so both legs always report. Asserts migrations actually applied on the postgres leg. Adds an IPFS service so the encrypted-record section runs instead of silently skipping. **`synthetic-e2e-test.sh` also fixed: it exited 0 unconditionally**, so wired into CI as-is it would have gone green over a completely broken backend. |
+
 ## Note on process
 
 Two green signals were wrong here: an e2e suite asserting a medication
