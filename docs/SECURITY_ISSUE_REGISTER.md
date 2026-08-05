@@ -73,6 +73,8 @@ Owner decision, tangled with SEC-16.
 
 | SEC-38 | E2E ran against ONE backend only (`FIXED`) | New CI job `e2e-both-backends` runs the suite plus the IDOR sweep against **memory and PostgreSQL** in a matrix, with `fail-fast: false` so both legs always report. Asserts migrations actually applied on the postgres leg. Adds an IPFS service so the encrypted-record section runs instead of silently skipping. **`synthetic-e2e-test.sh` also fixed: it exited 0 unconditionally**, so wired into CI as-is it would have gone green over a completely broken backend. |
 
+| SEC-39 | Backup procedure failed on any dev database (`FIXED`) | `pg_dump` locks every table in one transaction; ~230 leaked `medichain_test_*` schemas (~28,000 tables) made it die with `out of shared memory`. The documented rollback path was unusable and nobody knew, because nobody had run it. Backup now excludes test schemas (`-N`), with the manifest and restore verification applying the same filter so they cannot disagree. **Root cause also fixed**: the integration tests now sweep test schemas older than 2h before creating a new one — which additionally fixed 4 postgres tests that were failing with the same lock exhaustion. Backup→restore rehearsed end to end: row counts match table-for-table. |
+
 ## Note on process
 
 Two green signals were wrong here: an e2e suite asserting a medication

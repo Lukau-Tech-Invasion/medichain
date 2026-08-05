@@ -51,18 +51,21 @@ fi
 
 echo "Verifying row counts against backup-time manifest..."
 ACTUAL_FILE="$(mktemp)"
-docker exec "$CONTAINER" psql -U "$DB_USER" -d "$TARGET_DB" -t -A -c "
-  SELECT schemaname || '.' || relname || ' ' || n_live_tup
-  FROM pg_stat_user_tables
-  ORDER BY schemaname, relname;
-" > "$ACTUAL_FILE"
-
 # n_live_tup is a planner estimate, not an exact count immediately after
 # restore (ANALYZE hasn't run yet) — ANALYZE first so the comparison is exact.
+# The counts are read ONCE, after ANALYZE; this previously read them before
+# ANALYZE as well and threw the first result away.
 docker exec "$CONTAINER" psql -U "$DB_USER" -d "$TARGET_DB" -c "ANALYZE;" > /dev/null
+
+# Same exclusion the backup applied, for the same reason: the restored database
+# will not contain the ephemeral test schemas, so comparing an unfiltered view
+# against a filtered manifest would report thousands of false differences and
+# the check would be ignored. Env-overridable so backup and restore stay in step.
+EXCLUDE_SCHEMA_REGEX="${MEDICHAIN_BACKUP_EXCLUDE_REGEX:-^medichain_test_}"
 docker exec "$CONTAINER" psql -U "$DB_USER" -d "$TARGET_DB" -t -A -c "
   SELECT schemaname || '.' || relname || ' ' || n_live_tup
   FROM pg_stat_user_tables
+  WHERE schemaname !~ '${EXCLUDE_SCHEMA_REGEX}'
   ORDER BY schemaname, relname;
 " > "$ACTUAL_FILE"
 

@@ -44,6 +44,55 @@ async fn create_test_pool() -> PgPool {
         .execute(&admin_pool)
         .await
         .expect("Failed to unlock PostgreSQL extension setup");
+    // Sweep stale test schemas before creating a new one.
+    //
+    // These schemas were never dropped. On a developer machine that had run
+    // this suite regularly, 239 of them had accumulated — roughly 28,000 tables
+    // — and that broke something that mattered: `pg_dump` takes a LOCK on every
+    // table in one transaction, so the documented backup procedure died with
+    // "out of shared memory / increase max_locks_per_transaction". The rollback
+    // path was unusable, and nobody knew because nobody had run it.
+    //
+    // A sweep rather than per-test teardown: tests take a `PgPool` and have no
+    // natural drop hook, so adding one would mean restructuring every test.
+    // Each run cleaning up after previous runs is self-healing and needs no
+    // cooperation from the tests themselves.
+    //
+    // Only schemas older than two hours are dropped, so a concurrent run on the
+    // same database is never touched — a test takes seconds, not hours. The
+    // timestamp is the millisecond field of the schema name.
+    // Select-then-drop in Rust rather than a PL/pgSQL DO block: sqlx sends
+    // statements over the extended protocol, and a `DO $$ … $$` body did not
+    // execute — silently, because the result was discarded. A sweep that
+    // quietly does nothing is the same failure mode as the leak it fixes, so
+    // this version is verifiable and logs what it removed.
+    let stale: Vec<String> = sqlx::query_scalar(
+        r#"
+        SELECT nspname::TEXT FROM pg_namespace
+        WHERE nspname LIKE 'medichain\_test\_%'
+          AND split_part(nspname, '_', 4) ~ '^[0-9]+$'
+          AND split_part(nspname, '_', 4)::BIGINT
+              < (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT - 7200000
+        "#,
+    )
+    .fetch_all(&admin_pool)
+    .await
+    .unwrap_or_default();
+
+    for s in &stale {
+        if let Err(e) = sqlx::query(&format!("DROP SCHEMA {} CASCADE", quote_identifier(s)))
+            .execute(&admin_pool)
+            .await
+        {
+            // Not fatal: another runner may have dropped it first. Reported
+            // rather than swallowed so a sweep that never works is visible.
+            eprintln!("test-schema sweep: could not drop {s}: {e}");
+        }
+    }
+    if !stale.is_empty() {
+        eprintln!("test-schema sweep: dropped {} stale schema(s)", stale.len());
+    }
+
     sqlx::query(&format!("CREATE SCHEMA {}", quote_identifier(&schema)))
         .execute(&admin_pool)
         .await
