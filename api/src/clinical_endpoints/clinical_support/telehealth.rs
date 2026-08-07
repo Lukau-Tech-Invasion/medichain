@@ -782,7 +782,7 @@ pub async fn get_patient_telehealth_sessions(
         Err(resp) => return resp,
     };
 
-    let is_own = current_user_id == patient_id;
+    let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,

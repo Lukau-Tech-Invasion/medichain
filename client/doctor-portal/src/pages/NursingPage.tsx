@@ -386,8 +386,8 @@ function NursingPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {mar.medications.map((med, medIdx) => (
-                            med.doses.map((dose, doseIdx) => (
+                          {(mar.medications ?? []).flatMap((med, medIdx) => (
+                            (med.doses ?? []).map((dose, doseIdx) => (
                               <tr key={`${medIdx}-${doseIdx}`} className="hover:bg-gray-50">
                                 {doseIdx === 0 && (
                                   <>
@@ -561,7 +561,7 @@ function NursingPage() {
                           {t('docNursing.intakeTotalLine', { total: record.total_intake })}
                         </h4>
                         <div className="space-y-2">
-                          {record.intake.map((entry, idx) => (
+                          {(record.intake ?? []).map((entry, idx) => (
                             <div key={idx} className="flex justify-between text-sm">
                               <span>{entry.time.split('T')[1]?.substring(0, 5)} - {entry.type}</span>
                               <span className="font-medium">{entry.amount_ml} mL</span>
@@ -576,7 +576,7 @@ function NursingPage() {
                           {t('docNursing.outputTotalLine', { total: record.total_output })}
                         </h4>
                         <div className="space-y-2">
-                          {record.output.map((entry, idx) => (
+                          {(record.output ?? []).map((entry, idx) => (
                             <div key={idx} className="flex justify-between text-sm">
                               <span>{entry.time.split('T')[1]?.substring(0, 5)} - {entry.type}</span>
                               <span className="font-medium">{entry.amount_ml} mL</span>

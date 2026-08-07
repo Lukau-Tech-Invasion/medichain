@@ -540,6 +540,54 @@ if [ -n "$PAT_COND" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+say "18. A patient can read their OWN clinical data (and only their own)"
+# WHY THIS SECTION EXISTS
+# -----------------------
+# Every section above drives the clinical endpoints as $DOCTOR or $PARAMEDIC.
+# Provider credentials take the `is_healthcare_provider()` branch of the access
+# guard and never reach the self-access comparison beneath it. That comparison
+# was broken in 26 handlers — it tested a wallet address against a patient
+# record ID, two identifier namespaces that are never equal — so a patient was
+# refused their own records everywhere, and this suite still reported 160/160.
+#
+# The gap was in what was covered, not in the assertions. These cases close it:
+# they exercise the endpoints with a PATIENT credential, which is the only way
+# to reach the branch that was wrong.
+
+# Run-unique identifiers. A claim is ONE PER ACCOUNT FOR LIFE, so a fixed
+# wallet here passed exactly once against a persistent backend and then failed
+# on every later run with ALREADY_LINKED — a section that only works on a cold
+# database, which is the failure mode `check_setup` above exists to prevent.
+# Base58 alphabet (no 0/O/I/l) and 48 chars total, matching SS58 validation.
+SELFREAD_WALLET="5$(head -c 400 /dev/urandom | tr -dc '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz' | head -c 47)"
+SELFREAD_NID="SYN-SELFREAD-$(head -c 200 /dev/urandom | tr -dc 'A-Z1-9' | head -c 8)"
+# Self-contained: this section registers its OWN patient rather than reusing
+# $PAT_ADULT, whose identity an earlier section already claims (a second claim
+# is correctly refused with IDENTITY_ALREADY_CLAIMED, which would make these
+# assertions fail for a reason unrelated to what they test).
+c=$(code POST /api/register "$(mkpatient 'Selfread Synthetic' '1988-06-02' "$SELFREAD_NID" '+27000000021' 'O-')" "$DOCTOR")
+check_setup "register a patient for the self-access checks" "$c" "$(body)"
+PAT_SELF=$(jget patient_id)
+
+c=$(code POST /api/auth/register "{\"wallet_address\":\"$SELFREAD_WALLET\",\"name\":\"Selfread Synthetic\",\"username\":\"selfread\",\"role\":\"Patient\"}" "$ADMIN")
+check_setup "admin registers a patient-role account" "$c" "$(body)"
+
+c=$(code POST /api/identity/claim "{\"patient_id\":\"$PAT_SELF\",\"national_id\":\"$SELFREAD_NID\",\"date_of_birth\":\"1988-06-02\"}" "$SELFREAD_WALLET")
+check "patient claims their own medical identity" 200 "$c" "$(body)"
+
+# The positive half: the data subject reads their own record.
+check "patient reads OWN demographic record"  200 "$(code GET "/api/patients/$PAT_SELF" '' "$SELFREAD_WALLET")"
+check "patient reads OWN medical records"     200 "$(code GET "/api/records/$PAT_SELF" '' "$SELFREAD_WALLET")"
+check "patient reads OWN vitals"              200 "$(code GET "/api/clinical/patient/$PAT_SELF/vitals" '' "$SELFREAD_WALLET")"
+check "patient reads OWN medical ID"          200 "$(code GET "/api/medical-id/$PAT_SELF" '' "$SELFREAD_WALLET")"
+
+# The negative half. Without it the four assertions above are satisfied by an
+# endpoint that simply lets every patient read everything, which would be a far
+# worse defect than the one this section was written for.
+check "patient CANNOT read another patient's records" 403 "$(code GET "/api/records/$PAT_C11" '' "$SELFREAD_WALLET")"
+check "patient CANNOT read another patient's vitals"  403 "$(code GET "/api/clinical/patient/$PAT_C11/vitals" '' "$SELFREAD_WALLET")"
+
+# ---------------------------------------------------------------------------
 say "RESULTS"
 printf '  passed=%d failed=%d\n' "$PASS" "$FAIL"
 printf '%s\n' "${RESULTS[@]}" > /tmp/synthetic-results.txt

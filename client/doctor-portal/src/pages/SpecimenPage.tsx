@@ -77,8 +77,15 @@ const SpecimenPage: React.FC = () => {
         }
 
         const data = await response.json();
+        // The endpoint returns a bare array on some paths and an envelope
+        // (`{items}` / `{data}`) on others; calling `.map` on the envelope threw
+        // `data.map is not a function` and left the page stuck on its error
+        // state. Normalise instead of assuming one shape.
+        const rows: Specimen[] = Array.isArray(data)
+          ? data
+          : (data?.items ?? data?.data ?? []);
         // Convert date strings to Date objects
-        const specimenData = data.map((s: Specimen) => ({
+        const specimenData = rows.map((s: Specimen) => ({
           ...s,
           orderedAt: new Date(s.orderedAt),
           collectedAt: s.collectedAt ? new Date(s.collectedAt) : undefined,

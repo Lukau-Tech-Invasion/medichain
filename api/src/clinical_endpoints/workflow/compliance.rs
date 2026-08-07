@@ -458,7 +458,9 @@ pub async fn get_patient_consents(
     // in `download_offline_data`. Resolve the role from the user store.
     let is_provider = crate::get_user(&data, &current_user_id)
         .is_some_and(|user| user.role.is_healthcare_provider());
-    if current_user_id != patient_id && !is_provider {
+    if !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+        && !is_provider
+    {
         return HttpResponse::Forbidden().finish();
     }
 

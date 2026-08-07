@@ -250,7 +250,16 @@ fn require_emergency_list_access(
         None => return Err(HttpResponse::Unauthorized().finish()),
     };
     match get_user(data, &current_user_id) {
-        Some(u) if u.role.is_healthcare_provider() || current_user_id == patient_id => Ok(()),
+        Some(u)
+            if u.role.is_healthcare_provider()
+                || crate::support::caller_owns_patient_record(
+                    &data,
+                    &current_user_id,
+                    &patient_id,
+                ) =>
+        {
+            Ok(())
+        }
         Some(_) => Err(HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

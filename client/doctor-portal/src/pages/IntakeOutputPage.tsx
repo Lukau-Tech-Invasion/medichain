@@ -188,10 +188,15 @@ const IntakeOutputPage: React.FC = () => {
     return { color: 'text-green-600', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
   };
 
+  // `patientName`, `mrn` and `room` are all optional in practice — a patient
+  // with no assigned room, or a record whose name has not resolved yet, threw
+  // `Cannot read properties of undefined (reading 'toLowerCase')` and took the
+  // whole page down with an uncaught error rather than just filtering it out.
+  const q = searchQuery.toLowerCase();
   const filteredPatients = patients.filter(p =>
-    p.patientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.mrn.includes(searchQuery) ||
-    p.room.toLowerCase().includes(searchQuery.toLowerCase())
+    (p.patientName ?? '').toLowerCase().includes(q) ||
+    (p.mrn ?? '').includes(searchQuery) ||
+    (p.room ?? '').toLowerCase().includes(q)
   );
 
   const handleAddEntry = async () => {
@@ -314,11 +319,11 @@ const IntakeOutputPage: React.FC = () => {
               </div>
 
               <div className="space-y-4">
-                {filteredPatients.map(patient => {
+                {filteredPatients.map((patient, pIdx) => {
                   const balanceStatus = getBalanceStatus(patient.netBalance);
                   return (
                     <div
-                      key={patient.patientId}
+                      key={patient.patientId ?? `p-${pIdx}`}
                       className="bg-white rounded-lg shadow border overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
                       onClick={() => setSelectedPatient(patient)}
                     >
@@ -328,10 +333,10 @@ const IntakeOutputPage: React.FC = () => {
                             <h3 className="font-semibold text-lg">{patient.patientName}</h3>
                         <p className="text-sm text-gray-500">{t('docIntakeOutput.mrnRoomLine', { mrn: patient.mrn, room: patient.room })}</p>
                       </div>
-                      {patient.alerts.length > 0 && (
+                      {(patient.alerts ?? []).length > 0 && (
                         <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs">
                           <AlertTriangle className="w-3 h-3" />
-                          {t(patient.alerts.length > 1 ? 'docIntakeOutput.alertPlural' : 'docIntakeOutput.alertSingular', { count: patient.alerts.length })}
+                          {t((patient.alerts ?? []).length > 1 ? 'docIntakeOutput.alertPlural' : 'docIntakeOutput.alertSingular', { count: (patient.alerts ?? []).length })}
                         </div>
                       )}
                     </div>
@@ -365,12 +370,12 @@ const IntakeOutputPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {patient.alerts.length > 0 && (
+                    {(patient.alerts ?? []).length > 0 && (
                       <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
                           <div className="text-sm text-red-700">
-                            {patient.alerts.map((alert, idx) => (
+                            {(patient.alerts ?? []).map((alert, idx) => (
                               <p key={idx}>{alert}</p>
                             ))}
                           </div>
@@ -614,7 +619,7 @@ const IntakeOutputPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedPatient.entries.map(entry => (
+                    {(selectedPatient.entries ?? []).map(entry => (
                       <tr key={entry.id} className="border-t">
                         <td className="p-3">{entry.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                         <td className="p-3">

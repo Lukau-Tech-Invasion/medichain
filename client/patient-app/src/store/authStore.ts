@@ -151,7 +151,14 @@ export const usePatientAuthStore = create<AuthState>()(
             
             const patient: Patient = {
               walletAddress: accountData.address,
-              healthId: accountData.healthId,
+              // `/api/auth/wallet/{address}` returns the patient-record link as
+              // `linked_patient_id`; it has NO `healthId` field. Reading only
+              // `accountData.healthId` left this undefined, so every page that
+              // fetches the patient's own record built the URL
+              // `/api/patients/undefined` and got 403 — the dashboard, the
+              // emergency card and the profile page all failed to load, with
+              // nothing on screen explaining why.
+              healthId: accountData.healthId ?? accountData.linked_patient_id,
               fullName: accountData.name || `Patient`,
               firstName: accountData.firstName || accountData.name?.split(' ')[0] || 'Patient',
               bloodType: accountData.bloodType,

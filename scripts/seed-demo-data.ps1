@@ -12,7 +12,8 @@ param(
     [string]$Mode = "api"
 )
 
-$API_BASE = "http://localhost:8080"
+# 8090, not 8080 — 8080 is the IPFS gateway published by docker-compose.
+$API_BASE = if ($env:API_BASE) { $env:API_BASE } else { "http://localhost:8090" }
 $DOCTOR_ID = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"  # Demo doctor wallet
 
 Write-Host "MediChain Demo Data Seeding Script" -ForegroundColor Cyan

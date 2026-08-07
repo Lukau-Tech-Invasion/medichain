@@ -2,7 +2,8 @@
 # Tests ALL API endpoints with real data creation
 
 param(
-    [string]$BaseUrl = "http://localhost:8080",
+    # 8090, not 8080 — 8080 is the IPFS gateway published by docker-compose.
+    [string]$BaseUrl = "http://localhost:8090",
     [switch]$Verbose
 )
 

@@ -62,6 +62,25 @@ async fn require_registry_reader(
 }
 
 /// List lab chain of custody records
+/// Map a registry read failure to a response.
+///
+/// A registry whose repository has no `list_all` on the active storage backend
+/// is **empty, not broken**. Returning 500 made the page look like a server
+/// fault (`/api/platform/list/lab-qc` did exactly this), when the honest answer
+/// is "there are no records here". Genuine failures still surface as 500.
+fn registry_read_error(http_req: &HttpRequest, e: impl std::fmt::Display) -> HttpResponse {
+    let msg = e.to_string();
+    if msg.contains("not implemented") {
+        log::warn!(
+            "registry {} has no list_all on this storage backend; returning an empty list",
+            http_req.path()
+        );
+        return HttpResponse::Ok().json(Vec::<serde_json::Value>::new());
+    }
+    log::error!("registry read failed on {}: {}", http_req.path(), msg);
+    HttpResponse::InternalServerError().finish()
+}
+
 #[get("/api/platform/list/chain-of-custody")]
 pub async fn list_chain_of_custody(
     data: web::Data<AppState>,
@@ -72,10 +91,7 @@ pub async fn list_chain_of_custody(
     }
     match data.repositories.chain_of_custody.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -87,10 +103,7 @@ pub async fn list_lab_qc(data: web::Data<AppState>, http_req: HttpRequest) -> im
     }
     match data.repositories.lab_qc_records.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -105,10 +118,7 @@ pub async fn list_critical_values(
     }
     match data.repositories.critical_values.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -123,10 +133,7 @@ pub async fn list_radiology_orders(
     }
     match data.repositories.radiology_orders.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -138,10 +145,7 @@ pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) ->
     }
     match data.repositories.pathology_reports.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -156,10 +160,7 @@ pub async fn list_immunizations(
     }
     match data.repositories.immunization_records.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -196,10 +197,7 @@ pub async fn list_my_immunizations(
         .await
     {
         Ok(records) => HttpResponse::Ok().json(serde_json::json!({ "immunizations": records })),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -241,10 +239,7 @@ pub async fn list_autopsy(data: web::Data<AppState>, http_req: HttpRequest) -> i
     }
     match data.repositories.autopsy_requests.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -259,10 +254,7 @@ pub async fn list_autopsy_reports(
     }
     match data.repositories.autopsy_reports.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -285,10 +277,7 @@ pub async fn list_consults(data: web::Data<AppState>, http_req: HttpRequest) -> 
                 .filter(|n| n.note_type == "consult")
                 .collect::<Vec<_>>(),
         ),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -305,10 +294,7 @@ pub async fn list_cds_alerts(data: web::Data<AppState>, http_req: HttpRequest) -
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -376,10 +362,7 @@ pub async fn record_vital_signs(
 
     match data.repositories.vital_signs.create(vitals).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({"success": true})),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -399,10 +382,7 @@ pub async fn list_progress_notes(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -422,10 +402,7 @@ pub async fn list_incident_reports(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -445,10 +422,7 @@ pub async fn list_intake_output(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }
 
@@ -468,9 +442,6 @@ pub async fn list_ama_discharges(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(e) => {
-            log::error!("registry read failed on {}: {}", http_req.path(), e);
-            HttpResponse::InternalServerError().finish()
-        }
+        Err(e) => registry_read_error(&http_req, e),
     }
 }

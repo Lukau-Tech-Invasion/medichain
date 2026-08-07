@@ -1,7 +1,10 @@
 # MediChain Demo Users Setup Script for Windows PowerShell
 # Run this after starting the API server with start-server.bat
 
-$API_URL = "http://localhost:8080"
+# 8090, NOT 8080: docker-compose publishes the IPFS (kubo) gateway on 8080, so
+# on a dev host with the stack up, 8080 reaches IPFS and every call here fails
+# in a way that looks like a broken API. The API's own default is 8090.
+$API_URL = if ($env:API_URL) { $env:API_URL } else { "http://localhost:8090" }
 
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
@@ -189,5 +192,5 @@ Write-Host ""
 Write-Host "Plus 12 South African patients auto-created by server" -ForegroundColor Gray
 Write-Host ""
 Write-Host "To view all patients:" -ForegroundColor Green
-Write-Host "  curl http://localhost:8080/api/patients -H 'X-User-Id: DOC-001'" -ForegroundColor Gray
+Write-Host "  curl $API_URL/api/patients -H 'X-User-Id: DOC-001'" -ForegroundColor Gray
 Write-Host ""

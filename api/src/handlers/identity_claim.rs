@@ -68,9 +68,19 @@ pub async fn claim_medical_identity(
         .users
         .read()
         .map(|users| {
-            users
-                .values()
-                .any(|u| u.linked_patient_id.as_deref() == Some(body.patient_id.as_str()))
+            users.values().any(|u| {
+                // Ignore the placeholder account that `register_patient`
+                // auto-creates for every new patient. That account is keyed
+                // by the patient_id itself (`wallet_address == patient_id`,
+                // "placeholder until wallet is linked") and already carries
+                // `linked_patient_id`, so counting it as a claim made this
+                // endpoint return IDENTITY_ALREADY_CLAIMED for EVERY
+                // patient — the wallet-linking flow could never succeed for
+                // anyone. A real claim comes from a wallet that is not the
+                // patient_id.
+                u.linked_patient_id.as_deref() == Some(body.patient_id.as_str())
+                    && u.wallet_address != body.patient_id
+            })
         })
         .unwrap_or(false);
     if already_claimed {

@@ -219,7 +219,9 @@ pub async fn get_patient_vitals(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -299,7 +301,9 @@ pub async fn get_vitals_flowsheet(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -379,7 +383,9 @@ pub async fn get_patient_latest_vitals(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

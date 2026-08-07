@@ -687,7 +687,8 @@ pub async fn get_patient_lab_submissions(
     };
 
     let is_healthcare = current_user.role.is_healthcare_provider();
-    let is_own_records = current_user_id == patient_id;
+    let is_own_records =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
 
     if !is_healthcare && !is_own_records {
         return HttpResponse::Forbidden().json(ErrorResponse {

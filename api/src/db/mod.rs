@@ -59,21 +59,47 @@ pub async fn create_pool(database_url: &str) -> Result<PgPool, Error> {
         .await
 }
 
+/// Default connection attempts. See `DEFAULT_MAX_RETRIES` rationale below.
+const DEFAULT_MAX_RETRIES: u32 = 12;
+
 /// Creates a PostgreSQL connection pool with retry logic
 ///
 /// Useful when starting with Docker Compose where the database container
 /// might not be ready immediately. Uses exponential backoff.
 ///
+/// # Why the default is 12 and not 5
+///
+/// The old default of 5 gave a total budget of roughly 30 seconds (1+2+4+8s of
+/// backoff plus five 3s acquire timeouts). That is comfortably enough for a
+/// *warm* container and comfortably short of the case this function was written
+/// for.
+///
+/// A PostgreSQL container recovering after an unclean shutdown replays WAL and
+/// fsyncs its data directory before accepting any connection at all; on this
+/// project's own dev volume that was measured at **over 100 seconds**, logging
+/// `FATAL: the database system is starting up` to every attempt in the meantime.
+/// The API gave up at ~30s and — in demo mode — fell back to empty in-memory
+/// storage while still reporting healthy, so every login failed with
+/// "Wallet not registered" on a stack that looked entirely green.
+///
+/// `depends_on: condition: service_healthy` does not save you here: Compose
+/// applies it to `compose up`, not to containers the daemon restarts under a
+/// `restart:` policy, which is exactly the machine-reboot case.
+///
+/// 12 attempts with the 10s backoff cap gives ~2 minutes, which covers an
+/// observed recovery with margin. Override with `DB_MAX_RETRIES` when a
+/// deployment needs to fail faster.
+///
 /// # Arguments
 /// * `database_url` - PostgreSQL connection URL
-/// * `max_retries` - Maximum number of connection attempts (default: 5)
+/// * `max_retries` - Maximum number of connection attempts (default: 12)
 /// * `initial_delay_ms` - Initial delay between retries in milliseconds (default: 1000)
 pub async fn create_pool_with_retry(
     database_url: &str,
     max_retries: Option<u32>,
     initial_delay_ms: Option<u64>,
 ) -> Result<PgPool, String> {
-    let max_retries = max_retries.unwrap_or(5);
+    let max_retries = max_retries.unwrap_or(DEFAULT_MAX_RETRIES);
     let initial_delay = initial_delay_ms.unwrap_or(1000);
 
     let mut attempt = 0;
