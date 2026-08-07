@@ -500,7 +500,8 @@ pub async fn get_card_info(
 
     // Patients can only view their own card
     if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

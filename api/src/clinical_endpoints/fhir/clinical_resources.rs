@@ -183,7 +183,8 @@ pub async fn fhir_get_observations(
     };
 
     if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "resourceType": "OperationOutcome",
             "issue": [{"severity": "error", "code": "forbidden"}]
@@ -271,7 +272,8 @@ pub async fn fhir_get_encounters(
 
     // RBAC: Non-healthcare providers can only see their own encounters
     if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "resourceType": "OperationOutcome",
             "issue": [{
@@ -422,7 +424,8 @@ pub async fn fhir_get_diagnostic_reports(
 
     // RBAC check - non-healthcare providers can only see their own reports
     if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "resourceType": "OperationOutcome",
             "issue": [{

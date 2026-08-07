@@ -352,7 +352,8 @@ pub async fn get_patient_emergency_records(
         }
     };
     if !current_user.role.is_healthcare_provider()
-        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id)
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),

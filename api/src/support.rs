@@ -291,7 +291,8 @@ pub fn caller_owns_patient_record(
     if caller_wallet == patient_id {
         return true;
     }
-    get_user(data, caller_wallet).is_some_and(|u| u.linked_patient_id.as_deref() == Some(patient_id))
+    get_user(data, caller_wallet)
+        .is_some_and(|u| u.linked_patient_id.as_deref() == Some(patient_id))
 }
 
 /// How a caller's access to a patient was granted.

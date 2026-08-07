@@ -161,7 +161,10 @@ impl SseStream {
     /// An SSE comment frame. Comments are ignored by `EventSource` and by this
     /// project's `fetch`-based reader, so they are safe to interleave.
     fn comment(text: &str) -> Poll<Option<Result<actix_web::web::Bytes, actix_web::Error>>> {
-        Poll::Ready(Some(Ok(actix_web::web::Bytes::from(format!(": {}\n\n", text)))))
+        Poll::Ready(Some(Ok(actix_web::web::Bytes::from(format!(
+            ": {}\n\n",
+            text
+        )))))
     }
 }
 
