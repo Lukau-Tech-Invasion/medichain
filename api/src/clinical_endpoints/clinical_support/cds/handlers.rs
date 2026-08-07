@@ -328,7 +328,13 @@ pub async fn get_patient_cds_alerts(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+    // Registered caller, NOT clinical-staff-only. `require_clinical_staff`
+    // rejects a Patient with INSUFFICIENT_ROLE at the top of the handler, which
+    // meant the self-or-provider check further down was unreachable for the one
+    // role it existed to serve — the patient reading alerts about their own
+    // care. The authorization decision belongs to that check, which denies
+    // other patients. The write routes in this file keep the staff gate.
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
         Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
@@ -338,10 +344,21 @@ pub async fn get_patient_cds_alerts(
         Err(resp) => return resp,
     };
 
-    if !current_user.role.is_healthcare_provider() {
+    // Providers, or the data subject reading their OWN alerts. This route is
+    // what the patient app's notifications page calls; provider-only meant that
+    // page 403'd for every patient looking at alerts raised about their own
+    // care. A patient seeing alerts about themselves is also the POPIA default
+    // (data-subject access), not an exception to it.
+    //
+    // Still closed to other patients: `caller_owns_patient_record` matches only
+    // this caller's own `linked_patient_id`.
+    let is_provider = current_user.role.is_healthcare_provider();
+    let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
+    if !is_provider && !is_own {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Only healthcare providers can view patient CDS alerts".to_string(),
+            error: "Only healthcare providers or the patient themselves can view these CDS alerts"
+                .to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }

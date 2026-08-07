@@ -83,7 +83,7 @@ pub async fn list_patient_code_blues(
         Err(resp) => return resp,
     };
     match get_user(&data, &current_user_id) {
-        Some(u) if u.role.is_healthcare_provider() || current_user_id == patient_id => {}
+        Some(u) if u.role.is_healthcare_provider() || crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) => {}
         Some(_) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 success: false,

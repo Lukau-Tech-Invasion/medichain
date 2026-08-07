@@ -41,7 +41,7 @@ pub async fn update_medical_id_preferences(
     };
 
     // Only patient themselves or admin can update preferences
-    let is_patient = current_user_id == patient_id;
+    let is_patient = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     let is_admin = matches!(current_user.role, crate::Role::Admin);
 
     if !is_patient && !is_admin {
@@ -144,7 +144,7 @@ pub async fn trigger_emergency_notification(
     };
 
     // Only patient or healthcare providers can trigger
-    let is_patient = current_user_id == patient_id;
+    let is_patient = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     let is_provider = current_user.role.is_healthcare_provider();
 
     if !is_patient && !is_provider {

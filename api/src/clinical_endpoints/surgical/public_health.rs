@@ -89,15 +89,25 @@ pub async fn get_family_history(
     http_req: HttpRequest,
     path: web::Path<String>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+    // Registered caller, NOT clinical-staff-only: a patient must be able to
+    // read their own record here. The staff gate rejected them with
+    // INSUFFICIENT_ROLE before the self-or-provider check below could run.
+    if let Err(resp) = crate::support::require_registered_caller(&data, &http_req) {
         return resp;
     }
     let id = path.into_inner();
     match data.family_histories.read() {
-        Ok(histories) => histories
-            .get(&id)
-            .map(|history| HttpResponse::Ok().json(history))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
+        // A patient with nothing recorded has an EMPTY family history, not a
+        // missing one. Answering 404 made the patient app's Medical History
+        // page report a failed load for the ordinary case of "nobody has filled
+        // this in yet" — indistinguishable, to the caller, from a broken route.
+        Ok(histories) => match histories.get(&id) {
+            Some(history) => HttpResponse::Ok().json(history),
+            None => HttpResponse::Ok().json(serde_json::json!({
+                "patient_id": id,
+                "entries": [],
+            })),
+        },
         Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }

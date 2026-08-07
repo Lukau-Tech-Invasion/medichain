@@ -226,8 +226,26 @@ async fn main() -> std::io::Result<()> {
                 }
                 Err(e) => {
                     if demo {
-                        eprintln!("  [WARN] Database connection failed: {}", e);
-                        eprintln!("       Falling back to in-memory storage (demo mode)");
+                        // Loud on purpose. This branch silently turned a
+                        // postgres-configured deployment into an EMPTY in-memory
+                        // one while /health still answered "healthy", so the
+                        // first symptom was every demo login failing with
+                        // "Wallet not registered" on a stack that looked green.
+                        // The two-line warning it used to print was lost among
+                        // the startup banner and the demo-secret warnings.
+                        eprintln!("\n============================================================");
+                        eprintln!("  [DEGRADED] DATABASE_URL was set, but the database is");
+                        eprintln!("             unreachable: {}", e);
+                        eprintln!();
+                        eprintln!("  Falling back to EMPTY in-memory storage (demo mode).");
+                        eprintln!("  No seeded users, patients or records exist in this mode:");
+                        eprintln!("  every login will fail with WALLET_NOT_REGISTERED.");
+                        eprintln!();
+                        eprintln!("  If the database is merely slow to start (WAL replay after");
+                        eprintln!("  an unclean shutdown can exceed two minutes), restart the");
+                        eprintln!("  API once it is accepting connections, or raise");
+                        eprintln!("  DB_MAX_RETRIES.");
+                        eprintln!("============================================================\n");
                         None
                     } else {
                         eprintln!(

@@ -8,7 +8,8 @@
 param(
     [string]$OutputFile = "api-test-results.json",
     [switch]$Verbose,
-    [string]$ApiBase = "http://localhost:8080"
+    # 8090, not 8080 — 8080 is the IPFS gateway published by docker-compose.
+    [string]$ApiBase = "http://localhost:8090"
 )
 
 # ============================================

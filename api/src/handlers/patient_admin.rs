@@ -388,7 +388,7 @@ pub async fn add_emergency_contact(
 
     // Patients can only manage their own emergency contacts
     // Healthcare providers can manage any patient's contacts
-    let is_own_record = current_user_id == patient_id;
+    let is_own_record = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     let is_provider = current_user.role.can_edit_medical_records();
 
     if !is_own_record && !is_provider {

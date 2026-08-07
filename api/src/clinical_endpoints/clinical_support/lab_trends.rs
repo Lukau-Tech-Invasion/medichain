@@ -65,7 +65,7 @@ pub async fn get_lab_trends(
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
+    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
         Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
@@ -75,7 +75,7 @@ pub async fn get_lab_trends(
         Err(resp) => return resp,
     };
 
-    let is_own = current_user_id == patient_id;
+    let is_own = crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id);
     if !is_own && !current_user.role.is_healthcare_provider() {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,

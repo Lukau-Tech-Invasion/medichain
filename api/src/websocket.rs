@@ -127,15 +127,56 @@ impl EventScope {
 /// `Poll::Pending` and schedule an immediate wake-up via a short sleep spawned
 /// on the tokio runtime.  This avoids busy-looping while still delivering
 /// events with low latency.
+/// Longest the stream may stay silent before emitting a keep-alive comment.
+const SSE_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(15);
+
 struct SseStream {
     receiver: broadcast::Receiver<PushEvent>,
     scope: EventScope,
+    /// Whether the opening comment has been written yet.
+    ///
+    /// Without it this stream emitted **zero bytes** until some unrelated part
+    /// of the system happened to push an event. Actix writes the response
+    /// headers, but an intermediary that waits for the first body chunk before
+    /// flushing them leaves the browser's `fetch()` hanging until it fails with
+    /// `TypeError: Failed to fetch`. Nginx forwards headers immediately
+    /// (`proxy_buffering off`), so this looked fine through the Docker gateway
+    /// and failed through the Vite dev proxy — i.e. it failed in exactly the
+    /// configuration a demo runs in.
+    handshake_sent: bool,
+    /// When anything was last written, for the keep-alive below.
+    last_write: std::time::Instant,
+}
+
+impl SseStream {
+    fn new(receiver: broadcast::Receiver<PushEvent>, scope: EventScope) -> Self {
+        Self {
+            receiver,
+            scope,
+            handshake_sent: false,
+            last_write: std::time::Instant::now(),
+        }
+    }
+
+    /// An SSE comment frame. Comments are ignored by `EventSource` and by this
+    /// project's `fetch`-based reader, so they are safe to interleave.
+    fn comment(text: &str) -> Poll<Option<Result<actix_web::web::Bytes, actix_web::Error>>> {
+        Poll::Ready(Some(Ok(actix_web::web::Bytes::from(format!(": {}\n\n", text)))))
+    }
 }
 
 impl Stream for SseStream {
     type Item = Result<actix_web::web::Bytes, actix_web::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // Write something immediately so the response body starts flowing and
+        // any buffering intermediary flushes the headers to the client.
+        if !self.handshake_sent {
+            self.handshake_sent = true;
+            self.last_write = std::time::Instant::now();
+            return Self::comment("connected");
+        }
+
         loop {
             match self.receiver.try_recv() {
                 Ok(event) => {
@@ -147,9 +188,18 @@ impl Stream for SseStream {
                     }
                     let json = serde_json::to_string(&event).unwrap_or_default();
                     let frame = format!("data: {}\n\n", json);
+                    self.last_write = std::time::Instant::now();
                     return Poll::Ready(Some(Ok(actix_web::web::Bytes::from(frame))));
                 }
                 Err(broadcast::error::TryRecvError::Empty) => {
+                    // Keep the connection provably alive. Without this a quiet
+                    // stream writes nothing for minutes, and proxies and load
+                    // balancers close idle connections — the client then looks
+                    // "connected" while receiving nothing.
+                    if self.last_write.elapsed() >= SSE_HEARTBEAT {
+                        self.last_write = std::time::Instant::now();
+                        return Self::comment("keepalive");
+                    }
                     // Schedule a wake-up after a short delay so we do not busy-spin.
                     let waker = cx.waker().clone();
                     tokio::spawn(async move {
@@ -198,7 +248,7 @@ pub async fn sse_events(
     };
 
     let receiver = data.ws_manager.subscribe(&caller.wallet_address);
-    let stream = SseStream { receiver, scope };
+    let stream = SseStream::new(receiver, scope);
 
     HttpResponse::Ok()
         .insert_header(("Content-Type", "text/event-stream"))

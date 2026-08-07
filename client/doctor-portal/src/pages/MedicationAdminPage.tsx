@@ -383,8 +383,8 @@ const MedicationAdminPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredPatientMeds.map((med) => (
-                  <tr key={med.medId} className="hover:bg-gray-50">
+                {filteredPatientMeds.map((med, idx) => (
+                  <tr key={med.medId ?? `m-${idx}`} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <div className="text-sm font-medium text-gray-900">{med.patientName}</div>
                       <div className="text-xs text-gray-500">{med.patientId}</div>
@@ -416,11 +416,11 @@ const MedicationAdminPage: React.FC = () => {
                         </button>
                       ) : (
                         <div className="flex space-x-2">
-                          {med.scheduledTimes.map((time) => {
+                          {(med.scheduledTimes ?? []).map((time, tIdx) => {
                             const status = getMedicationStatus(med, time);
                             return (
                               <button
-                                key={time}
+                                key={`${med.medId}-${time}-${tIdx}`}
                                 onClick={() => handleAdministerMed(med, time)}
                                 className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-medium ${
                                   status === 'given' ? 'bg-green-100 text-green-800' :
@@ -701,8 +701,8 @@ const MedicationAdminPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredHistory.map((admin) => (
-                  <tr key={admin.adminId} className="hover:bg-gray-50">
+                {filteredHistory.map((admin, idx) => (
+                  <tr key={admin.adminId ?? `a-${idx}`} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <div className="text-sm text-gray-900">{selectedDate}</div>
                       <div className="text-xs text-gray-500">{admin.actualTime}</div>

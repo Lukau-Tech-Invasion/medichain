@@ -10,20 +10,14 @@ export default defineConfig({
   use: {
     trace: 'on-first-retry',
   },
+  // ONE project, not one per app. Every spec in tests/e2e pins its own baseURL
+  // with `test.use({ baseURL })`, which overrides the project's. Two projects
+  // therefore ran the identical tests twice against the identical URLs — the
+  // second run was pure duplication that looked like twice the coverage.
   projects: [
     {
-      name: 'doctor-portal',
-      use: { 
-        ...devices['Desktop Chrome'],
-        baseURL: 'http://localhost:5173',
-      },
-    },
-    {
-      name: 'patient-app',
-      use: { 
-        ...devices['Desktop Chrome'],
-        baseURL: 'http://localhost:5174',
-      },
+      name: 'e2e',
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
   // We can start both servers if needed, but it might be heavy.

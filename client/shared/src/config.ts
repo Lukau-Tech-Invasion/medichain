@@ -51,8 +51,12 @@ function detectApiBaseUrl(): string {
     return '';
   }
   
-  // 4. Fallback for non-browser environments (tests, SSR)
-  return 'http://127.0.0.1:8080';
+  // 4. Fallback for non-browser environments (tests, SSR).
+  // 8090, not 8080: the API's default port is 8090 because docker-compose
+  // publishes the IPFS (kubo) gateway on 8080 (see api/src/main.rs). This
+  // fallback pointed at the gateway, so any non-browser caller that reached
+  // it talked to IPFS instead of the API.
+  return 'http://127.0.0.1:8090';
 }
 
 /**

@@ -64,7 +64,7 @@ interface MedicalIdData {
   patient_id: string;
   name: string;
   date_of_birth: string;
-  blood_type: string;
+  blood_type: string | { value?: string; display_color?: string };
   allergies: Array<{
     name: string;
     severity: string;
@@ -117,6 +117,24 @@ export function MedicalIdPage() {
   const { showError, showWarning } = useToastActions();
   const { patient, isAuthenticated } = usePatientAuthStore();
   const [data, setData] = useState<MedicalIdData | null>(null);
+
+  // The API returns these as strings on some paths and objects (e.g.
+  // `{name, ...}`) on others. Rendering an object directly threw
+  // "Objects are not valid as a React child" and blanked the whole card.
+  // Handles every shape the API has been observed to return for these fields:
+  // a plain string, `{name}`, or a display-wrapped `{value, display_color}`
+  // (blood type). Rendering the last of those directly threw "Objects are not
+  // valid as a React child" and blanked the card; falling through to
+  // String(obj) would have printed "[object Object]", which is not better.
+  const asText = (v: unknown): string => {
+    if (typeof v === 'string') return v;
+    if (v && typeof v === 'object') {
+      const o = v as { name?: string; value?: string };
+      return o.name ?? o.value ?? '';
+    }
+    return v == null ? '' : String(v);
+  };
+
   const [isLoading, setIsLoading] = useState(true);
   const [showLockScreenPreview, setShowLockScreenPreview] = useState(false);
   const [activeView, setActiveView] = useState<'full' | 'emergency' | 'lockscreen'>('full');
@@ -226,9 +244,9 @@ export function MedicalIdPage() {
 
     const text = t('medicalId.shareText', {
       name: data.name,
-      bloodType: data.blood_type,
-      allergies: data.allergies.map(a => `${a.name} (${a.severity})`).join(', '),
-      conditions: data.conditions.join(', '),
+      bloodType: asText(data.blood_type),
+      allergies: (data.allergies ?? []).map(a => `${a.name} (${a.severity})`).join(', '),
+      conditions: (data.conditions ?? []).join(', '),
       contactName: data.emergency_contacts[0]?.name || '',
       contactPhone: data.emergency_contacts[0]?.phone || '',
     });
@@ -371,7 +389,7 @@ export function MedicalIdPage() {
         <div className="grid grid-cols-2 divide-x divide-neutral-100">
           <div className="p-4 text-center">
             <Droplet className="w-8 h-8 text-red-500 mx-auto mb-2" />
-            <p className="text-3xl font-bold text-neutral-900">{data.blood_type}</p>
+            <p className="text-3xl font-bold text-neutral-900">{asText(data.blood_type)}</p>
             <p className="text-sm text-neutral-600">{t('medicalId.bloodTypeLabel')}</p>
           </div>
           <div className="p-4 text-center">
@@ -409,16 +427,16 @@ export function MedicalIdPage() {
             <AlertTriangle className="w-5 h-5 text-red-500" />
             <h3 className="font-bold text-neutral-900">{t('medicalId.allergiesTitle')}</h3>
           </div>
-          {data.allergies.length > 0 ? (
+          {(data.allergies ?? []).length > 0 ? (
             <div className="space-y-2">
-              {data.allergies.map((allergy, i) => (
+              {(data.allergies ?? []).map((allergy, i) => (
                 <div key={i} className={`p-3 rounded-lg border ${getSeverityColor(allergy.severity)}`}>
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">{allergy.name}</span>
-                    <span className="text-xs font-bold uppercase">{allergy.severity}</span>
+                    <span className="font-medium">{asText(allergy.name)}</span>
+                    <span className="text-xs font-bold uppercase">{asText(allergy.severity)}</span>
                   </div>
                   {allergy.reaction && (
-                    <p className="text-sm mt-1 opacity-80">{allergy.reaction}</p>
+                    <p className="text-sm mt-1 opacity-80">{asText(allergy.reaction)}</p>
                   )}
                 </div>
               ))}
@@ -434,11 +452,11 @@ export function MedicalIdPage() {
             <Stethoscope className="w-5 h-5 text-blue-500" />
             <h3 className="font-bold text-neutral-900">{t('medicalId.conditionsTitle')}</h3>
           </div>
-          {data.conditions.length > 0 ? (
+          {(data.conditions ?? []).length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {data.conditions.map((condition, i) => (
+              {(data.conditions ?? []).map((condition, i) => (
                 <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
-                  {condition}
+                  {asText(condition)}
                 </span>
               ))}
             </div>
@@ -453,12 +471,12 @@ export function MedicalIdPage() {
             <Pill className="w-5 h-5 text-purple-500" />
             <h3 className="font-bold text-neutral-900">{t('medicalId.medicationsTitle')}</h3>
           </div>
-          {data.medications.length > 0 ? (
+          {(data.medications ?? []).length > 0 ? (
             <ul className="space-y-2">
-              {data.medications.map((med, i) => (
+              {(data.medications ?? []).map((med, i) => (
                 <li key={i} className="flex items-center gap-2 text-neutral-700">
                   <span className="w-2 h-2 bg-purple-400 rounded-full"></span>
-                  {med}
+                  {asText(med)}
                 </li>
               ))}
             </ul>

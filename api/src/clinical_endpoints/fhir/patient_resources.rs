@@ -50,7 +50,8 @@ pub async fn fhir_get_patient(
     };
 
     // Healthcare providers or patient viewing own data
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "resourceType": "OperationOutcome",
             "issue": [{
@@ -153,7 +154,8 @@ pub async fn fhir_get_allergies(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "resourceType": "OperationOutcome",
             "issue": [{"severity": "error", "code": "forbidden"}]
@@ -268,7 +270,8 @@ pub async fn fhir_get_medications(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "resourceType": "OperationOutcome",
             "issue": [{"severity": "error", "code": "forbidden"}]
@@ -350,7 +353,8 @@ pub async fn fhir_get_conditions(
         }
     };
 
-    if !current_user.role.is_healthcare_provider() && current_user_id != patient_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &patient_id) {
         return HttpResponse::Forbidden().json(serde_json::json!({
             "resourceType": "OperationOutcome",
             "issue": [{"severity": "error", "code": "forbidden"}]

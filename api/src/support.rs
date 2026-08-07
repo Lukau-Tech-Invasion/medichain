@@ -255,6 +255,45 @@ pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User
     data.users.read().ok()?.get(wallet_address).cloned()
 }
 
+/// Whether `caller_wallet` is the data subject of `patient_id` — the patient
+/// looking at their own record.
+///
+/// # Why this function exists
+///
+/// Twenty-six handlers open-coded this as `current_user_id != patient_id`,
+/// which compares two **different identifier namespaces**: `current_user_id`
+/// is an SS58 wallet address (`5FLSigC9…60Z`) and `patient_id` is a patient
+/// record ID (`PAT-001-DEMO`). For a real patient account those are never
+/// equal, so the guard was structurally incapable of granting self-access and
+/// every one of those endpoints returned 403 to the patient whose data it was.
+/// The doc comments above them described the intended behaviour, which was the
+/// opposite of what the code did.
+///
+/// The link between the two namespaces is `User::linked_patient_id`, which is
+/// exactly what `/api/auth/wallet/{address}` returns to the client.
+///
+/// The `caller_wallet == patient_id` arm is deliberate and load-bearing: some
+/// fixtures (and the synthetic e2e harness) register a patient whose record ID
+/// *is* the wallet address, and those callers must keep working. Collapsing
+/// that case is also why the original bug went unnoticed for so long — with
+/// such a fixture the broken comparison accidentally succeeds.
+///
+/// Fails closed: an unknown caller is not the data subject.
+///
+/// This answers *self-access only*. Guardian and admin access are a broader
+/// question answered by [`resolve_patient_access`], which additionally consults
+/// guardian relationships; handlers needing that should call it instead.
+pub fn caller_owns_patient_record(
+    data: &web::Data<AppState>,
+    caller_wallet: &str,
+    patient_id: &str,
+) -> bool {
+    if caller_wallet == patient_id {
+        return true;
+    }
+    get_user(data, caller_wallet).is_some_and(|u| u.linked_patient_id.as_deref() == Some(patient_id))
+}
+
 /// How a caller's access to a patient was granted.
 ///
 /// Exists because "may they?" and "on what authority?" are different questions
