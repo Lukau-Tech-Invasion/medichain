@@ -64,8 +64,10 @@ rejected is worth more than the code around it.
 
 ```bash
 cargo test -p medichain-api --bin medichain-api      # 305 tests
-cargo test -p pallet-access-control                  # and siblings
 bash scripts/synthetic-e2e-test.sh                   # 40 live-API assertions
+
+# Pallets/runtime/node are a separate workspace and need --manifest-path.
+cargo test --manifest-path blockchain/Cargo.toml --workspace
 ```
 
 Note: `cargo test -p medichain-api --lib` **fails** — it is a binary crate. Use

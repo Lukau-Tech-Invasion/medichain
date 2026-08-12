@@ -5,8 +5,8 @@
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
 # REQUIRED before running:
-#   * Set strong POSTGRES_PASSWORD, SESSION_SECRET and JWT_SECRET in .env — the
-#     API aborts on startup if demo secrets are used while IS_DEMO=false.
+#   * Set strong POSTGRES_PASSWORD plus every required API secret below in .env.
+#     Compose rejects missing values and the API rejects known demo values.
 #   * Provide TLS certificates at ./nginx/certs/{fullchain.pem,privkey.pem}
 #     (e.g. from Let's Encrypt / certbot).
 # =============================================================================
@@ -17,9 +17,17 @@ services:
     environment:
       IS_DEMO: "false"
       REQUIRE_SIGNATURES: "true"
+      APP_ENV: "production"
       MEDICHAIN_STORAGE: postgres
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
-      BLOCKCHAIN_ENABLED: ${BLOCKCHAIN_ENABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS is required}
+      NATIONAL_ID_HASH_KEY: ${NATIONAL_ID_HASH_KEY:?NATIONAL_ID_HASH_KEY is required}
+      SMS_INBOUND_WEBHOOK_SECRET: ${SMS_INBOUND_WEBHOOK_SECRET:?SMS_INBOUND_WEBHOOK_SECRET is required}
+      BLOCKCHAIN_ENABLED: "true"
+      SUBSTRATE_WS_URL: ${SUBSTRATE_WS_URL:?SUBSTRATE_WS_URL is required}
+      SUBSTRATE_SIGNING_KEY: ${SUBSTRATE_SIGNING_KEY:?SUBSTRATE_SIGNING_KEY is required}
 
   # `!override` is REQUIRED on every `ports:` below. Compose MERGES list-valued
   # fields across files, so a bare `ports: []` is a no-op and the base file's
@@ -61,10 +69,16 @@ services:
       - ./nginx/certs:/etc/nginx/certs:ro
 
   substrate-node:
-    profiles: ["blockchain", "prod"]
-    restart: always
+    # Production uses the externally managed and independently qualified node
+    # named by SUBSTRATE_WS_URL. Do not make a production `up` depend on the
+    # repository's non-containerized developer node source.
+    profiles: ["local-node-source-not-containerized"]
+    restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "curl -H \"Content-Type: application/json\" -d '{\"id\":1, \"jsonrpc\":\"2.0\", \"method\": \"system_health\", \"params\":[]}' http://localhost:9933"]
+      # 9944, not 9933: Substrate merged the RPC ports, so a single port serves
+      # both WebSocket and HTTP JSON-RPC. A healthcheck against 9933 can never
+      # connect on a current node, so this probe would have failed every time.
+      test: ["CMD-SHELL", "curl -H \"Content-Type: application/json\" -d '{\"id\":1, \"jsonrpc\":\"2.0\", \"method\": \"system_health\", \"params\":[]}' http://localhost:9944"]
       interval: 30s
       timeout: 10s
       retries: 5

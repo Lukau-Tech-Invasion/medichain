@@ -151,27 +151,29 @@ services:
       - medichain_network
 
   # =============================================================================
-  # Substrate Node (OPT-IN — `docker compose --profile blockchain up`)
-  # The node/ + runtime/ crates need polkadot-sdk *git* deps and are excluded
-  # from the Rust workspace, so this service is gated behind the `blockchain`
-  # profile and is NOT started by a default `up`. To use it you must first add
-  # `node/Dockerfile` and make the node buildable; until then the API runs with
-  # BLOCKCHAIN_ENABLED=false (deterministic placeholder hashes).
+  # Substrate Node — NOT DEFINED HERE ON PURPOSE
+  # -----------------------------------------------------------------------------
+  # There was a `substrate-node` service here that built `node/Dockerfile`. That
+  # file never existed, and the node source has since moved to `blockchain/node/`,
+  # so the service could not have started under any profile. It has been removed
+  # rather than left as a stanza that looks like working configuration.
+  #
+  # To run a node for local development, run the binary directly — that is the
+  # supported and verified path:
+  #
+  #     scripts/blockchain/run-dev-node.sh --persist
+  #     scripts/blockchain/qualify-node.sh
+  #
+  # and point the API at it with SUBSTRATE_WS_URL=ws://127.0.0.1:9944.
+  # See docs/BLOCKCHAIN_NODE.md.
+  #
+  # Production supplies a separately qualified node through SUBSTRATE_WS_URL; the
+  # API fails closed when that dependency is absent and never fabricates a
+  # transaction hash.
+  #
+  # Note also: the old stanza passed `--rpc-external`, which binds RPC on all
+  # interfaces. Do not reintroduce that without an access-control story.
   # =============================================================================
-  substrate-node:
-    profiles: ["blockchain"]
-    build:
-      context: .
-      dockerfile: node/Dockerfile
-    container_name: medichain_substrate
-    restart: unless-stopped
-    command: ["--dev", "--rpc-external", "--rpc-cors=all", "--rpc-methods=safe"]
-    ports:
-      - "9944:9944"   # WebSocket RPC (SUBSTRATE_WS_URL)
-      - "9933:9933"   # HTTP RPC
-      - "30333:30333" # libp2p
-    networks:
-      - medichain_network
 
 # =============================================================================
 # Volumes for Data Persistence
