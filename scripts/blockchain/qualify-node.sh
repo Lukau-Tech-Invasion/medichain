@@ -202,7 +202,10 @@ if ! "$PY" "$KEYLIB" --self-test >/dev/null 2>&1; then
     fail "storage-key hasher self-test failed; not trusting its output"
 else
     role_prefix=$("$PY" "$KEYLIB" AccessControl UserRoles)
-    role_keys=$(rpc state_getKeysPaged "[\"$role_prefix\", 100, \"$role_prefix\"]")
+    # (prefix, count) with no start_key. Passing the prefix as start_key also
+    # happens to work -- every UserRoles key is prefix+hash, which sorts after
+    # the bare prefix -- but that is a lexicographic accident, not intent.
+    role_keys=$(rpc state_getKeysPaged "[\"$role_prefix\", 100]")
     if [[ -n "${role_keys:-}" ]]; then
         role_count=$("$PY" -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$role_keys" 2>/dev/null)
         if [[ "${role_count:-0}" -gt 0 ]]; then

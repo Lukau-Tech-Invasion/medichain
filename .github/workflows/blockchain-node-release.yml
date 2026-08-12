@@ -40,6 +40,15 @@ env:
     # Keep debug info out of the release binary; it roughly halves both build
     # time and artifact size, and the artifact is for running, not debugging.
     CARGO_PROFILE_RELEASE_DEBUG: '0'
+    # REQUIRED. The repository root has its own rust-toolchain.toml pinning
+    # `channel = "stable"`, and rustup resolves the nearest one walking up from
+    # the working directory. Since this job invokes cargo from the repo root via
+    # --manifest-path, that root file wins over blockchain/rust-toolchain.toml
+    # and over the toolchain action below. RUSTUP_TOOLCHAIN outranks both files,
+    # so it is what actually pins the compiler here. Without it the build runs
+    # on `stable` -- which has neither the wasm targets nor rust-src -- and dies
+    # 872 crates in with "the wasm32-unknown-unknown target is not installed".
+    RUSTUP_TOOLCHAIN: '1.92.0'
 
 jobs:
     build-node:

@@ -37,7 +37,7 @@ subxt = { workspace = true }
 # parity-scale-codec removed 2026-07-31: the API crate never used it (no
 # `codec::`, no Encode/Decode derives). The pallets declare it themselves.
 sp-core = { workspace = true, features = ["std"] }
-subxt-signer = { workspace = true }
+subxt-signer = { version = "0.37.0", features = ["sr25519"] }
 
 # Cryptography for NFC simulation
 sha3 = "0.10"

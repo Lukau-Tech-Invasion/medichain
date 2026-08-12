@@ -1,0 +1,26 @@
+# Toolchain for the blockchain workspace only.
+#
+# This exists because the repository root has its own `rust-toolchain.toml`
+# pinning `channel = "stable"`, and rustup resolves the *nearest* one walking up
+# from the current directory. Without this file, `cd blockchain && cargo build`
+# would silently run on whatever `stable` happens to be, which is how the first
+# CI run failed: the pinned toolchain had the wasm targets and `rust-src`
+# installed, but cargo actually ran under `stable`, which had neither, and the
+# runtime's WASM build died with "the wasm32-unknown-unknown target is not
+# installed".
+#
+# The Polkadot SDK is sensitive to compiler version, so this is a hard pin
+# rather than a channel. Bumping it is a deliberate act: re-run the full node
+# build before committing a change here.
+#
+# `targets` and `components` are declared so rustup provisions them
+# automatically on first use, locally and in CI alike.
+#
+# NOTE: rustup only reads this when the working directory is inside
+# `blockchain/`. CI additionally sets RUSTUP_TOOLCHAIN, because it invokes cargo
+# from the repository root via --manifest-path, where the root file would win.
+
+[toolchain]
+channel = "1.92.0"
+components = ["rustfmt", "clippy", "rust-src"]
+targets = ["wasm32v1-none", "wasm32-unknown-unknown"]

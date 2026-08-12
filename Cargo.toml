@@ -29,11 +29,13 @@ exclude = [
 # along with them.
 sp-core = { version = "34.0.0", default-features = false }
 
-# subxt must understand the metadata the MediChain runtime actually emits.
-# `blockchain/` is on polkadot-sdk stable2606, whose extrinsics use the
-# `TransactionExtension` scheme (`AuthorizeCall`, `WeightReclaim`, extrinsic
-# format v5, metadata v16). subxt 0.37 predates all of that -- it was built for
-# the older `SignedExtension`/v4 format -- so it cannot encode a call against
-# this runtime no matter how the API is configured.
-subxt = { version = "0.50.3" }
-subxt-signer = { version = "0.50.3", features = ["sr25519", "subxt"] }
+# NOTE (2026-08-12): this needs to become 0.50.x before the API can talk to the
+# stable2606 runtime. That runtime emits the `TransactionExtension` scheme
+# (`AuthorizeCall`, `WeightReclaim`), extrinsic format v5 and metadata v16;
+# subxt 0.37 was built for `SignedExtension`/v4 and cannot encode a call against
+# it. The bump itself is one line here plus one `.tx().await` in
+# `api/src/blockchain.rs`, and it compiles and tests clean -- it is deliberately
+# NOT applied yet because `api/src/blockchain.rs` is mid-refactor in the working
+# tree and the bump cannot land separately from that work. Land the two together.
+# See docs/BLOCKCHAIN_NODE.md, "subxt version is coupled to the runtime".
+subxt = { version = "0.37.0" }

@@ -146,6 +146,13 @@ jobs:
         name: Blockchain (pallets + runtime)
         runs-on: ubuntu-latest
 
+        env:
+            # REQUIRED - see the long note in blockchain-node-release.yml. The
+            # repo-root rust-toolchain.toml pins `stable` and outranks both the
+            # toolchain action and blockchain/rust-toolchain.toml when cargo is
+            # invoked from the repo root. RUSTUP_TOOLCHAIN outranks the files.
+            RUSTUP_TOOLCHAIN: '1.92.0'
+
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
