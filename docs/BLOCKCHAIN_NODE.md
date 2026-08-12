@@ -64,6 +64,18 @@ cargo build --release --manifest-path blockchain/Cargo.toml -p medichain-node
 A release build of the Polkadot SDK graph needs roughly **20 GB of free disk**
 and can take over an hour cold. If you do not have that, do not build locally.
 
+Scripted (needs the `gh` CLI, authenticated):
+
+```bash
+scripts/blockchain/fetch-ci-node.sh
+```
+
+It finds the newest successful node build on your branch, downloads the
+artifact, verifies the binary against the SHA-256 recorded in its provenance
+file, and runs `--version` to prove it executes.
+
+By hand:
+
 1. GitHub → **Actions** → **Blockchain node release binary**
 2. Open the most recent successful run on your branch
 3. Download the **`medichain-node-linux-x86_64`** artifact
@@ -78,6 +90,17 @@ The artifact ships a `medichain-node.provenance.txt` recording the commit,
 rustc version, build time and SHA-256 of the binary.
 
 The artifact is a **Linux x86-64 ELF binary**. On Windows, run it under WSL.
+
+**glibc floor.** The binary is built on Ubuntu 22.04, so it needs glibc 2.35 or
+newer. Check yours with `ldd --version`. If it fails to start with
+
+```
+/lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.xx' not found
+```
+
+the builder image drifted upward — the workflow pins `runs-on: ubuntu-22.04`
+precisely to stop that, because `ubuntu-latest` now means 24.04 (glibc 2.39) and
+produces a binary that will not run on 22.04.
 
 ### Option B — build locally
 

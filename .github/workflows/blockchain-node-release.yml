@@ -53,7 +53,17 @@ env:
 jobs:
     build-node:
         name: Build medichain-node (release, linux-x86_64)
-        runs-on: ubuntu-latest
+        # PINNED to 22.04, not `ubuntu-latest`. `ubuntu-latest` now resolves to
+        # 24.04, whose glibc is 2.39; a binary built there records a GLIBC_2.38
+        # requirement and will not start on anything older:
+        #
+        #   /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found
+        #
+        # That is exactly what happened on the first successful build -- the
+        # artifact was unusable on an Ubuntu 22.04 WSL distro (glibc 2.35).
+        # Building on 22.04 sets the floor at glibc 2.35, which runs there and on
+        # everything newer. Raise this only when the oldest target host does.
+        runs-on: ubuntu-22.04
         timeout-minutes: 120
 
         steps:

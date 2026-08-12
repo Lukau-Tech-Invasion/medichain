@@ -103,3 +103,14 @@ docs/copilot-instructions.md
 # docs/PROJECT_PROGRESS.md
 # docs/PR_SUMMARY.md
 # docs/ROLE_BASED_DASHBOARD_RESEARCH.md
+
+# Python bytecode from scripts/ (gate and codemod tooling)
+__pycache__/
+*.py[cod]
+
+# Blockchain node: the CI-downloaded binary and any local chain database.
+# Both are large and machine-specific; the binary comes from the
+# "Blockchain node release binary" workflow, the chain data from
+# `run-dev-node.sh --persist`.
+.node-bin/
+/data/medichain-chain/
