@@ -39,8 +39,21 @@ jobs:
             - name: Every endpoint has an auth decision
               run: python scripts/check-endpoint-auth.py
 
+            # Checks production page calls as well as the shared API wrapper,
+            # and compares both HTTP method and normalized path. This catches
+            # integrations that build cleanly but fail only after a user clicks.
+            - name: Every frontend call has a matching API route
+              run: python scripts/check-endpoint-drift.py
+
+            # Clinical data held only in an AppState map is lost on restart. The
+            # request still returns 200, so no route, type or drift check can
+            # see it. This ratchets the remaining surface downward and fails on
+            # any new in-process clinical state.
+            - name: No new clinical state that a restart would lose
+              run: python scripts/check-state-durability.py
+
     # ============================================================================
-    # Rust Backend (Substrate pallets, API, crypto, node)
+    # Rust Backend (Substrate pallets, API, crypto)
     # ============================================================================
     rust:
         name: Rust CI
@@ -92,11 +105,7 @@ jobs:
             - name: Check formatting
               run: cargo fmt --all -- --check
 
-            # Report-only until the lint cleanup lands (see docs/NEXT_WEEK_TODO.md,
-            # Stage 2 — ~238 clippy findings). Re-make this a hard gate (drop
-            # continue-on-error) once warnings are driven to zero.
-            - name: Run Clippy (linting, report-only)
-              continue-on-error: true
+            - name: Run Clippy (linting, enforced)
               run: cargo clippy --all-targets --all-features -- -D warnings
 
             - name: Build
@@ -117,6 +126,78 @@ jobs:
             - name: Security audit (report-only)
               continue-on-error: true
               run: cargo audit
+
+    # ============================================================================
+    # Blockchain workspace (pallets + runtime + node)
+    # ----------------------------------------------------------------------------
+    # `blockchain/` is a SEPARATE cargo workspace on a different Polkadot SDK
+    # release from the API. That matters for CI correctness: the `rust` job above
+    # runs `cargo fmt --all` / `cargo clippy --all-targets` / `cargo test` with no
+    # `-p` flags, so it only ever sees the root workspace. When the pallets moved
+    # out of it, they left that job's scope entirely -- and a workspace-scoped
+    # command reports success for crates it never compiled. Without this job the
+    # 60 pallet tests would simply stop running and nothing would go red.
+    #
+    # Toolchain is PINNED rather than `@stable`: the Polkadot SDK is sensitive to
+    # compiler version, and a silent stable bump should not be able to break the
+    # node build without an explicit commit.
+    # ============================================================================
+    blockchain:
+        name: Blockchain (pallets + runtime)
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # `rust-src` is not optional: substrate-wasm-builder compiles the
+            # runtime with `-Z build-std=core,alloc` and fails outright without
+            # the standard library sources. `wasm32v1-none` is the target this
+            # SDK prefers; `wasm32-unknown-unknown` is kept as the fallback the
+            # builder falls back to.
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@1.92.0
+              with:
+                  components: rustfmt, clippy, rust-src
+                  targets: wasm32v1-none, wasm32-unknown-unknown
+
+            # clang/libclang are required by the rocksdb bindgen build in the
+            # node's dependency tree; protobuf by the networking stack.
+            - name: Install native build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y protobuf-compiler libprotobuf-dev clang libclang-dev
+
+            - name: Cache cargo registry and build
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      blockchain/target
+                  key: ${{ runner.os }}-blockchain-${{ hashFiles('blockchain/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-blockchain-
+
+            - name: Check formatting
+              run: cargo fmt --manifest-path blockchain/Cargo.toml --all -- --check
+
+            - name: Clippy (enforced)
+              run: >-
+                  cargo clippy --manifest-path blockchain/Cargo.toml
+                  --workspace --all-targets -- -D warnings
+
+            - name: Build runtime (generates WASM)
+              run: cargo check --manifest-path blockchain/Cargo.toml -p medichain-runtime
+
+            - name: Build node
+              run: cargo check --manifest-path blockchain/Cargo.toml -p medichain-node
+
+            # Guards the role-bootstrap regression: `pallet-access-control`'s
+            # genesis config is the only way `UserRoles` can ever be populated,
+            # and the tests named here fail if it becomes unreachable again.
+            - name: Run blockchain tests
+              run: cargo test --manifest-path blockchain/Cargo.toml --workspace
 
     # ============================================================================
     # Supply-Chain Security (cargo-deny advisories/licenses/bans + SBOM)
@@ -254,8 +335,8 @@ jobs:
                   cache: "npm"
                   cache-dependency-path: client/package-lock.json
 
-            - name: Install dependencies
-              run: npm install
+            - name: Install dependencies from lockfile
+              run: npm ci
 
             - name: Build doctor portal
               run: npm run build:doctor
@@ -265,6 +346,29 @@ jobs:
 
             - name: Run linting
               run: npm run lint --workspaces --if-present
+
+            # ----------------------------------------------------------------
+            # Frontend unit tests — BLOCKING (Horizon H3 / issue #9, closed)
+            # ----------------------------------------------------------------
+            # This suite was report-only while it was being reconciled. Its
+            # first recorded run (2026-08-08) was 206 of 332 tests failing.
+            # It reached zero on 2026-08-11 — doctor-portal 256/256 across 80
+            # files, patient-app 78/78 across 26 — so it is now blocking, which
+            # the report-only note always named as the condition for flipping.
+            #
+            # The separate `test:gate` subset it replaces was a 32-file trusted
+            # slice; running everything strictly supersedes it, so keeping both
+            # would only mean running those 32 files twice.
+            #
+            # If this starts failing, read the failures individually. Reconciling
+            # this suite surfaced nine real product defects (a missing AMA
+            # capacity assessment, a fabricated suture material, missing
+            # infiltration staging, hardcoded demo patients on the paediatrics
+            # page, and more) precisely because each failure was diagnosed rather
+            # than pattern-matched. See the H3 section of
+            # docs/PRODUCTION_READINESS.md.
+            - name: Frontend unit tests
+              run: npm run test:run --workspaces --if-present
 
     # ============================================================================
     # Performance budgets — Lighthouse CI (Phase 12.1)
@@ -291,8 +395,8 @@ jobs:
                   cache: "npm"
                   cache-dependency-path: client/package-lock.json
 
-            - name: Install dependencies
-              run: npm install
+            - name: Install dependencies from lockfile
+              run: npm ci
 
             - name: Build patient app
               run: npm run build:patient
