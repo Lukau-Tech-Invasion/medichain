@@ -84,6 +84,16 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y protobuf-compiler libprotobuf-dev clang libclang-dev
 
+            # The cache key MUST encode the runner image and the toolchain, not
+            # just runner.os. `runner.os` is "Linux" for both 22.04 and 24.04, so
+            # a key without the image happily restores objects built against a
+            # different glibc. That is not theoretical: after this job was pinned
+            # from ubuntu-latest (24.04) to 22.04, the restored cache still held
+            # wasm-opt C++ objects compiled on 24.04, and the link failed with
+            #     rust-lld: error: undefined symbol: __isoc23_sscanf
+            # a glibc 2.38+ symbol that 22.04's glibc 2.35 does not provide.
+            # restore-keys is scoped the same way so a mismatched cache cannot be
+            # used as a partial fallback either.
             - name: Cache cargo registry and build
               uses: actions/cache@v4
               with:
@@ -91,9 +101,9 @@ jobs:
                       ~/.cargo/registry
                       ~/.cargo/git
                       blockchain/target
-                  key: ${{ runner.os }}-node-release-${{ hashFiles('blockchain/Cargo.lock') }}
+                  key: ${{ runner.os }}-ubuntu2204-rust1.92.0-node-release-${{ hashFiles('blockchain/Cargo.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-node-release-
+                      ${{ runner.os }}-ubuntu2204-rust1.92.0-node-release-
 
             - name: Build release binary
               run: cargo build --release --manifest-path blockchain/Cargo.toml -p medichain-node

@@ -171,9 +171,13 @@ jobs:
                       ~/.cargo/registry
                       ~/.cargo/git
                       blockchain/target
-                  key: ${{ runner.os }}-blockchain-${{ hashFiles('blockchain/Cargo.lock') }}
+                  # Image and toolchain are in the key on purpose; see the long
+                  # note in blockchain-node-release.yml. `runner.os` alone is
+                  # "Linux" for every Ubuntu image, so a cache built on one can be
+                  # restored onto another with an incompatible glibc.
+                  key: ${{ runner.os }}-ubuntu-latest-rust1.92.0-blockchain-${{ hashFiles('blockchain/Cargo.lock') }}
                   restore-keys: |
-                      ${{ runner.os }}-blockchain-
+                      ${{ runner.os }}-ubuntu-latest-rust1.92.0-blockchain-
 
             - name: Check formatting
               run: cargo fmt --manifest-path blockchain/Cargo.toml --all -- --check
