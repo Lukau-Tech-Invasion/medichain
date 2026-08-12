@@ -254,18 +254,32 @@ curl -s -H 'Content-Type: application/json' \
 ## Persistence check
 
 ```bash
+scripts/blockchain/qualify-persistence.sh
+```
+
+It starts a node on its own base path, waits for GRANDPA to finalize something,
+stops it with SIGTERM, restarts it on the same path, and checks the two things
+that actually distinguish "resumed" from "started over":
+
+* the **genesis hash is unchanged** — a changed one means a new chain was created
+* the **finalized height did not go backwards** to zero
+
+Both matter, because blocks get produced either way; a chain that silently
+re-genesised looks healthy from the outside. It also fails if nothing was
+finalized before the restart, since a surviving height would then prove nothing.
+It leaves the chain database in place and exits non-zero on any failure.
+
+By hand:
+
+```bash
 # 1. start with a base path and let it produce blocks
 ./medichain-node --dev --base-path ./data/medichain-chain
 
-# 2. note the height, then stop with a single Ctrl-C (graceful)
+# 2. note the height and `chain_getBlockHash [0]`, then Ctrl-C once (graceful)
 
 # 3. restart with the SAME base path
 ./medichain-node --dev --base-path ./data/medichain-chain
 ```
-
-Expect the height to resume from where it stopped, not from 0, and the genesis
-hash to be unchanged. A genesis hash that changed means a new chain was created
-rather than the old one resumed.
 
 ---
 

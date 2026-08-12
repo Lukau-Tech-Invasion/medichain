@@ -113,4 +113,5 @@ __pycache__/
 # "Blockchain node release binary" workflow, the chain data from
 # `run-dev-node.sh --persist`.
 .node-bin/
-/data/medichain-chain/
+# All local chain databases and node logs. Nothing under data/ is tracked.
+/data/
