@@ -1,0 +1,503 @@
+//! Unit tests for access-control pallet
+//!
+//! NASA Power of 10: Rule 10 - Compile with all warnings enabled
+
+#![cfg(test)]
+
+use crate::{mock::*, AccessType, Error, Role, DEFAULT_ACCESS_DURATION};
+use frame_support::{assert_noop, assert_ok};
+
+// =============================================================================
+// Role Management Tests
+// =============================================================================
+
+/// Test assigning a role by admin
+#[test]
+fn assign_role_works() {
+    new_test_ext().execute_with(|| {
+        let new_doctor = 10u64;
+
+        assert_ok!(AccessControl::assign_role(
+            RuntimeOrigin::signed(ADMIN),
+            new_doctor,
+            Role::Doctor,
+        ));
+
+        assert!(AccessControl::is_doctor(&new_doctor));
+        assert!(AccessControl::is_healthcare_provider(&new_doctor));
+    });
+}
+
+/// Test non-admin cannot assign roles
+#[test]
+fn assign_role_fails_if_not_admin() {
+    new_test_ext_with_roles().execute_with(|| {
+        let new_user = 50u64;
+
+        assert_noop!(
+            AccessControl::assign_role(RuntimeOrigin::signed(DOCTOR), new_user, Role::Nurse,),
+            Error::<Test>::InsufficientRole
+        );
+    });
+}
+
+/// Test cannot assign Admin role
+#[test]
+fn assign_admin_role_fails() {
+    new_test_ext().execute_with(|| {
+        let new_user = 50u64;
+
+        assert_noop!(
+            AccessControl::assign_role(RuntimeOrigin::signed(ADMIN), new_user, Role::Admin,),
+            Error::<Test>::CannotAssignAdmin
+        );
+    });
+}
+
+/// Test cannot assign role if already assigned
+#[test]
+fn assign_role_fails_if_already_assigned() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_noop!(
+            AccessControl::assign_role(RuntimeOrigin::signed(ADMIN), DOCTOR, Role::Nurse,),
+            Error::<Test>::RoleAlreadyAssigned
+        );
+    });
+}
+
+/// Test revoking a role by admin
+#[test]
+fn revoke_role_works() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert!(AccessControl::is_doctor(&DOCTOR));
+
+        assert_ok!(AccessControl::revoke_role(
+            RuntimeOrigin::signed(ADMIN),
+            DOCTOR,
+        ));
+
+        assert!(!AccessControl::is_doctor(&DOCTOR));
+        assert!(AccessControl::get_role(&DOCTOR).is_none());
+    });
+}
+
+/// Test non-admin cannot revoke roles
+#[test]
+fn revoke_role_fails_if_not_admin() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_noop!(
+            AccessControl::revoke_role(RuntimeOrigin::signed(DOCTOR), NURSE,),
+            Error::<Test>::InsufficientRole
+        );
+    });
+}
+
+/// Test cannot revoke own role
+#[test]
+fn revoke_own_role_fails() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            AccessControl::revoke_role(RuntimeOrigin::signed(ADMIN), ADMIN,),
+            Error::<Test>::CannotRevokeOwnRole
+        );
+    });
+}
+
+/// Test helper functions for role checking
+#[test]
+fn role_helper_functions_work() {
+    new_test_ext_with_roles().execute_with(|| {
+        // Admin checks
+        assert!(AccessControl::is_admin(&ADMIN));
+        assert!(!AccessControl::is_admin(&DOCTOR));
+
+        // Doctor checks
+        assert!(AccessControl::is_doctor(&DOCTOR));
+        assert!(!AccessControl::is_doctor(&NURSE));
+
+        // Healthcare provider checks (Admin, Doctor, Nurse)
+        assert!(AccessControl::is_healthcare_provider(&ADMIN));
+        assert!(AccessControl::is_healthcare_provider(&DOCTOR));
+        assert!(AccessControl::is_healthcare_provider(&NURSE));
+        assert!(!AccessControl::is_healthcare_provider(&PATIENT));
+
+        // Can register patients checks
+        assert!(AccessControl::can_register_patients(&ADMIN));
+        assert!(AccessControl::can_register_patients(&DOCTOR));
+        assert!(AccessControl::can_register_patients(&NURSE));
+        assert!(!AccessControl::can_register_patients(&PATIENT));
+
+        // Can edit records checks
+        assert!(AccessControl::can_edit_medical_records(&ADMIN));
+        assert!(AccessControl::can_edit_medical_records(&DOCTOR));
+        assert!(AccessControl::can_edit_medical_records(&NURSE));
+        assert!(!AccessControl::can_edit_medical_records(&PATIENT));
+
+        // Patient checks
+        assert!(AccessControl::is_patient(&PATIENT));
+        assert!(!AccessControl::is_patient(&DOCTOR));
+    });
+}
+
+// =============================================================================
+// Emergency Access Tests (updated for RBAC)
+// =============================================================================
+
+/// Test granting emergency access by healthcare provider
+#[test]
+fn grant_emergency_access_works() {
+    new_test_ext_with_roles().execute_with(|| {
+        let patient = PATIENT;
+        let reason_hash = [1u8; 32];
+
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            patient,
+            reason_hash,
+        ));
+
+        // Verify access was granted
+        let access = AccessControl::active_access(patient, DOCTOR).unwrap();
+        assert_eq!(access.reason_hash, reason_hash);
+        assert!(!access.revoked);
+        assert!(matches!(access.access_type, AccessType::Emergency));
+    });
+}
+
+/// Test patient cannot grant emergency access
+#[test]
+fn grant_emergency_access_fails_for_patient() {
+    new_test_ext_with_roles().execute_with(|| {
+        let other_patient = 200u64;
+        let reason_hash = [1u8; 32];
+
+        assert_noop!(
+            AccessControl::grant_emergency_access(
+                RuntimeOrigin::signed(PATIENT),
+                other_patient,
+                reason_hash,
+            ),
+            Error::<Test>::NotHealthcareProvider
+        );
+    });
+}
+
+/// Test duplicate access grant fails
+#[test]
+fn grant_emergency_access_fails_if_exists() {
+    new_test_ext_with_roles().execute_with(|| {
+        let patient = PATIENT;
+        let reason_hash = [1u8; 32];
+
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            patient,
+            reason_hash,
+        ));
+
+        assert_noop!(
+            AccessControl::grant_emergency_access(
+                RuntimeOrigin::signed(DOCTOR),
+                patient,
+                [2u8; 32],
+            ),
+            Error::<Test>::AccessAlreadyGranted
+        );
+    });
+}
+
+/// Test access revocation by patient
+#[test]
+fn revoke_access_by_patient_works() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [1u8; 32],
+        ));
+
+        // Patient revokes access
+        assert_ok!(AccessControl::revoke_access(
+            RuntimeOrigin::signed(PATIENT),
+            PATIENT,
+            DOCTOR,
+        ));
+
+        let access = AccessControl::active_access(PATIENT, DOCTOR).unwrap();
+        assert!(access.revoked);
+    });
+}
+
+/// Test access revocation by accessor
+#[test]
+fn revoke_access_by_accessor_works() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [1u8; 32],
+        ));
+
+        // Doctor revokes their own access
+        assert_ok!(AccessControl::revoke_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            DOCTOR,
+        ));
+
+        let access = AccessControl::active_access(PATIENT, DOCTOR).unwrap();
+        assert!(access.revoked);
+    });
+}
+
+/// Test unauthorized revocation fails
+#[test]
+fn revoke_access_fails_if_unauthorized() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [1u8; 32],
+        ));
+
+        // Nurse cannot revoke doctor's access
+        assert_noop!(
+            AccessControl::revoke_access(RuntimeOrigin::signed(NURSE), PATIENT, DOCTOR),
+            Error::<Test>::NotAuthorized
+        );
+    });
+}
+
+/// Test has_valid_access helper
+#[test]
+fn has_valid_access_works() {
+    new_test_ext_with_roles().execute_with(|| {
+        // No access initially
+        assert!(!AccessControl::has_valid_access(&PATIENT, &DOCTOR));
+
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [1u8; 32],
+        ));
+
+        // Access granted
+        assert!(AccessControl::has_valid_access(&PATIENT, &DOCTOR));
+
+        // Revoke access
+        assert_ok!(AccessControl::revoke_access(
+            RuntimeOrigin::signed(PATIENT),
+            PATIENT,
+            DOCTOR,
+        ));
+
+        // Access revoked
+        assert!(!AccessControl::has_valid_access(&PATIENT, &DOCTOR));
+    });
+}
+
+/// Test access count tracking
+#[test]
+fn access_count_tracks_correctly() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_eq!(AccessControl::access_count(PATIENT), 0);
+
+        // Grant access from doctor and nurse
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [2u8; 32],
+        ));
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(NURSE),
+            PATIENT,
+            [3u8; 32],
+        ));
+
+        assert_eq!(AccessControl::access_count(PATIENT), 2);
+
+        // Revoke one
+        assert_ok!(AccessControl::revoke_access(
+            RuntimeOrigin::signed(PATIENT),
+            PATIENT,
+            DOCTOR,
+        ));
+
+        assert_eq!(AccessControl::access_count(PATIENT), 1);
+    });
+}
+
+/// Test cleanup of expired access
+#[test]
+fn cleanup_expired_access_works() {
+    new_test_ext_with_roles().execute_with(|| {
+        assert_ok!(AccessControl::grant_emergency_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [1u8; 32],
+        ));
+
+        // Fast forward past expiration
+        System::set_block_number(DEFAULT_ACCESS_DURATION as u64 + 10);
+
+        // Anyone can cleanup expired access
+        assert_ok!(AccessControl::cleanup_expired_access(
+            RuntimeOrigin::signed(UNAUTHORIZED),
+            PATIENT,
+            DOCTOR,
+        ));
+
+        // Access should be removed
+        assert!(AccessControl::active_access(PATIENT, DOCTOR).is_none());
+        assert_eq!(AccessControl::access_count(PATIENT), 0);
+    });
+}
+
+// =============================================================================
+// Audit Logging Tests (C5)
+// =============================================================================
+
+/// `log_access` records an audit event WITHOUT creating an emergency-access
+/// grant. This is the behaviour that distinguishes correct audit routing from
+/// the previous bug, where every access was recorded as `grant_emergency_access`.
+#[test]
+fn log_access_does_not_create_grant() {
+    new_test_ext_with_roles().execute_with(|| {
+        System::set_block_number(1);
+
+        assert_ok!(AccessControl::log_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [7u8; 32],
+            false,
+        ));
+
+        // Crucially: no access grant is created and no access count is bumped.
+        assert!(AccessControl::active_access(PATIENT, DOCTOR).is_none());
+        assert_eq!(AccessControl::access_count(PATIENT), 0);
+    });
+}
+
+/// Audit logging is available to any signed origin — it is a record-keeping
+/// action, not a privileged grant, so it must not be gated on provider role.
+#[test]
+fn log_access_allowed_for_any_signed_origin() {
+    new_test_ext_with_roles().execute_with(|| {
+        System::set_block_number(1);
+
+        assert_ok!(AccessControl::log_access(
+            RuntimeOrigin::signed(PATIENT),
+            PATIENT,
+            [9u8; 32],
+            true,
+        ));
+        assert!(AccessControl::active_access(PATIENT, PATIENT).is_none());
+    });
+}
+
+#[test]
+fn delegated_access_log_is_provider_gated_and_does_not_create_a_grant() {
+    new_test_ext_with_roles().execute_with(|| {
+        System::set_block_number(1);
+        assert_ok!(AccessControl::log_delegated_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [4u8; 32],
+            [5u8; 32],
+            true,
+        ));
+        assert!(AccessControl::active_access(PATIENT, DOCTOR).is_none());
+        assert_eq!(AccessControl::access_count(PATIENT), 0);
+
+        assert_noop!(
+            AccessControl::log_delegated_access(
+                RuntimeOrigin::signed(UNAUTHORIZED),
+                PATIENT,
+                [6u8; 32],
+                [7u8; 32],
+                false,
+            ),
+            Error::<Test>::NotHealthcareProvider
+        );
+    });
+}
+
+// =============================================================================
+// Genesis Role Bootstrap Tests
+// -----------------------------------------------------------------------------
+// These are the tests the suite was missing. Every other test in this file seeds
+// roles by writing `UserRoles` directly from the mock, which is a path that does
+// not exist on a real chain. That gap let the pallet ship with a role table no
+// production chain could ever populate: `assign_role` is the map's only writer,
+// it requires `is_admin(caller)`, and it refuses to assign `Role::Admin`. The
+// tests below go through the genesis config instead, so they fail if the
+// bootstrap ever becomes unreachable again.
+// =============================================================================
+
+/// Roles named in the genesis config are readable once the chain is up.
+#[test]
+fn genesis_seeds_initial_roles() {
+    new_test_ext_from_genesis(vec![(ADMIN, Role::Admin), (DOCTOR, Role::Doctor)]).execute_with(
+        || {
+            assert_eq!(AccessControl::get_role(&ADMIN), Some(Role::Admin));
+            assert_eq!(AccessControl::get_role(&DOCTOR), Some(Role::Doctor));
+            assert!(AccessControl::is_admin(&ADMIN));
+        },
+    );
+}
+
+/// The bootstrap is load-bearing: a genesis Admin can go on to assign the roles
+/// that no extrinsic could otherwise create.
+#[test]
+fn genesis_admin_can_assign_further_roles() {
+    new_test_ext_from_genesis(vec![(ADMIN, Role::Admin)]).execute_with(|| {
+        let new_nurse = 42u64;
+        assert_ok!(AccessControl::assign_role(
+            RuntimeOrigin::signed(ADMIN),
+            new_nurse,
+            Role::Nurse
+        ));
+        assert_eq!(AccessControl::get_role(&new_nurse), Some(Role::Nurse));
+    });
+}
+
+/// The regression guard. With an empty genesis role table the chain is
+/// deadlocked: nobody is Admin, so nobody can assign roles, and `Role::Admin`
+/// cannot be assigned by extrinsic at all. This is exactly the state every
+/// MediChain chain was in before the genesis config existed.
+#[test]
+fn empty_genesis_leaves_role_table_unreachable() {
+    new_test_ext_from_genesis(vec![]).execute_with(|| {
+        assert!(!AccessControl::is_admin(&ADMIN));
+
+        // No account can assign a role, because no account is Admin.
+        assert_noop!(
+            AccessControl::assign_role(RuntimeOrigin::signed(ADMIN), DOCTOR, Role::Doctor),
+            Error::<Test>::InsufficientRole
+        );
+
+        // And Admin itself is not assignable by extrinsic, so the deadlock
+        // cannot be broken from inside the runtime.
+        assert_noop!(
+            AccessControl::assign_role(RuntimeOrigin::signed(ADMIN), DOCTOR, Role::Admin),
+            Error::<Test>::InsufficientRole
+        );
+    });
+}
+
+/// The call the MediChain API actually submits is reachable once the operator
+/// account holds a provider role from genesis. Without the genesis config this
+/// assertion is impossible to satisfy on a real chain.
+#[test]
+fn genesis_provider_can_log_delegated_access() {
+    new_test_ext_from_genesis(vec![(DOCTOR, Role::Doctor)]).execute_with(|| {
+        assert!(AccessControl::can_edit_medical_records(&DOCTOR));
+        assert_ok!(AccessControl::log_delegated_access(
+            RuntimeOrigin::signed(DOCTOR),
+            PATIENT,
+            [1u8; 32],
+            [2u8; 32],
+            false,
+        ));
+    });
+}

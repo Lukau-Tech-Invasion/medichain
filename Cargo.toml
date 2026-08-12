@@ -1,36 +1,39 @@
 [workspace]
 resolver = "2"
 members = [
-    "pallets/medical-records",
-    "pallets/patient-identity",
-    "pallets/access-control",
     "crypto",
     "api"
 ]
-# node + runtime excluded: substrate deps (sc-basic-authorship, jsonrpsee,
-# include-wasm-binary-bin-gen) require polkadot-sdk git deps, not crates.io.
-# Restore when wiring up a real Substrate node.
+# The blockchain crates (pallets, runtime, node) live in their own workspace at
+# `blockchain/`, on a different Polkadot SDK release from this one. Keeping them
+# separate is deliberate:
+#
+#   * A node build resolves ~1500 crates and needs ~20 GB of target output. In one
+#     workspace that churn would land in the same target directory as the API.
+#   * The node requires polkadot-sdk 2606 (frame-support 48); `crypto` pins
+#     sp-core 38 and `api` pins sp-core 34. One workspace would force all three
+#     to move together.
+#
+# `api` does not depend on the pallets or the runtime, so nothing here needs them.
+# The one thing that IS coupled across the boundary is `subxt` below: it speaks to
+# the runtime over the wire and must match its metadata format.
+# See docs/BLOCKCHAIN_NODE.md for the blockchain workspace's own commands.
 exclude = [
     "client/wasm-crypto",
-    "node",
-    "runtime"
+    "blockchain"
 ]
 
 [workspace.dependencies]
-# Substrate/Polkadot SDK dependencies - stable versions
-frame-support = { version = "38.0.0", default-features = false }
-frame-system = { version = "38.0.0", default-features = false }
-frame-executive = { version = "38.0.0", default-features = false }
-frame-benchmarking = { version = "38.0.0", default-features = false }
-sp-std = { version = "14.0.0", default-features = false }
-sp-runtime = { version = "39.0.0", default-features = false }
+# Only what `api` and `crypto` actually inherit. The Substrate/FRAME dependency
+# set used to live here for the pallets; it moved to `blockchain/Cargo.toml`
+# along with them.
 sp-core = { version = "34.0.0", default-features = false }
-sp-io = { version = "38.0.0", default-features = false }
-sp-api = { version = "34.0.0", default-features = false }
-sp-block-builder = { version = "34.0.0", default-features = false }
-sp-transaction-pool = { version = "34.0.0", default-features = false }
-sp-inherents = { version = "34.0.0", default-features = false }
-sp-blockchain = { version = "37.0.0" }
-parity-scale-codec = { version = "3.6", default-features = false, features = ["derive"] }
-scale-info = { version = "2.11", default-features = false, features = ["derive"] }
-subxt = { version = "0.37.0" }
+
+# subxt must understand the metadata the MediChain runtime actually emits.
+# `blockchain/` is on polkadot-sdk stable2606, whose extrinsics use the
+# `TransactionExtension` scheme (`AuthorizeCall`, `WeightReclaim`, extrinsic
+# format v5, metadata v16). subxt 0.37 predates all of that -- it was built for
+# the older `SignedExtension`/v4 format -- so it cannot encode a call against
+# this runtime no matter how the API is configured.
+subxt = { version = "0.50.3" }
+subxt-signer = { version = "0.50.3", features = ["sr25519", "subxt"] }

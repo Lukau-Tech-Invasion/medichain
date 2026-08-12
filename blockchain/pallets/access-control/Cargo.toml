@@ -1,0 +1,44 @@
+[package]
+name = "pallet-access-control"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+sp-std = { workspace = true }
+parity-scale-codec = { workspace = true }
+scale-info = { workspace = true }
+# Not optional and not std-gated: `#[pallet::genesis_config]` derives
+# Serialize/Deserialize on the generated struct unconditionally, so `Role` must
+# implement them in the no_std wasm build too.
+serde = { workspace = true }
+
+[dev-dependencies]
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"frame-support/std",
+	"frame-system/std",
+	"frame-benchmarking?/std",
+	"sp-std/std",
+	"parity-scale-codec/std",
+	"scale-info/std",
+	"serde/std",
+]
+runtime-benchmarks = [
+	"frame-benchmarking/runtime-benchmarks",
+	"frame-support/runtime-benchmarks",
+	"frame-system/runtime-benchmarks",
+]
+
+
+[lib]
+name = "pallet_access_control"
+path = "src/lib.rs"
+crate-type = ["lib"]
