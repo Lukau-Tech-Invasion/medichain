@@ -2,7 +2,20 @@
 
 **Started:** 2026-08-13
 **Branch:** `development/medichain-federation-hardening`
-**Status:** Phase 1 (inventory) complete. Phases 2–7 in progress.
+
+**Status.** Phases 1–3 complete and committed; the actor-identity security
+fixes that head Phase 4 are in. The remainder of the appointment lifecycle,
+telehealth, and the design-token work are **not** done — see §6.
+
+| Phase | State | Commit |
+| ----- | ----- | ------ |
+| 1 · Audit inventory | done | `18630f4` |
+| 2 · Shared identity/provider context | done | `f8c9ca8` |
+| 3 · Credential authentication | done | `2df23a4` |
+| 4 · Appointment lifecycle | **security fixes only** | `d76846b` |
+| 5 · Telehealth workflow | not started | — |
+| 6 · Design tokens and contrast | not started | — |
+| 7 · Tests and evidence | partial, per phase | — |
 
 This document is the living inventory for the workflow/UX/authentication audit.
 New findings go here. It is deliberately separate from
@@ -50,7 +63,7 @@ pre-existing ones (requirement §32).
 
 | Suite | Baseline | Notes |
 | ----- | -------- | ----- |
-| `cargo test --bin medichain-api` | **363 passed, 0 failed, 1 ignored** (510s) | Against the live PostgreSQL 16 container. Two more tests than the 361 recorded in `CLAUDE.md`. |
+| `cargo test --bin medichain-api` | **363 passed, 0 failed, 1 ignored** (510s) | Against the live PostgreSQL 16 container. Two more tests than the 361 recorded in `CLAUDE.md`. After phases 1–4: **384 passed, 0 failed** — +21 tests, no regressions. |
 | `cargo test -p medichain-crypto` | not yet run | |
 | pallets (3 crates) | not yet run | |
 | doctor-portal `vitest` | 127 failing (per `docs/PRODUCTION_READINESS.md` H3) | diagnosed as test drift, not product defects |
@@ -136,6 +149,12 @@ reload · Sec = security-relevant.
 | WF-022 | Design system | Every screen | No semantic tokens; 7,886 raw colour utilities / 268 distinct classes in doctor pages; dark mode is a global `.dark .bg-white` surface override that does not adjust foregrounds; the two apps ship divergent `primary` palettes. | P2 | ✗ | — | — | — | Open |
 | WF-023 | Patients | Find a patient | `PatientSearchPage.handleSearch` filters only the already-fetched page of patients client-side, so a patient outside the first fetch cannot be found. Presented as a search box over the whole register. | P2 | ✗ | — | — | — | Open |
 | WF-024 | Registration | Register a patient | Staff are asked to type the patient's SS58 wallet address by hand. Needs reconciling against whether the platform provisions the wallet — the success panel reports an `nfcTagId`, so provisioning claims are made that must be verified end to end. | P2 | ✗ | ? | ? | — | Open |
+| WF-025 | Audit trail | Any audited clinical write | At least nine handlers write a **hardcoded** `accessor_role` into the access log — `"doctor"`, `"nurse"`, `"radiologist"`, `"pathologist"`, `"anesthesiologist"` — regardless of who actually called. `accessor_id` is correct, so the log states a real person holding a role they may not have. For a POPIA-regulated audit trail that is a correctness defect, not cosmetics. Fixed in `create_e_prescription` and `create_radiology_order`; the rest remain. | P1 | — | ✗ | — | ✗ | Partly fixed |
+| WF-026 | Auth | — | `client/shared/src/hooks/useAuth.tsx` is a third, entirely unused auth implementation (`AuthProvider`/`useAuth`), mounted by neither app, carrying its own duplicate copy of the role hierarchy in `HEALTHCARE_PROVIDER_ROLES`/`RECORD_EDITOR_ROLES`. Dead code that will drift. Not deleted — see CLAUDE.md rule 7. | P3 | ✗ | — | — | — | Open |
+| WF-027 | Design system | Every screen | A shared component library exists (`Button`, `Card`, `Input`, `Badge`, `Alert`, `Modal`, `EmptyState`, …) and the doctor portal imports exactly **one** of them (`EmptyState`) across 76 pages. The inconsistency is not a missing design system but a bypassed one. | P2 | ✗ | — | — | — | Open |
+| WF-028 | Auth | Sign a request | The API verifies signatures over the raw message bytes, while the Polkadot extension's `signRaw({type:'bytes'})` signs an `<Bytes>`-wrapped payload. Whether the extension login path actually verifies therefore depends on `sp_core`'s wrap tolerance and was not confirmed. The credential path signs raw bytes and matches exactly. Needs an explicit end-to-end check against a real extension. | P2 | — | — | — | ✗ | Unverified |
+| WF-030 | Appointments | Book any appointment (PostgreSQL) | **Appointments have never once persisted on the production storage backend.** `appointments.provider_id` is `uuid` with `FOREIGN KEY → users(id)`, as are `created_by` and `cancelled_by`; the application keys providers by SS58 `wallet_address` throughout. Every booking dies with `operator does not exist: uuid = text`. Confirmed live: `SELECT count(*) FROM appointments` is **0**. Invisible until now because the in-memory repository enforces no types and there is no PostgreSQL test for appointment booking — the same class as the memory-backend blind spot already known in this codebase. Fixing it means migrating those three columns to `varchar` against `users(wallet_address)`, which is deliberate schema surgery on a clinical table and was **not** attempted as a side effect of this audit. | P0 | — | ✗ | ✗ | — | Open, diagnosed |
+| WF-029 | Auth | Brute-force a sign-in | The new credential-login lockout is process-local, like the existing rate-limit middleware. Behind more than one API instance an attacker can spread attempts across them. Acceptable for the current single-instance deployment; needs shared state (Redis) before horizontal scaling. | P2 | — | ✗ | — | ✗ | Known limitation |
 
 ### Not yet audited
 
@@ -149,7 +168,48 @@ get audited in a later pass.
 
 ---
 
-## 5. Scope of the current pass
+### Live end-to-end evidence
+
+Run against the built binary on `:8090` with `MEDICHAIN_STORAGE=postgres`
+pointing at the real PostgreSQL 16 container, using existing synthetic staff
+accounts. Verbatim results:
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Enrol credentials for Dr Mbeki (wallet-authenticated) | `200` `{"login_id":"dr.mbeki","success":true}` |
+| 2 | Sign in with `dr.mbeki` + correct proof | `200`, returns wallet + encrypted keystore. **No address typed.** |
+| 3 | Same identifier, wrong proof | `401 INVALID_CREDENTIALS` |
+| 4 | Identifier that does not exist | `401 INVALID_CREDENTIALS` — byte-identical to #3, so no account enumeration |
+| 7a | **Dr A books naming Dr B as provider** | `403 PROVIDER_MISMATCH` — the impersonation the audit found is refused |
+| 7d | Unrecognised appointment type | `400 UNKNOWN_APPOINTMENT_TYPE` — rejected, not silently defaulted to FollowUp |
+| 7b/7c | Legitimate booking (self, and admin-for-colleague) | `500` — got past authorization and died in the repository on WF-030 below |
+
+7b/7c are how WF-030 was found. Both cleared the new authorization logic and
+failed underneath it, in a pre-existing schema defect unrelated to this work.
+
+## 5. What is genuinely still open
+
+Recorded plainly so nothing above reads as more finished than it is.
+
+**Not started.** The appointment lifecycle beyond the security fix — Today /
+Upcoming / Previous / Cancelled views (WF-008), the transition endpoints for
+confirm, start, complete and no-show (WF-009), the dead cancel and check-in
+buttons (WF-006, WF-007), and the patient app's four dead appointment buttons
+(WF-012). Telehealth-to-appointment linkage (WF-014). The design-token layer
+and contrast work (WF-018, WF-022, WF-027). Imaging (WF-015, WF-016), critical
+values (WF-017), and the twelve fake-success handlers (WF-019).
+
+**Done but not yet proven end to end.** Credential sign-in has unit coverage
+and typechecks, and its server half was exercised against the live database,
+but no browser has completed the full derive → login → open keystore → sign
+challenge → JWT round trip. Until that runs, treat WF-002 as implemented and
+unverified.
+
+**Deliberately unfixed.** `useAuth.tsx` (WF-026) is dead code left in place
+under CLAUDE.md rule 7. The seven remaining hardcoded `accessor_role` strings
+(WF-025) were left rather than swept into an unrelated commit.
+
+## 6. Scope of the current pass
 
 Agreed with the repository owner on 2026-08-13: **depth over breadth.** Take
 authentication, the shared identity context, the appointment lifecycle,
