@@ -61,7 +61,10 @@ impl RetentionExecutionRepository for MemoryRetentionExecutionRepository {
             .filter(|a| a.status == "pending" || a.status == "approved")
             .cloned()
             .collect();
-        open.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
+        // Newest first. `Reverse` rather than `sort_by(|a, b| b.cmp(a))` so the
+        // descending intent is explicit and clippy's `unnecessary_sort_by` is
+        // satisfied without an allow.
+        open.sort_by_key(|r| std::cmp::Reverse(r.requested_at));
         Ok(open)
     }
 

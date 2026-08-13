@@ -44,7 +44,7 @@ pub async fn assign_role(
     }
 
     // Sensitive action: enforce MFA step-up for JWT-authenticated admins.
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -97,16 +97,17 @@ pub async fn assign_role(
         last_login: None,
     };
 
-    data.users
-        .write()
-        .unwrap()
-        .insert(body.wallet_address.clone(), user.clone());
-    if let Err(e) = data.persist_user(&user).await {
+    if let Err(e) = data.persist_then_cache_user(user).await {
         log::error!(
             "Failed to persist role assignment for {}: {}",
             body.wallet_address,
             e
         );
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Role assignment could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
     }
 
     log::info!(
@@ -164,7 +165,7 @@ pub async fn revoke_role(
     }
 
     // Sensitive action: enforce MFA step-up for JWT-authenticated admins.
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -177,22 +178,29 @@ pub async fn revoke_role(
         });
     }
 
-    // Remove user
-    let removed = data.users.write().unwrap().remove(&body.wallet_address);
-
-    if removed.is_none() {
+    let exists = data
+        .users
+        .read()
+        .ok()
+        .is_some_and(|users| users.contains_key(&body.wallet_address));
+    if !exists {
         return HttpResponse::NotFound().json(ErrorResponse {
             success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
     }
-    if let Err(e) = data.deactivate_user_in_db(&body.wallet_address).await {
+    if let Err(e) = data.deactivate_then_evict_user(&body.wallet_address).await {
         log::error!(
             "Failed to persist role revocation for {}: {}",
             body.wallet_address,
             e
         );
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Role revocation could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
     }
 
     log::info!(
@@ -329,7 +337,7 @@ pub async fn verify_guardian_relationship(
         });
     }
 
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -433,7 +441,7 @@ pub async fn update_guardian_permissions(
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 

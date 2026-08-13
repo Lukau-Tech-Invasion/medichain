@@ -39,7 +39,7 @@ impl PreOpAssessmentRepository for PgPreOpAssessmentRepository {
                 allergies_confirmed, npo_status, labs_reviewed, ekg_reviewed,
                 chest_xray_reviewed, consent_signed, blood_type_confirmed,
                 risk_score, assessment_notes, assessed_by, assessed_at,
-                cleared_for_surgery, clearance_conditions
+                cleared_for_surgery, clearance_conditions, record_json
             ) ",
         );
 
@@ -71,7 +71,8 @@ impl PreOpAssessmentRepository for PgPreOpAssessmentRepository {
                 .push_bind(&a.assessed_by)
                 .push_bind(a.assessed_at)
                 .push_bind(a.cleared_for_surgery)
-                .push_bind(&a.clearance_conditions);
+                .push_bind(&a.clearance_conditions)
+                .push_bind(&a.data);
         });
 
         qb.push(" RETURNING *");
@@ -201,6 +202,7 @@ impl PreOpAssessmentRepository for PgPreOpAssessmentRepository {
             .push_bind(assessment.cleared_for_surgery);
         qb.push(", clearance_conditions = ")
             .push_bind(&assessment.clearance_conditions);
+        qb.push(", record_json = ").push_bind(&assessment.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&assessment.id);
         qb.push(" RETURNING *");
@@ -267,7 +269,7 @@ impl OperativeNoteRepository for PgOperativeNoteRepository {
                 incision_time, closure_time, estimated_blood_loss_ml, fluids_given_ml,
                 blood_products_given, specimens_collected, implants_used, drains_placed,
                 operative_findings, procedure_description, complications,
-                disposition, post_op_orders
+                disposition, post_op_orders, record_json
             ) ",
         );
 
@@ -299,7 +301,8 @@ impl OperativeNoteRepository for PgOperativeNoteRepository {
                 .push_bind(&n.procedure_description)
                 .push_bind(&n.complications)
                 .push_bind(&n.disposition)
-                .push_bind(&n.post_op_orders);
+                .push_bind(&n.post_op_orders)
+                .push_bind(&n.data);
         });
 
         qb.push(" RETURNING *");
@@ -400,6 +403,7 @@ impl OperativeNoteRepository for PgOperativeNoteRepository {
         qb.push(", disposition = ").push_bind(&note.disposition);
         qb.push(", post_op_orders = ")
             .push_bind(&note.post_op_orders);
+        qb.push(", record_json = ").push_bind(&note.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&note.id);
         qb.push(" RETURNING *");
@@ -438,7 +442,7 @@ impl PostOpNoteRepository for PgPostOpNoteRepository {
                 provider_id, pain_level, pain_management, vital_signs,
                 wound_assessment, drain_output, diet_status, ambulation_status,
                 voiding_status, bowel_function, lab_results_reviewed, complications,
-                plan, discharge_criteria_met, estimated_discharge_date
+                plan, discharge_criteria_met, estimated_discharge_date, record_json
             ) ",
         );
 
@@ -462,7 +466,8 @@ impl PostOpNoteRepository for PgPostOpNoteRepository {
                 .push_bind(&n.complications)
                 .push_bind(&n.plan)
                 .push_bind(n.discharge_criteria_met)
-                .push_bind(n.estimated_discharge_date);
+                .push_bind(n.estimated_discharge_date)
+                .push_bind(&n.data);
         });
 
         qb.push(" RETURNING *");
@@ -561,6 +566,7 @@ impl PostOpNoteRepository for PgPostOpNoteRepository {
             .push_bind(note.discharge_criteria_met);
         qb.push(", estimated_discharge_date = ")
             .push_bind(note.estimated_discharge_date);
+        qb.push(", record_json = ").push_bind(&note.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&note.id);
         qb.push(" RETURNING *");
@@ -604,7 +610,8 @@ impl AnesthesiaRecordRepository for PgAnesthesiaRecordRepository {
                 reversal_agents, vasopressors, intraop_fluids, blood_products,
                 monitoring, vital_signs_timeline, events, complications,
                 emergence_time, extubation_time, pacu_arrival_time, pacu_discharge_time,
-                aldrete_score_arrival, aldrete_score_discharge, post_anesthesia_orders
+                aldrete_score_arrival, aldrete_score_discharge, post_anesthesia_orders,
+                record_json
             ) ",
         );
 
@@ -634,7 +641,8 @@ impl AnesthesiaRecordRepository for PgAnesthesiaRecordRepository {
                 .push_bind(r.pacu_discharge_time)
                 .push_bind(r.aldrete_score_arrival)
                 .push_bind(r.aldrete_score_discharge)
-                .push_bind(&r.post_anesthesia_orders);
+                .push_bind(&r.post_anesthesia_orders)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -748,6 +756,7 @@ impl AnesthesiaRecordRepository for PgAnesthesiaRecordRepository {
             .push_bind(record.aldrete_score_discharge);
         qb.push(", post_anesthesia_orders = ")
             .push_bind(&record.post_anesthesia_orders);
+        qb.push(", record_json = ").push_bind(&record.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&record.id);
         qb.push(" RETURNING *");
@@ -758,6 +767,20 @@ impl AnesthesiaRecordRepository for PgAnesthesiaRecordRepository {
             .await?;
 
         Ok(result)
+    }
+
+    /// Cross-patient read, for the administrator audit view only — callers must
+    /// enforce that. Without this override the trait's default returned
+    /// `NotFound`, so the audit list worked in memory and failed under
+    /// PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<AnesthesiaRecordEntity>> {
+        let records = sqlx::query_as::<_, AnesthesiaRecordEntity>(
+            "SELECT * FROM anesthesia_records ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(records)
     }
 }
 

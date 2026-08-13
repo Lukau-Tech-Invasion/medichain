@@ -838,3 +838,555 @@ impl From<crate::repositories::traits::CdsAlertEntity> for crate::clinical::CDSA
         }
     }
 }
+
+// =============================================================================
+// Peri-operative documentation (migration 20260810000001)
+//
+// These conversions have one rule that is not negotiable: `record_json` (the
+// entity's `data` field) is the source of truth on the way back out. The typed
+// columns are a *projection* for querying and reporting.
+//
+// The reason is that `PreOperativeAssessment` carries fields the table never
+// modelled — including `site_verified` and `site_marked`, the WHO Surgical
+// Safety Checklist items that exist to prevent wrong-site surgery. Rebuilding
+// the API object from the typed columns would drop them while looking like it
+// worked. So writes project what they can and store everything; reads
+// deserialize what was stored.
+//
+// Where no faithful mapping exists, the projection is left empty rather than
+// guessed. `cleared_for_surgery` in particular defaults to false: an unknown
+// surgical clearance must fail closed.
+// =============================================================================
+
+fn asa_class_column(class: &crate::clinical::ASAClassification) -> Option<String> {
+    use crate::clinical::ASAClassification as A;
+    match class {
+        A::ASA1 => Some("I".to_string()),
+        A::ASA2 => Some("II".to_string()),
+        A::ASA3 => Some("III".to_string()),
+        A::ASA4 => Some("IV".to_string()),
+        A::ASA5 => Some("V".to_string()),
+        A::ASA6 => Some("VI".to_string()),
+        // A modifier, not a class of its own. The column's CHECK constraint has
+        // no value for it; the truth stays in record_json.
+        A::Emergency => None,
+    }
+}
+
+fn mallampati_column(score: &crate::clinical::MallampatiScore) -> i32 {
+    use crate::clinical::MallampatiScore as M;
+    match score {
+        M::Class1 => 1,
+        M::Class2 => 2,
+        M::Class3 => 3,
+        M::Class4 => 4,
+    }
+}
+
+impl From<crate::clinical::PreOperativeAssessment>
+    for crate::repositories::traits::PreOpAssessmentEntity
+{
+    fn from(a: crate::clinical::PreOperativeAssessment) -> Self {
+        // Stored before the typed projection borrows from `a`, so a
+        // serialization failure cannot produce a row with an empty payload.
+        let data = serde_json::to_value(&a).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+
+        Self {
+            id: a.assessment_id,
+            patient_id: a.patient_id,
+            procedure_name: a.scheduled_procedure,
+            scheduled_date: chrono::DateTime::parse_from_rfc3339(&a.procedure_datetime)
+                .ok()
+                .map(|d| d.with_timezone(&chrono::Utc)),
+            surgeon_id: a.surgeon,
+            anesthesiologist_id: a.anesthesiologist,
+            asa_classification: asa_class_column(&a.asa_class),
+            mallampati_score: Some(mallampati_column(&a.airway_assessment)),
+            airway_assessment: serde_json::to_value(&a.airway_assessment).ok(),
+            medications_reviewed: Some(serde_json::json!(a.medications_reviewed)),
+            allergies_confirmed: a.allergies_reviewed,
+            npo_status: Some(
+                if a.npo_status.compliant {
+                    "compliant"
+                } else {
+                    "non_compliant"
+                }
+                .to_string(),
+            ),
+            labs_reviewed: Some(serde_json::json!(a.labs_reviewed)),
+            consent_signed: a.consent_signed,
+            blood_type_confirmed: Some(a.blood_type_confirmed),
+            assessment_notes: a.notes,
+            assessed_by: a.assessed_by,
+            assessed_at: chrono::DateTime::from_timestamp(a.assessed_at, 0).unwrap_or(now),
+            // No faithful source in the API type. `imaging_reviewed` is not the
+            // same statement as "the chest x-ray was reviewed", so it is not
+            // borrowed for these columns.
+            cleared_for_surgery: false,
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<crate::repositories::traits::PreOpAssessmentEntity>
+    for crate::clinical::PreOperativeAssessment
+{
+    type Error = serde_json::Error;
+
+    /// Rebuilds the assessment from the stored payload, never from the typed
+    /// projection. A row whose `record_json` is missing or malformed is an
+    /// error, not a partially populated assessment — returning half a surgical
+    /// safety checklist would be worse than returning none.
+    fn try_from(
+        entity: crate::repositories::traits::PreOpAssessmentEntity,
+    ) -> Result<Self, Self::Error> {
+        serde_json::from_value(entity.data)
+    }
+}
+
+/// The team member filling `role`, by name. The columns hold one identifier
+/// each; the full team stays in `record_json`.
+fn team_member_named(
+    team: &[crate::clinical::SurgicalTeamMember],
+    role: crate::clinical::SurgicalRole,
+) -> Option<String> {
+    team.iter().find(|m| m.role == role).map(|m| m.name.clone())
+}
+
+fn anesthesia_type_column(kind: &crate::clinical::AnesthesiaType) -> String {
+    use crate::clinical::AnesthesiaType as T;
+    // The column's CHECK constraint predates the API enum and has no value for
+    // Spinal or Epidural. Both are neuraxial regional techniques, so they
+    // project to 'regional'; the exact technique stays in record_json.
+    match kind {
+        T::General => "general",
+        T::Spinal | T::Epidural | T::Regional => "regional",
+        T::LocalWithSedation => "sedation",
+        T::LocalOnly => "local",
+        T::MAC => "mac",
+    }
+    .to_string()
+}
+
+fn utc_from_unix(seconds: i64) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::from_timestamp(seconds, 0).unwrap_or_else(chrono::Utc::now)
+}
+
+impl From<crate::clinical::OperativeNote> for crate::repositories::traits::OperativeNoteEntity {
+    fn from(n: crate::clinical::OperativeNote) -> Self {
+        use crate::clinical::SurgicalRole as R;
+        let data = serde_json::to_value(&n).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+
+        Self {
+            id: n.note_id,
+            patient_id: n.patient_id,
+            procedure_name: n.procedure_performed,
+            procedure_codes: serde_json::to_value(&n.cpt_codes).ok(),
+            // The API models diagnoses as lists; the columns are single text
+            // fields. Joined for the projection, preserved in record_json.
+            preoperative_diagnosis: n.pre_op_diagnosis.join("; "),
+            postoperative_diagnosis: n.post_op_diagnosis.join("; "),
+            surgeon_id: team_member_named(&n.surgeons, R::PrimarySurgeon)
+                .or_else(|| n.surgeons.first().map(|m| m.name.clone()))
+                .unwrap_or_default(),
+            assistant_surgeons: serde_json::to_value(
+                n.surgeons
+                    .iter()
+                    .filter(|m| matches!(m.role, R::Assistant | R::Resident))
+                    .collect::<Vec<_>>(),
+            )
+            .ok(),
+            anesthesiologist_id: n.anesthesia_team.first().cloned(),
+            anesthesia_type: anesthesia_type_column(&n.anesthesia_type),
+            scrub_nurse_id: team_member_named(&n.surgeons, R::ScrubNurse),
+            circulating_nurse_id: team_member_named(&n.surgeons, R::CirculatingNurse),
+            start_time: utc_from_unix(n.time_in_or),
+            end_time: utc_from_unix(n.time_out_or),
+            estimated_blood_loss_ml: i32::try_from(n.estimated_blood_loss).ok(),
+            // `fluids_given` is free text ("2L crystalloid"), not a millilitre
+            // count. Parsing it into a number would be an invention.
+            blood_products_given: serde_json::to_value(&n.blood_products).ok(),
+            specimens_collected: serde_json::to_value(&n.specimens).ok(),
+            implants_used: serde_json::to_value(&n.implants).ok(),
+            drains_placed: serde_json::to_value(&n.drains).ok(),
+            operative_findings: Some(n.findings),
+            procedure_description: n.procedure_details,
+            complications: n.complications,
+            disposition: Some(n.disposition),
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<crate::repositories::traits::OperativeNoteEntity> for crate::clinical::OperativeNote {
+    type Error = serde_json::Error;
+
+    fn try_from(
+        entity: crate::repositories::traits::OperativeNoteEntity,
+    ) -> Result<Self, Self::Error> {
+        serde_json::from_value(entity.data)
+    }
+}
+
+impl From<crate::clinical::PostOperativeNote> for crate::repositories::traits::PostOpNoteEntity {
+    fn from(n: crate::clinical::PostOperativeNote) -> Self {
+        let data = serde_json::to_value(&n).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+
+        Self {
+            id: n.note_id,
+            patient_id: n.patient_id,
+            // The API type carries no operative-note link; nullable since
+            // migration 20260810000001.
+            operative_note_id: None,
+            post_op_day: i32::from(n.post_op_day),
+            note_date: utc_from_unix(n.note_time),
+            provider_id: n.written_by,
+            pain_level: Some(i32::from(n.pain_score)),
+            pain_management: Some(n.pain_management),
+            wound_assessment: serde_json::to_value(&n.wound).ok(),
+            drain_output: n
+                .drain_output
+                .as_ref()
+                .and_then(|d| serde_json::to_value(d).ok()),
+            diet_status: Some(n.diet),
+            ambulation_status: Some(n.activity),
+            voiding_status: n.foley.clone(),
+            lab_results_reviewed: n.labs.as_ref().and_then(|l| serde_json::to_value(l).ok()),
+            complications: n.complications.clone(),
+            plan: Some(n.plan.join("; ")),
+            // No discharge-criteria field in the API type. False is the safe
+            // default: an unknown readiness must not read as "ready".
+            discharge_criteria_met: false,
+            estimated_discharge_date: n
+                .estimated_discharge
+                .as_deref()
+                .and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()),
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<crate::repositories::traits::PostOpNoteEntity> for crate::clinical::PostOperativeNote {
+    type Error = serde_json::Error;
+
+    fn try_from(
+        entity: crate::repositories::traits::PostOpNoteEntity,
+    ) -> Result<Self, Self::Error> {
+        serde_json::from_value(entity.data)
+    }
+}
+
+impl From<crate::clinical::AnesthesiaRecord>
+    for crate::repositories::traits::AnesthesiaRecordEntity
+{
+    fn from(r: crate::clinical::AnesthesiaRecord) -> Self {
+        let data = serde_json::to_value(&r).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+
+        Self {
+            id: r.record_id,
+            patient_id: r.patient_id,
+            operative_note_id: None,
+            anesthesiologist_id: r.anesthesiologist,
+            crna_id: r.crna,
+            anesthesia_type: anesthesia_type_column(&r.anesthesia_type),
+            asa_classification: asa_class_column(&r.asa_class),
+            airway_management: serde_json::to_value(&r.airway).ok(),
+            induction_agents: serde_json::to_value(&r.induction).ok(),
+            maintenance_agents: serde_json::to_value(&r.maintenance).ok(),
+            intraop_fluids: serde_json::to_value(&r.fluids).ok(),
+            blood_products: serde_json::to_value(&r.blood_products).ok(),
+            vital_signs_timeline: serde_json::to_value(&r.vital_signs).ok(),
+            events: serde_json::to_value(&r.intraop_events).ok(),
+            complications: if r.complications.is_empty() {
+                None
+            } else {
+                Some(r.complications.join("; "))
+            },
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<crate::repositories::traits::AnesthesiaRecordEntity>
+    for crate::clinical::AnesthesiaRecord
+{
+    type Error = serde_json::Error;
+
+    fn try_from(
+        entity: crate::repositories::traits::AnesthesiaRecordEntity,
+    ) -> Result<Self, Self::Error> {
+        serde_json::from_value(entity.data)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Radiology and pathology (migration 20260811000001)
+//
+// Same shape as the peri-operative conversions above: the typed columns are a
+// queryable projection and `record_json` carries the whole API object, so the
+// round trip cannot silently drop structure the columns do not model.
+// ---------------------------------------------------------------------------
+
+/// Base imaging modality for the `modality` column, whose CHECK constraint
+/// accepts only these values. Contrast is carried separately in
+/// `contrast_required`, so `CTWithContrast` and `CT` share a modality rather
+/// than inventing a value the column would reject.
+fn radiology_modality_column(kind: &crate::clinical::RadiologyStudyType) -> String {
+    use crate::clinical::RadiologyStudyType as T;
+    match kind {
+        T::XRay => "xray",
+        T::CT | T::CTWithContrast => "ct",
+        T::MRI | T::MRIWithContrast => "mri",
+        T::Ultrasound => "ultrasound",
+        T::Nuclear => "nuclear",
+        T::PET => "pet",
+        T::Fluoroscopy => "fluoroscopy",
+        T::Mammography => "mammography",
+        T::Angiography => "angiography",
+    }
+    .to_string()
+}
+
+fn radiology_uses_contrast(kind: &crate::clinical::RadiologyStudyType) -> bool {
+    use crate::clinical::RadiologyStudyType as T;
+    matches!(kind, T::CTWithContrast | T::MRIWithContrast)
+}
+
+fn order_priority_column(priority: &crate::clinical::OrderPriority) -> String {
+    use crate::clinical::OrderPriority as P;
+    match priority {
+        P::Stat => "stat",
+        P::Urgent => "urgent",
+        P::Routine => "routine",
+        P::Scheduled => "scheduled",
+        P::PRN => "prn",
+    }
+    .to_string()
+}
+
+fn radiology_order_status_column(status: &crate::clinical::RadiologyOrderStatus) -> String {
+    use crate::clinical::RadiologyOrderStatus as S;
+    match status {
+        S::Ordered => "ordered",
+        S::Scheduled => "scheduled",
+        S::InProgress => "in_progress",
+        S::Completed => "completed",
+        S::Preliminary => "preliminary",
+        S::Final => "final",
+        S::Cancelled => "cancelled",
+    }
+    .to_string()
+}
+
+fn laterality_column(laterality: &crate::clinical::Laterality) -> String {
+    use crate::clinical::Laterality as L;
+    match laterality {
+        L::Left => "left",
+        L::Right => "right",
+        L::Bilateral => "bilateral",
+        L::NA => "na",
+    }
+    .to_string()
+}
+
+impl From<crate::clinical::RadiologyOrder> for crate::repositories::traits::RadiologyOrderEntity {
+    fn from(o: crate::clinical::RadiologyOrder) -> Self {
+        let data = serde_json::to_value(&o).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+
+        Self {
+            id: o.order_id,
+            patient_id: o.patient_id,
+            ordering_provider_id: o.ordering_provider,
+            modality: radiology_modality_column(&o.study_type),
+            // The precise variant (including the contrast distinction the
+            // modality column cannot express) is preserved here and in the
+            // payload.
+            study_type: format!("{:?}", o.study_type),
+            body_part: o.body_part,
+            laterality: o.laterality.as_ref().map(laterality_column),
+            priority: order_priority_column(&o.priority),
+            status: radiology_order_status_column(&o.status),
+            clinical_indication: o.indication,
+            contrast_required: Some(o.contrast || radiology_uses_contrast(&o.study_type)),
+            special_instructions: o.special_instructions,
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<crate::repositories::traits::RadiologyOrderEntity>
+    for crate::clinical::RadiologyOrder
+{
+    type Error = serde_json::Error;
+
+    fn try_from(
+        entity: crate::repositories::traits::RadiologyOrderEntity,
+    ) -> Result<Self, Self::Error> {
+        serde_json::from_value(entity.data)
+    }
+}
+
+fn radiology_report_status_column(status: &crate::clinical::RadiologyReportStatus) -> String {
+    use crate::clinical::RadiologyReportStatus as S;
+    match status {
+        S::Preliminary => "preliminary",
+        S::Final => "final",
+        S::Addendum => "addendum",
+        S::Corrected => "corrected",
+    }
+    .to_string()
+}
+
+impl From<crate::clinical::RadiologyReport> for crate::repositories::traits::RadiologyReportEntity {
+    fn from(r: crate::clinical::RadiologyReport) -> Self {
+        let data = serde_json::to_value(&r).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+
+        Self {
+            id: r.report_id,
+            order_id: r.order_id,
+            patient_id: r.patient_id,
+            radiologist_id: r.radiologist,
+            study_datetime: utc_from_unix(r.study_datetime),
+            report_datetime: now,
+            comparison_studies: r.comparison,
+            technique: Some(r.technique),
+            findings: r.findings,
+            // The API models the impression as a list of statements; the
+            // column is a single text field. Joined for the projection,
+            // preserved verbatim in record_json.
+            impression: r.impression.join("; "),
+            recommendations: r.recommendations,
+            critical_finding: r.critical_finding,
+            critical_finding_communicated: Some(r.critical_communicated.is_some()),
+            communicated_to: r
+                .critical_communicated
+                .as_ref()
+                .map(|c| c.communicated_to.clone()),
+            communicated_at: r
+                .critical_communicated
+                .as_ref()
+                .map(|c| utc_from_unix(c.communication_time)),
+            communication_method: r.critical_communicated.as_ref().map(|c| c.method.clone()),
+            status: radiology_report_status_column(&r.status),
+            pacs_study_uid: r.dicom_study_uid,
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<crate::repositories::traits::RadiologyReportEntity>
+    for crate::clinical::RadiologyReport
+{
+    type Error = serde_json::Error;
+
+    fn try_from(
+        entity: crate::repositories::traits::RadiologyReportEntity,
+    ) -> Result<Self, Self::Error> {
+        serde_json::from_value(entity.data)
+    }
+}
+
+fn pathology_status_column(status: &crate::clinical::PathologyStatus) -> String {
+    use crate::clinical::PathologyStatus as S;
+    match status {
+        S::Pending => "pending",
+        S::Preliminary => "preliminary",
+        S::Final => "final",
+        S::Amended => "amended",
+    }
+    .to_string()
+}
+
+/// Parse the API's string dates into a timestamp column, falling back to the
+/// epoch rather than "now" when the value is unparseable: a wrong collection
+/// date that reads as today is more misleading than an obviously invalid one,
+/// and the exact original string is retained in `record_json` either way.
+fn pathology_date_column(value: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .or_else(|_| {
+            chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map(|d| {
+                chrono::DateTime::from_naive_utc_and_offset(
+                    d.and_hms_opt(0, 0, 0).unwrap_or_default(),
+                    chrono::Utc,
+                )
+            })
+        })
+        .unwrap_or_else(|_| chrono::DateTime::from_timestamp(0, 0).unwrap_or_default())
+}
+
+impl From<crate::clinical::PathologyReport> for crate::repositories::traits::PathologyReportEntity {
+    fn from(r: crate::clinical::PathologyReport) -> Self {
+        let data = serde_json::to_value(&r).unwrap_or(serde_json::Value::Null);
+        let now = chrono::Utc::now();
+
+        Self {
+            id: r.report_id,
+            patient_id: r.patient_id,
+            specimen_id: None,
+            ordering_provider_id: r.pathologist.clone(),
+            pathologist_id: r.pathologist,
+            specimen_type: format!("{:?}", r.specimen_type),
+            specimen_source: r.specimen_source,
+            collection_date: pathology_date_column(&r.collection_date),
+            received_date: pathology_date_column(&r.received_date),
+            report_date: pathology_date_column(&r.report_date),
+            clinical_history: Some(r.clinical_history),
+            gross_description: r.gross_description,
+            microscopic_description: r.microscopic_description,
+            special_stains: serde_json::to_value(&r.special_stains).ok(),
+            immunohistochemistry: serde_json::to_value(&r.ihc).ok(),
+            molecular_studies: serde_json::to_value(&r.molecular).ok(),
+            // The API models the diagnosis as a list; the column is one text
+            // field. Joined for the projection, preserved in record_json.
+            diagnosis: r.diagnosis.join("; "),
+            staging: r.synoptic.as_ref().map(|s| s.histologic_grade.clone()),
+            synoptic_report: r
+                .synoptic
+                .as_ref()
+                .and_then(|s| serde_json::to_value(s).ok()),
+            comments: r.comment,
+            status: pathology_status_column(&r.status),
+            created_at: now,
+            updated_at: now,
+            data,
+            ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<crate::repositories::traits::PathologyReportEntity>
+    for crate::clinical::PathologyReport
+{
+    type Error = serde_json::Error;
+
+    fn try_from(
+        entity: crate::repositories::traits::PathologyReportEntity,
+    ) -> Result<Self, Self::Error> {
+        serde_json::from_value(entity.data)
+    }
+}

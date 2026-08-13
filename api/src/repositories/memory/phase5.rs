@@ -1048,6 +1048,18 @@ impl CdsAlertRepository for MemoryCdsAlertRepository {
             .collect();
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+    async fn count_by_severity(&self) -> RepositoryResult<(u64, u64)> {
+        let alerts = self
+            .alerts
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let total = alerts.len() as u64;
+        let critical = alerts
+            .values()
+            .filter(|a| a.severity.eq_ignore_ascii_case("critical"))
+            .count() as u64;
+        Ok((total, critical))
+    }
 }
 
 // =============================================================================

@@ -253,9 +253,9 @@ fn require_emergency_list_access(
         Some(u)
             if u.role.is_healthcare_provider()
                 || crate::support::caller_owns_patient_record(
-                    &data,
+                    data,
                     &current_user_id,
-                    &patient_id,
+                    patient_id,
                 ) =>
         {
             Ok(())

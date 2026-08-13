@@ -50,7 +50,8 @@ impl RadiologyOrderRepository for PgRadiologyOrderRepository {
                 body_part, laterality, priority, status, clinical_indication,
                 diagnosis_codes, contrast_required, contrast_type, sedation_required,
                 patient_prep_instructions, special_instructions, scheduled_datetime,
-                completed_datetime, performing_technologist_id, accession_number
+                completed_datetime, performing_technologist_id, accession_number,
+                record_json
             ) ",
         );
 
@@ -74,7 +75,8 @@ impl RadiologyOrderRepository for PgRadiologyOrderRepository {
                 .push_bind(o.scheduled_datetime)
                 .push_bind(o.completed_datetime)
                 .push_bind(&o.performing_technologist_id)
-                .push_bind(&o.accession_number);
+                .push_bind(&o.accession_number)
+                .push_bind(&o.data);
         });
 
         qb.push(" RETURNING *");
@@ -216,7 +218,7 @@ impl RadiologyReportRepository for PgRadiologyReportRepository {
                 impression, recommendations, critical_finding,
                 critical_finding_communicated, communicated_to, communicated_at,
                 communication_method, addendum, addendum_datetime, addendum_by,
-                status, image_count, pacs_study_uid
+                status, image_count, pacs_study_uid, record_json
             ) ",
         );
 
@@ -242,7 +244,8 @@ impl RadiologyReportRepository for PgRadiologyReportRepository {
                 .push_bind(&r.addendum_by)
                 .push_bind(&r.status)
                 .push_bind(r.image_count)
-                .push_bind(&r.pacs_study_uid);
+                .push_bind(&r.pacs_study_uid)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -407,7 +410,8 @@ impl PathologyReportRepository for PgPathologyReportRepository {
                 report_date, clinical_history, gross_description, microscopic_description,
                 special_stains, immunohistochemistry, molecular_studies, diagnosis,
                 staging, tnm_classification, margin_status, lymph_node_status,
-                comments, addendum, addendum_datetime, addendum_by, status, synoptic_report
+                comments, addendum, addendum_datetime, addendum_by, status, synoptic_report,
+                record_json
             ) ",
         );
 
@@ -438,7 +442,8 @@ impl PathologyReportRepository for PgPathologyReportRepository {
                 .push_bind(r.addendum_datetime)
                 .push_bind(&r.addendum_by)
                 .push_bind(&r.status)
-                .push_bind(&r.synoptic_report);
+                .push_bind(&r.synoptic_report)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");

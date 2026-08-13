@@ -120,24 +120,29 @@ pub async fn claim_medical_identity(
         });
     }
 
-    match data.users.write() {
-        Ok(mut users) => match users.get_mut(&current_user_id) {
-            Some(user) => user.linked_patient_id = Some(body.patient_id.clone()),
-            None => {
-                return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    error: "User record disappeared during claim".to_string(),
-                    code: "INTERNAL_ERROR".to_string(),
-                })
-            }
-        },
-        Err(_) => {
+    let mut updated_user = match data
+        .users
+        .read()
+        .ok()
+        .and_then(|users| users.get(&current_user_id).cloned())
+    {
+        Some(user) => user,
+        None => {
             return HttpResponse::InternalServerError().json(ErrorResponse {
                 success: false,
-                error: "User store is unavailable".to_string(),
+                error: "User record disappeared during claim".to_string(),
                 code: "INTERNAL_ERROR".to_string(),
             })
         }
+    };
+    updated_user.linked_patient_id = Some(body.patient_id.clone());
+    if let Err(error) = data.persist_then_cache_user(updated_user).await {
+        log::error!("Failed to persist medical identity claim: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Medical identity claim could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
     }
 
     let _ = data.audit_outbox.record(

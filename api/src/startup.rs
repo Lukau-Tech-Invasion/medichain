@@ -41,6 +41,30 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Reject contradictory runtime posture before authentication middleware is built.
+pub fn validate_runtime_posture(
+    app_env: &str,
+    is_demo: bool,
+    require_signatures: bool,
+) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if production && is_demo {
+        return Err(
+            "Refusing to start: APP_ENV=production cannot be combined with IS_DEMO=true"
+                .to_string(),
+        );
+    }
+    if production && !require_signatures {
+        return Err(
+            "Refusing to start: APP_ENV=production requires REQUIRE_SIGNATURES=true".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Validate that the running configuration is not using demo/default secrets.
 ///
 /// Secure by default: `IS_DEMO` is treated as `false` (production) when unset, so a
@@ -56,6 +80,12 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
 pub fn validate_production_secrets() -> Result<(), String> {
     // Fail closed: unset IS_DEMO ⇒ production (refuse demo/missing secrets).
     let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
+    let require_signatures = std::env::var("REQUIRE_SIGNATURES")
+        .map(|value| value == "true")
+        .unwrap_or(!is_demo);
+    let app_env = std::env::var("APP_ENV")
+        .unwrap_or_else(|_| if is_demo { "development" } else { "production" }.to_string());
+    validate_runtime_posture(&app_env, is_demo, require_signatures)?;
 
     let mut offenders: Vec<String> = Vec::new();
 
@@ -239,4 +269,31 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!();
     println!("  © 2025 Lukau Invasion (Pty) Ltd. Rust Africa Hackathon 2026");
     println!();
+}
+
+#[cfg(test)]
+mod runtime_posture_tests {
+    use super::validate_runtime_posture;
+
+    #[test]
+    fn production_rejects_demo_mode() {
+        let error = validate_runtime_posture("production", true, false).unwrap_err();
+        assert!(error.contains("IS_DEMO=true"));
+    }
+
+    #[test]
+    fn production_rejects_disabled_signatures() {
+        let error = validate_runtime_posture("prod", false, false).unwrap_err();
+        assert!(error.contains("REQUIRE_SIGNATURES=true"));
+    }
+
+    #[test]
+    fn production_accepts_secure_posture() {
+        assert!(validate_runtime_posture("production", false, true).is_ok());
+    }
+
+    #[test]
+    fn explicit_development_demo_is_allowed() {
+        assert!(validate_runtime_posture("development", true, false).is_ok());
+    }
 }

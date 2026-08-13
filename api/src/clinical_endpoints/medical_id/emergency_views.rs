@@ -108,8 +108,8 @@ async fn primary_guardian_contact_json(
 #[get("/api/medical-id/{patient_id}/emergency")]
 pub async fn get_emergency_medical_id(
     data: web::Data<AppState>,
+    http_req: HttpRequest,
     path: web::Path<String>,
-    query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
@@ -122,20 +122,35 @@ pub async fn get_emergency_medical_id(
     // number of round-trips as before once you count the exchange call, but
     // what could leak from *this* endpoint's own query string now expires in
     // ~2 minutes instead of never.
-    let token_ok = query
-        .get("token")
-        .map(|t| super::emergency_access::verify_emergency_token(t, &patient_id))
-        .unwrap_or(false);
-
-    if !token_ok {
-        return HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Emergency access requires a valid signed token. Exchange your NFC card hash \
-                    via POST /api/emergency/nfc-token first."
-                .to_string(),
-            code: "EMERGENCY_ACCESS_DENIED".to_string(),
-        });
-    }
+    let token = http_req
+        .headers()
+        .get(actix_web::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim);
+    let consumed = match token {
+        Some(token) => super::emergency_access::consume_emergency_token(&data, token, &patient_id)
+            .await
+            .ok(),
+        None => None,
+    };
+    let emergency_claims = match consumed {
+        Some(claims)
+            if data
+                .device_lifecycle
+                .can_access(&claims.device_id, Utc::now()) =>
+        {
+            claims
+        }
+        _ => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Emergency access requires a valid one-time Bearer token from an approved device."
+                    .to_string(),
+                code: "EMERGENCY_ACCESS_DENIED".to_string(),
+            });
+        }
+    };
 
     // Get patient from repository
     let patient = match data.repositories.patients.get_by_id(&patient_id).await {
@@ -146,6 +161,83 @@ pub async fn get_emergency_medical_id(
                 error: "Patient not found".to_string(),
                 code: "PATIENT_NOT_FOUND".to_string(),
             })
+        }
+    };
+    let patient_chain_account = patient.wallet_address.clone();
+
+    // `connection_info()` borrows the request's internal `RefCell`. Bind the
+    // owned address directly so the `Ref` is released at the end of this
+    // statement rather than living across the audit `await` below, where a
+    // re-entrant borrow would panic at runtime.
+    let ip_address = http_req
+        .connection_info()
+        .realip_remote_addr()
+        .map(str::to_string);
+    let user_agent = http_req
+        .headers()
+        .get(actix_web::http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let log_entry = crate::repositories::AccessLogEntity {
+        id: uuid::Uuid::new_v4().to_string(),
+        accessor_id: emergency_claims.sub.clone(),
+        accessor_role: "FirstResponder".to_string(),
+        patient_id: Some(patient_id.clone()),
+        resource_type: "emergency_medical_id".to_string(),
+        resource_id: Some(patient_id.clone()),
+        action: "view".to_string(),
+        access_reason: Some(emergency_claims.reason_code.clone()),
+        is_emergency_access: true,
+        ip_address,
+        user_agent,
+        blockchain_tx_hash: None,
+        accessed_at: chrono::Utc::now(),
+        facility_id: data
+            .device_lifecycle
+            .get(&emergency_claims.device_id)
+            .and_then(|device| device.facility_id),
+    };
+    let access_id = log_entry.id.clone();
+    if let Err(error) = data
+        .repositories
+        .record_access_atomic(&patient_id, log_entry)
+        .await
+    {
+        log::error!("Emergency access audit persistence failed: {}", error);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Emergency access is temporarily unavailable because the audit trail could not be recorded."
+                .to_string(),
+            code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
+        });
+    }
+    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Emergency access was recorded, but the patient has no blockchain wallet for the required chain audit."
+                .to_string(),
+            code: "PATIENT_WALLET_REQUIRED".to_string(),
+        });
+    }
+    let chain_anchor = match crate::audit_outbox::anchor_access_or_queue(
+        &data,
+        "emergency_access",
+        &access_id,
+        patient_chain_account.as_deref().unwrap_or_default(),
+        &emergency_claims.sub,
+        "EMERGENCY_ACCESS",
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            log::error!("Emergency chain audit could not be finalized or queued: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Emergency access was recorded, but its required chain audit could not be queued."
+                    .to_string(),
+                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
+            });
         }
     };
 
@@ -280,52 +372,10 @@ pub async fn get_emergency_medical_id(
 
         // ACCESS LOG WARNING
         "access_logged": true,
-        "access_timestamp": chrono::Utc::now().to_rfc3339()
+        "access_timestamp": chrono::Utc::now().to_rfc3339(),
+        "chain_audit_status": chain_anchor.status,
+        "blockchain_tx_hash": chain_anchor.transaction_hash
     });
-
-    // Log emergency access (CRITICAL - immutable audit trail)
-    let log_entry = crate::repositories::AccessLogEntity {
-        id: uuid::Uuid::new_v4().to_string(),
-        accessor_id: "EMERGENCY_ACCESS".to_string(),
-        accessor_role: "FirstResponder".to_string(),
-        patient_id: Some(patient_id.clone()),
-        resource_type: "emergency_medical_id".to_string(),
-        resource_id: Some(patient_id.clone()),
-        action: "view".to_string(),
-        access_reason: Some("Emergency medical access".to_string()),
-        is_emergency_access: true,
-        ip_address: None,
-        user_agent: None,
-        blockchain_tx_hash: None,
-        accessed_at: chrono::Utc::now(),
-        facility_id: None,
-    };
-    let _ = data.repositories.access_logs.create(log_entry).await;
-
-    // Fire-and-forget on-chain audit entry (non-fatal). HZ-002: this is the exact
-    // audit path the code's own history describes as a legal-reliability fix
-    // (C5/F-05, routine-vs-emergency routing in `audit_call_for`) — previously it
-    // had no caller anywhere, so it never actually recorded emergency access.
-    if let Some(ref client) = data.substrate_client {
-        let client = client.clone();
-        let patient_id_clone = patient_id.clone();
-        tokio::spawn(async move {
-            match client
-                .log_access_on_chain("EMERGENCY_ACCESS", &patient_id_clone, "EMERGENCY_ACCESS")
-                .await
-            {
-                Ok(result) => log::info!(
-                    "Emergency access logged on chain: {} (finalized={})",
-                    result.hash,
-                    result.finalized
-                ),
-                Err(e) => log::warn!(
-                    "Blockchain emergency-access logging failed (non-fatal): {}",
-                    e
-                ),
-            }
-        });
-    }
 
     HttpResponse::Ok().json(emergency_data)
 }
@@ -336,16 +386,51 @@ pub async fn get_lockscreen_medical_id(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
-    query: web::Query<std::collections::HashMap<String, String>>,
 ) -> impl Responder {
     let patient_id = path.into_inner();
 
-    // Lock-screen PHI is gated by a bound identity (C3): either an authenticated
-    // caller (X-User-Id / session) or a short-lived signed emergency token
-    // exchanged for an NFC card hash. An unbound request never sees PHI.
-    // Horizon HZ-001: a raw `nfc_hash` is no longer accepted directly — see
-    // `get_emergency_medical_id`'s doc comment above for why.
-    let current_user_id = get_current_user_id(&http_req);
+    let device_id = match http_req
+        .headers()
+        .get("X-Device-Id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => value.to_string(),
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "A device-bound lockscreen capability is required".to_string(),
+                code: "DEVICE_BINDING_REQUIRED".to_string(),
+            });
+        }
+    };
+    let token = http_req
+        .headers()
+        .get(actix_web::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim);
+    let capability_ok = token
+        .and_then(|token| {
+            crate::mobile_records::verify_lockscreen_token(token, &patient_id, &device_id).ok()
+        })
+        .is_some();
+    let device_ok = data
+        .mobile_records
+        .get_device(&device_id)
+        .is_some_and(|device| {
+            device.patient_id == patient_id
+                && device.status == crate::mobile_records::MobileDeviceStatus::Active
+        });
+    if !capability_ok || !device_ok {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "The lockscreen capability is invalid, expired, revoked, or belongs to another device."
+                .to_string(),
+            code: "DEVICE_BINDING_REQUIRED".to_string(),
+        });
+    }
 
     // Get patient from repository
     let patient = match data.repositories.patients.get_by_id(&patient_id).await {
@@ -358,41 +443,87 @@ pub async fn get_lockscreen_medical_id(
             })
         }
     };
+    let lockscreen_enabled = crate::patient_entity_to_profile(&patient, &data.encryption_keyring)
+        .is_some_and(|profile| profile.preferences.show_when_locked);
+    if !lockscreen_enabled {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "The patient has disabled lockscreen Medical ID access".to_string(),
+            code: "LOCKSCREEN_ACCESS_DISABLED".to_string(),
+        });
+    }
+    let patient_chain_account = patient.wallet_address.clone();
 
-    let token_ok = query
-        .get("token")
-        .map(|t| super::emergency_access::verify_emergency_token(t, &patient_id))
-        .unwrap_or(false);
-
-    // Access requires a valid signed emergency token, OR an authenticated caller
-    // who is either a healthcare provider or the patient themselves.
-    //
-    // HZ-019 IDOR follow-up: the prior check was `authenticated OR token`, which
-    // let ANY authenticated account — including an unrelated patient — read this
-    // patient's lock-screen PHI. Its sibling `/api/medical-id/{id}` already
-    // enforced provider-or-self; lock-screen silently did not. A systematic
-    // cross-patient sweep caught the divergence.
-    if !token_ok {
-        let authorized = match &current_user_id {
-            Some(uid) => {
-                *uid == patient_id
-                    || get_user(&data, uid)
-                        .map(|u| u.role.is_healthcare_provider())
-                        .unwrap_or(false)
-            }
-            None => false,
-        };
-        if !authorized {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
+    // See `get_emergency_medical_id`: the `connection_info()` borrow must not
+    // outlive this statement, or it spans the audit `await` below.
+    let ip_address = http_req
+        .connection_info()
+        .realip_remote_addr()
+        .map(str::to_string);
+    let log_entry = crate::repositories::AccessLogEntity {
+        id: uuid::Uuid::new_v4().to_string(),
+        accessor_id: format!("device:{device_id}"),
+        accessor_role: "PatientDevice".to_string(),
+        patient_id: Some(patient_id.clone()),
+        resource_type: "lockscreen_view".to_string(),
+        resource_id: Some(patient_id.clone()),
+        action: "view".to_string(),
+        access_reason: Some("Device-bound patient lockscreen".to_string()),
+        is_emergency_access: false,
+        ip_address,
+        user_agent: http_req
+            .headers()
+            .get(actix_web::http::header::USER_AGENT)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string),
+        blockchain_tx_hash: None,
+        accessed_at: chrono::Utc::now(),
+        facility_id: None,
+    };
+    let access_id = log_entry.id.clone();
+    if let Err(error) = data
+        .repositories
+        .record_access_atomic(&patient_id, log_entry)
+        .await
+    {
+        log::error!("Lockscreen access audit persistence failed: {}", error);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Lockscreen access is temporarily unavailable because the audit trail could not be recorded."
+                .to_string(),
+            code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
+        });
+    }
+    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Lockscreen access was recorded, but the patient has no blockchain wallet for the required chain audit."
+                .to_string(),
+            code: "PATIENT_WALLET_REQUIRED".to_string(),
+        });
+    }
+    let accessor_id = format!("device:{device_id}");
+    let chain_anchor = match crate::audit_outbox::anchor_access_or_queue(
+        &data,
+        "lockscreen_access",
+        &access_id,
+        patient_chain_account.as_deref().unwrap_or_default(),
+        &accessor_id,
+        "READ",
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            log::error!("Lockscreen chain audit could not be finalized or queued: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
                 success: false,
-                error: "Lock-screen access requires a valid signed emergency token, or an \
-                        authenticated healthcare provider, or the patient themselves. Exchange \
-                        an NFC card hash via POST /api/emergency/nfc-token for token access."
+                error: "Lockscreen access was recorded, but its required chain audit could not be queued."
                     .to_string(),
-                code: "IDENTITY_BINDING_REQUIRED".to_string(),
+                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
             });
         }
-    }
+    };
 
     let allergies = merged_allergies(&data, &patient, &patient_id).await;
 
@@ -490,52 +621,10 @@ pub async fn get_lockscreen_medical_id(
         "emergency_contact": guardian_contact,
 
         // QR Code (small, bottom corner)
-        "qr_url": format!("/api/medical-id/{}/qr", patient_id)
+        "qr_url": format!("/api/medical-id/{}/qr", patient_id),
+        "chain_audit_status": chain_anchor.status,
+        "blockchain_tx_hash": chain_anchor.transaction_hash
     });
-
-    // Log access
-    if let Some(user_id) = current_user_id {
-        let log_entry = crate::repositories::AccessLogEntity {
-            id: uuid::Uuid::new_v4().to_string(),
-            accessor_id: user_id.clone(),
-            accessor_role: "Patient".to_string(),
-            patient_id: Some(patient_id.clone()),
-            resource_type: "lockscreen_view".to_string(),
-            resource_id: Some(patient_id.clone()),
-            action: "view".to_string(),
-            access_reason: Some("Patient lockscreen view".to_string()),
-            is_emergency_access: false,
-            ip_address: None,
-            user_agent: None,
-            blockchain_tx_hash: None,
-            accessed_at: chrono::Utc::now(),
-            facility_id: None,
-        };
-        let _ = data.repositories.access_logs.create(log_entry).await;
-
-        // Fire-and-forget on-chain audit entry (non-fatal), same HZ-002 remediation
-        // as the emergency-view handler above.
-        if let Some(ref client) = data.substrate_client {
-            let client = client.clone();
-            let patient_id_clone = patient_id.clone();
-            tokio::spawn(async move {
-                match client
-                    .log_access_on_chain(&user_id, &patient_id_clone, "READ")
-                    .await
-                {
-                    Ok(result) => log::info!(
-                        "Lockscreen access logged on chain: {} (finalized={})",
-                        result.hash,
-                        result.finalized
-                    ),
-                    Err(e) => log::warn!(
-                        "Blockchain lockscreen-access logging failed (non-fatal): {}",
-                        e
-                    ),
-                }
-            });
-        }
-    }
 
     HttpResponse::Ok().json(lockscreen_data)
 }
@@ -573,12 +662,34 @@ mod hz_001_regression_tests {
             insurance: None,
             primary_doctor: None,
             community_health_worker: None,
-            preferences: crate::PatientPreferences::default(),
+            preferences: crate::PatientPreferences {
+                show_when_locked: true,
+                ..crate::PatientPreferences::default()
+            },
             advanced_directives: Vec::new(),
             family_notifications: None,
             created_at: now,
             last_updated: now,
         }
+    }
+
+    fn active_device(state: &crate::AppState, fingerprint: &str) -> String {
+        let device = state
+            .device_lifecycle
+            .enroll(
+                "org-1".into(),
+                None,
+                "ED tablet".into(),
+                "tablet".into(),
+                fingerprint.into(),
+                None,
+            )
+            .unwrap();
+        state
+            .device_lifecycle
+            .rotate(&device.id, "key-1".into(), Utc::now())
+            .unwrap();
+        device.id
     }
 
     /// HZ-001 regression: a bare `nfc_hash` query parameter — the exact request
@@ -649,8 +760,24 @@ mod hz_001_regression_tests {
             .await
             .unwrap();
 
-        let valid_token = super::super::emergency_access::issue_emergency_token(patient_id, 120);
-        let expired_token = super::super::emergency_access::issue_emergency_token(patient_id, -10);
+        let device_id = active_device(&state, "fingerprint-hz001-2");
+
+        let valid_token = super::super::emergency_access::issue_emergency_token(
+            patient_id,
+            "responder-wallet",
+            &device_id,
+            "trauma",
+            120,
+        )
+        .unwrap();
+        let expired_token = super::super::emergency_access::issue_emergency_token(
+            patient_id,
+            "responder-wallet",
+            &device_id,
+            "trauma",
+            -10,
+        )
+        .unwrap();
 
         let app_state = web::Data::new(state);
         let app = actix_web::App::new()
@@ -659,21 +786,162 @@ mod hz_001_regression_tests {
         let app = test::init_service(app).await;
 
         let ok_req = test::TestRequest::get()
-            .uri(&format!(
-                "/api/medical-id/{patient_id}/emergency?token={valid_token}"
-            ))
+            .uri(&format!("/api/medical-id/{patient_id}/emergency"))
+            .insert_header(("Authorization", format!("Bearer {valid_token}")))
             .to_request();
         let ok_resp = test::call_service(&app, ok_req).await;
         assert!(ok_resp.status().is_success());
 
         let expired_req = test::TestRequest::get()
-            .uri(&format!(
-                "/api/medical-id/{patient_id}/emergency?token={expired_token}"
-            ))
+            .uri(&format!("/api/medical-id/{patient_id}/emergency"))
+            .insert_header(("Authorization", format!("Bearer {expired_token}")))
             .to_request();
         let expired_resp = test::call_service(&app, expired_req).await;
         assert_eq!(
             expired_resp.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[actix_web::test]
+    async fn lockscreen_requires_matching_active_patient_device() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-LOCK-1";
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &test_patient(patient_id),
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        let device = state
+            .mobile_records
+            .register_device(
+                patient_id.into(),
+                "Patient phone".into(),
+                crate::mobile_records::MobilePlatform::Android,
+                "public-key".into(),
+            )
+            .unwrap();
+        let token = crate::mobile_records::issue_lockscreen_token(patient_id, &device.id).unwrap();
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(state))
+                .service(get_lockscreen_medical_id),
+        )
+        .await;
+
+        let unbound = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/lockscreen"))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, unbound).await.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
+
+        let wrong_device = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/lockscreen"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .insert_header(("X-Device-Id", "another-device"))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, wrong_device).await.status(),
+            actix_web::http::StatusCode::UNAUTHORIZED
+        );
+
+        let valid = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/lockscreen"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .insert_header(("X-Device-Id", device.id))
+            .to_request();
+        assert!(test::call_service(&app, valid).await.status().is_success());
+    }
+
+    #[actix_web::test]
+    async fn patient_can_disable_lockscreen_medical_id() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-LOCK-DISABLED";
+        let mut patient = test_patient(patient_id);
+        patient.preferences.show_when_locked = false;
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &patient,
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        let device = state
+            .mobile_records
+            .register_device(
+                patient_id.into(),
+                "Patient phone".into(),
+                crate::mobile_records::MobilePlatform::Android,
+                "public-key-disabled".into(),
+            )
+            .unwrap();
+        let token = crate::mobile_records::issue_lockscreen_token(patient_id, &device.id).unwrap();
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(state))
+                .service(get_lockscreen_medical_id),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/lockscreen"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .insert_header(("X-Device-Id", device.id))
+            .to_request();
+
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
+            actix_web::http::StatusCode::FORBIDDEN
+        );
+    }
+
+    #[actix_web::test]
+    async fn revoked_device_cannot_use_existing_lockscreen_token() {
+        let state = crate::AppState::new();
+        let patient_id = "PAT-LOCK-2";
+        state
+            .repositories
+            .patients
+            .create(crate::patient_profile_to_entity(
+                &test_patient(patient_id),
+                &state.encryption_keyring,
+            ))
+            .await
+            .unwrap();
+        let device = state
+            .mobile_records
+            .register_device(
+                patient_id.into(),
+                "Lost phone".into(),
+                crate::mobile_records::MobilePlatform::Ios,
+                "public-key-2".into(),
+            )
+            .unwrap();
+        let token = crate::mobile_records::issue_lockscreen_token(patient_id, &device.id).unwrap();
+        state
+            .mobile_records
+            .revoke_device(&device.id, "lost".into(), Utc::now())
+            .unwrap();
+        let app = test::init_service(
+            actix_web::App::new()
+                .app_data(web::Data::new(state))
+                .service(get_lockscreen_medical_id),
+        )
+        .await;
+        let request = test::TestRequest::get()
+            .uri(&format!("/api/medical-id/{patient_id}/lockscreen"))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .insert_header(("X-Device-Id", device.id))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, request).await.status(),
             actix_web::http::StatusCode::UNAUTHORIZED
         );
     }

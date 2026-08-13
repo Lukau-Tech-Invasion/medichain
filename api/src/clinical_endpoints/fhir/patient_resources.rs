@@ -12,6 +12,22 @@ use super::*;
 // HL7 FHIR R4 Compatible Endpoints
 // ============================================================================
 
+/// Whether `value` is already a valid FHIR `date` (`YYYY`, `YYYY-MM` or
+/// `YYYY-MM-DD`), returning it if so.
+///
+/// FHIR requires that shape. The Patient resource previously emitted the
+/// literal string `"Redacted"` in `birthDate`, which conformant clients reject
+/// outright — so a value that does not parse is omitted rather than sent.
+fn fhir_date(value: &str) -> Option<&str> {
+    let ok = match value.len() {
+        4 => value.chars().all(|c| c.is_ascii_digit()),
+        7 => chrono::NaiveDate::parse_from_str(&format!("{value}-01"), "%Y-%m-%d").is_ok(),
+        10 => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok(),
+        _ => false,
+    };
+    ok.then_some(value)
+}
+
 /// FHIR Patient resource - Get patient in FHIR R4 format
 #[get("/api/fhir/r4/Patient/{patient_id}")]
 pub async fn fhir_get_patient(
@@ -66,8 +82,22 @@ pub async fn fhir_get_patient(
     // Get patient from repository
     match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(patient) => {
-            // Convert to FHIR R4 Patient resource
-            let fhir_patient = serde_json::json!({
+            // The demographics live in the patient's encrypted profile blob.
+            // This resource used to emit the literal name "Patient", the
+            // literal birthDate "Redacted", empty `address`/`contact` arrays
+            // and a hardcoded "en" language — without ever attempting to
+            // decrypt. Two of those were actively wrong rather than merely
+            // incomplete: "Redacted" is not a valid FHIR `date`, so conformant
+            // clients reject the resource, and an empty `contact` array is a
+            // positive assertion that the patient has NO next of kin, which an
+            // importing system will happily believe.
+            //
+            // FHIR's own convention is that an element it cannot state is
+            // ABSENT, not empty or invented. So each element below is emitted
+            // only when the profile actually supplies it.
+            let profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
+
+            let mut fhir_patient = serde_json::json!({
                 "resourceType": "Patient",
                 "id": patient.id,
                 "meta": {
@@ -81,23 +111,98 @@ pub async fn fhir_get_patient(
                     "system": "urn:medichain:patient-id",
                     "value": patient.id
                 }],
-                "active": true,
-                "name": [{
-                    "use": "official",
-                    "text": "Patient" // Name is encrypted
-                }],
-                "birthDate": "Redacted", // DOB is encrypted
-                "address": [], // TODO: Address repository
-                "contact": [], // TODO: Contact repository
-                "communication": [{
-                    "language": {
-                        "coding": [{
-                            "system": "urn:ietf:bcp:47",
-                            "code": "en"
-                        }]
-                    }
-                }]
+                "active": patient.is_active
             });
+            let object = fhir_patient
+                .as_object_mut()
+                .expect("constructed as a JSON object above");
+
+            if let Some(profile) = profile.as_ref() {
+                object.insert(
+                    "name".to_string(),
+                    serde_json::json!([{ "use": "official", "text": profile.full_name }]),
+                );
+                // FHIR `date`: YYYY, YYYY-MM or YYYY-MM-DD. Emitted only when
+                // the stored value is already in that form — a malformed date
+                // is worse than an absent one.
+                if fhir_date(&profile.date_of_birth).is_some() {
+                    object.insert(
+                        "birthDate".to_string(),
+                        serde_json::json!(profile.date_of_birth),
+                    );
+                }
+                if !profile.phone.is_empty() {
+                    object.insert(
+                        "telecom".to_string(),
+                        serde_json::json!([{
+                            "system": "phone",
+                            "value": profile.phone,
+                            "use": "mobile"
+                        }]),
+                    );
+                }
+                if let Some(address) = profile.address.as_ref() {
+                    object.insert("address".to_string(), serde_json::json!([{
+                        "use": "home",
+                        "line": address.street.as_ref().map(|s| vec![s.clone()]).unwrap_or_default(),
+                        "city": address.city,
+                        "state": address.state,
+                        "postalCode": address.postal_code,
+                        "country": address.country
+                    }]));
+                }
+                let contacts: Vec<serde_json::Value> = profile
+                    .emergency_info
+                    .emergency_contacts
+                    .iter()
+                    .map(|contact| {
+                        serde_json::json!({
+                            "relationship": [{
+                                "coding": [{
+                                    "system":
+                                        "http://terminology.hl7.org/CodeSystem/v2-0131",
+                                    "code": "C",
+                                    "display": "Emergency Contact"
+                                }],
+                                "text": contact.relationship
+                            }],
+                            "name": { "text": contact.name },
+                            "telecom": [{ "system": "phone", "value": contact.phone }]
+                        })
+                    })
+                    .collect();
+                if !contacts.is_empty() {
+                    object.insert("contact".to_string(), serde_json::json!(contacts));
+                }
+                if let Some(language) = profile.preferences.display_language.as_ref() {
+                    object.insert(
+                        "communication".to_string(),
+                        serde_json::json!([{
+                            "language": {
+                                "coding": [{
+                                    "system": "urn:ietf:bcp:47",
+                                    "code": language
+                                }]
+                            },
+                            "preferred": true
+                        }]),
+                    );
+                }
+            } else {
+                // Undecryptable profile: say so in-band rather than emitting a
+                // resource that looks complete and says the patient has no
+                // name, address or next of kin.
+                log::error!("FHIR Patient {patient_id}: profile could not be decrypted");
+                object.insert(
+                    "_name".to_string(),
+                    serde_json::json!({
+                        "extension": [{
+                            "url": "http://hl7.org/fhir/StructureDefinition/data-absent-reason",
+                            "valueCode": "masked"
+                        }]
+                    }),
+                );
+            }
 
             HttpResponse::Ok()
                 .content_type("application/fhir+json")
@@ -281,8 +386,46 @@ pub async fn fhir_get_medications(
         }));
     }
 
-    // TODO: Phase 2: Chronic medications should be fetched from repository
-    let medications: Vec<String> = Vec::new();
+    // These come from the patient's encrypted profile — the same
+    // `emergency_info` the first-responder card reads, so the two surfaces
+    // cannot disagree about what the patient is taking.
+    //
+    // This was `Vec::new()`, so the Bundle always reported `total: 0`. For an
+    // interoperability endpoint that is not an empty result, it is a positive
+    // statement to the importing system that the patient takes no medication —
+    // which is exactly the assertion that gets someone prescribed something
+    // that interacts. An unreadable profile now fails the request instead.
+    let patient = match data.repositories.patients.get_by_id(&patient_id).await {
+        Ok(patient) => patient,
+        Err(_) => {
+            return HttpResponse::NotFound().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "not-found",
+                    "diagnostics": format!("Patient {} not found", patient_id)
+                }]
+            }));
+        }
+    };
+    let medications: Vec<String> =
+        match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
+            Some(profile) => profile.emergency_info.current_medications,
+            None => {
+                log::error!(
+                    "FHIR MedicationStatement {patient_id}: profile could not be decrypted"
+                );
+                return HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                    "resourceType": "OperationOutcome",
+                    "issue": [{
+                        "severity": "error",
+                        "code": "exception",
+                        "diagnostics": "Medication history is unavailable; it must not be \
+                                        reported as empty."
+                    }]
+                }));
+            }
+        };
 
     let entries: Vec<serde_json::Value> = medications
         .iter()
@@ -365,8 +508,38 @@ pub async fn fhir_get_conditions(
         }));
     }
 
-    // TODO: Phase 2: Chronic conditions should be fetched from repository
-    let conditions: Vec<String> = Vec::new();
+    // Same source and same reasoning as the MedicationStatement bundle above:
+    // an empty `Condition` bundle asserts the patient has no chronic
+    // conditions, so it must reflect the record rather than a placeholder.
+    let patient = match data.repositories.patients.get_by_id(&patient_id).await {
+        Ok(patient) => patient,
+        Err(_) => {
+            return HttpResponse::NotFound().json(serde_json::json!({
+                "resourceType": "OperationOutcome",
+                "issue": [{
+                    "severity": "error",
+                    "code": "not-found",
+                    "diagnostics": format!("Patient {} not found", patient_id)
+                }]
+            }));
+        }
+    };
+    let conditions: Vec<String> =
+        match crate::patient_entity_to_profile(&patient, &data.encryption_keyring) {
+            Some(profile) => profile.emergency_info.chronic_conditions,
+            None => {
+                log::error!("FHIR Condition {patient_id}: profile could not be decrypted");
+                return HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                    "resourceType": "OperationOutcome",
+                    "issue": [{
+                        "severity": "error",
+                        "code": "exception",
+                        "diagnostics": "Condition history is unavailable; it must not be \
+                                        reported as empty."
+                    }]
+                }));
+            }
+        };
 
     let entries: Vec<serde_json::Value> = conditions
         .iter()

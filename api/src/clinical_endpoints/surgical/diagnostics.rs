@@ -39,16 +39,24 @@ pub async fn create_anesthesia(
         )
         .await;
 
-    match data.anesthesia_records.write() {
-        Ok(mut records) => {
-            records.insert(id.clone(), record);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so the record survives a restart.
+    match data
+        .repositories
+        .anesthesia_records
+        .create(record.into())
+        .await
+    {
+        Ok(stored) => {
+            HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("anesthesia record {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Anesthesia record could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -66,24 +74,78 @@ pub async fn get_anesthesia(
         return resp;
     }
     let id = path.into_inner();
-    match data.anesthesia_records.read() {
-        Ok(records) => records
-            .get(&id)
-            .map(|record| HttpResponse::Ok().json(record))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data.repositories.anesthesia_records.get_by_id(&id).await {
+        Ok(entity) => match AnesthesiaRecord::try_from(entity) {
+            Ok(record) => HttpResponse::Ok().json(record),
+            Err(e) => {
+                // Half an anesthesia record is more dangerous than none.
+                log::error!("anesthesia record {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored anesthesia record could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("anesthesia record {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
-/// List all anesthesia records (Admin/Audit)
+/// List anesthesia records.
+///
+/// Previously returned *every* record in the deployment to any clinical staff
+/// member — one of the unscoped bulk reads in the multi-tenant backlog. The
+/// cross-patient view is now the administrator audit case only; an ordinary
+/// anaesthetist gets the records they are responsible for, which is what the
+/// portal's list actually needs.
 #[get("/api/surgical/anesthesia/list")]
 pub async fn list_anesthesia(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
-    match data.anesthesia_records.read() {
-        Ok(records) => HttpResponse::Ok().json(records.values().cloned().collect::<Vec<_>>()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+
+    let entities = if caller.role.is_admin() {
+        data.repositories.anesthesia_records.list_all().await
+    } else {
+        data.repositories
+            .anesthesia_records
+            .get_by_provider(
+                &caller.wallet_address,
+                crate::repositories::Pagination::new(0, 200),
+            )
+            .await
+            .map(|page| page.items)
+    };
+
+    match entities {
+        Ok(entities) => {
+            let mut items = Vec::with_capacity(entities.len());
+            for entity in entities {
+                let id = entity.id.clone();
+                match AnesthesiaRecord::try_from(entity) {
+                    Ok(record) => items.push(record),
+                    Err(e) => {
+                        log::error!("anesthesia record {id} stored payload is unreadable: {e}");
+                        return HttpResponse::InternalServerError().json(ErrorResponse {
+                            success: false,
+                            error: "One or more stored anesthesia records could not be read"
+                                .to_string(),
+                            code: "RECORD_UNREADABLE".to_string(),
+                        });
+                    }
+                }
+            }
+            HttpResponse::Ok().json(items)
+        }
+        Err(e) => {
+            log::error!("anesthesia record list failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -122,16 +184,24 @@ pub async fn create_radiology_order(
         )
         .await;
 
-    match data.radiology_orders.write() {
-        Ok(mut orders) => {
-            orders.insert(id.clone(), order);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart.
+    match data
+        .repositories
+        .radiology_orders
+        .create(order.into())
+        .await
+    {
+        Ok(stored) => {
+            HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("radiology order {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Radiology order could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -149,12 +219,24 @@ pub async fn get_radiology_order(
         return resp;
     }
     let id = path.into_inner();
-    match data.radiology_orders.read() {
-        Ok(orders) => orders
-            .get(&id)
-            .map(|order| HttpResponse::Ok().json(order))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data.repositories.radiology_orders.get_by_id(&id).await {
+        Ok(entity) => match RadiologyOrder::try_from(entity) {
+            Ok(order) => HttpResponse::Ok().json(order),
+            Err(e) => {
+                // A partial radiology order is more dangerous than none.
+                log::error!("radiology order {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored radiology order could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("radiology order {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -193,16 +275,24 @@ pub async fn create_radiology_report(
         )
         .await;
 
-    match data.radiology_reports.write() {
-        Ok(mut reports) => {
-            reports.insert(id.clone(), report);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart.
+    match data
+        .repositories
+        .radiology_reports
+        .create(report.into())
+        .await
+    {
+        Ok(stored) => {
+            HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("radiology report {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Radiology report could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -220,12 +310,24 @@ pub async fn get_radiology_report(
         return resp;
     }
     let id = path.into_inner();
-    match data.radiology_reports.read() {
-        Ok(reports) => reports
-            .get(&id)
-            .map(|report| HttpResponse::Ok().json(report))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data.repositories.radiology_reports.get_by_id(&id).await {
+        Ok(entity) => match RadiologyReport::try_from(entity) {
+            Ok(report) => HttpResponse::Ok().json(report),
+            Err(e) => {
+                // A partial radiology report is more dangerous than none.
+                log::error!("radiology report {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored radiology report could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("radiology report {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -264,16 +366,24 @@ pub async fn create_pathology(
         )
         .await;
 
-    match data.pathology_reports.write() {
-        Ok(mut reports) => {
-            reports.insert(id.clone(), report);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart.
+    match data
+        .repositories
+        .pathology_reports
+        .create(report.into())
+        .await
+    {
+        Ok(stored) => {
+            HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("pathology report {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Pathology report could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -291,11 +401,23 @@ pub async fn get_pathology(
         return resp;
     }
     let id = path.into_inner();
-    match data.pathology_reports.read() {
-        Ok(reports) => reports
-            .get(&id)
-            .map(|report| HttpResponse::Ok().json(report))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data.repositories.pathology_reports.get_by_id(&id).await {
+        Ok(entity) => match PathologyReport::try_from(entity) {
+            Ok(report) => HttpResponse::Ok().json(report),
+            Err(e) => {
+                // A partial pathology report is more dangerous than none.
+                log::error!("pathology report {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored pathology report could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("pathology report {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }

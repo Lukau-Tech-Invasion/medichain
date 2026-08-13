@@ -96,6 +96,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Phase 6 encrypted patient mobile-record capabilities.
         .service(register_patient_mobile_device)
         .service(authorise_mobile_record)
+        .service(issue_mobile_lockscreen_token)
         .service(revoke_patient_mobile_device)
         // MFA / TOTP (Phase 11.3)
         .service(mfa_enroll) // POST /api/auth/mfa/enroll
@@ -144,6 +145,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_current_user_info)
         .service(get_all_staff)
         .service(get_providers)
+        .service(get_settings)
         .service(save_settings)
         // IPFS medical record endpoints
         .service(ipfs_health_check)
@@ -509,6 +511,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_incident_reports)
         .service(clinical_endpoints::list_intake_output)
         .service(clinical_endpoints::list_ama_discharges)
+        .service(clinical_endpoints::list_peds_for_patient)
         // SSE push-notification endpoint
         .service(crate::websocket::sse_events)
         // Item 5: National ID verification

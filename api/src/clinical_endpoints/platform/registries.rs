@@ -445,3 +445,34 @@ pub async fn list_ama_discharges(
         Err(e) => registry_read_error(&http_req, e),
     }
 }
+
+/// A patient's pediatric assessments, newest first.
+///
+/// Deliberately patient-scoped rather than a `/api/platform/list/peds`
+/// registry. The pediatrics page needs one child's growth series, not every
+/// child's — and an all-patients read here would add another unscoped bulk read
+/// to a backlog the project is actively trying to shrink. `get_by_patient` is
+/// already on the repository trait, so this needs no new storage surface.
+#[get("/api/clinical/peds/patient/{patient_id}")]
+pub async fn list_peds_for_patient(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
+    }
+    let patient_id = path.into_inner();
+    match data
+        .repositories
+        .pediatric_assessments
+        .get_by_patient(&patient_id, Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "items": result.items,
+        })),
+        Err(e) => registry_read_error(&http_req, e),
+    }
+}

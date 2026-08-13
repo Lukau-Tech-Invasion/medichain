@@ -269,11 +269,9 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
 
     // System stats from repositories
     let patient_count = data.repositories.patients.count().await.unwrap_or(0);
-    let record_count = data
-        .medical_records
-        .read()
-        .map(|records| records.values().map(Vec::len).sum::<usize>())
-        .unwrap_or_default();
+    // Counted from the repository, so it survives a restart. Read from a
+    // process-memory map before, which reported 0 after every deploy.
+    let record_count = data.repositories.medical_records.count().await.unwrap_or(0);
     let tx_count = data
         .repositories
         .chain_of_custody
@@ -282,12 +280,28 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
         .unwrap_or_default()
         .len();
 
-    // Node status (placeholder)
+    // This used to report `status: "healthy", peers: 4, best_block: 12450,
+    // finalized_block: 12445` as literals — an administrator's node-health
+    // panel that showed a healthy, syncing chain even with no node configured
+    // at all. The client exposes connection readiness and nothing else, so
+    // that is all this reports; peer count and block heights are null rather
+    // than invented, and an operator can tell the difference between "not
+    // configured", "unreachable" and "connected".
     let node_status = serde_json::json!({
-        "status": "healthy",
-        "peers": 4,
-        "best_block": 12450,
-        "finalized_block": 12445
+        "status": if !crate::blockchain::blockchain_enabled() {
+            "disabled"
+        } else if data
+            .substrate_client
+            .as_ref()
+            .is_some_and(|client| client.is_ready())
+        {
+            "connected"
+        } else {
+            "unavailable"
+        },
+        "peers": serde_json::Value::Null,
+        "best_block": serde_json::Value::Null,
+        "finalized_block": serde_json::Value::Null
     });
 
     HttpResponse::Ok().json(serde_json::json!({

@@ -77,6 +77,9 @@ pub fn paginate<T: Clone>(items: &[T], page: usize, limit: usize) -> (Vec<T>, Pa
 #[derive(Debug, Deserialize)]
 pub struct RegisterPatientRequest {
     pub full_name: String,
+    /// Patient-owned SS58 account used for on-chain identity and audit binding.
+    #[serde(default)]
+    pub wallet_address: Option<String>,
     pub date_of_birth: String,
     /// "HH:MM" birth time, optional — twins-safe identification alongside
     /// date_of_birth + national_id (patient_id itself is already a random
@@ -106,6 +109,8 @@ pub struct RegisterPatientResponse {
     pub success: bool,
     pub patient_id: String,
     pub nfc_tag_id: String,
+    pub chain_status: Option<String>,
+    pub blockchain_tx_hash: Option<String>,
     pub message: String,
 }
 
@@ -123,6 +128,8 @@ pub struct EmergencyAccessResponse {
     pub success: bool,
     pub access_id: String,
     pub emergency_info: Option<EmergencyInfo>,
+    pub chain_audit_status: Option<String>,
+    pub blockchain_tx_hash: Option<String>,
     pub message: String,
 }
 

@@ -241,6 +241,10 @@ impl MedicalRecordRepository for MemoryMedicalRecordRepository {
 
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+    async fn count(&self) -> RepositoryResult<u64> {
+        let storage = self.storage.read().map_err(Self::lock_error)?;
+        Ok(storage.len() as u64)
+    }
 }
 
 #[cfg(test)]

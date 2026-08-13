@@ -74,21 +74,24 @@ pub async fn upload_medical_record(
         });
     }
 
-    // Verify patient exists
-    {
-        if data
-            .repositories
-            .patients
-            .get_by_id(&req.patient_id)
-            .await
-            .is_err()
-        {
+    // Verify patient exists and resolve its on-chain account once.
+    let patient = match data.repositories.patients.get_by_id(&req.patient_id).await {
+        Ok(patient) => patient,
+        Err(_) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: format!("Patient '{}' not found", req.patient_id),
                 code: "PATIENT_NOT_FOUND".to_string(),
             });
         }
+    };
+    let patient_account = patient.wallet_address;
+    if crate::blockchain::blockchain_enabled() && patient_account.is_none() {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "Patient has no wallet bound for blockchain recording".to_string(),
+            code: "PATIENT_WALLET_REQUIRED".to_string(),
+        });
     }
 
     // Decode base64 content
@@ -145,97 +148,106 @@ pub async fn upload_medical_record(
         content_checksum,
     };
 
-    // Store reference via repository (in production: also on blockchain)
-    {
-        let entity: crate::repositories::traits::MedicalRecordEntity =
-            (req.patient_id.clone(), record_ref.clone()).into();
-        let mut entity = entity;
-        entity.created_by = current_user_id.clone();
-        entity.last_modified_by = current_user_id.clone();
-        if let Err(e) = data.repositories.medical_records.create(entity).await {
-            log::error!("Medical record persistence failed: {}", e);
-        }
-    }
-
-    // Fire-and-forget blockchain IPFS hash recording (non-fatal)
-    {
-        let patient_id_clone = req.patient_id.clone();
-        let ipfs_hash_clone = upload_result.ipfs_hash.clone();
-        let record_type_clone = req.record_type.clone();
-        let uploader_clone = current_user_id.clone();
-        if let Some(ref client) = data.substrate_client {
-            let client = client.clone();
-            tokio::spawn(async move {
-                match client
-                    .record_ipfs_hash_on_chain(
-                        &patient_id_clone,
-                        &ipfs_hash_clone,
-                        &record_type_clone,
-                        &uploader_clone,
-                    )
-                    .await
-                {
-                    Ok(result) => log::info!(
-                        "IPFS hash recorded on chain: {} (finalized={})",
-                        result.hash,
-                        result.finalized
-                    ),
-                    Err(e) => log::warn!("Blockchain IPFS recording failed (non-fatal): {}", e),
-                }
-            });
-        }
-    }
-
-    // Fire-and-forget on-chain access-audit entry (non-fatal). HZ-002: previously
-    // `log_access_on_chain` had no caller anywhere in the codebase, so the
-    // on-chain audit trail its own history describes as a legal-reliability fix
-    // (C5/F-05) was entirely unreachable. This mirrors the IPFS-hash recording
-    // pattern immediately above.
-    {
-        let accessor_clone = current_user_id.clone();
-        let patient_id_clone = req.patient_id.clone();
-        if let Some(ref client) = data.substrate_client {
-            let client = client.clone();
-            tokio::spawn(async move {
-                match client
-                    .log_access_on_chain(&accessor_clone, &patient_id_clone, "upload_record")
-                    .await
-                {
-                    Ok(result) => log::info!(
-                        "Access logged on chain: {} (finalized={})",
-                        result.hash,
-                        result.finalized
-                    ),
-                    Err(e) => log::warn!("Blockchain access logging failed (non-fatal): {}", e),
-                }
-            });
-        }
-    }
-
-    // Log access via repository
-    let _ = data
+    let mut record_entity: crate::repositories::traits::MedicalRecordEntity =
+        (req.patient_id.clone(), record_ref.clone()).into();
+    record_entity.created_by = current_user_id.clone();
+    record_entity.last_modified_by = current_user_id.clone();
+    let record_id = record_entity.id.clone();
+    if let Err(error) = data
         .repositories
-        .access_logs
-        .create(
-            AccessLogEntry {
-                access_id: secure_tokens::generate_access_id(),
-                patient_id: req.patient_id.clone(),
-                accessor_id: current_user_id,
-                accessor_role: current_user.role.to_string(),
-                access_type: "upload_record".to_string(),
-                location: None,
-                timestamp: Utc::now(),
-                emergency: false,
-            }
-            .into(),
-        )
-        .await;
+        .medical_records
+        .create(record_entity)
+        .await
+    {
+        log::error!("Medical record persistence failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "The encrypted content was uploaded, but its medical-record reference could not be saved."
+                .to_string(),
+            code: "RECORD_PERSISTENCE_REQUIRED".to_string(),
+        });
+    }
+
+    let access_id = secure_tokens::generate_access_id();
+    let access_log: crate::repositories::AccessLogEntity = AccessLogEntry {
+        access_id: access_id.clone(),
+        patient_id: req.patient_id.clone(),
+        accessor_id: current_user_id.clone(),
+        accessor_role: current_user.role.to_string(),
+        access_type: "upload_record".to_string(),
+        location: None,
+        timestamp: Utc::now(),
+        emergency: false,
+    }
+    .into();
+    if let Err(error) = data
+        .repositories
+        .record_access_atomic(&req.patient_id, access_log)
+        .await
+    {
+        log::error!("Medical-record upload audit persistence failed: {error}");
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error:
+                "The medical record was saved, but its required access audit could not be recorded."
+                    .to_string(),
+            code: "AUDIT_PERSISTENCE_REQUIRED".to_string(),
+        });
+    }
+
+    let patient_account = patient_account.as_deref().unwrap_or_default();
+    let record_chain = match crate::audit_outbox::anchor_medical_record_or_queue(
+        &data,
+        &record_id,
+        patient_account,
+        &upload_result.ipfs_hash,
+        &req.record_type,
+        &current_user_id,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            log::error!("Medical-record chain anchor could not be finalized or queued: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The record was saved, but its blockchain anchor could not be queued."
+                    .to_string(),
+                code: "CHAIN_ANCHOR_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let access_chain = match crate::audit_outbox::anchor_access_or_queue(
+        &data,
+        "medical_record_access",
+        &access_id,
+        patient_account,
+        &current_user_id,
+        "UPLOAD_RECORD",
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            log::error!("Upload access chain audit could not be finalized or queued: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The record was saved, but its blockchain access audit could not be queued."
+                    .to_string(),
+                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Created().json(UploadMedicalRecordResponse {
         success: true,
         ipfs_hash: upload_result.ipfs_hash,
         metadata_hash: upload_result.metadata_hash,
         record_reference: record_ref,
+        record_chain_status: record_chain.status,
+        record_blockchain_tx_hash: record_chain.transaction_hash,
+        access_chain_status: access_chain.status,
+        access_blockchain_tx_hash: access_chain.transaction_hash,
         message: "Medical record uploaded and encrypted successfully".to_string(),
     })
 }
@@ -281,7 +293,16 @@ pub async fn download_medical_record(
             .get_by_ipfs_hash(&req.content_hash)
             .await
         {
-            Ok(entity) => entity.patient_id == current_user_id,
+            // `patient_id` is a record id (`PAT-…`) and `current_user_id` is an
+            // SS58 wallet: comparing them directly can never be true for a real
+            // patient account, so this denied every patient their own record.
+            // Same namespace bug `caller_owns_patient_record` was written for;
+            // these two download sites were missed in that sweep.
+            Ok(entity) => crate::support::caller_owns_patient_record(
+                &data,
+                &current_user_id,
+                &entity.patient_id,
+            ),
             Err(crate::repositories::traits::RepositoryError::NotFound(_)) => false,
             Err(e) => {
                 log::error!("Medical record lookup failed: {}", e);
@@ -423,7 +444,9 @@ pub async fn download_medical_record_by_hash(
             });
         }
     };
-    if !current_user.role.is_healthcare_provider() && entity.patient_id != current_user_id {
+    if !current_user.role.is_healthcare_provider()
+        && !crate::support::caller_owns_patient_record(&data, &current_user_id, &entity.patient_id)
+    {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Patients can only download their own medical records".to_string(),

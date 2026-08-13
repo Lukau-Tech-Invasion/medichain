@@ -85,11 +85,13 @@ pub async fn issue_emergency_grant(
             Err(response) => return response,
         };
     match data.emergency_grants.issue(
-        body.patient_id.clone(),
-        person_id,
-        organization_id,
-        facility_id,
-        body.device_id.clone(),
+        crate::emergency_grants::EmergencyGrantBinding {
+            patient_id: body.patient_id.clone(),
+            person_id,
+            organization_id,
+            facility_id,
+            device_id: body.device_id.clone(),
+        },
         body.reason_code.clone(),
         body.reason_text.clone(),
         body.scopes.clone(),

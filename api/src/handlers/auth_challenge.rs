@@ -604,18 +604,66 @@ pub async fn get_user_details(
     }))
 }
 
-/// Update user profile (Admin or self)
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateUserProfileRequest {
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub department: Option<String>,
+    pub specialty: Option<String>,
+    pub license_number: Option<String>,
+    pub status: Option<String>,
+    pub name: Option<String>,
+}
+
+fn apply_profile_update(
+    mut user: User,
+    body: &UpdateUserProfileRequest,
+) -> Result<User, (&'static str, &'static str)> {
+    if body.phone.is_some() {
+        return Err((
+            "PHONE_UPDATE_UNAVAILABLE",
+            "Phone updates are disabled until encrypted profile storage is available",
+        ));
+    }
+    if let Some(email) = &body.email {
+        if email.len() > 254 || !email.contains('@') {
+            return Err(("INVALID_EMAIL", "A valid email address is required"));
+        }
+        user.email = Some(email.trim().to_string());
+    }
+    if let Some(value) = &body.department {
+        user.department = Some(value.trim().to_string());
+    }
+    if let Some(value) = &body.specialty {
+        user.specialty = Some(value.trim().to_string());
+    }
+    if let Some(value) = &body.license_number {
+        user.license_number = Some(value.trim().to_string());
+    }
+    if let Some(value) = &body.name {
+        if value.trim().is_empty() || value.len() > 200 {
+            return Err(("INVALID_NAME", "Name must be between 1 and 200 characters"));
+        }
+        user.name = value.trim().to_string();
+    }
+    if let Some(value) = &body.status {
+        if !crate::state::USER_STATUSES.contains(&value.as_str()) {
+            return Err(("INVALID_STATUS", "Unsupported user account status"));
+        }
+        user.status = value.clone();
+    }
+    Ok(user)
+}
+
+/// Update user profile (Admin or self). Status changes are admin-only and
+/// require the same MFA step-up as role changes.
 #[put("/api/users/{wallet_address}")]
-// The `users` RwLock write guard is explicitly `drop()`-ed before this handler's
-// await point; clippy's await_holding_lock doesn't recognize manual drops here.
-// readonly_write_lock is also a false positive: `user.email`/`user.phone`/etc are
-// mutated in place through the `&mut User` below before being cloned out.
-#[allow(clippy::await_holding_lock, clippy::readonly_write_lock)]
 pub async fn update_user_profile(
     data: web::Data<AppState>,
     req: HttpRequest,
     path: web::Path<String>,
-    body: web::Json<serde_json::Value>,
+    body: web::Json<UpdateUserProfileRequest>,
 ) -> impl Responder {
     let wallet_address = path.into_inner();
 
@@ -652,10 +700,26 @@ pub async fn update_user_profile(
         });
     }
 
-    // Get the user to update
-    let mut users = data.users.write().unwrap();
-    let user = match users.get_mut(&wallet_address) {
-        Some(u) => u,
+    if body.status.is_some() && !current_user.role.is_admin() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Only Admin can change account status".to_string(),
+            code: "STATUS_CHANGE_FORBIDDEN".to_string(),
+        });
+    }
+    if body.status.is_some() {
+        if let Some(response) = require_privileged_assurance(&data, &req) {
+            return response;
+        }
+    }
+
+    let existing = match data
+        .users
+        .read()
+        .ok()
+        .and_then(|users| users.get(&wallet_address).cloned())
+    {
+        Some(user) => user,
         None => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
@@ -665,37 +729,28 @@ pub async fn update_user_profile(
         }
     };
 
-    // Update fields from body
-    if let Some(email) = body.get("email").and_then(|v| v.as_str()) {
-        user.email = Some(email.to_string());
-    }
-    if let Some(phone) = body.get("phone").and_then(|v| v.as_str()) {
-        user.phone = Some(phone.to_string());
-    }
-    if let Some(department) = body.get("department").and_then(|v| v.as_str()) {
-        user.department = Some(department.to_string());
-    }
-    if let Some(specialty) = body.get("specialty").and_then(|v| v.as_str()) {
-        user.specialty = Some(specialty.to_string());
-    }
-    if let Some(license_number) = body.get("license_number").and_then(|v| v.as_str()) {
-        user.license_number = Some(license_number.to_string());
-    }
-    if let Some(status) = body.get("status").and_then(|v| v.as_str()) {
-        user.status = status.to_string();
-    }
-    if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
-        user.name = name.to_string();
-    }
-    let updated_user = user.clone();
-    drop(users);
+    let updated_user = match apply_profile_update(existing, &body) {
+        Ok(user) => user,
+        Err((code, message)) => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: message.to_string(),
+                code: code.to_string(),
+            })
+        }
+    };
 
-    if let Err(e) = data.persist_user(&updated_user).await {
+    if let Err(e) = data.persist_then_cache_user(updated_user).await {
         log::error!(
             "Failed to persist profile update for {}: {}",
             wallet_address,
             e
         );
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Profile update could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
     }
 
     log::info!(
@@ -780,44 +835,136 @@ pub async fn get_my_records(data: web::Data<AppState>, req: HttpRequest) -> impl
     }
 }
 
-/// Save user settings (notifications, security, display preferences)
-/// Requires: Authenticated user
+const MAX_SETTINGS_BYTES: usize = 64 * 1024;
+
+fn settings_storage_error(operation: &str) -> HttpResponse {
+    log::error!("User settings storage failed during {operation}");
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        success: false,
+        error: "Settings storage is temporarily unavailable".to_string(),
+        code: "STORAGE_UNAVAILABLE".to_string(),
+    })
+}
+
+async fn load_settings(
+    data: &web::Data<AppState>,
+    wallet_address: &str,
+) -> Result<serde_json::Value, HttpResponse> {
+    if let Some(pool) = &data.db_pool {
+        let result = sqlx::query_scalar::<_, serde_json::Value>(
+            r#"
+            SELECT COALESCE(up.preferences, '{}'::jsonb)
+            FROM user_profiles up
+            INNER JOIN users u ON u.id = up.user_id
+            WHERE u.wallet_address = $1
+            "#,
+        )
+        .bind(wallet_address)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| settings_storage_error("read"))?;
+        return Ok(result.unwrap_or_else(|| serde_json::json!({})));
+    }
+
+    // Non-PostgreSQL deployments read through the repository rather than a
+    // process-memory `AppState` map, so this path has the same durability
+    // story as every other store instead of being the one exception.
+    let record = data
+        .repositories
+        .user_setting_records
+        .get_by_id(wallet_address)
+        .await
+        .map_err(|_| settings_storage_error("read"))?;
+    Ok(record
+        .map(|record| record.data)
+        .unwrap_or_else(|| serde_json::json!({})))
+}
+
+async fn persist_settings(
+    data: &web::Data<AppState>,
+    wallet_address: &str,
+    settings: serde_json::Value,
+) -> Result<(), HttpResponse> {
+    if let Some(pool) = &data.db_pool {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO user_profiles (user_id, preferences)
+            SELECT id, $2 FROM users WHERE wallet_address = $1
+            ON CONFLICT (user_id) DO UPDATE SET
+                preferences = EXCLUDED.preferences,
+                updated_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(wallet_address)
+        .bind(settings)
+        .execute(pool)
+        .await
+        .map_err(|_| settings_storage_error("write"))?;
+        if result.rows_affected() != 1 {
+            return Err(settings_storage_error("account lookup"));
+        }
+        return Ok(());
+    }
+
+    let now = chrono::Utc::now();
+    let record = crate::repositories::traits::JsonRecordEntity {
+        id: wallet_address.to_string(),
+        owner_id: wallet_address.to_string(),
+        data: settings,
+        created_at: now,
+        updated_at: now,
+    };
+    data.repositories
+        .user_setting_records
+        .create(record)
+        .await
+        .map_err(|_| settings_storage_error("write"))?;
+    Ok(())
+}
+
+/// Load user settings (notifications, security, display preferences).
+#[get("/api/settings")]
+pub async fn get_settings(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
+    let user = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(user) => user,
+        Err(response) => return response,
+    };
+    match load_settings(&data, &user.wallet_address).await {
+        Ok(settings) => HttpResponse::Ok().json(settings),
+        Err(response) => response,
+    }
+}
+
+/// Save user settings (notifications, security, display preferences).
 #[post("/api/settings")]
 pub async fn save_settings(
     data: web::Data<AppState>,
     http_req: HttpRequest,
     req: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let current_user_id = match get_current_user_id(&http_req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
+    let user = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(user) => user,
+        Err(response) => return response,
     };
-
-    // Verify user exists
-    match get_user(&data, &current_user_id) {
-        Some(_) => {}
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    // Store settings in memory (in production, this would go to a database)
-    // For now, we just acknowledge receipt
-    log::info!("Settings saved for user {}: {:?}", current_user_id, req);
+    let settings = req.into_inner();
+    let encoded_size = serde_json::to_vec(&settings).map(|value| value.len());
+    if !settings.is_object()
+        || encoded_size.is_err()
+        || encoded_size.unwrap_or(0) > MAX_SETTINGS_BYTES
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Settings must be a JSON object no larger than 64 KiB".to_string(),
+            code: "INVALID_SETTINGS".to_string(),
+        });
+    }
+    if let Err(response) = persist_settings(&data, &user.wallet_address, settings).await {
+        return response;
+    }
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "message": "Settings saved successfully",
-        "user_id": current_user_id,
+        "user_id": user.wallet_address,
     }))
 }

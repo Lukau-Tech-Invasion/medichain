@@ -27,9 +27,19 @@ pub async fn log_symptom(
         }
     };
 
-    // Get patient_id - patients log for themselves, providers can log for patients
+    // Get patient_id - patients log for themselves, providers can log for patients.
+    //
+    // A patient's entries must be filed under their PATIENT RECORD id, not their
+    // wallet: `GET /api/symptoms/{patient_id}` reads by record id, so filing by
+    // wallet meant a patient logged a symptom and then could not see it in their
+    // own history. `linked_patient_id` is the bridge between the two namespaces;
+    // the wallet remains the fallback for accounts that have not claimed a
+    // record yet, which is also the arm `caller_owns_patient_record` honours.
     let patient_id = if matches!(current_user.role, crate::Role::Patient) {
-        current_user_id.clone()
+        current_user
+            .linked_patient_id
+            .clone()
+            .unwrap_or_else(|| current_user_id.clone())
     } else {
         body.get("patient_id")
             .and_then(|p| p.as_str())

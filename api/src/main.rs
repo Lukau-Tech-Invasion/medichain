@@ -72,6 +72,9 @@ mod api_tests;
 #[cfg(test)]
 mod property_tests;
 
+#[cfg(test)]
+mod stepup_matrix_tests;
+
 // Re-export the moved items at the crate root so that existing `crate::<item>`
 // paths (clinical_endpoints, api_tests, route registration) keep resolving.
 #[cfg(test)]
@@ -283,6 +286,9 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+    crate::blockchain::validate_blockchain_configuration(crate::support::is_demo_mode())
+        .map_err(std::io::Error::other)?;
+
     // Initialize Substrate blockchain client if SUBSTRATE_WS_URL is set
     let substrate_client = match crate::blockchain::SubstrateClient::from_env() {
         Some(ws_url) => {
@@ -290,14 +296,23 @@ async fn main() -> std::io::Result<()> {
             match crate::blockchain::SubstrateClient::new(&ws_url).await {
                 Ok(client) => {
                     let connected = client.health_check().await;
-                    if connected {
+                    if connected && client.is_ready() {
                         println!("  [OK] Blockchain node connected");
+                    } else if crate::blockchain::blockchain_enabled() {
+                        return Err(std::io::Error::other(
+                            "blockchain is enabled but the node/subxt client is not ready",
+                        ));
                     } else {
                         println!("  [WARN] Blockchain node not reachable - will retry on requests");
                     }
                     Some(std::sync::Arc::new(client))
                 }
                 Err(e) => {
+                    if crate::blockchain::blockchain_enabled() {
+                        return Err(std::io::Error::other(format!(
+                            "blockchain client initialization failed: {e}"
+                        )));
+                    }
                     eprintln!("  [WARN] Blockchain client init failed: {}", e);
                     None
                 }
@@ -310,7 +325,15 @@ async fn main() -> std::io::Result<()> {
     };
 
     // Create shared state with optional database pool (using async version for PostgreSQL support)
-    let app_state = web::Data::new(AppState::new_with_pool_async(db_pool, substrate_client).await);
+    let state = AppState::new_with_pool_async(db_pool, substrate_client).await;
+    if !crate::support::is_demo_mode()
+        && state.repositories.backend != crate::repositories::StorageBackend::Postgres
+    {
+        return Err(std::io::Error::other(
+            "persistent PostgreSQL repositories failed to initialize",
+        ));
+    }
+    let app_state = web::Data::new(state);
 
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
@@ -319,9 +342,12 @@ async fn main() -> std::io::Result<()> {
             Ok(count) => {
                 println!("  [OK] Loaded {} demo users", count);
             }
-            Err(e) => {
-                eprintln!("  [WARN] Failed to load demo users: {}", e);
+            Err(e) if !crate::support::is_demo_mode() => {
+                return Err(std::io::Error::other(format!(
+                    "failed to initialize authorization users: {e}"
+                )));
             }
+            Err(e) => eprintln!("  [WARN] Failed to load demo users: {}", e),
         }
 
         // Load demo patients from database into in-memory cache
@@ -330,17 +356,44 @@ async fn main() -> std::io::Result<()> {
             Ok(count) => {
                 println!("  [OK] Loaded {} demo patients", count);
             }
-            Err(e) => {
-                eprintln!("  [WARN] Failed to load demo patients: {}", e);
+            Err(e) if !crate::support::is_demo_mode() => {
+                return Err(std::io::Error::other(format!(
+                    "failed to initialize patient cache: {e}"
+                )));
             }
+            Err(e) => eprintln!("  [WARN] Failed to load demo patients: {}", e),
         }
 
         // Load persisted MFA enrollments + recent security alerts (Phase 11.3/11.4)
         println!("  [INFO] Loading security state (MFA + alerts) from database...");
         match app_state.load_security_from_db().await {
             Ok(count) => println!("  [OK] Loaded {} MFA enrollments", count),
+            Err(e) if !crate::support::is_demo_mode() => {
+                return Err(std::io::Error::other(format!(
+                    "failed to initialize MFA security state: {e}"
+                )));
+            }
             Err(e) => eprintln!("  [WARN] Failed to load security state: {}", e),
         }
+    }
+
+    if let (Some(pool), Some(client)) = (
+        app_state.db_pool.clone(),
+        app_state.substrate_client.clone(),
+    ) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                match crate::audit_outbox::deliver_pending_chain_events(&pool, &client).await {
+                    Ok(count) if count > 0 => {
+                        log::info!("Delivered {} pending blockchain operation(s)", count)
+                    }
+                    Ok(_) => {}
+                    Err(error) => log::error!("Blockchain outbox delivery failed: {}", error),
+                }
+            }
+        });
     }
 
     // Start medication reminder background task

@@ -33,7 +33,7 @@ pub async fn bootstrap_admin(
     // Check if running in demo mode
     let is_demo = std::env::var("IS_DEMO")
         .map(|v| v == "true" || v == "1")
-        .unwrap_or(true);
+        .unwrap_or(false);
 
     // Check bootstrap key from environment
     // SECURITY: In production (non-demo), require explicit key from environment
@@ -58,14 +58,22 @@ pub async fn bootstrap_admin(
         });
     }
 
-    // Check if any users exist
-    {
-        let users = data.users.read().unwrap();
-        if !users.is_empty() {
+    // Include inactive users that are intentionally absent from the auth cache.
+    match data.has_any_persisted_user().await {
+        Ok(true) => {
             return HttpResponse::Conflict().json(ErrorResponse {
                 success: false,
                 error: "Bootstrap not allowed - users already exist. Use /api/auth/register with admin credentials.".to_string(),
                 code: "BOOTSTRAP_NOT_ALLOWED".to_string(),
+            });
+        }
+        Ok(false) => {}
+        Err(e) => {
+            log::error!("Bootstrap user existence check failed: {}", e);
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "User storage is unavailable".to_string(),
+                code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
             });
         }
     }
@@ -99,10 +107,14 @@ pub async fn bootstrap_admin(
         last_login: None,
     };
 
-    data.users
-        .write()
-        .unwrap()
-        .insert(body.wallet_address.clone(), admin.clone());
+    if let Err(e) = data.persist_then_cache_user(admin.clone()).await {
+        log::error!("Failed to persist bootstrap administrator: {}", e);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Administrator account could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
+    }
 
     log::info!(
         "Bootstrap: First admin created - wallet={}, name={}",
@@ -207,6 +219,19 @@ pub async fn wallet_register(
         });
     }
 
+    if body
+        .phone
+        .as_ref()
+        .is_some_and(|phone| !phone.trim().is_empty())
+    {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Phone numbers cannot be stored until encrypted profile storage is enabled"
+                .to_string(),
+            code: "PHONE_STORAGE_UNAVAILABLE".to_string(),
+        });
+    }
+
     // Create new user
     let user = User {
         wallet_address: body.wallet_address.clone(),
@@ -217,7 +242,7 @@ pub async fn wallet_register(
         created_by: Some(current_user_id.clone()),
         linked_patient_id: None,
         email: body.email.clone(),
-        phone: body.phone.clone(),
+        phone: None,
         department: body.department.clone(),
         specialty: body.specialty.clone(),
         license_number: body.license_number.clone(),
@@ -225,12 +250,13 @@ pub async fn wallet_register(
         last_login: None,
     };
 
-    data.users
-        .write()
-        .unwrap()
-        .insert(body.wallet_address.clone(), user.clone());
-    if let Err(e) = data.persist_user(&user).await {
+    if let Err(e) = data.persist_then_cache_user(user).await {
         log::error!("Failed to persist new user {}: {}", body.wallet_address, e);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "User registration could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
     }
 
     log::info!(

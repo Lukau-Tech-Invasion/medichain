@@ -187,11 +187,16 @@ mod hz_webhook_regression_tests {
     /// intermittently, and only under the full parallel run (each passed in
     /// isolation). Observed 2026-07-31. Serialise them instead of pretending
     /// env vars are per-test state.
-    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ///
+    /// Async-aware (rather than `std::sync::Mutex`) because the guard has to
+    /// stay held across the request `await`s — that span is the whole point,
+    /// so it cannot be dropped early to satisfy `await_holding_lock`. Mirrors
+    /// `notifications.rs`'s `NOTIFICATION_ENV_LOCK`.
+    static ENV_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[actix_web::test]
     async fn missing_secret_does_not_opt_out_the_spoofed_number() {
-        let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_GUARD.lock().await;
         std::env::set_var("SMS_INBOUND_WEBHOOK_SECRET", "real-secret");
         let state = crate::AppState::new();
         let app_state = web::Data::new(state);
@@ -226,7 +231,7 @@ mod hz_webhook_regression_tests {
 
     #[actix_web::test]
     async fn correct_secret_honors_a_real_stop_reply() {
-        let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_GUARD.lock().await;
         std::env::set_var("SMS_INBOUND_WEBHOOK_SECRET", "real-secret");
         let state = crate::AppState::new();
         let app_state = web::Data::new(state);

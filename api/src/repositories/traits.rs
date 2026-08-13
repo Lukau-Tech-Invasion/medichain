@@ -473,6 +473,10 @@ pub trait MedicalRecordRepository: Send + Sync + fmt::Debug {
 
     /// Get record by IPFS hash
     async fn get_by_ipfs_hash(&self, ipfs_hash: &str) -> RepositoryResult<MedicalRecordEntity>;
+    /// Total records across all patients — the administrator analytics count.
+    /// Deliberately has no default implementation; see the note on
+    /// `list_all` for why a failing default is worse than none.
+    async fn count(&self) -> RepositoryResult<u64>;
 
     /// Update record
     async fn update(&self, record: MedicalRecordEntity) -> RepositoryResult<MedicalRecordEntity>;
@@ -1647,7 +1651,11 @@ pub struct PreOpAssessmentEntity {
     pub clearance_conditions: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless, so the
+    /// WHO checklist fields cannot be dropped by persistence.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1685,7 +1693,12 @@ pub struct OperativeNoteEntity {
     pub post_op_orders: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless. The API
+    /// type carries the full surgical team, specimens, implants and
+    /// drains as structured lists that the flat columns cannot hold.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1695,7 +1708,10 @@ pub struct OperativeNoteEntity {
 pub struct PostOpNoteEntity {
     pub id: String,
     pub patient_id: String,
-    pub operative_note_id: String,
+    /// Nullable since migration 20260810000001: the API type carries no
+    /// operative-note link, and a patient transferred in after surgery
+    /// elsewhere legitimately has none.
+    pub operative_note_id: Option<String>,
     pub post_op_day: i32,
     pub note_date: DateTime<Utc>,
     pub provider_id: String,
@@ -1715,7 +1731,12 @@ pub struct PostOpNoteEntity {
     pub estimated_discharge_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless. The API
+    /// type carries wound status, I/O balance, foley and DVT prophylaxis
+    /// detail the columns flatten or omit.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1751,7 +1772,12 @@ pub struct AnesthesiaRecordEntity {
     pub post_anesthesia_orders: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless. The API
+    /// type carries the timed vitals series, medication and fluid logs,
+    /// emergence and PACU handoff as structured records.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1897,7 +1923,12 @@ pub struct RadiologyOrderEntity {
     pub accession_number: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload; the typed columns above are the queryable
+    /// projection, so the round trip is lossless — the API type carries the full study type,
+    /// laterality and contrast-safety checks (creatinine, pregnancy) that the
+    /// flat columns flatten or omit.
+    /// Column added by migration 20260811000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1929,7 +1960,12 @@ pub struct RadiologyReportEntity {
     pub pacs_study_uid: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload; the typed columns above are the queryable
+    /// projection, so the round trip is lossless — the API type carries `impression` as a list and
+    /// the critical-finding read-back as a nested record, neither of which the
+    /// flat columns can hold.
+    /// Column added by migration 20260811000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1966,7 +2002,12 @@ pub struct PathologyReportEntity {
     pub synoptic_report: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload; the typed columns above are the queryable
+    /// projection, so the round trip is lossless — the API type carries special stains,
+    /// immunohistochemistry, molecular studies and the synoptic cancer-staging
+    /// report as structured lists.
+    /// Column added by migration 20260811000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -4415,6 +4456,9 @@ pub trait RpmReadingRepository: Send + Sync + fmt::Debug {
 pub trait CdsAlertRepository: Send + Sync + fmt::Debug {
     async fn create(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity>;
     async fn get_by_id(&self, id: &str) -> RepositoryResult<CdsAlertEntity>;
+    /// Total alerts, and how many are critical severity, for the quality
+    /// dashboard. Returned together so the two numbers cannot disagree.
+    async fn count_by_severity(&self) -> RepositoryResult<(u64, u64)>;
     /// Replace an existing alert in its entirety (used to round-trip response payloads
     /// the narrower acknowledge/override_alert methods can't capture).
     async fn update(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity> {
@@ -6621,6 +6665,134 @@ pub trait EmergencyCapsuleRepository: Send + Sync + fmt::Debug {
         patient_id: &str,
         limit: i64,
     ) -> RepositoryResult<Vec<EmergencyCapsuleAccessEntity>>;
+}
+
+// =============================================================================
+// Patient-controlled access requests and grants (migration 20260809000001)
+//
+// The consent-based counterpart to emergency (break-glass) grants: a provider
+// requests access, the patient approves — minting a standing grant — or denies,
+// and revokes at will. See `crate::patient_access` for the state machine that
+// drives these operations.
+// =============================================================================
+
+// The response shapes below are serialized `camelCase` on purpose: the
+// patient-app Consent Management page reads `providerName`, `accessType`,
+// `grantedAt`, `accessCount`, … . A serde rename mismatch here would leave the
+// UI rendering `undefined`, so do not drop `rename_all`.
+
+/// A provider's request for standing access, awaiting the patient's decision.
+///
+/// `patient_id` is internal (used for ownership checks) and never serialized.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+#[serde(rename_all = "camelCase")]
+pub struct AccessRequestEntity {
+    pub id: String,
+    #[serde(skip)]
+    pub patient_id: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub provider_role: String,
+    pub organization: String,
+    pub requested_at: DateTime<Utc>,
+    pub reason: String,
+    /// `pending` | `approved` | `denied`
+    pub status: String,
+}
+
+/// A standing access grant the patient has approved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+#[serde(rename_all = "camelCase")]
+pub struct AccessGrantEntity {
+    pub id: String,
+    #[serde(skip)]
+    pub patient_id: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub provider_role: String,
+    pub organization: String,
+    /// `full` | `limited` | `emergency`
+    pub access_type: String,
+    pub granted_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    /// `active` | `expired` | `revoked`
+    pub status: String,
+    pub last_accessed: Option<DateTime<Utc>>,
+    pub access_count: i32,
+    /// The request this grant was minted from, when there was one.
+    #[serde(skip)]
+    pub source_request_id: Option<String>,
+}
+
+impl AccessGrantEntity {
+    /// Whether this grant actually authorises access at `now` — active, and
+    /// (if time-limited) not yet expired.
+    ///
+    /// The stored `status` alone is not sufficient: expiry is applied lazily,
+    /// so a row can still read `active` after its `expires_at` has passed.
+    pub fn is_effective(&self, now: DateTime<Utc>) -> bool {
+        self.status == "active" && self.expires_at.map(|e| e > now).unwrap_or(true)
+    }
+}
+
+/// Patient access repository.
+///
+/// Storage only — the state machine (validation, identifier generation,
+/// which transitions are legal) lives in `crate::patient_access`. What *is*
+/// here is atomicity: every transition is expressed as a conditional update
+/// returning `None` when the row was no longer in the expected state, because
+/// a read-then-write in the caller would let two concurrent approvals mint two
+/// grants for one request.
+#[async_trait]
+pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
+    async fn create_request(
+        &self,
+        request: AccessRequestEntity,
+    ) -> RepositoryResult<AccessRequestEntity>;
+
+    async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>>;
+
+    /// This patient's requests, newest first.
+    async fn list_requests_by_patient(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<AccessRequestEntity>>;
+
+    /// Atomically move a `pending` request to `approved` and insert `grant`,
+    /// so an approved request can never exist without the grant it minted.
+    ///
+    /// `Ok(None)` means the request was not pending — a replayed approval, or
+    /// one that lost the race — and nothing was written.
+    async fn approve_request(
+        &self,
+        request_id: &str,
+        grant: AccessGrantEntity,
+    ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>>;
+
+    /// Atomically move a `pending` request to `denied`. `Ok(None)` when it was
+    /// already decided.
+    async fn deny_request(&self, request_id: &str)
+        -> RepositoryResult<Option<AccessRequestEntity>>;
+
+    async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>>;
+
+    /// This patient's grants, newest first, with lazy expiry applied first so a
+    /// caller never sees an `active` grant whose `expires_at` has passed.
+    async fn list_grants_by_patient(
+        &self,
+        patient_id: &str,
+        now: DateTime<Utc>,
+    ) -> RepositoryResult<Vec<AccessGrantEntity>>;
+
+    /// Atomically revoke a grant that is active *and* unexpired at `now`.
+    /// `Ok(None)` when it was already revoked, or had already lapsed.
+    async fn revoke_grant(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+    ) -> RepositoryResult<Option<AccessGrantEntity>>;
 }
 
 #[cfg(test)]

@@ -17,16 +17,24 @@ pub async fn create_immunization(
 
     let record = req.into_inner();
     let id = record.record_id.clone();
-    match data.immunization_records.write() {
-        Ok(mut records) => {
-            records.insert(id.clone(), record);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the typed repository, so it survives a restart.
+    match data
+        .repositories
+        .immunization_records
+        .create(record.into())
+        .await
+    {
+        Ok(stored) => {
+            HttpResponse::Created().json(serde_json::json!({ "id": stored.id, "success": true }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("immunization record {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Immunization record could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -44,12 +52,16 @@ pub async fn get_immunization(
         return resp;
     }
     let id = path.into_inner();
-    match data.immunization_records.read() {
-        Ok(records) => records
-            .get(&id)
-            .map(|record| HttpResponse::Ok().json(record))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data.repositories.immunization_records.get_by_id(&id).await {
+        // Infallible, unlike the other clinical conversions: this entity has
+        // typed columns for every field the API type carries, so there is no
+        // payload to fail to deserialize.
+        Ok(entity) => HttpResponse::Ok().json(ImmunizationRecord::from(entity)),
+        Err(crate::repositories::RepositoryError::NotFound(_)) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("immunization record {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -66,16 +78,32 @@ pub async fn create_family_history(
 
     let history = req.into_inner();
     let id = history.patient_id.clone();
-    match data.family_histories.write() {
-        Ok(mut histories) => {
-            histories.insert(id.clone(), history);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart. Keyed by
+    // patient: a family history is one evolving record per patient rather than
+    // a series, so a re-post replaces it.
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: id.clone(),
+        data: serde_json::to_value(&history).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    };
+    match data
+        .repositories
+        .family_history_records
+        .create(entity)
+        .await
+    {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
+        Err(e) => {
+            log::error!("family history {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Family history could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
     }
 }
 
@@ -96,19 +124,35 @@ pub async fn get_family_history(
         return resp;
     }
     let id = path.into_inner();
-    match data.family_histories.read() {
+    match data
+        .repositories
+        .family_history_records
+        .get_by_id(&id)
+        .await
+    {
         // A patient with nothing recorded has an EMPTY family history, not a
         // missing one. Answering 404 made the patient app's Medical History
         // page report a failed load for the ordinary case of "nobody has filled
         // this in yet" — indistinguishable, to the caller, from a broken route.
-        Ok(histories) => match histories.get(&id) {
-            Some(history) => HttpResponse::Ok().json(history),
-            None => HttpResponse::Ok().json(serde_json::json!({
-                "patient_id": id,
-                "entries": [],
-            })),
+        Ok(Some(rec)) => match serde_json::from_value::<FamilyMedicalHistory>(rec.data) {
+            Ok(history) => HttpResponse::Ok().json(history),
+            Err(e) => {
+                log::error!("family history {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored family history could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
         },
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
+            "patient_id": id,
+            "entries": [],
+        })),
+        Err(e) => {
+            log::error!("family history {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -125,16 +169,30 @@ pub async fn create_blood_type_screen(
 
     let screen = req.into_inner();
     let id = screen.test_id.clone();
-    match data.blood_type_screens.write() {
-        Ok(mut screens) => {
-            screens.insert(id.clone(), screen);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart.
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: screen.patient_id.clone(),
+        data: serde_json::to_value(&screen).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    };
+    match data
+        .repositories
+        .blood_type_screen_records
+        .create(entity)
+        .await
+    {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
+        Err(e) => {
+            log::error!("blood type screen {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Blood type screen could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
     }
 }
 
@@ -152,12 +210,29 @@ pub async fn get_blood_type_screen(
         return resp;
     }
     let id = path.into_inner();
-    match data.blood_type_screens.read() {
-        Ok(screens) => screens
-            .get(&id)
-            .map(|screen| HttpResponse::Ok().json(screen))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data
+        .repositories
+        .blood_type_screen_records
+        .get_by_id(&id)
+        .await
+    {
+        Ok(Some(rec)) => match serde_json::from_value::<BloodTypeScreen>(rec.data) {
+            Ok(screen) => HttpResponse::Ok().json(screen),
+            Err(e) => {
+                // A partial blood type screen is more dangerous than none.
+                log::error!("blood type screen {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored blood type screen could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("blood type screen {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -195,16 +270,30 @@ pub async fn create_transfusion(
         )
         .await;
 
-    match data.transfusion_records.write() {
-        Ok(mut records) => {
-            records.insert(id.clone(), record);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart.
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: record.patient_id.clone(),
+        data: serde_json::to_value(&record).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    };
+    match data
+        .repositories
+        .transfusion_event_records
+        .create(entity)
+        .await
+    {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
+        Err(e) => {
+            log::error!("transfusion record {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Transfusion record could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
     }
 }
 
@@ -222,12 +311,29 @@ pub async fn get_transfusion(
         return resp;
     }
     let id = path.into_inner();
-    match data.transfusion_records.read() {
-        Ok(records) => records
-            .get(&id)
-            .map(|record| HttpResponse::Ok().json(record))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data
+        .repositories
+        .transfusion_event_records
+        .get_by_id(&id)
+        .await
+    {
+        Ok(Some(rec)) => match serde_json::from_value::<TransfusionRecord>(rec.data) {
+            Ok(record) => HttpResponse::Ok().json(record),
+            Err(e) => {
+                // A partial transfusion record is more dangerous than none.
+                log::error!("transfusion record {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored transfusion record could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("transfusion record {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -265,16 +371,30 @@ pub async fn create_e_prescription(
         )
         .await;
 
-    match data.e_prescriptions.write() {
-        Ok(mut prescriptions) => {
-            prescriptions.insert(id.clone(), prescription);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart.
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: prescription.patient_id.clone(),
+        data: serde_json::to_value(&prescription).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    };
+    match data
+        .repositories
+        .e_prescription_records
+        .create(entity)
+        .await
+    {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
+        Err(e) => {
+            log::error!("e-prescription {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "E-prescription could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
     }
 }
 
@@ -292,12 +412,29 @@ pub async fn get_e_prescription(
         return resp;
     }
     let id = path.into_inner();
-    match data.e_prescriptions.read() {
-        Ok(prescriptions) => prescriptions
-            .get(&id)
-            .map(|prescription| HttpResponse::Ok().json(prescription))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data
+        .repositories
+        .e_prescription_records
+        .get_by_id(&id)
+        .await
+    {
+        Ok(Some(rec)) => match serde_json::from_value::<ElectronicPrescription>(rec.data) {
+            Ok(prescription) => HttpResponse::Ok().json(prescription),
+            Err(e) => {
+                // A partial e-prescription is more dangerous than none.
+                log::error!("e-prescription {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored e-prescription could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("e-prescription {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -385,16 +522,30 @@ pub async fn create_death_certificate(
         )
         .await;
 
-    match data.death_certificates.write() {
-        Ok(mut certificates) => {
-            certificates.insert(id.clone(), certificate);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
+    // Persisted through the repository, so it survives a restart.
+    let now = chrono::Utc::now();
+    let entity = crate::repositories::traits::JsonRecordEntity {
+        id: id.clone(),
+        owner_id: certificate.patient_id.clone(),
+        data: serde_json::to_value(&certificate).unwrap_or_default(),
+        created_at: now,
+        updated_at: now,
+    };
+    match data
+        .repositories
+        .death_certificate_records
+        .create(entity)
+        .await
+    {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
+        Err(e) => {
+            log::error!("death certificate {id} could not be stored: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Death certificate could not be stored".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            })
         }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
     }
 }
 
@@ -412,12 +563,28 @@ pub async fn get_death_certificate(
         return resp;
     }
     let id = path.into_inner();
-    match data.death_certificates.read() {
-        Ok(certificates) => certificates
-            .get(&id)
-            .map(|cert| HttpResponse::Ok().json(cert))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data
+        .repositories
+        .death_certificate_records
+        .get_by_id(&id)
+        .await
+    {
+        Ok(Some(rec)) => match serde_json::from_value::<DeathCertificate>(rec.data) {
+            Ok(certificate) => HttpResponse::Ok().json(certificate),
+            Err(e) => {
+                log::error!("death certificate {id} stored payload is unreadable: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Stored death certificate could not be read".to_string(),
+                    code: "RECORD_UNREADABLE".to_string(),
+                })
+            }
+        },
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(e) => {
+            log::error!("death certificate {id} lookup failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
 
@@ -576,30 +743,113 @@ pub async fn get_autopsy_report(
     }
 }
 
-/// Create satisfaction survey
-#[post("/api/surgical/satisfaction-survey")]
+/// Patient-facing satisfaction survey submission.
+///
+/// The patient identity is derived from the authenticated account. The client
+/// cannot submit feedback under another patient's identifier.
+#[derive(Debug, Deserialize)]
+pub struct SubmitSatisfactionSurveyRequest {
+    pub visit_id: Option<String>,
+    pub visit_date: String,
+    pub department: String,
+    pub survey_type: SurveyType,
+    #[serde(default)]
+    pub responses: Vec<SurveyResponse>,
+    pub overall_rating: u8,
+    pub nps_score: u8,
+    pub comments: Option<String>,
+    pub anonymous: bool,
+    pub follow_up_requested: bool,
+    pub contact_method: Option<String>,
+}
+
+fn satisfaction_storage_unavailable(operation: &str) -> HttpResponse {
+    log::error!("Satisfaction survey repository failed during {operation}");
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        success: false,
+        error: "Satisfaction survey storage is temporarily unavailable".to_string(),
+        code: "STORAGE_UNAVAILABLE".to_string(),
+    })
+}
+
+fn satisfaction_patient_id(caller: User) -> Result<String, HttpResponse> {
+    caller.linked_patient_id.ok_or_else(|| {
+        HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "A linked patient identity is required".to_string(),
+            code: "PATIENT_CONTEXT_REQUIRED".to_string(),
+        })
+    })
+}
+
+fn build_satisfaction_survey(
+    patient_id: String,
+    input: SubmitSatisfactionSurveyRequest,
+) -> Result<(String, JsonRecordEntity), HttpResponse> {
+    if !(1..=5).contains(&input.overall_rating) || input.nps_score > 10 {
+        return Err(HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "Overall rating must be 1-5 and NPS score must be 0-10".to_string(),
+            code: "INVALID_SURVEY_RATING".to_string(),
+        }));
+    }
+    let survey_id = format!("SURV-{}", uuid::Uuid::new_v4());
+    let now = Utc::now();
+    let survey = PatientSatisfactionSurvey {
+        survey_id: survey_id.clone(),
+        patient_id: patient_id.clone(),
+        visit_id: input.visit_id.unwrap_or_default(),
+        visit_date: input.visit_date,
+        department: input.department,
+        survey_type: input.survey_type,
+        responses: input.responses,
+        overall_rating: input.overall_rating,
+        nps_score: input.nps_score,
+        comments: input.comments.filter(|value| !value.trim().is_empty()),
+        submitted_at: now.timestamp(),
+        anonymous: input.anonymous,
+        follow_up_requested: input.follow_up_requested,
+        contact_method: input.contact_method,
+    };
+    let data = serde_json::to_value(survey)
+        .map_err(|_| satisfaction_storage_unavailable("serialization"))?;
+    Ok((
+        survey_id.clone(),
+        JsonRecordEntity {
+            id: survey_id,
+            owner_id: patient_id,
+            data,
+            created_at: now,
+            updated_at: now,
+        },
+    ))
+}
+
+#[post("/api/clinical/satisfaction-survey")]
 pub async fn create_satisfaction_survey(
     data: web::Data<AppState>,
     http_req: HttpRequest,
-    req: web::Json<PatientSatisfactionSurvey>,
+    req: web::Json<SubmitSatisfactionSurveyRequest>,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
+    let patient_id = match satisfaction_patient_id(caller) {
+        Ok(patient_id) => patient_id,
+        Err(response) => return response,
+    };
+    let (survey_id, record) = match build_satisfaction_survey(patient_id, req.into_inner()) {
+        Ok(result) => result,
+        Err(response) => return response,
+    };
 
-    let survey = req.into_inner();
-    let id = survey.survey_id.clone();
-
-    match data.satisfaction_surveys.write() {
-        Ok(mut surveys) => {
-            surveys.insert(id.clone(), survey);
-            HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true }))
-        }
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "DATABASE_ERROR".to_string(),
-        }),
+    match data.repositories.satisfaction_surveys.create(record).await {
+        Ok(_) => HttpResponse::Created().json(serde_json::json!({
+            "id": survey_id,
+            "success": true
+        })),
+        Err(_) => satisfaction_storage_unavailable("create"),
     }
 }
 
@@ -617,11 +867,14 @@ pub async fn get_satisfaction_survey(
         return resp;
     }
     let id = path.into_inner();
-    match data.satisfaction_surveys.read() {
-        Ok(surveys) => surveys
-            .get(&id)
-            .map(|survey| HttpResponse::Ok().json(survey))
-            .unwrap_or_else(|| HttpResponse::NotFound().finish()),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    match data.repositories.satisfaction_surveys.get_by_id(&id).await {
+        Ok(Some(record)) => {
+            match serde_json::from_value::<PatientSatisfactionSurvey>(record.data) {
+                Ok(survey) => HttpResponse::Ok().json(survey),
+                Err(_) => satisfaction_storage_unavailable("deserialization"),
+            }
+        }
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(_) => satisfaction_storage_unavailable("read"),
     }
 }

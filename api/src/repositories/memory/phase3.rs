@@ -1146,7 +1146,7 @@ impl PostOpNoteRepository for MemoryPostOpNoteRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<_> = data
             .values()
-            .filter(|n| n.operative_note_id == operative_note_id)
+            .filter(|n| n.operative_note_id.as_deref() == Some(operative_note_id))
             .cloned()
             .collect();
         items.sort_by_key(|n| n.post_op_day);

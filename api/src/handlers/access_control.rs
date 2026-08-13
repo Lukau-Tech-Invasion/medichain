@@ -8,7 +8,7 @@
 //! See [`crate::patient_access`] for the store and the state machine.
 
 use super::*;
-use crate::patient_access::{AccessType, RequestingProvider};
+use crate::patient_access::{AccessType, RequestingProvider, STORE_UNAVAILABLE};
 use crate::repositories::traits::GuardianPermission;
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +48,24 @@ fn bad_request(error: &str) -> HttpResponse {
     })
 }
 
+fn unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        success: false,
+        error: STORE_UNAVAILABLE.to_string(),
+        code: "PATIENT_ACCESS_UNAVAILABLE".to_string(),
+    })
+}
+
+/// A state-machine refusal is the caller's fault (400); an unreachable store is
+/// not (503). Consent screens must never render a storage outage as "no grants".
+fn transition_error(error: &'static str) -> HttpResponse {
+    if error == STORE_UNAVAILABLE {
+        unavailable()
+    } else {
+        bad_request(error)
+    }
+}
+
 /// Resolve the authenticated caller, or the 401 to return.
 fn authed_user(data: &web::Data<AppState>, req: &HttpRequest) -> Result<User, HttpResponse> {
     let user_id = get_current_user_id(req)
@@ -72,10 +90,14 @@ pub async fn list_patient_access_grants(
     if !access.is_permitted() {
         return forbidden("You may not view this patient's access grants");
     }
-    let grants = data
+    match data
         .patient_access
-        .list_grants_by_patient(&patient_id, Utc::now());
-    HttpResponse::Ok().json(serde_json::json!({ "grants": grants }))
+        .list_grants_by_patient(&patient_id, Utc::now())
+        .await
+    {
+        Ok(grants) => HttpResponse::Ok().json(serde_json::json!({ "grants": grants })),
+        Err(_) => unavailable(),
+    }
 }
 
 /// List the patient's access requests (pending and decided). Same authorization.
@@ -95,8 +117,14 @@ pub async fn list_patient_access_requests(
     if !access.is_permitted() {
         return forbidden("You may not view this patient's access requests");
     }
-    let requests = data.patient_access.list_requests_by_patient(&patient_id);
-    HttpResponse::Ok().json(serde_json::json!({ "requests": requests }))
+    match data
+        .patient_access
+        .list_requests_by_patient(&patient_id)
+        .await
+    {
+        Ok(requests) => HttpResponse::Ok().json(serde_json::json!({ "requests": requests })),
+        Err(_) => unavailable(),
+    }
 }
 
 /// A healthcare provider requests standing access to a patient's records.
@@ -129,6 +157,7 @@ pub async fn create_patient_access_request(
     match data
         .patient_access
         .create_request(patient_id, provider, Utc::now())
+        .await
     {
         Ok(request) => {
             let _ = data.audit_outbox.record(
@@ -140,7 +169,7 @@ pub async fn create_patient_access_request(
             );
             HttpResponse::Created().json(serde_json::json!({ "request": request }))
         }
-        Err(e) => bad_request(e),
+        Err(e) => transition_error(e),
     }
 }
 
@@ -156,9 +185,10 @@ pub async fn approve_access_request(
         Err(resp) => return resp,
     };
     let request_id = path.into_inner();
-    let existing = match data.patient_access.get_request(&request_id) {
-        Some(r) => r,
-        None => return not_found("Access request not found"),
+    let existing = match data.patient_access.get_request(&request_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return not_found("Access request not found"),
+        Err(_) => return unavailable(),
     };
     let access = resolve_patient_access(
         &data,
@@ -173,6 +203,7 @@ pub async fn approve_access_request(
     match data
         .patient_access
         .approve_request(&request_id, AccessType::Limited, None, Utc::now())
+        .await
     {
         Ok((request, grant)) => {
             let _ = data.audit_outbox.record(
@@ -184,7 +215,7 @@ pub async fn approve_access_request(
             );
             HttpResponse::Ok().json(serde_json::json!({ "request": request, "grant": grant }))
         }
-        Err(e) => bad_request(e),
+        Err(e) => transition_error(e),
     }
 }
 
@@ -200,9 +231,10 @@ pub async fn deny_access_request(
         Err(resp) => return resp,
     };
     let request_id = path.into_inner();
-    let existing = match data.patient_access.get_request(&request_id) {
-        Some(r) => r,
-        None => return not_found("Access request not found"),
+    let existing = match data.patient_access.get_request(&request_id).await {
+        Ok(Some(r)) => r,
+        Ok(None) => return not_found("Access request not found"),
+        Err(_) => return unavailable(),
     };
     let access = resolve_patient_access(
         &data,
@@ -214,7 +246,7 @@ pub async fn deny_access_request(
     if !access.is_permitted() {
         return forbidden("Only the patient may decide this access request");
     }
-    match data.patient_access.deny_request(&request_id) {
+    match data.patient_access.deny_request(&request_id).await {
         Ok(request) => {
             let _ = data.audit_outbox.record(
                 "access_request_denied".into(),
@@ -225,7 +257,7 @@ pub async fn deny_access_request(
             );
             HttpResponse::Ok().json(serde_json::json!({ "request": request }))
         }
-        Err(e) => bad_request(e),
+        Err(e) => transition_error(e),
     }
 }
 
@@ -241,9 +273,10 @@ pub async fn revoke_access_grant(
         Err(resp) => return resp,
     };
     let grant_id = path.into_inner();
-    let existing = match data.patient_access.get_grant(&grant_id) {
-        Some(g) => g,
-        None => return not_found("Access grant not found"),
+    let existing = match data.patient_access.get_grant(&grant_id).await {
+        Ok(Some(g)) => g,
+        Ok(None) => return not_found("Access grant not found"),
+        Err(_) => return unavailable(),
     };
     let access = resolve_patient_access(
         &data,
@@ -255,7 +288,11 @@ pub async fn revoke_access_grant(
     if !access.is_permitted() {
         return forbidden("Only the patient may revoke this grant");
     }
-    match data.patient_access.revoke_grant(&grant_id, Utc::now()) {
+    match data
+        .patient_access
+        .revoke_grant(&grant_id, Utc::now())
+        .await
+    {
         Ok(grant) => {
             let _ = data.audit_outbox.record(
                 "access_grant_revoked".into(),
@@ -266,6 +303,6 @@ pub async fn revoke_access_grant(
             );
             HttpResponse::Ok().json(serde_json::json!({ "grant": grant }))
         }
-        Err(e) => bad_request(e),
+        Err(e) => transition_error(e),
     }
 }

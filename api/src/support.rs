@@ -12,138 +12,6 @@ use sha3::{Digest, Sha3_256};
 // Helper Functions
 // ============================================================================
 
-/// Get default supported languages for the system
-pub fn get_default_supported_languages() -> Vec<crate::clinical::SupportedLanguage> {
-    vec![
-        crate::clinical::SupportedLanguage {
-            code: "en".to_string(),
-            name: "English".to_string(),
-            native_name: "English".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "zu".to_string(),
-            name: "Zulu".to_string(),
-            native_name: "isiZulu".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "xh".to_string(),
-            name: "Xhosa".to_string(),
-            native_name: "isiXhosa".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "af".to_string(),
-            name: "Afrikaans".to_string(),
-            native_name: "Afrikaans".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "st".to_string(),
-            name: "Sotho".to_string(),
-            native_name: "Sesotho".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "tn".to_string(),
-            name: "Tswana".to_string(),
-            native_name: "Setswana".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "ts".to_string(),
-            name: "Tsonga".to_string(),
-            native_name: "Xitsonga".to_string(),
-            rtl: false,
-            medical_terminology_available: false,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "ss".to_string(),
-            name: "Swati".to_string(),
-            native_name: "siSwati".to_string(),
-            rtl: false,
-            medical_terminology_available: false,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "ve".to_string(),
-            name: "Venda".to_string(),
-            native_name: "Tshivenḓa".to_string(),
-            rtl: false,
-            medical_terminology_available: false,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "nr".to_string(),
-            name: "Ndebele".to_string(),
-            native_name: "isiNdebele".to_string(),
-            rtl: false,
-            medical_terminology_available: false,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "nso".to_string(),
-            name: "Northern Sotho".to_string(),
-            native_name: "Sepedi".to_string(),
-            rtl: false,
-            medical_terminology_available: false,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "ar".to_string(),
-            name: "Arabic".to_string(),
-            native_name: "العربية".to_string(),
-            rtl: true,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "fr".to_string(),
-            name: "French".to_string(),
-            native_name: "Français".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-        crate::clinical::SupportedLanguage {
-            code: "pt".to_string(),
-            name: "Portuguese".to_string(),
-            native_name: "Português".to_string(),
-            rtl: false,
-            medical_terminology_available: true,
-            patient_materials_available: true,
-            ui_available: true,
-        },
-    ]
-}
-
 // ============================================================================
 // Utility Functions
 // ============================================================================
@@ -252,7 +120,12 @@ pub fn get_current_claims(req: &HttpRequest) -> Option<crate::security::jwt::Cla
 /// client-supplied role header (e.g. `X-User-Role`/`X-Provider-Role`), which is
 /// spoofable. No handler in this codebase derives authorization from such a header.
 pub fn get_user(data: &web::Data<AppState>, wallet_address: &str) -> Option<User> {
-    data.users.read().ok()?.get(wallet_address).cloned()
+    data.users
+        .read()
+        .ok()?
+        .get(wallet_address)
+        .filter(|user| user.status == "active")
+        .cloned()
 }
 
 /// Whether `caller_wallet` is the data subject of `patient_id` — the patient

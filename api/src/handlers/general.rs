@@ -253,6 +253,8 @@ fn validate_register_patient_request(
             success: false,
             patient_id: String::new(),
             nfc_tag_id: String::new(),
+            chain_status: None,
+            blockchain_tx_hash: None,
             message: e,
         })
     })
@@ -337,36 +339,6 @@ fn build_new_patient(
     (patient, nfc_tag)
 }
 
-/// Fires off (non-blocking, non-fatal) on-chain patient registration.
-/// Blockchain unavailability never blocks or fails the HTTP response.
-fn spawn_blockchain_patient_registration(
-    data: &web::Data<AppState>,
-    patient_id: String,
-    national_id: &str,
-    registered_by: String,
-) {
-    let Some(client) = data.substrate_client.clone() else {
-        return;
-    };
-    // HZ-005: keyed digest (not a bare hash) — see `crate::support::hash_national_id`.
-    let id_hash = crate::support::hash_national_id(national_id);
-    let id_type_str = "national_id".to_string();
-    tokio::spawn(async move {
-        match client
-            .register_patient_on_chain(&patient_id, &id_hash, &id_type_str, &registered_by)
-            .await
-        {
-            Ok(result) => log::info!(
-                "Patient {} registered on chain: {} (finalized={})",
-                patient_id,
-                result.hash,
-                result.finalized
-            ),
-            Err(e) => log::warn!("Blockchain patient registration failed (non-fatal): {}", e),
-        }
-    });
-}
-
 /// Register a new patient (Healthcare providers only)
 #[post("/api/register")]
 pub async fn register_patient(
@@ -413,6 +385,25 @@ pub async fn register_patient(
         Ok(bt) => bt,
         Err(resp) => return resp,
     };
+    let patient_wallet = req
+        .wallet_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if crate::blockchain::blockchain_enabled() && patient_wallet.is_none() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "wallet_address is required when blockchain integration is enabled".to_string(),
+            code: "PATIENT_WALLET_REQUIRED".to_string(),
+        });
+    }
+    if patient_wallet.is_some_and(|wallet| !is_valid_wallet_address(wallet)) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "wallet_address must be a valid SS58 address".to_string(),
+            code: "INVALID_WALLET_ADDRESS".to_string(),
+        });
+    }
 
     // Generate IDs
     let patient_id = format!(
@@ -438,7 +429,8 @@ pub async fn register_patient(
     // PHI encrypted at rest; full profile in encrypted blob for lossless reads. On
     // PostgreSQL both rows commit in one transaction so neither is orphaned on failure.
     {
-        let entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
+        let mut entity = patient_profile_to_entity(&patient, &data.encryption_keyring);
+        entity.wallet_address = patient_wallet.map(str::to_string);
         if let Err(e) = data
             .repositories
             .create_patient_with_nfc(entity, nfc_tag.into())
@@ -449,52 +441,47 @@ pub async fn register_patient(
                 success: false,
                 patient_id: String::new(),
                 nfc_tag_id: String::new(),
+                chain_status: None,
+                blockchain_tx_hash: None,
                 message: "Failed to persist patient record".to_string(),
             });
         }
     }
 
-    // HZ-003: publish the emergency capsule and anchor its commitment on-chain.
-    // The emergency values are no longer stored on-chain in the clear, so this
-    // is what makes them tamper-evident. Non-fatal: a patient who is registered
-    // but whose capsule failed to store is recoverable (the next emergency-info
-    // write republishes), whereas failing the registration outright is not.
-    if let Err(e) =
-        crate::emergency_capsule::publish_capsule(&data, &patient.emergency_info, &current_user_id)
-            .await
-    {
-        log::error!("Emergency capsule publication failed for {patient_id}: {e}");
-    }
-
-    // Also create a Patient user account for the new patient
-    // Note: In wallet-based auth, the patient will link their wallet later
-    // For now, we use the patient_id as a placeholder until they link a wallet
-    let patient_user = User {
-        wallet_address: patient_id.clone(), // Placeholder until wallet is linked
-        username: Some(req.full_name.to_lowercase().replace(' ', ".")),
-        name: req.full_name.clone(),
-        role: Role::Patient,
-        created_at: Utc::now(),
-        created_by: Some(current_user_id.clone()),
-        linked_patient_id: Some(patient_id.clone()),
-        email: None,
-        phone: None,
-        department: None,
-        specialty: None,
-        license_number: None,
-        status: "active".to_string(),
-        last_login: None,
-    };
-    data.users
-        .write()
-        .unwrap()
-        .insert(patient_id.clone(), patient_user.clone());
-    if let Err(e) = data.persist_user(&patient_user).await {
-        log::error!(
-            "Failed to persist auto-created patient user {}: {}",
-            patient_id,
-            e
-        );
+    // Create an account only when a real patient-owned wallet was supplied.
+    if let Some(wallet_address) = patient_wallet {
+        let patient_user = User {
+            wallet_address: wallet_address.to_string(),
+            username: Some(req.full_name.to_lowercase().replace(' ', ".")),
+            name: req.full_name.clone(),
+            role: Role::Patient,
+            created_at: Utc::now(),
+            created_by: Some(current_user_id.clone()),
+            linked_patient_id: Some(patient_id.clone()),
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        };
+        if let Err(e) = data.persist_then_cache_user(patient_user).await {
+            log::error!(
+                "Failed to persist auto-created patient user {}: {}",
+                patient_id,
+                e
+            );
+            return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
+                success: false,
+                patient_id,
+                nfc_tag_id,
+                chain_status: None,
+                blockchain_tx_hash: None,
+                message: "Patient record was created, but account persistence failed; retry account provisioning"
+                    .to_string(),
+            });
+        }
     }
 
     log::info!(
@@ -504,17 +491,54 @@ pub async fn register_patient(
         current_user_id
     );
 
-    spawn_blockchain_patient_registration(
+    let id_hash = crate::support::hash_national_id(&req.national_id);
+    let chain_anchor = match crate::audit_outbox::anchor_patient_registration_or_queue(
         &data,
-        patient_id.clone(),
-        &req.national_id,
-        current_user_id.clone(),
-    );
+        &patient_id,
+        patient_wallet.unwrap_or_default(),
+        &id_hash,
+        "national_id",
+        &current_user_id,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            log::error!("Patient chain registration could not be finalized or queued: {error}");
+            return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
+                success: false,
+                patient_id,
+                nfc_tag_id,
+                chain_status: None,
+                blockchain_tx_hash: None,
+                message: "Patient record was created, but its required blockchain registration could not be queued."
+                    .to_string(),
+            });
+        }
+    };
+
+    if let Err(error) =
+        crate::emergency_capsule::publish_capsule(&data, &patient.emergency_info, &current_user_id)
+            .await
+    {
+        log::error!("Emergency capsule publication failed for {patient_id}: {error}");
+        return HttpResponse::ServiceUnavailable().json(RegisterPatientResponse {
+            success: false,
+            patient_id,
+            nfc_tag_id,
+            chain_status: Some(chain_anchor.status),
+            blockchain_tx_hash: chain_anchor.transaction_hash,
+            message: "Patient record was created, but the emergency capsule could not be stored and queued for anchoring."
+                .to_string(),
+        });
+    }
 
     HttpResponse::Created().json(RegisterPatientResponse {
         success: true,
         patient_id,
         nfc_tag_id,
+        chain_status: Some(chain_anchor.status),
+        blockchain_tx_hash: chain_anchor.transaction_hash,
         message: "Patient registered successfully. NFC tag provisioned.".to_string(),
     })
 }
@@ -567,6 +591,8 @@ pub async fn emergency_access(
                 success: false,
                 access_id: String::new(),
                 emergency_info: None,
+                chain_audit_status: None,
+                blockchain_tx_hash: None,
                 message: "NFC tag not found. Invalid or unregistered tag.".to_string(),
             });
         }
@@ -582,7 +608,7 @@ pub async fn emergency_access(
 
     // Get patient emergency info via repository (was: in-memory data.patients HashMap).
     // Decrypts the lossless profile blob to recover structured emergency_info.
-    let emergency_info = {
+    let (emergency_info, patient_chain_account) = {
         let entity = match data.repositories.patients.get_by_id(&patient_id).await {
             Ok(e) => e,
             Err(_) => {
@@ -590,17 +616,22 @@ pub async fn emergency_access(
                     success: false,
                     access_id: String::new(),
                     emergency_info: None,
+                    chain_audit_status: None,
+                    blockchain_tx_hash: None,
                     message: "Patient record not found.".to_string(),
                 });
             }
         };
+        let patient_chain_account = entity.wallet_address.clone();
         match patient_entity_to_profile(&entity, &data.encryption_keyring) {
-            Some(profile) => profile.emergency_info,
+            Some(profile) => (profile.emergency_info, patient_chain_account),
             None => {
                 return HttpResponse::NotFound().json(EmergencyAccessResponse {
                     success: false,
                     access_id: String::new(),
                     emergency_info: None,
+                    chain_audit_status: None,
+                    blockchain_tx_hash: None,
                     message: "Patient record not found.".to_string(),
                 });
             }
@@ -642,6 +673,35 @@ pub async fn emergency_access(
             code: "REPO_ERROR".to_string(),
         });
     }
+    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Emergency access was recorded, but the patient has no blockchain wallet for the required chain audit."
+                .to_string(),
+            code: "PATIENT_WALLET_REQUIRED".to_string(),
+        });
+    }
+    let chain_anchor = match crate::audit_outbox::anchor_access_or_queue(
+        &data,
+        "emergency_access",
+        &access_id,
+        patient_chain_account.as_deref().unwrap_or_default(),
+        &current_user_id,
+        "EMERGENCY_ACCESS",
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            log::error!("Emergency chain audit could not be finalized or queued: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Emergency access was recorded, but its required chain audit could not be queued."
+                    .to_string(),
+                code: "CHAIN_AUDIT_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     // Breach detection (Phase 11.4): flag if this provider is touching an
     // unusually large number of distinct patients in a short window.
@@ -661,6 +721,8 @@ pub async fn emergency_access(
         success: true,
         access_id,
         emergency_info: Some(emergency_info),
+        chain_audit_status: Some(chain_anchor.status),
+        blockchain_tx_hash: chain_anchor.transaction_hash,
         message: "Emergency access granted. All accesses are logged and auditable.".to_string(),
     })
 }

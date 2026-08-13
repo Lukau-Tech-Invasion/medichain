@@ -30,6 +30,22 @@ pub struct TelehealthRetentionArtifact {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
+/// What is retained for an artifact, and which model produced it.
+///
+/// Grouped rather than passed as four consecutive `Option<String>` parameters,
+/// which no call site could transpose visibly — `register(.., None, None, None,
+/// None, ..)` says nothing about which field is which. Follows the same
+/// struct-parameter shape as `OrganizationKeyStore::register`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TelehealthArtifactMetadata {
+    /// Pointer to the encrypted content; required for sensitive artifact types.
+    pub encrypted_content_reference: Option<String>,
+    /// Tamper-evident hash of that content; required alongside the reference.
+    pub content_hash: Option<String>,
+    pub model_name: Option<String>,
+    pub model_version: Option<String>,
+}
+
 pub struct TelehealthRetentionStore {
     artifacts: RwLock<HashMap<String, TelehealthRetentionArtifact>>,
 }
@@ -46,12 +62,15 @@ impl TelehealthRetentionStore {
         &self,
         session_id: String,
         artifact_type: TelehealthArtifactType,
-        encrypted_content_reference: Option<String>,
-        content_hash: Option<String>,
-        model_name: Option<String>,
-        model_version: Option<String>,
+        metadata: TelehealthArtifactMetadata,
         now: DateTime<Utc>,
     ) -> Result<TelehealthRetentionArtifact, &'static str> {
+        let TelehealthArtifactMetadata {
+            encrypted_content_reference,
+            content_hash,
+            model_name,
+            model_version,
+        } = metadata;
         if session_id.is_empty() {
             return Err("Telehealth session is required");
         }
@@ -171,10 +190,7 @@ mod tests {
                 .register(
                     "session-1".into(),
                     TelehealthArtifactType::FullTranscript,
-                    None,
-                    None,
-                    None,
-                    None,
+                    TelehealthArtifactMetadata::default(),
                     Utc::now()
                 )
                 .unwrap_err(),
@@ -189,10 +205,11 @@ mod tests {
             .register(
                 "session-1".into(),
                 TelehealthArtifactType::Recording,
-                Some("encrypted://recording".into()),
-                Some("sha3".into()),
-                None,
-                None,
+                TelehealthArtifactMetadata {
+                    encrypted_content_reference: Some("encrypted://recording".into()),
+                    content_hash: Some("sha3".into()),
+                    ..Default::default()
+                },
                 now,
             )
             .unwrap();

@@ -4,12 +4,16 @@
 //! decrypt in private storage using Android Keystore or Apple Secure Enclave.
 
 use chrono::{DateTime, Duration, Utc};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;
 use uuid::Uuid;
 
 pub const MOBILE_RECORD_TTL_MINUTES: i64 = 15;
+pub const LOCKSCREEN_TOKEN_TTL_SECS: i64 = 5 * 60;
+const LOCKSCREEN_ISSUER: &str = "medichain-api";
+const LOCKSCREEN_AUDIENCE: &str = "medichain-lockscreen";
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -60,6 +64,75 @@ pub struct ProtectedMobileRecordSession {
     pub status: ProtectedRecordStatus,
     pub export_allowed: bool,
     pub offline_allowed: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LockscreenClaims {
+    pub iss: String,
+    pub aud: String,
+    pub sub: String,
+    pub device_id: String,
+    pub scope: String,
+    pub jti: String,
+    pub iat: i64,
+    pub nbf: i64,
+    pub exp: i64,
+}
+
+fn capability_secret() -> String {
+    std::env::var("JWT_SECRET")
+        .or_else(|_| std::env::var("SESSION_SECRET"))
+        .unwrap_or_else(|_| "medichain-dev-secret-change-in-production".to_string())
+}
+
+pub fn issue_lockscreen_token(
+    patient_id: &str,
+    device_id: &str,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = Utc::now().timestamp();
+    let claims = LockscreenClaims {
+        iss: LOCKSCREEN_ISSUER.into(),
+        aud: LOCKSCREEN_AUDIENCE.into(),
+        sub: patient_id.into(),
+        device_id: device_id.into(),
+        scope: "lockscreen_medical_id:read".into(),
+        jti: Uuid::new_v4().to_string(),
+        iat: now,
+        nbf: now,
+        exp: now + LOCKSCREEN_TOKEN_TTL_SECS,
+    };
+    encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(capability_secret().as_bytes()),
+    )
+}
+
+pub fn verify_lockscreen_token(
+    token: &str,
+    patient_id: &str,
+    device_id: &str,
+) -> Result<LockscreenClaims, jsonwebtoken::errors::Error> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.set_issuer(&[LOCKSCREEN_ISSUER]);
+    validation.set_audience(&[LOCKSCREEN_AUDIENCE]);
+    validation.validate_nbf = true;
+    validation.leeway = 0;
+    let claims = decode::<LockscreenClaims>(
+        token,
+        &DecodingKey::from_secret(capability_secret().as_bytes()),
+        &validation,
+    )?
+    .claims;
+    if claims.sub != patient_id
+        || claims.device_id != device_id
+        || claims.scope != "lockscreen_medical_id:read"
+    {
+        return Err(jsonwebtoken::errors::Error::from(
+            jsonwebtoken::errors::ErrorKind::InvalidToken,
+        ));
+    }
+    Ok(claims)
 }
 
 pub struct MobileRecordStore {
