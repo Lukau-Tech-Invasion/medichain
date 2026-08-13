@@ -156,12 +156,26 @@ pub async fn create_radiology_order(
     http_req: HttpRequest,
     req: web::Json<RadiologyOrder>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    // An imaging order is an accountable clinical act, so the ordering provider
+    // is whoever placed it — not whoever the body names. `ordering_provider`
+    // was previously persisted straight from the request with no comparison
+    // against the caller (docs/WORKFLOW_AUDIT.md, WF-021). Unlike scheduling,
+    // this admits no administrator override: delegating the *act* of ordering
+    // would misattribute clinical responsibility.
+    let caller = match crate::support::require_actor_is_caller(
+        &data,
+        &http_req,
+        Some(req.ordering_provider.as_str()),
+    ) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
-    let order = req.into_inner();
+    let mut order = req.into_inner();
+    // Stamp it from the session so the stored record cannot disagree with the
+    // authenticated identity even if the check above is ever relaxed.
+    order.ordering_provider = caller.wallet_address.clone();
     let id = order.order_id.clone();
     let owner_id = order.patient_id.clone();
 
@@ -174,7 +188,10 @@ pub async fn create_radiology_order(
                 access_id: uuid::Uuid::new_v4().to_string(),
                 patient_id: owner_id.clone(),
                 accessor_id: current_user_id,
-                accessor_role: "doctor".to_string(),
+                // The caller's actual role. This was the literal "doctor",
+                // so a lab technician or pharmacist placing an order was
+                // recorded in the audit trail as a doctor.
+                accessor_role: caller.role.to_string(),
                 access_type: "create_radiology_order".to_string(),
                 location: None,
                 timestamp: chrono::Utc::now(),

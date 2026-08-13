@@ -8,8 +8,14 @@ use super::*;
 #[derive(Debug, Deserialize)]
 pub struct BookAppointmentRequest {
     pub patient_id: String,
+    /// A *request* for which provider, not an assertion. Validated against the
+    /// caller by `resolve_attributed_provider`; see the handler.
     pub provider_id: String,
-    pub provider_name: Option<String>,
+    // `provider_name` was removed here rather than left unread. It let a client
+    // label an appointment with any name it liked, independent of
+    // `provider_id`, and the name is now taken from the resolved provider
+    // record. Serde ignores unknown fields, so clients still sending it are
+    // unaffected.
     pub appointment_type: String,
     pub preferred_date: String,
     pub preferred_time: String,
@@ -22,6 +28,50 @@ pub struct BookAppointmentRequest {
     pub instructions: Option<String>,
 }
 
+/// Map the client's appointment-type string onto the domain enum.
+///
+/// # Why this is a function with a `None` arm
+///
+/// The previous inline `match` listed only PascalCase spellings (`"Telehealth"`,
+/// `"FollowUp"`) and ended in `_ => FollowUp`. The doctor portal sends
+/// lowercase, hyphenated values (`"telehealth"`, `"follow-up"`), so **every**
+/// appointment booked from the portal fell through the catch-all and was stored
+/// as a follow-up — which also left `is_telehealth` false, making it impossible
+/// to book a telehealth appointment at all (`docs/WORKFLOW_AUDIT.md`, WF-005).
+///
+/// A catch-all arm over a client-supplied enum turns a contract mismatch into
+/// silent data corruption, so there is deliberately no default here: an
+/// unrecognised type is rejected and the caller finds out.
+///
+/// Comparison is case-insensitive with `-`/`_`/space folded, so the same
+/// vocabulary works from either spelling convention without a second table to
+/// keep in sync.
+fn parse_appointment_type(raw: &str) -> Option<crate::clinical::AppointmentType> {
+    use crate::clinical::AppointmentType as T;
+    let key: String = raw
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect();
+    Some(match key.as_str() {
+        "newpatient" => T::NewPatient,
+        "followup" | "routine" => T::FollowUp,
+        "urgent" | "emergency" => T::Urgent,
+        "telehealth" | "virtual" | "video" => T::Telehealth,
+        "procedure" => T::Procedure,
+        "preop" | "surgerypreop" => T::PreOp,
+        "postop" => T::PostOp,
+        "annualexam" | "screening" => T::AnnualExam,
+        "consultation" | "specialistconsultation" | "consult" => T::Consultation,
+        "labwork" | "lab" => T::LabWork,
+        "imaging" | "radiology" => T::Imaging,
+        // Genuinely "something else", and the only way to reach `Other`:
+        // reachable on purpose, unlike the old silent default.
+        "vaccination" | "immunisation" | "immunization" | "antenatal" | "other" => T::Other,
+        _ => return None,
+    })
+}
+
 /// Book an appointment
 #[post("/api/appointments")]
 pub async fn book_appointment(
@@ -29,10 +79,25 @@ pub async fn book_appointment(
     http_req: HttpRequest,
     req: web::Json<BookAppointmentRequest>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    // Who the appointment is attributed to is decided from the session, not the
+    // body. Before this, `provider_id` was copied verbatim out of the request:
+    // the handler checked that the caller could book for the *patient* and then
+    // never checked the *provider* at all, so any provider could put an
+    // appointment on a colleague's calendar under the colleague's name
+    // (`docs/WORKFLOW_AUDIT.md`, WF-004).
+    //
+    // The helper allows exactly three shapes: a clinician booking for
+    // themselves, an admin scheduling for a colleague (with the real actor kept
+    // for the audit trail), and a patient choosing which provider to see.
+    let attribution = match crate::support::resolve_attributed_provider(
+        &data,
+        &http_req,
+        Some(req.provider_id.as_str()),
+    ) {
+        Ok(a) => a,
         Err(resp) => return resp,
     };
+    let current_user_id = attribution.actor_id().to_string();
 
     // User must be booking for themselves or be a healthcare provider/authorized relative.
     // Resolve the caller from the server-side account registry instead of trusting a
@@ -70,16 +135,18 @@ pub async fn book_appointment(
         }
     }
 
-    let appointment_type = match req.appointment_type.as_str() {
-        "Routine" => crate::clinical::AppointmentType::FollowUp,
-        "FollowUp" => crate::clinical::AppointmentType::FollowUp,
-        "Emergency" => crate::clinical::AppointmentType::Urgent,
-        "SpecialistConsultation" => crate::clinical::AppointmentType::Consultation,
-        "LabWork" => crate::clinical::AppointmentType::LabWork,
-        "Vaccination" => crate::clinical::AppointmentType::Other,
-        "SurgeryPreOp" => crate::clinical::AppointmentType::PreOp,
-        "Telehealth" => crate::clinical::AppointmentType::Telehealth,
-        _ => crate::clinical::AppointmentType::FollowUp,
+    let appointment_type = match parse_appointment_type(&req.appointment_type) {
+        Some(t) => t,
+        None => {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: format!(
+                    "'{}' is not a recognised appointment type",
+                    req.appointment_type
+                ),
+                code: "UNKNOWN_APPOINTMENT_TYPE".to_string(),
+            })
+        }
     };
     let duration_minutes = req
         .duration_minutes
@@ -97,16 +164,17 @@ pub async fn book_appointment(
     let appointment = crate::clinical::Appointment {
         appointment_id: format!("APT-{}", uuid::Uuid::new_v4()),
         patient_id: req.patient_id.clone(),
-        provider_id: req.provider_id.clone(),
+        // Server-derived. Equal to what the client asked for only when that
+        // request was legitimate.
+        provider_id: attribution.provider_id().to_string(),
         // Horizon HZ-023: this defaulted to the literal "Dr. Smith", stamping an
         // invented clinician onto a real appointment whenever the caller omitted
         // a name. Resolve the actual provider from the user store; if the id is
         // unknown, carry the id itself rather than inventing a person.
-        provider_name: req
-            .provider_name
-            .clone()
-            .or_else(|| get_user(&data, &req.provider_id).map(|u| u.name))
-            .unwrap_or_else(|| req.provider_id.clone()),
+        // Taken from the resolved provider record, not from the body: a
+        // client-supplied `provider_name` could otherwise label an appointment
+        // with any name it liked, independently of `provider_id`.
+        provider_name: attribution.provider.name.clone(),
         appointment_type,
         visit_reason: req.reason.clone(),
         scheduled_date: req.preferred_date.clone(),
@@ -612,6 +680,58 @@ pub async fn check_and_send_appointment_reminders(data: &crate::AppState) {
             .appointments
             .update(appointment.into())
             .await;
+    }
+}
+
+#[cfg(test)]
+mod appointment_type_tests {
+    use super::parse_appointment_type;
+    use crate::clinical::AppointmentType as T;
+
+    /// The regression that made telehealth impossible: the portal's own
+    /// vocabulary must map to the types it names, not silently to FollowUp.
+    #[test]
+    fn the_doctor_portals_own_option_values_all_map_correctly() {
+        assert_eq!(parse_appointment_type("consultation"), Some(T::Consultation));
+        assert_eq!(parse_appointment_type("follow-up"), Some(T::FollowUp));
+        assert_eq!(parse_appointment_type("procedure"), Some(T::Procedure));
+        assert_eq!(parse_appointment_type("screening"), Some(T::AnnualExam));
+        assert_eq!(parse_appointment_type("vaccination"), Some(T::Other));
+        assert_eq!(parse_appointment_type("antenatal"), Some(T::Other));
+        assert_eq!(
+            parse_appointment_type("telehealth"),
+            Some(T::Telehealth),
+            "the whole telehealth workflow hangs off this one mapping"
+        );
+    }
+
+    #[test]
+    fn the_pascal_case_spellings_the_api_documented_still_work() {
+        assert_eq!(parse_appointment_type("Telehealth"), Some(T::Telehealth));
+        assert_eq!(parse_appointment_type("FollowUp"), Some(T::FollowUp));
+        assert_eq!(parse_appointment_type("Routine"), Some(T::FollowUp));
+        assert_eq!(parse_appointment_type("Emergency"), Some(T::Urgent));
+        assert_eq!(parse_appointment_type("SurgeryPreOp"), Some(T::PreOp));
+        assert_eq!(
+            parse_appointment_type("SpecialistConsultation"),
+            Some(T::Consultation)
+        );
+    }
+
+    #[test]
+    fn separators_and_case_do_not_change_the_meaning() {
+        for spelling in ["follow up", "Follow-Up", "FOLLOW_UP", "followUp"] {
+            assert_eq!(parse_appointment_type(spelling), Some(T::FollowUp), "{spelling}");
+        }
+    }
+
+    /// The core of the fix. A catch-all default is what turned a client/server
+    /// vocabulary mismatch into silently mis-filed clinical records.
+    #[test]
+    fn an_unrecognised_type_is_rejected_rather_than_defaulted() {
+        assert_eq!(parse_appointment_type("brain-transplant"), None);
+        assert_eq!(parse_appointment_type(""), None);
+        assert_eq!(parse_appointment_type("  "), None);
     }
 }
 

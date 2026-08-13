@@ -344,12 +344,29 @@ pub async fn create_e_prescription(
     http_req: HttpRequest,
     req: web::Json<ElectronicPrescription>,
 ) -> impl Responder {
-    let current_user_id = match crate::support::require_clinical_staff(&data, &http_req) {
-        Ok(u) => u.wallet_address,
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(u) => u,
         Err(resp) => return resp,
     };
+    let current_user_id = caller.wallet_address.clone();
 
-    let prescription = req.into_inner();
+    let mut prescription = req.into_inner();
+
+    // The whole `ElectronicPrescription` used to be persisted verbatim from the
+    // request body, so the client chose its own `rx_id` (letting one call
+    // overwrite an existing prescription) and named its own `prescriber`
+    // (attributing a prescription to another clinician, while the access log
+    // recorded the real caller — the record and the audit trail disagreed by
+    // construction). See docs/WORKFLOW_AUDIT.md, WF-020.
+    //
+    // Both are now server-derived. `PrescriberInfo` identifies a clinician by
+    // name and licence rather than wallet, so those are stamped from the
+    // caller's own account record.
+    prescription.rx_id = format!("RX-{}", uuid::Uuid::new_v4());
+    prescription.prescriber.name = caller.name.clone();
+    if let Some(licence) = caller.license_number.clone() {
+        prescription.prescriber.state_license = licence;
+    }
     let id = prescription.rx_id.clone();
 
     // Log access
@@ -361,7 +378,8 @@ pub async fn create_e_prescription(
                 access_id: uuid::Uuid::new_v4().to_string(),
                 patient_id: prescription.patient_id.clone(),
                 accessor_id: current_user_id,
-                accessor_role: "doctor".to_string(),
+                // Was the literal "doctor" regardless of who called.
+                accessor_role: caller.role.to_string(),
                 access_type: "create_e_prescription".to_string(),
                 location: None,
                 timestamp: chrono::Utc::now(),
