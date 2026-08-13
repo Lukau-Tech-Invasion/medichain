@@ -330,36 +330,35 @@ pub async fn wallet_lookup(data: web::Data<AppState>, path: web::Path<String>) -
 }
 
 /// Get current user info from wallet address
+/// The caller's own identity, in full.
+///
+/// Returns everything a screen might otherwise ask the user to re-enter —
+/// wallet, role, department, specialty, licence — plus the role's derived
+/// permissions, so the frontend has one authoritative provider context instead
+/// of each page re-deriving its own (audit RC-1, `docs/WORKFLOW_AUDIT.md`).
+///
+/// Self-scoped: `get_current_user_id` resolves the caller from a verified JWT
+/// or a signature-bound `X-User-Id`, and the response describes only that
+/// account, so no authorization check beyond "you are registered" applies.
 #[get("/api/auth/me")]
 pub async fn get_current_user_info(data: web::Data<AppState>, req: HttpRequest) -> impl Responder {
-    let wallet_address = match get_current_user_id(&req) {
-        Some(id) => id,
-        None => {
-            return HttpResponse::Unauthorized().json(ErrorResponse {
-                success: false,
-                error: "Missing X-User-Id header".to_string(),
-                code: "UNAUTHORIZED".to_string(),
-            });
-        }
+    let user = match crate::support::require_registered_caller(&data, &req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
     };
 
-    let user = match get_user(&data, &wallet_address) {
-        Some(u) => u,
-        None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
-        }
-    };
-
-    HttpResponse::Ok().json(WalletUserInfo {
+    HttpResponse::Ok().json(crate::CurrentUserResponse {
         wallet_address: user.wallet_address.clone(),
         name: user.name.clone(),
         role: user.role.to_string(),
         username: user.username.clone(),
         linked_patient_id: user.linked_patient_id.clone(),
+        email: user.email.clone(),
+        department: user.department.clone(),
+        specialty: user.specialty.clone(),
+        license_number: user.license_number.clone(),
+        status: user.status.clone(),
+        permissions: (&user.role).into(),
     })
 }
 

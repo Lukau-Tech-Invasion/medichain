@@ -15,4 +15,6 @@ export { EmptyState } from './EmptyState';
 export type { EmptyStateProps } from './EmptyState';
 export { PatientCard } from './PatientCard';
 export { QRCodeDisplay } from './QRCodeDisplay';
+export { WalletAddress, copyTextToClipboard } from './WalletAddress';
+export type { WalletAddressProps } from './WalletAddress';
 export * from './Toast';

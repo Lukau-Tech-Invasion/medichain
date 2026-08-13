@@ -70,6 +70,36 @@ export interface WalletUserInfo {
 }
 
 /**
+ * What the signed-in user's role permits, as computed by the server.
+ *
+ * Mirrors the `Role` methods the API authorizes with, so the client no longer
+ * keeps its own copy of the role hierarchy. Three copies existed before this:
+ * `authStore.isHealthcareProvider`/`canEditMedicalRecords`, the
+ * `HEALTHCARE_PROVIDER_ROLES`/`RECORD_EDITOR_ROLES` tables in the (unused)
+ * shared `useAuth` hook, and the server itself — free to drift apart.
+ *
+ * **Affordance hints only.** Use these to decide what to render; never to
+ * decide whether an operation is allowed. The server authorizes every request
+ * on its own and ignores anything a client claims about its permissions.
+ */
+export interface UserPermissions {
+  is_admin: boolean;
+  is_healthcare_provider: boolean;
+  can_view_medical_records: boolean;
+  can_edit_medical_records: boolean;
+}
+
+/**
+ * The authenticated caller's own identity — the `GET /api/auth/me` response.
+ *
+ * The single source for the frontend's provider context. Anything a form might
+ * otherwise ask a signed-in clinician to type belongs here.
+ */
+export interface CurrentUser extends WalletUserInfo {
+  permissions: UserPermissions;
+}
+
+/**
  * Request to bootstrap first admin
  */
 export interface BootstrapAdminRequest {
@@ -340,6 +370,7 @@ export interface PatientProfile {
 
 export interface RegisterPatientRequest {
   full_name: string;
+  wallet_address?: string;
   date_of_birth: string;
   national_id: string;
   blood_type: string;
@@ -360,6 +391,8 @@ export interface RegisterPatientResponse {
   success: boolean;
   patient_id: string;
   nfc_tag_id: string;
+  chain_status?: 'disabled' | 'pending' | 'finalized';
+  blockchain_tx_hash?: string;
   message: string;
 }
 
@@ -397,6 +430,10 @@ export interface UploadMedicalRecordResponse {
   ipfs_hash: string;
   metadata_hash: string;
   record_reference: MedicalRecordReference;
+  record_chain_status: 'disabled' | 'pending' | 'finalized';
+  record_blockchain_tx_hash?: string;
+  access_chain_status: 'disabled' | 'pending' | 'finalized';
+  access_blockchain_tx_hash?: string;
   message: string;
 }
 
@@ -437,6 +474,8 @@ export interface EmergencyAccessResponse {
   success: boolean;
   access_id: string;
   emergency_info?: EmergencyInfo;
+  chain_audit_status?: 'disabled' | 'pending' | 'finalized';
+  blockchain_tx_hash?: string;
   message: string;
 }
 

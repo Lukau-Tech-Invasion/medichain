@@ -400,6 +400,146 @@ pub fn require_clinical_staff(
     Ok(user)
 }
 
+/// Which clinician a record is attributed to, and who actually filed it.
+///
+/// See [`resolve_attributed_provider`] for why the distinction matters.
+#[derive(Debug, Clone)]
+pub struct AttributedProvider {
+    /// The clinician the record names — the prescriber, surgeon, the provider
+    /// whose calendar an appointment lands on.
+    pub provider: crate::User,
+    /// The authenticated caller, when they are not `provider` themselves.
+    /// `None` means the caller filed the record under their own name.
+    pub filed_by: Option<crate::User>,
+}
+
+impl AttributedProvider {
+    /// The wallet address the record should carry as its provider.
+    pub fn provider_id(&self) -> &str {
+        &self.provider.wallet_address
+    }
+
+    /// The wallet address that actually made the request. Always a real,
+    /// authenticated identity — this is what belongs in an audit entry.
+    pub fn actor_id(&self) -> &str {
+        self.filed_by
+            .as_ref()
+            .map_or(&self.provider.wallet_address, |u| &u.wallet_address)
+    }
+}
+
+/// Resolve the provider a clinical record is attributed to, from the session
+/// rather than from the request body.
+///
+/// # The defect this exists to prevent
+///
+/// The pervasive shape in this codebase was: authenticate the caller, then
+/// build the record using a `provider_id` / `prescriber` / `surgeon` /
+/// `performed_by` field taken straight from the request body, never comparing
+/// the two. Every one of the six handlers that took such a field failed to
+/// check it (`scripts/audit-scan-actor-ids.py`). A doctor could book onto a
+/// colleague's calendar; worse, on `/api/surgical/e-prescription` a caller
+/// could attribute a prescription to another prescriber entirely. Because the
+/// access log separately records the *real* caller, the clinical record and
+/// the audit trail disagreed by construction.
+///
+/// # The rule
+///
+/// `requested` is a *hint*, never an authority:
+///
+/// - Absent, or equal to the caller — the caller is the provider.
+/// - The caller is clinical staff naming a **different** provider — allowed
+///   only for `Admin`, who may schedule on a colleague's behalf. The record is
+///   attributed to that colleague and `filed_by` carries the real actor. Any
+///   other clinical role gets `403 PROVIDER_MISMATCH`.
+/// - The caller is **not** clinical staff (a patient booking their own
+///   appointment, or an authorized relative) — `requested` is a legitimate
+///   choice of *whom to see*, so it is accepted, but only after proving it
+///   names a real, active healthcare provider. `filed_by` carries the patient.
+///
+/// The caller must always be a registered, active account; a patient caller is
+/// still subject to the endpoint's own patient-authorization check, which this
+/// function deliberately does not perform (see [`resolve_patient_access`]).
+pub fn resolve_attributed_provider(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+    requested: Option<&str>,
+) -> Result<AttributedProvider, HttpResponse> {
+    let caller = require_registered_caller(data, req)?;
+
+    let requested = requested.map(str::trim).filter(|s| !s.is_empty());
+    let Some(requested) = requested else {
+        return Ok(AttributedProvider {
+            provider: caller,
+            filed_by: None,
+        });
+    };
+
+    if requested == caller.wallet_address {
+        return Ok(AttributedProvider {
+            provider: caller,
+            filed_by: None,
+        });
+    }
+
+    // Naming someone else. Resolve them, and require that they really are a
+    // provider — otherwise a record could be attributed to a patient account
+    // or to an address that belongs to nobody.
+    let target = get_user(data, requested).filter(|u| u.role.is_healthcare_provider());
+    let Some(target) = target else {
+        return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
+            success: false,
+            error: "The named provider is not a registered, active healthcare provider"
+                .to_string(),
+            code: "UNKNOWN_PROVIDER".to_string(),
+        }));
+    };
+
+    // Clinical staff may only file under their own name unless they are an
+    // administrator scheduling for a colleague.
+    if caller.role.can_view_medical_records() && !caller.role.is_admin() {
+        return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
+            success: false,
+            error: "You may only file records under your own name".to_string(),
+            code: "PROVIDER_MISMATCH".to_string(),
+        }));
+    }
+
+    Ok(AttributedProvider {
+        provider: target,
+        filed_by: Some(caller),
+    })
+}
+
+/// Reject a request whose body names an actor other than the authenticated
+/// caller, for records that admit no delegation at all.
+///
+/// Use this where "who did it" can only ever be the person making the request —
+/// a prescriber signing a prescription, a technician recording that they
+/// personally performed a screen. Unlike [`resolve_attributed_provider`] there
+/// is no administrator override, because delegating the *act* would be a
+/// clinical-accountability problem rather than a scheduling convenience.
+///
+/// Returns the caller, so handlers can use it as their `require_*` call.
+pub fn require_actor_is_caller(
+    data: &web::Data<crate::AppState>,
+    req: &HttpRequest,
+    claimed: Option<&str>,
+) -> Result<crate::User, HttpResponse> {
+    let caller = require_clinical_staff(data, req)?;
+    let claimed = claimed.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(claimed) = claimed {
+        if claimed != caller.wallet_address {
+            return Err(HttpResponse::Forbidden().json(crate::ErrorResponse {
+                success: false,
+                error: "This record must be filed under your own name".to_string(),
+                code: "ACTOR_MISMATCH".to_string(),
+            }));
+        }
+    }
+    Ok(caller)
+}
+
 /// Who may lawfully consent to this patient's own medical treatment, on the
 /// age half of the Children's Act §129 test.
 ///
@@ -515,6 +655,150 @@ pub fn generate_qr_code_base64(data: &str) -> Option<String> {
         &base64::engine::general_purpose::STANDARD,
         &buffer,
     ))
+}
+
+#[cfg(test)]
+mod attributed_provider_tests {
+    use super::*;
+    use crate::{AppState, Role, User};
+
+    fn user(wallet: &str, role: Role) -> User {
+        User {
+            wallet_address: wallet.to_string(),
+            username: Some(wallet.to_string()),
+            name: format!("Test {wallet}"),
+            role,
+            created_at: chrono::Utc::now(),
+            created_by: None,
+            linked_patient_id: None,
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    /// State seeded with one doctor, one admin, one patient and one inactive
+    /// doctor — the four callers the attribution rule distinguishes between.
+    fn state() -> web::Data<AppState> {
+        let state = AppState::new();
+        {
+            let mut users = state.users.write().unwrap();
+            users.insert("doc-a".into(), user("doc-a", Role::Doctor));
+            users.insert("doc-b".into(), user("doc-b", Role::Doctor));
+            users.insert("admin".into(), user("admin", Role::Admin));
+            users.insert("patient".into(), user("patient", Role::Patient));
+            let mut suspended = user("doc-gone", Role::Doctor);
+            suspended.status = "suspended".to_string();
+            users.insert("doc-gone".into(), suspended);
+        }
+        web::Data::new(state)
+    }
+
+    fn req_as(wallet: &str) -> HttpRequest {
+        actix_web::test::TestRequest::post()
+            .insert_header(("X-User-Id", wallet))
+            .to_http_request()
+    }
+
+    #[test]
+    fn omitting_the_provider_attributes_the_record_to_the_caller() {
+        let s = state();
+        let r = resolve_attributed_provider(&s, &req_as("doc-a"), None).unwrap();
+        assert_eq!(r.provider_id(), "doc-a");
+        assert_eq!(r.actor_id(), "doc-a");
+        assert!(r.filed_by.is_none());
+    }
+
+    #[test]
+    fn naming_yourself_is_the_same_as_omitting_it() {
+        let s = state();
+        let r = resolve_attributed_provider(&s, &req_as("doc-a"), Some("doc-a")).unwrap();
+        assert_eq!(r.provider_id(), "doc-a");
+        assert!(r.filed_by.is_none());
+    }
+
+    /// The core impersonation defect: a doctor naming a colleague as the
+    /// provider. Before `resolve_attributed_provider` this was accepted and the
+    /// record was filed on the colleague's calendar under their name.
+    #[test]
+    fn a_doctor_cannot_file_under_another_doctors_name() {
+        let s = state();
+        let err = resolve_attributed_provider(&s, &req_as("doc-a"), Some("doc-b")).unwrap_err();
+        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn an_admin_may_schedule_for_a_colleague_and_the_real_actor_is_retained() {
+        let s = state();
+        let r = resolve_attributed_provider(&s, &req_as("admin"), Some("doc-b")).unwrap();
+        assert_eq!(r.provider_id(), "doc-b", "record is attributed to the colleague");
+        assert_eq!(r.actor_id(), "admin", "audit still names who actually filed it");
+    }
+
+    /// A patient choosing whom to see is legitimate — `provider_id` is a target
+    /// here, not a claim about who acted.
+    #[test]
+    fn a_patient_may_name_the_provider_they_want_to_see() {
+        let s = state();
+        let r = resolve_attributed_provider(&s, &req_as("patient"), Some("doc-b")).unwrap();
+        assert_eq!(r.provider_id(), "doc-b");
+        assert_eq!(r.actor_id(), "patient");
+    }
+
+    #[test]
+    fn a_patient_cannot_name_another_patient_as_the_provider() {
+        let s = state();
+        let err = resolve_attributed_provider(&s, &req_as("patient"), Some("doc-a2")).unwrap_err();
+        assert_eq!(err.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn a_suspended_provider_cannot_be_named() {
+        let s = state();
+        let err = resolve_attributed_provider(&s, &req_as("admin"), Some("doc-gone")).unwrap_err();
+        assert_eq!(err.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn an_unregistered_caller_is_rejected_before_attribution_is_considered() {
+        let s = state();
+        let err = resolve_attributed_provider(&s, &req_as("nobody"), Some("doc-a")).unwrap_err();
+        assert_eq!(err.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn an_empty_provider_string_is_treated_as_absent_not_as_a_mismatch() {
+        let s = state();
+        let r = resolve_attributed_provider(&s, &req_as("doc-a"), Some("   ")).unwrap();
+        assert_eq!(r.provider_id(), "doc-a");
+    }
+
+    // -- require_actor_is_caller: no delegation at all -----------------------
+
+    #[test]
+    fn an_actor_claim_matching_the_caller_is_accepted() {
+        let s = state();
+        let u = require_actor_is_caller(&s, &req_as("doc-a"), Some("doc-a")).unwrap();
+        assert_eq!(u.wallet_address, "doc-a");
+    }
+
+    #[test]
+    fn even_an_admin_cannot_claim_to_be_another_prescriber() {
+        let s = state();
+        let err = require_actor_is_caller(&s, &req_as("admin"), Some("doc-b")).unwrap_err();
+        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn a_patient_cannot_reach_an_actor_gated_endpoint_at_all() {
+        let s = state();
+        let err = require_actor_is_caller(&s, &req_as("patient"), None).unwrap_err();
+        assert_eq!(err.status(), actix_web::http::StatusCode::FORBIDDEN);
+    }
 }
 
 #[cfg(test)]

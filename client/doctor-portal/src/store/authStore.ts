@@ -14,8 +14,10 @@ import {
   getApiErrorMessage,
   issueJwt,
   enterWorkContext,
-  initPushNotifications
+  initPushNotifications,
+  getCurrentUser
 } from '@medichain/shared';
+import type { UserPermissions } from '@medichain/shared';
 import { connectRealWallet, signMessage } from '@medichain/shared';
 import type { Role as WalletRole } from '@medichain/shared';
 
@@ -25,7 +27,14 @@ import type { Role as WalletRole } from '@medichain/shared';
 export type Role = 'Admin' | 'Doctor' | 'Nurse' | 'LabTechnician' | 'Pharmacist' | 'Patient';
 
 /**
- * User information (wallet-based)
+ * The signed-in clinician's identity.
+ *
+ * Everything a screen might otherwise ask them to type belongs here. The
+ * professional attributes below are hydrated from `GET /api/auth/me` after
+ * login — see `hydrateIdentity`. They are optional because that call can fail
+ * (offline, server restarted) without invalidating an otherwise good session;
+ * consumers should use `useCurrentProvider`, which reports hydration state
+ * rather than letting a screen silently treat "not loaded yet" as "absent".
  */
 export interface User {
   /** Substrate wallet address (SS58 format, 48 chars starting with "5") */
@@ -38,6 +47,23 @@ export interface User {
   role: Role;
   /** Account creation timestamp */
   createdAt: string;
+  /** Ward/unit the clinician works in, e.g. "Emergency" */
+  department?: string;
+  /** Clinical specialty, for doctors */
+  specialty?: string;
+  /** Professional registration number */
+  licenseNumber?: string;
+  /** Work email */
+  email?: string;
+  /**
+   * What the server says this role may do.
+   *
+   * Rendering hints only — the API authorizes every request independently.
+   * Prefer these over the local `isHealthcareProvider`/`canEditMedicalRecords`
+   * helpers below, which keep a second copy of the role hierarchy that can
+   * drift from the server's.
+   */
+  permissions?: UserPermissions;
 }
 
 /**
@@ -49,7 +75,13 @@ interface AuthState {
   isLoading: boolean;
   error: string | null;
   isConnected: boolean;
-  
+  /**
+   * Whether the professional attributes on `user` have been loaded from
+   * `/api/auth/me`. False means "not known yet", which is distinct from a
+   * clinician genuinely having no department — screens must not conflate them.
+   */
+  identityHydrated: boolean;
+
   // Actions
   login: (walletAddress: string) => Promise<boolean>;
   loginWithExtension: () => Promise<boolean>;
@@ -77,26 +109,20 @@ function generateDemoAddress(): string {
 /**
  * Acquire JWT access + refresh tokens after a successful wallet login (Phase 9.4).
  *
- * Non-fatal: if issuance fails (e.g. unsigned request in production), the client
- * keeps working via the legacy `X-User-Id` header. When a `sign` callback is
- * provided (real wallet), the challenge is signed so the token is valid even
- * with `REQUIRE_SIGNATURES=true`.
+ * Demo identities cannot mint JWTs because they do not control a wallet key.
+ * A real wallet signs the login challenge before any bearer token is requested.
  */
 async function acquireJwtTokens(
   walletAddress: string,
   sign?: (message: string) => Promise<string>
 ): Promise<void> {
+  if (!sign) {
+    debugLog('authStore', 'JWT not requested: this identity has no wallet signer');
+    return;
+  }
   try {
-    let signature: string | undefined;
-    let timestamp: number | undefined;
-    if (sign) {
-      timestamp = Math.floor(Date.now() / 1000);
-      try {
-        signature = await sign(`${timestamp}:${walletAddress}`);
-      } catch {
-        timestamp = undefined; // fall back to demo (unsigned) issuance
-      }
-    }
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = await sign(`${timestamp}:${walletAddress}`);
     const resp = await issueJwt({ wallet_address: walletAddress, signature, timestamp });
     if (resp?.access_token) {
       getApiClient().setTokens(resp.access_token, resp.refresh_token);
@@ -112,7 +138,56 @@ async function acquireJwtTokens(
       debugLog('authStore', `JWT acquired (mfa_required=${resp.mfa_required})`);
     }
   } catch (e) {
-    debugLog('authStore', 'JWT acquisition failed; continuing with X-User-Id:', e);
+    debugLog('authStore', 'Signed JWT acquisition failed:', e);
+  }
+}
+
+/**
+ * Load the signed-in user's full identity from `GET /api/auth/me` and merge it
+ * into the store.
+ *
+ * Why this exists: before it, the store held only wallet/name/role, so any
+ * screen needing the clinician's department, specialty, licence — or their own
+ * provider id — either went without or made the clinician type it. The
+ * appointment scheduler asking a logged-in doctor for their own 48-character
+ * "Provider ID" was the visible symptom (see `docs/WORKFLOW_AUDIT.md`, RC-1).
+ *
+ * Deliberately non-fatal **and non-blocking**. A session that has already
+ * authenticated stays valid if this call fails; the user simply keeps the
+ * attributes they logged in with and `useCurrentProvider` reports
+ * `isHydrated: false`. Failing the login here would turn a transient network
+ * blip into a lockout, and awaiting it would put the API client's retry
+ * backoff (four attempts, ~7s) directly in front of the user reaching the
+ * dashboard. Every call site therefore fires it with `void`.
+ */
+async function hydrateIdentity(
+  set: (partial: Partial<AuthState>) => void,
+  get: () => AuthState
+): Promise<void> {
+  try {
+    const me = await getCurrentUser();
+    const current = get().user;
+    if (!current || current.walletAddress !== me.wallet_address) {
+      // The session changed underneath this request (logout, or a second
+      // login raced it). Discard rather than resurrect a stale identity.
+      return;
+    }
+    set({
+      user: {
+        ...current,
+        username: me.name || current.username,
+        role: (me.role as Role) || current.role,
+        department: me.department,
+        specialty: me.specialty,
+        licenseNumber: me.license_number,
+        email: me.email,
+        permissions: me.permissions,
+      },
+      identityHydrated: true,
+    });
+    debugLog('authStore', 'Identity hydrated from /api/auth/me');
+  } catch (e) {
+    debugLog('authStore', 'Identity hydration failed; session retained:', e);
   }
 }
 
@@ -138,6 +213,7 @@ export const useAuthStore = create<AuthState>()(
       isLoading: false,
       error: null,
       isConnected: true,
+      identityHydrated: false,
 
       /**
        * Check API connection status
@@ -174,6 +250,10 @@ export const useAuthStore = create<AuthState>()(
           if (ok) {
             // Upgrade to a signature-backed JWT (valid even with REQUIRE_SIGNATURES=true).
             await acquireJwtTokens(walletAddress, (message) => signMessage(walletAddress, message));
+            // Re-hydrate now that requests can be signed: the attempt inside
+            // `login` runs before the signer is attached, so with
+            // REQUIRE_SIGNATURES=true it is rejected. This one succeeds.
+            void hydrateIdentity(set, get);
             initPush();
           }
           return ok;
@@ -231,10 +311,12 @@ export const useAuthStore = create<AuthState>()(
               isAuthenticated: true,
               isLoading: false,
               error: null,
+              identityHydrated: false,
             });
 
             // Acquire JWT tokens (demo path / unsigned; loginWithExtension upgrades with a signature).
             await acquireJwtTokens(user.walletAddress);
+            void hydrateIdentity(set, get);
             initPush();
 
             debugLog('authStore', 'Logged in with wallet:', walletAddress);
@@ -335,10 +417,12 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
             isLoading: false,
             error: null,
+            identityHydrated: false,
           });
 
           // Demo wallets cannot sign; rely on demo-mode (unsigned) JWT issuance.
           await acquireJwtTokens(user.walletAddress);
+          void hydrateIdentity(set, get);
           initPush();
 
           debugLog('authStore', 'Created and registered demo wallet:', { walletAddress: user.walletAddress, role: user.role });
@@ -367,6 +451,7 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           isLoading: false,
           error: null,
+          identityHydrated: false,
         });
         debugLog('authStore', 'Logged out');
       },
@@ -426,9 +511,11 @@ export const useAuthStore = create<AuthState>()(
                 createdAt: new Date().toISOString(),
               },
               isAuthenticated: true,
+              identityHydrated: false,
             });
             // Re-acquire JWTs (tokens are not persisted to storage).
             await acquireJwtTokens(storedAuth.address);
+            void hydrateIdentity(set, get);
             initPush();
             debugLog('authStore', 'Session validated and restored');
             return true;
@@ -464,9 +551,11 @@ export const useAuthStore = create<AuthState>()(
                 createdAt: new Date().toISOString(),
               },
               isAuthenticated: true,
+              identityHydrated: false,
             });
             // Re-acquire JWTs (tokens are not persisted to storage).
             await acquireJwtTokens(demoUser.wallet_address || storedAuth.address);
+            void hydrateIdentity(set, get);
             initPush();
             debugLog('authStore', 'Session re-registered successfully');
             return true;

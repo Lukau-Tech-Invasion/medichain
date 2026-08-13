@@ -80,7 +80,11 @@ pub struct WalletLoginResponse {
     pub message: String,
 }
 
-/// User info returned on login
+/// User info returned on login.
+///
+/// Deliberately thin: this shape is also used to describe *other* people (the
+/// admin bootstrap response, wallet lookup), so it carries no contact details.
+/// For the caller's own identity see [`CurrentUserResponse`].
 #[derive(Debug, Serialize)]
 pub struct WalletUserInfo {
     pub wallet_address: String,
@@ -88,6 +92,67 @@ pub struct WalletUserInfo {
     pub username: Option<String>,
     pub role: String,
     pub linked_patient_id: Option<String>,
+}
+
+/// The authenticated caller's own identity, in full — the response of
+/// `GET /api/auth/me`.
+///
+/// This is the single source the frontends build their provider context from.
+/// It exists because there was no such source: every screen reached into the
+/// auth store, re-derived whichever attributes it needed, and turned anything
+/// it lacked into a form field for the clinician to type — which is how the
+/// appointment scheduler ended up asking a logged-in doctor to enter their own
+/// 48-character wallet address. Any attribute a form might otherwise demand
+/// belongs here.
+///
+/// Self-scoped by construction — it only ever describes the caller — so unlike
+/// [`WalletUserInfo`] it may carry contact and credentialing details.
+#[derive(Debug, Serialize)]
+pub struct CurrentUserResponse {
+    pub wallet_address: String,
+    pub name: String,
+    pub username: Option<String>,
+    pub role: String,
+    pub linked_patient_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub department: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub specialty: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license_number: Option<String>,
+    pub status: String,
+    pub permissions: UserPermissions,
+}
+
+/// Role-derived capabilities, computed server-side.
+///
+/// The doctor portal re-implemented this table client-side
+/// (`isHealthcareProvider`, `canEditMedicalRecords`, `isAdmin` in
+/// `authStore.ts`), so the client's notion of what a role may do could drift
+/// from the server's. Deriving it from the same [`crate::Role`] methods the
+/// handlers authorize with keeps one definition of the hierarchy.
+///
+/// These are **UI affordance hints only**. The server authorizes every request
+/// independently and never reads these values back from a client.
+#[derive(Debug, Serialize)]
+pub struct UserPermissions {
+    pub is_admin: bool,
+    pub is_healthcare_provider: bool,
+    pub can_view_medical_records: bool,
+    pub can_edit_medical_records: bool,
+}
+
+impl From<&crate::Role> for UserPermissions {
+    fn from(role: &crate::Role) -> Self {
+        Self {
+            is_admin: role.is_admin(),
+            is_healthcare_provider: role.is_healthcare_provider(),
+            can_view_medical_records: role.can_view_medical_records(),
+            can_edit_medical_records: role.can_edit_medical_records(),
+        }
+    }
 }
 
 // ============================================================================

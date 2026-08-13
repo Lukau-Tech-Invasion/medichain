@@ -81,6 +81,7 @@ import type {
   AutopsyRequest,
   AutopsyReport,
   PatientSatisfactionSurvey,
+  CreateSatisfactionSurveyInput,
   GcsAssessmentRecord,
   SampleHistoryRecord,
   ClinicalCreateResult,
@@ -345,6 +346,7 @@ import type {
   WalletLoginRequest,
   WalletLoginResponse,
   WalletUserInfo,
+  CurrentUser,
 } from '../types';
 
 /**
@@ -397,9 +399,13 @@ export async function walletLogin(data: WalletLoginRequest): Promise<WalletLogin
 }
 
 /**
- * Get current user info from wallet address
+ * Fetch the signed-in user's own identity in full: wallet, role, department,
+ * specialty, licence, and the server's view of what their role permits.
+ *
+ * This is the authoritative provider context. Screens read from it instead of
+ * asking the clinician to re-enter details the session already holds.
  */
-export async function getCurrentUser(): Promise<WalletUserInfo> {
+export async function getCurrentUser(): Promise<CurrentUser> {
   return getApiClient().get('/api/auth/me');
 }
 
@@ -409,9 +415,9 @@ export async function getCurrentUser(): Promise<WalletUserInfo> {
 
 export interface JwtIssueRequest {
   wallet_address: string;
-  /** Hex sr25519 signature over `<timestamp>:<wallet_address>` (omit only in demo mode). */
-  signature?: string;
-  timestamp?: number;
+  /** Hex sr25519 signature over `<timestamp>:<wallet_address>`. */
+  signature: string;
+  timestamp: number;
 }
 
 export interface JwtIssueResponse {
@@ -524,6 +530,22 @@ export async function mfaStatus(): Promise<{ success: boolean; enrolled: boolean
 /** Disable MFA after verifying a current code. */
 export async function mfaDisable(code: string): Promise<{ success: boolean; message: string }> {
   return getApiClient().post('/api/auth/mfa/disable', { code });
+}
+
+export interface SaveUserSettingsResponse {
+  success: boolean;
+  message: string;
+  user_id: string;
+}
+
+/** Load the current authenticated account's persisted UI preferences. */
+export async function getUserSettings<T extends object>(): Promise<T> {
+  return getApiClient().get<T>('/api/settings');
+}
+
+/** Persist the current authenticated account's UI preferences. */
+export async function saveUserSettings<T extends object>(settings: T): Promise<SaveUserSettingsResponse> {
+  return getApiClient().post<SaveUserSettingsResponse>('/api/settings', settings);
 }
 
 // ============================================================================
@@ -1053,6 +1075,22 @@ export async function getSplint(recordId: string): Promise<SplintCastRecord> {
 // Specialty Populations (Phase 6)
 // ============================================================================
 
+/**
+ * One patient's pediatric assessments, newest first.
+ *
+ * Patient-scoped by design: the pediatrics page charts one child's growth
+ * series, and an all-patients read would expose every child's record to
+ * satisfy a single patient's page.
+ */
+export async function listPedsForPatient(
+  patientId: string,
+): Promise<{ success: boolean; items: unknown[] }> {
+  const response = await getApiClient().get<{ success?: boolean; items?: unknown[] } | null>(
+    `/api/clinical/peds/patient/${encodeURIComponent(patientId)}`,
+  );
+  return { success: true, items: response?.items ?? [] };
+}
+
 export async function createPeds(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/peds', data);
 }
@@ -1462,8 +1500,10 @@ export async function getAutopsyReport(reportId: string): Promise<AutopsyReport>
 // Patient Satisfaction (Phase 19)
 // ============================================================================
 
-export async function createSatisfactionSurvey(data: unknown): Promise<ClinicalCreateResult> {
-  return getApiClient().post('/api/surgical/satisfaction-survey', data);
+export async function createSatisfactionSurvey(
+  data: CreateSatisfactionSurveyInput
+): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/clinical/satisfaction-survey', data);
 }
 
 export async function getSatisfactionSurvey(surveyId: string): Promise<PatientSatisfactionSurvey> {
