@@ -1746,3 +1746,111 @@ async fn test_pg_pathology_report_survives_restart_with_cancer_staging_intact() 
 
     pool.close().await;
 }
+
+/// Every `action` value the handlers write must satisfy the `access_logs`
+/// CHECK constraint.
+///
+/// This is the test that was missing. `access_logs.action` was created with a
+/// seven-value PascalCase CRUD enum, the handlers evolved to record operation
+/// names instead, and the two drifted apart until only `'View'` still matched.
+/// The in-memory backend has no constraint, so nothing caught it; on PostgreSQL
+/// almost every audit insert was rejected, and because the audit path fails
+/// closed that surfaced as `503 AUDIT_PERSISTENCE_REQUIRED` on emergency card
+/// reads, patient lockscreen reads and record uploads.
+///
+/// Failing closed is correct for a medical audit trail, so the fix belongs in
+/// the schema (migration 20260813000001). This test pins the two together: add
+/// a new `action` string in a handler without widening the constraint and this
+/// goes red instead of silently blocking access in production.
+#[tokio::test]
+async fn test_pg_access_log_accepts_every_action_the_handlers_write() {
+    let pool = get_test_pool().await;
+
+    // Mirrors the vocabulary in migration 20260813000001. Kept as an explicit
+    // list rather than derived, because the point is to notice divergence.
+    const ACTIONS: &[&str] = &[
+        "View",
+        "Create",
+        "Update",
+        "Delete",
+        "Export",
+        "Print",
+        "EmergencyAccess",
+        "view",
+        "create",
+        "emergency",
+        "restricted",
+        "upload_record",
+        "download_record",
+        "list_records",
+        "view_medical_id",
+        "nfc_tap",
+        "nfc_self_verify",
+        "qr_verification",
+        "log_symptom",
+        "lab_submission",
+        "add_vital_signs",
+        "create_soap_note",
+        "create_operative_note",
+        "create_pre_op",
+        "create_post_op",
+        "create_anesthesia",
+        "create_pathology",
+        "create_radiology_order",
+        "create_radiology_report",
+        "create_transfusion",
+        "create_e_prescription",
+        "create_death_certificate",
+        "create_autopsy_request",
+        "create_autopsy_report",
+        "create_trauma_assessment",
+        "create_stroke_assessment",
+        "create_sepsis_assessment",
+        "create_ems_handoff",
+        "create_code_blue",
+        "create_cardiac_event",
+        "telehealth",
+        "recording-started",
+        "recording-stopped",
+    ];
+
+    let mut rejected: Vec<String> = Vec::new();
+    for action in ACTIONS {
+        let id = format!("audit-vocab-{}", uuid::Uuid::new_v4());
+        let result = sqlx::query(
+            "INSERT INTO access_logs
+                 (id, accessor_id, accessor_role, resource_type, action, is_emergency_access)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(&id)
+        .bind("synthetic-accessor")
+        .bind("Doctor")
+        .bind("synthetic")
+        .bind(*action)
+        .bind(false)
+        .execute(&pool)
+        .await;
+
+        if let Err(e) = result {
+            rejected.push(format!("{action}: {e}"));
+        }
+    }
+
+    // `action` is VARCHAR(32); a longer value fails on length, not the CHECK.
+    for action in ACTIONS {
+        assert!(
+            action.len() <= 32,
+            "action {action:?} is {} chars and cannot fit access_logs.action",
+            action.len()
+        );
+    }
+
+    pool.close().await;
+
+    assert!(
+        rejected.is_empty(),
+        "{} action value(s) the handlers write are rejected by the schema:\n  {}",
+        rejected.len(),
+        rejected.join("\n  ")
+    );
+}
