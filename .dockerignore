@@ -14,8 +14,11 @@ client/test-results/
 .junie/
 docs/
 tests/
-node/
-runtime/
+# The blockchain workspace (pallets, runtime, node) is a separate cargo
+# workspace on a different Polkadot SDK release. No image here builds it, and
+# shipping it as build context costs time for nothing. Replaces the stale
+# `node/` and `runtime/` entries, which moved under blockchain/.
+blockchain/
 mobile-examples/
 medichain/
 **/*.log
