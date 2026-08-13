@@ -159,7 +159,11 @@ ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
 # Ties the decision to the specific patient/resource being touched.
 RESOURCE_MARKERS = ['resolve_patient_access', 'caller_may_access_patient',
                     'require_emergency_list_access', 'require_card_access',
-                    'require_surgical_list_access', 'is_permitted()']
+                    'require_surgical_list_access', 'is_permitted()',
+                    # Dedicated patient/device capability paths. The first
+                    # resolves a registered user to their linked patient; the
+                    # second cryptographically binds patient + active device.
+                    'authenticated_patient_id', 'verify_lockscreen_token']
 
 # Unscoped bulk reads. `list_all()` returns every row for every organization;
 # filtering afterwards in Rust is not isolation, and at 10-100 hospitals it is
