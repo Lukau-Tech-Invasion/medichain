@@ -951,34 +951,111 @@ mod tests {
         let signer_pub: [u8; 32] = signer.public_key().0;
         println!("signer pubkey 0x{}", hex::encode(signer_pub));
 
-        // Well-known dev account standing in for a patient.
+        // Well-known dev account standing in for an existing patient.
         const SYNTHETIC_PATIENT: &str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
-        let commitment = "ab".repeat(32);
-        // The pallet requires a strictly increasing version per patient, so this
-        // test can be re-run against a chain that already holds a record.
-        let version = std::time::SystemTime::now()
+
+        // Unique per run, so the test can be repeated against a chain that
+        // already holds state from an earlier run.
+        let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock is before the unix epoch")
-            .as_secs() as u32;
+            .as_nanos();
 
-        let result = client
-            .set_emergency_capsule_commitment_on_chain(SYNTHETIC_PATIENT, &commitment, version)
-            .await
-            .expect("extrinsic did not reach finalized success");
+        // Every call is exercised in ONE test, sequentially, on purpose. They all
+        // sign with the same operator account, and separate parallel tests would
+        // race for the same transaction nonce.
+        let mut failures: Vec<String> = Vec::new();
+
+        // Asserts the shape of a successful submission and records, rather than
+        // panics on, a failure — so one broken call does not hide the other three.
+        fn check(label: &str, outcome: Result<ChainTxResult, BlockchainError>) -> Option<String> {
+            match outcome {
+                Ok(result) if result.finalized && result.hash.starts_with("0x") => {
+                    println!("  [OK]   {label:<34} tx {}", result.hash);
+                    None
+                }
+                Ok(result) => {
+                    println!("  [FAIL] {label:<34} suspicious result {result:?}");
+                    Some(format!(
+                        "{label}: finalized={} hash={}",
+                        result.finalized, result.hash
+                    ))
+                }
+                Err(e) => {
+                    println!("  [FAIL] {label:<34} {e}");
+                    Some(format!("{label}: {e}"))
+                }
+            }
+        }
+
+        // --- 1. PatientIdentity::register_patient -------------------------------
+        // Needs an account not already registered and an ID hash not already
+        // linked, so both are derived fresh from the run nonce. This is the only
+        // call carrying an enum argument (`NationalIdType`), which is encoded as a
+        // real variant — unlike `AccountId32`, which is a composite.
+        let mut fresh = [0u8; 32];
+        fresh[..16].copy_from_slice(&nonce.to_le_bytes());
+        fresh[16..].copy_from_slice(&nonce.to_le_bytes());
+        let fresh_patient = {
+            use sp_core::crypto::Ss58Codec;
+            sp_core::crypto::AccountId32::from(fresh).to_ss58check()
+        };
+        let id_hash = hex::encode(fresh);
+        failures.extend(check(
+            "PatientIdentity.register_patient",
+            client
+                .register_patient_on_chain(&fresh_patient, &id_hash, "FaydaID", "e2e")
+                .await,
+        ));
+
+        // --- 2. MedicalRecords::upsert_ipfs_hash --------------------------------
+        // Exercises a `Vec<u8>` argument encoded into the pallet's BoundedVec.
+        failures.extend(check(
+            "MedicalRecords.upsert_ipfs_hash",
+            client
+                .record_ipfs_hash_on_chain(
+                    SYNTHETIC_PATIENT,
+                    "QmSyntheticE2ETestHashOnlyNotRealContent00",
+                    "lab_result",
+                    "e2e",
+                )
+                .await,
+        ));
+
+        // --- 3. AccessControl::log_delegated_access -----------------------------
+        // Two [u8; 32] digests and a bool. Emits an event and writes no state.
+        failures.extend(check(
+            "AccessControl.log_delegated_access",
+            client
+                .log_access_on_chain(
+                    &format!("e2e-{nonce}"),
+                    "e2e-accessor",
+                    SYNTHETIC_PATIENT,
+                    "READ",
+                )
+                .await,
+        ));
+
+        // --- 4. MedicalRecords::upsert_emergency_capsule_commitment -------------
+        // The pallet requires a strictly increasing version per patient.
+        let commitment = "ab".repeat(32);
+        let version = (nonce / 1_000_000_000) as u32;
+        failures.extend(check(
+            "MedicalRecords.upsert_capsule",
+            client
+                .set_emergency_capsule_commitment_on_chain(SYNTHETIC_PATIENT, &commitment, version)
+                .await,
+        ));
+
+        println!("\nfresh patient {fresh_patient}");
+        println!("commitment    0x{commitment}");
+        println!("version       {version}");
 
         assert!(
-            result.finalized,
-            "a result must never be reported as final unless it was finalized"
+            failures.is_empty(),
+            "{} of 4 chain writes did not reach finalized success:\n  {}",
+            failures.len(),
+            failures.join("\n  ")
         );
-        assert!(
-            result.hash.starts_with("0x") && result.hash.len() > 10,
-            "expected a real transaction hash, got {:?}",
-            result.hash
-        );
-
-        println!("patient    {SYNTHETIC_PATIENT}");
-        println!("commitment 0x{commitment}");
-        println!("version    {version}");
-        println!("tx         {}", result.hash);
     }
 }
