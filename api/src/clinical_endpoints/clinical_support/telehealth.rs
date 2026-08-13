@@ -380,9 +380,30 @@ pub async fn telehealth_health(data: web::Data<crate::AppState>) -> impl Respond
     }
 }
 
+/// Telehealth lifecycle events a client may report.
+///
+/// Deliberately a closed set. `event_type` is written verbatim into
+/// `access_logs.action`, which is CHECK-constrained, so an unvalidated value
+/// would be accepted here and then fail the audit insert on PostgreSQL. Because
+/// the audit path fails closed, that turns a typo in a client — or a caller
+/// choosing an arbitrary string — into a refused request whose error blames the
+/// audit trail rather than the input. Rejecting it at the boundary gives a 400
+/// that names the real problem, and keeps the audit vocabulary enumerable.
+///
+/// These are the events `JitsiMeetComponent` emits. Adding one here means adding
+/// it to the `access_logs_action_check` constraint in the same change;
+/// `test_pg_access_log_accepts_every_action_the_handlers_write` enforces that.
+pub const TELEHEALTH_EVENT_TYPES: &[&str] = &[
+    "conference-joined",
+    "conference-left",
+    "participant-joined",
+    "participant-left",
+    "error",
+];
+
 #[derive(serde::Deserialize)]
 pub struct TelehealthEventRequest {
-    /// e.g. "participant-joined", "participant-left", "error".
+    /// One of [`TELEHEALTH_EVENT_TYPES`].
     pub event_type: String,
     pub detail: Option<String>,
 }
@@ -402,6 +423,21 @@ pub async fn telehealth_event(
         Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
+    // Validate before broadcasting: an event that cannot be audited must not be
+    // relayed to other clients either, or viewers would see something the audit
+    // trail has no record of.
+    if !TELEHEALTH_EVENT_TYPES.contains(&body.event_type.as_str()) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "unsupported event_type {:?}; expected one of: {}",
+                body.event_type,
+                TELEHEALTH_EVENT_TYPES.join(", ")
+            ),
+            code: "UNSUPPORTED_EVENT_TYPE".to_string(),
+        });
+    }
+
     let now = chrono::Utc::now();
 
     // Broadcast to connected SSE clients.

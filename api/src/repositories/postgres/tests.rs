@@ -1812,6 +1812,15 @@ async fn test_pg_access_log_accepts_every_action_the_handlers_write() {
         "telehealth",
         "recording-started",
         "recording-stopped",
+        // Client-supplied telehealth lifecycle events. These appear nowhere as
+        // Rust literals -- they originate in JitsiMeetComponent and arrive as
+        // `event_type` -- so deriving the vocabulary from backend source alone
+        // missed them entirely.
+        "conference-joined",
+        "conference-left",
+        "participant-joined",
+        "participant-left",
+        "error",
     ];
 
     let mut rejected: Vec<String> = Vec::new();
@@ -1851,6 +1860,55 @@ async fn test_pg_access_log_accepts_every_action_the_handlers_write() {
         rejected.is_empty(),
         "{} action value(s) the handlers write are rejected by the schema:\n  {}",
         rejected.len(),
+        rejected.join("\n  ")
+    );
+}
+
+/// The telehealth endpoint's allowlist and the `access_logs` constraint are two
+/// halves of one closed set and must not drift apart.
+///
+/// `event_type` is caller-supplied and written verbatim into
+/// `access_logs.action`. Migration 20260813000001 missed these values because
+/// they appear nowhere as Rust literals — they originate in the frontend's
+/// `JitsiMeetComponent`. Every telehealth event from the real client would have
+/// failed its audit insert on PostgreSQL, and because the audit path fails
+/// closed, been refused. No test exercised that endpoint, so nothing caught it.
+#[tokio::test]
+async fn test_pg_telehealth_event_types_are_all_accepted_by_the_schema() {
+    // Both `clinical_support` and `telehealth` are private modules; the constant
+    // is reachable only through the chain of `pub use ...::*` re-exports.
+    use crate::clinical_endpoints::TELEHEALTH_EVENT_TYPES;
+
+    let pool = get_test_pool().await;
+    let mut rejected: Vec<String> = Vec::new();
+
+    for event_type in TELEHEALTH_EVENT_TYPES {
+        let id = format!("telehealth-vocab-{}", uuid::Uuid::new_v4());
+        let result = sqlx::query(
+            "INSERT INTO access_logs
+                 (id, accessor_id, accessor_role, resource_type, action, is_emergency_access)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(&id)
+        .bind("synthetic-accessor")
+        .bind("")
+        .bind("telehealth")
+        .bind(*event_type)
+        .bind(false)
+        .execute(&pool)
+        .await;
+
+        if let Err(e) = result {
+            rejected.push(format!("{event_type}: {e}"));
+        }
+    }
+
+    pool.close().await;
+
+    assert!(
+        rejected.is_empty(),
+        "the telehealth endpoint accepts event types the audit schema rejects, so \
+         every such event would fail its audit write and be refused:\n  {}",
         rejected.join("\n  ")
     );
 }
