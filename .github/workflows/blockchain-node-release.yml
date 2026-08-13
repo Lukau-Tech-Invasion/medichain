@@ -1,0 +1,154 @@
+# =============================================================================
+# MediChain node release binary
+# -----------------------------------------------------------------------------
+# Builds `medichain-node` in release mode on Linux and uploads it as a workflow
+# artifact.
+#
+# WHY THIS EXISTS
+# ---------------
+# A release build of the Polkadot SDK dependency graph needs roughly 20 GB of
+# target output plus a few GB of registry sources. That is not available on every
+# developer machine, and it is not available on the primary MediChain development
+# machine at all. This workflow is the supported way to obtain a runnable node
+# without compiling the SDK locally: download the artifact, mark it executable,
+# run it. See docs/BLOCKCHAIN_NODE.md.
+#
+# This does NOT publish a public release. The artifact is scoped to the workflow
+# run and expires; promoting a build to a real release is a separate, deliberate
+# act.
+#
+# The binary produced here is a DEVELOPMENT node. Its `--dev` and `local` chain
+# specs use well-known public keys (Alice, Bob) and must never be used for a
+# production network.
+# =============================================================================
+name: Blockchain node release binary
+
+on:
+    push:
+        branches: [main, development/**]
+        paths:
+            - 'blockchain/**'
+            - '.github/workflows/blockchain-node-release.yml'
+    pull_request:
+        branches: [main]
+        paths:
+            - 'blockchain/**'
+    workflow_dispatch:
+
+env:
+    CARGO_TERM_COLOR: always
+    # Keep debug info out of the release binary; it roughly halves both build
+    # time and artifact size, and the artifact is for running, not debugging.
+    CARGO_PROFILE_RELEASE_DEBUG: '0'
+    # REQUIRED. The repository root has its own rust-toolchain.toml pinning
+    # `channel = "stable"`, and rustup resolves the nearest one walking up from
+    # the working directory. Since this job invokes cargo from the repo root via
+    # --manifest-path, that root file wins over blockchain/rust-toolchain.toml
+    # and over the toolchain action below. RUSTUP_TOOLCHAIN outranks both files,
+    # so it is what actually pins the compiler here. Without it the build runs
+    # on `stable` -- which has neither the wasm targets nor rust-src -- and dies
+    # 872 crates in with "the wasm32-unknown-unknown target is not installed".
+    RUSTUP_TOOLCHAIN: '1.92.0'
+
+jobs:
+    build-node:
+        name: Build medichain-node (release, linux-x86_64)
+        # PINNED to 22.04, not `ubuntu-latest`. `ubuntu-latest` now resolves to
+        # 24.04, whose glibc is 2.39; a binary built there records a GLIBC_2.38
+        # requirement and will not start on anything older:
+        #
+        #   /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found
+        #
+        # That is exactly what happened on the first successful build -- the
+        # artifact was unusable on an Ubuntu 22.04 WSL distro (glibc 2.35).
+        # Building on 22.04 sets the floor at glibc 2.35, which runs there and on
+        # everything newer. Raise this only when the oldest target host does.
+        runs-on: ubuntu-22.04
+        timeout-minutes: 120
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # Pinned, not `@stable`. The Polkadot SDK is sensitive to compiler
+            # version, and a silent stable bump must not be able to break the
+            # node build without an explicit commit changing this line.
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@1.92.0
+              with:
+                  components: rust-src
+                  targets: wasm32v1-none, wasm32-unknown-unknown
+
+            - name: Install native build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y protobuf-compiler libprotobuf-dev clang libclang-dev
+
+            # The cache key MUST encode the runner image and the toolchain, not
+            # just runner.os. `runner.os` is "Linux" for both 22.04 and 24.04, so
+            # a key without the image happily restores objects built against a
+            # different glibc. That is not theoretical: after this job was pinned
+            # from ubuntu-latest (24.04) to 22.04, the restored cache still held
+            # wasm-opt C++ objects compiled on 24.04, and the link failed with
+            #     rust-lld: error: undefined symbol: __isoc23_sscanf
+            # a glibc 2.38+ symbol that 22.04's glibc 2.35 does not provide.
+            # restore-keys is scoped the same way so a mismatched cache cannot be
+            # used as a partial fallback either.
+            - name: Cache cargo registry and build
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      blockchain/target
+                  key: ${{ runner.os }}-ubuntu2204-rust1.92.0-node-release-${{ hashFiles('blockchain/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-ubuntu2204-rust1.92.0-node-release-
+
+            - name: Build release binary
+              run: cargo build --release --manifest-path blockchain/Cargo.toml -p medichain-node
+
+            # A binary that cannot report its own version is not a usable
+            # artifact. This is a real smoke test, not a formality.
+            - name: Smoke-test the binary
+              run: |
+                  set -euo pipefail
+                  BIN=blockchain/target/release/medichain-node
+                  test -x "$BIN"
+                  "$BIN" --version
+                  # The dev chain spec must be constructible, which exercises the
+                  # runtime WASM blob and the genesis presets.
+                  "$BIN" export-chain-spec --chain dev > /tmp/medichain-dev-spec.json
+                  test -s /tmp/medichain-dev-spec.json
+                  echo "chain spec bytes: $(wc -c < /tmp/medichain-dev-spec.json)"
+
+            - name: Record build provenance
+              run: |
+                  set -euo pipefail
+                  {
+                    echo "commit:   ${{ github.sha }}"
+                    echo "ref:      ${{ github.ref }}"
+                    echo "built:    $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                    echo "rustc:    $(rustc --version)"
+                    echo "runner:   ${{ runner.os }} x86_64"
+                    echo "sha256:   $(sha256sum blockchain/target/release/medichain-node | cut -d' ' -f1)"
+                  } > blockchain/target/release/medichain-node.provenance.txt
+                  cat blockchain/target/release/medichain-node.provenance.txt
+
+            - name: Upload node binary
+              uses: actions/upload-artifact@v4
+              with:
+                  name: medichain-node-linux-x86_64
+                  path: |
+                      blockchain/target/release/medichain-node
+                      blockchain/target/release/medichain-node.provenance.txt
+                  if-no-files-found: error
+                  retention-days: 14
+
+            - name: Upload development chain spec
+              uses: actions/upload-artifact@v4
+              with:
+                  name: medichain-dev-chain-spec
+                  path: /tmp/medichain-dev-spec.json
+                  if-no-files-found: error
+                  retention-days: 14

@@ -1,0 +1,142 @@
+[package]
+name = "medichain-runtime"
+version = "0.1.0"
+description = "MediChain blockchain runtime - emergency medical records on Substrate"
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = { workspace = true }
+scale-info = { workspace = true, features = ["serde"] }
+serde_json = { workspace = true, features = ["alloc"] }
+
+# frame
+frame-executive = { workspace = true }
+frame-metadata-hash-extension = { workspace = true }
+frame-support = { workspace = true, features = ["experimental"] }
+frame-system = { workspace = true }
+frame-try-runtime = { workspace = true, optional = true }
+
+# frame pallets
+pallet-aura = { workspace = true }
+pallet-balances = { workspace = true }
+pallet-grandpa = { workspace = true }
+pallet-sudo = { workspace = true }
+pallet-timestamp = { workspace = true }
+pallet-transaction-payment = { workspace = true }
+
+# primitives
+sp-api = { workspace = true }
+sp-block-builder = { workspace = true }
+sp-consensus-aura = { workspace = true, features = ["serde"] }
+sp-consensus-grandpa = { workspace = true, features = ["serde"] }
+sp-core = { workspace = true, features = ["serde"] }
+sp-genesis-builder = { workspace = true }
+sp-inherents = { workspace = true }
+sp-keyring = { workspace = true }
+sp-offchain = { workspace = true }
+sp-runtime = { workspace = true, features = ["serde"] }
+sp-session = { workspace = true }
+sp-storage = { workspace = true }
+sp-transaction-pool = { workspace = true }
+sp-version = { workspace = true, features = ["serde"] }
+
+# RPC related
+frame-system-rpc-runtime-api = { workspace = true }
+pallet-transaction-payment-rpc-runtime-api = { workspace = true }
+
+# Used for runtime benchmarking
+frame-benchmarking = { workspace = true, optional = true }
+frame-system-benchmarking = { workspace = true, optional = true }
+
+# MediChain custom pallets
+pallet-access-control = { workspace = true }
+pallet-medical-records = { workspace = true }
+pallet-patient-identity = { workspace = true }
+
+[build-dependencies]
+substrate-wasm-builder = { workspace = true, optional = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+    "codec/std",
+    "frame-benchmarking?/std",
+    "frame-executive/std",
+    "frame-metadata-hash-extension/std",
+    "frame-support/std",
+    "frame-system-benchmarking?/std",
+    "frame-system-rpc-runtime-api/std",
+    "frame-system/std",
+    "frame-try-runtime?/std",
+    "pallet-access-control/std",
+    "pallet-aura/std",
+    "pallet-balances/std",
+    "pallet-grandpa/std",
+    "pallet-medical-records/std",
+    "pallet-patient-identity/std",
+    "pallet-sudo/std",
+    "pallet-timestamp/std",
+    "pallet-transaction-payment-rpc-runtime-api/std",
+    "pallet-transaction-payment/std",
+    "scale-info/std",
+    "serde_json/std",
+    "sp-api/std",
+    "sp-block-builder/std",
+    "sp-consensus-aura/std",
+    "sp-consensus-grandpa/std",
+    "sp-core/std",
+    "sp-genesis-builder/std",
+    "sp-inherents/std",
+    "sp-keyring/std",
+    "sp-offchain/std",
+    "sp-runtime/std",
+    "sp-session/std",
+    "sp-storage/std",
+    "sp-transaction-pool/std",
+    "sp-version/std",
+    "substrate-wasm-builder",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system-benchmarking/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-access-control/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-grandpa/runtime-benchmarks",
+    "pallet-medical-records/runtime-benchmarks",
+    "pallet-patient-identity/runtime-benchmarks",
+    "pallet-sudo/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "pallet-transaction-payment/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-executive/try-runtime",
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "frame-try-runtime/try-runtime",
+    "pallet-aura/try-runtime",
+    "pallet-balances/try-runtime",
+    "pallet-grandpa/try-runtime",
+    "pallet-sudo/try-runtime",
+    "pallet-timestamp/try-runtime",
+    "pallet-transaction-payment/try-runtime",
+    "sp-runtime/try-runtime",
+]
+
+# Enable metadata hash generation at build time. Hidden behind a feature because
+# it compiles the wasm twice: once to read the metadata, then again with
+# RUNTIME_METADATA_HASH set for the `CheckMetadataHash` extension.
+metadata-hash = ["substrate-wasm-builder/metadata-hash"]
+
+# Convenience feature for an on-chain release build.
+on-chain-release-build = ["metadata-hash", "sp-api/disable-logging"]

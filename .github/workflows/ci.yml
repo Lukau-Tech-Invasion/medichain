@@ -119,6 +119,89 @@ jobs:
               run: cargo audit
 
     # ============================================================================
+    # Blockchain workspace (pallets + runtime + node)
+    # ----------------------------------------------------------------------------
+    # `blockchain/` is a SEPARATE cargo workspace on a different Polkadot SDK
+    # release from the API. That matters for CI correctness: the `rust` job above
+    # runs `cargo fmt --all` / `cargo clippy --all-targets` / `cargo test` with no
+    # `-p` flags, so it only ever sees the root workspace. When the pallets moved
+    # out of it they left that job's scope entirely, and a workspace-scoped
+    # command reports success for crates it never compiled. Without this job the
+    # 60 pallet tests would simply stop running and nothing would go red.
+    # ============================================================================
+    blockchain:
+        name: Blockchain (pallets + runtime)
+        runs-on: ubuntu-latest
+
+        env:
+            # REQUIRED. The repository root has its own rust-toolchain.toml pinning
+            # `channel = "stable"`, and rustup resolves the nearest such file
+            # walking up from the working directory. Because cargo is invoked from
+            # the repo root via --manifest-path, that root file outranks both the
+            # toolchain action below and blockchain/rust-toolchain.toml.
+            # RUSTUP_TOOLCHAIN outranks the files, so it is what actually pins the
+            # compiler here. Without it the build runs on `stable`, which has
+            # neither the wasm targets nor rust-src.
+            RUSTUP_TOOLCHAIN: '1.92.0'
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            # `rust-src` is not optional: substrate-wasm-builder compiles the
+            # runtime with `-Z build-std` and fails outright without the standard
+            # library sources.
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@1.92.0
+              with:
+                  components: rustfmt, clippy, rust-src
+                  targets: wasm32v1-none, wasm32-unknown-unknown
+
+            # clang/libclang are required by the rocksdb bindgen build in the
+            # node's dependency tree; protobuf by the networking stack.
+            - name: Install native build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y protobuf-compiler libprotobuf-dev clang libclang-dev
+
+            - name: Cache cargo registry and build
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cargo/registry
+                      ~/.cargo/git
+                      blockchain/target
+                  # Image and toolchain are in the key on purpose; see the long
+                  # note in blockchain-node-release.yml. `runner.os` alone is
+                  # "Linux" for every Ubuntu image, so a cache built on one can be
+                  # restored onto another with an incompatible glibc.
+                  key: ${{ runner.os }}-ubuntu-latest-rust1.92.0-blockchain-${{ hashFiles('blockchain/Cargo.lock') }}
+                  restore-keys: |
+                      ${{ runner.os }}-ubuntu-latest-rust1.92.0-blockchain-
+
+            - name: Check formatting
+              run: cargo fmt --manifest-path blockchain/Cargo.toml --all -- --check
+
+            # Enforced here, unlike the root `rust` job's clippy, which is
+            # deliberately report-only while pre-existing findings are worked down.
+            # This code is new, so it starts clean and stays clean.
+            - name: Clippy (enforced)
+              run: >-
+                  cargo clippy --manifest-path blockchain/Cargo.toml
+                  --workspace --all-targets -- -D warnings
+
+            - name: Build runtime (generates WASM)
+              run: cargo check --manifest-path blockchain/Cargo.toml -p medichain-runtime
+
+            - name: Build node
+              run: cargo check --manifest-path blockchain/Cargo.toml -p medichain-node
+
+            # Guards the role-bootstrap regression: pallet-access-control's genesis
+            # config is the only way UserRoles can ever be populated.
+            - name: Run blockchain tests
+              run: cargo test --manifest-path blockchain/Cargo.toml --workspace
+
+    # ============================================================================
     # Supply-Chain Security (cargo-deny advisories/licenses/bans + SBOM)
     # ============================================================================
     supply-chain:

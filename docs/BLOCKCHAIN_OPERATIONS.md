@@ -6,9 +6,19 @@ The parts of §1.4 requiring an actual running multi-validator network (chaos-te
 rehearsal, staging cutover) are separately tracked there and are blocked on disk headroom, not on
 this document.
 
-**Prerequisite this doc assumes is already fixed:** `node`/`runtime` currently cannot compile —
-see the "Known blocker" note in IMPLEMENTATION_PLAN.md §1.4. This runbook describes how to operate
-a validator once that's resolved and a testnet is standing.
+**Prerequisite status (updated 2026-08-11):** `node`/`runtime` could not compile when this was
+written. They now build, and have moved to their own workspace at `blockchain/` on polkadot-sdk
+`stable2606` — see `docs/BLOCKCHAIN_NODE.md` for the build/run/verify workflow. This runbook still
+describes how to operate a validator once a multi-node testnet is standing, which has **not** been
+attempted; only a single-node development chain has been exercised.
+
+> **Session-key caveat.** §1 below describes `author_rotateKeys` + a `session.setKeys` extrinsic.
+> That flow requires `pallet_session`, which the MediChain runtime **does not include** — it is a
+> solochain whose Aura and GRANDPA authority sets are fixed in the genesis config
+> (`blockchain/runtime/src/genesis_config_presets.rs`), not rotated through a session pallet.
+> Changing the authority set today means a new chain spec or a runtime upgrade, not `setKeys`.
+> Adopting `pallet_session` is a prerequisite for the rotation procedure described here, and is not
+> yet done. The hardening, monitoring and incident-response guidance in §2 onward is unaffected.
 
 ---
 
