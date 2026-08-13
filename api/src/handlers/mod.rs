@@ -52,6 +52,7 @@ mod sms_preferences;
 mod soap;
 mod triage;
 mod vitals;
+mod staff_credentials;
 mod wallet_auth;
 
 pub use access_control::*;
@@ -87,4 +88,5 @@ pub use sms_preferences::*;
 pub use soap::*;
 pub use triage::*;
 pub use vitals::*;
+pub use staff_credentials::*;
 pub use wallet_auth::*;

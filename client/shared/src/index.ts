@@ -28,6 +28,9 @@ export {
 } from './i18n';
 export type { SupportedLocale, LocaleConfig } from './i18n';
 
+// Credential-backed access to the clinician's signing key (staff login).
+export * from './auth/credentials';
+
 // Wallet Types and Service (Blockchain Identity)
 export * from './wallet/types';
 export * from './wallet/service';

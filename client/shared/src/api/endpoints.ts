@@ -347,6 +347,7 @@ import type {
   WalletLoginResponse,
   WalletUserInfo,
   CurrentUser,
+  Role,
 } from '../types';
 
 /**
@@ -396,6 +397,40 @@ export async function walletRegister(data: WalletRegisterRequest): Promise<Walle
  */
 export async function walletLogin(data: WalletLoginRequest): Promise<WalletLoginResponse> {
   return getApiClient().post('/api/auth/login', data);
+}
+
+/**
+ * Sign in with an employee identifier and a password-derived proof.
+ *
+ * Returns the caller's encrypted keystore, not a session: the client still has
+ * to open it and sign the auth challenge before it holds any authority. See
+ * `auth/credentials.ts` for why the proof, not the password, is what travels.
+ */
+export async function staffLogin(body: {
+  identifier: string;
+  auth_proof: string;
+}): Promise<{
+  success: boolean;
+  wallet_address: string;
+  encrypted_keystore: string;
+  name: string;
+  role: Role;
+}> {
+  return getApiClient().post('/api/auth/staff/login', body);
+}
+
+/**
+ * Bind an employee identifier and password to the caller's own wallet.
+ *
+ * Authenticated by the existing wallet-signature path, so only someone who
+ * already controls the key can enrol credentials against it. Onboarding only.
+ */
+export async function enrolCredentials(body: {
+  login_id: string;
+  auth_proof: string;
+  encrypted_keystore: string;
+}): Promise<{ success: boolean; login_id: string; message: string }> {
+  return getApiClient().post('/api/auth/credentials', body);
 }
 
 /**

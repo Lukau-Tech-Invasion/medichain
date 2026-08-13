@@ -49,6 +49,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(wallet_login)
         .service(wallet_login_get)
         .service(wallet_lookup)
+        // Staff credential sign-in: employee identifier + password proof.
+        // Enrolment is wallet-signed; login returns the client-openable
+        // keystore, never a session (see handlers/staff_credentials.rs).
+        .service(staff_login) // POST /api/auth/staff/login
+        .service(enrol_credentials) // POST /api/auth/credentials
         // Session token endpoints
         .service(create_session_token) // POST /api/auth/session
         .service(verify_session_token) // GET  /api/auth/verify

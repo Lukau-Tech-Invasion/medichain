@@ -15,7 +15,12 @@ import {
   issueJwt,
   enterWorkContext,
   initPushNotifications,
-  getCurrentUser
+  getCurrentUser,
+  staffLogin,
+  deriveCredential,
+  openKeystore,
+  signerFromSecret,
+  wipe
 } from '@medichain/shared';
 import type { UserPermissions } from '@medichain/shared';
 import { connectRealWallet, signMessage } from '@medichain/shared';
@@ -84,6 +89,7 @@ interface AuthState {
 
   // Actions
   login: (walletAddress: string) => Promise<boolean>;
+  loginWithCredentials: (identifier: string, password: string) => Promise<boolean>;
   loginWithExtension: () => Promise<boolean>;
   loginWithDemoWallet: (role: Role, name?: string) => Promise<boolean>;
   logout: () => void;
@@ -226,6 +232,88 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           set({ isConnected: false });
           return false;
+        }
+      },
+
+      /**
+       * Sign in with an employee identifier and password — the normal way in.
+       *
+       * The clinician never sees or types a wallet address. What happens:
+       *
+       *   1. the password is stretched locally and split into an auth proof
+       *      and a keystore secret (`deriveCredential`); the password itself
+       *      never leaves the browser
+       *   2. the proof is exchanged for the account's *encrypted* keystore
+       *   3. the keystore is opened locally, yielding a real sr25519 key
+       *   4. that key signs the ordinary auth challenge for a JWT, and stays
+       *      attached as the request signer
+       *
+       * So this is not a weaker path than the extension — it ends in the same
+       * place, holding the same kind of key, signing the same challenge. Only
+       * step 1-3 are new.
+       */
+      loginWithCredentials: async (identifier: string, password: string) => {
+        set({ isLoading: true, error: null });
+
+        let derived: Awaited<ReturnType<typeof deriveCredential>> | null = null;
+        let opened: Awaited<ReturnType<typeof openKeystore>> | null = null;
+        try {
+          derived = await deriveCredential(password, identifier);
+          const resp = await staffLogin({
+            identifier: identifier.trim(),
+            auth_proof: derived.authProof,
+          });
+
+          opened = await openKeystore(resp.encrypted_keystore, derived.keystoreKey);
+
+          const signer = await signerFromSecret(opened.miniSecret);
+          if (signer.address !== resp.wallet_address) {
+            // The keystore opened but unlocks a different account than the one
+            // the server named. Never continue past that: it means the stored
+            // blob and the account row disagree.
+            throw new Error(
+              'Your stored key does not match this account. Ask an administrator to re-enrol you.'
+            );
+          }
+          if (resp.role === 'Patient') {
+            throw new Error('Please use the Patient App for patient accounts');
+          }
+
+          // Attach the signer before anything else: from here on every request
+          // this client makes is signature-bound, exactly as with the extension.
+          getApiClient().setSignatureProvider((message) => signer.sign(message));
+
+          const user: User = {
+            walletAddress: resp.wallet_address,
+            userId: resp.wallet_address,
+            username: resp.name,
+            role: resp.role as Role,
+            createdAt: new Date().toISOString(),
+          };
+          setProviderAuth({ address: user.walletAddress, role: user.role, name: user.username });
+          syncApiClientUserId();
+          set({
+            user,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+            identityHydrated: false,
+          });
+
+          await acquireJwtTokens(user.walletAddress, (m) => signer.sign(m));
+          void hydrateIdentity(set, get);
+          initPush();
+          debugLog('authStore', 'Signed in with credentials');
+          return true;
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'Sign-in failed';
+          set({ user: null, isAuthenticated: false, isLoading: false, error: message });
+          return false;
+        } finally {
+          // Key material lives no longer than it must. The signer keeps its own
+          // copy of the pair; these buffers are the raw secret and are done with.
+          wipe(derived?.keystoreKey, opened?.miniSecret);
         }
       },
 

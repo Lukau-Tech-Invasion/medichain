@@ -917,3 +917,136 @@ pub use signature::{
     create_bound_sign_message, create_sign_message, verify_wallet_signature,
     verify_wallet_signature_bound, SignatureError, MAX_TIMESTAMP_DRIFT_SECS,
 };
+
+/// Password verification for staff credential login.
+///
+/// # What this is and is not
+///
+/// This authenticates a *person* against a stored verifier. It does **not**
+/// replace wallet signatures: MediChain's authority to act still comes from an
+/// sr25519 key, and every mutating request is still signed by one. A password
+/// only gets the clinician *to* their key, which is held encrypted and
+/// decrypted in their browser.
+///
+/// That distinction is the whole design. The alternative — a password that
+/// mints a session server-side while the server also holds the signing key —
+/// would make the server able to forge any clinician's signature. Here the
+/// server stores a verifier it cannot invert and an encrypted keystore it
+/// cannot open, because the keystore is sealed with a key derived from the
+/// same password down a *different* domain-separated path that never leaves
+/// the client (see `deriveKeystoreSecret` in `client/shared/src/auth`).
+///
+/// Uses Argon2id with the crate's existing cost parameters and the PHC string
+/// format, so the parameters travel with each hash and can be raised later
+/// without invalidating stored credentials.
+pub mod password {
+    use argon2::password_hash::{
+        rand_core::OsRng as PwOsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
+    };
+    use argon2::{Algorithm, Argon2, Params, Version};
+
+    use super::{CryptoError, ARGON2_M_COST, ARGON2_P_COST, ARGON2_T_COST};
+
+    /// Reject implausibly short or unbounded secrets before hashing.
+    ///
+    /// The upper bound is not a policy choice but a denial-of-service guard:
+    /// Argon2id over a multi-megabyte "password" is an easy way to burn server
+    /// CPU. The lower bound is a floor, not a password policy — callers should
+    /// enforce something stronger at the edge.
+    const MIN_SECRET_LEN: usize = 12;
+    const MAX_SECRET_LEN: usize = 1024;
+
+    fn argon2() -> Result<Argon2<'static>, CryptoError> {
+        let params = Params::new(ARGON2_M_COST, ARGON2_T_COST, ARGON2_P_COST, None)
+            .map_err(|_| CryptoError::KeyDerivationFailed)?;
+        Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+    }
+
+    /// Hash a login secret, returning a PHC string safe to store.
+    ///
+    /// The salt is random per call, so two accounts sharing a password produce
+    /// different verifiers.
+    pub fn hash_secret(secret: &str) -> Result<String, CryptoError> {
+        if secret.len() < MIN_SECRET_LEN || secret.len() > MAX_SECRET_LEN {
+            return Err(CryptoError::KeyDerivationFailed);
+        }
+        let salt = SaltString::generate(&mut PwOsRng);
+        argon2()?
+            .hash_password(secret.as_bytes(), &salt)
+            .map(|h| h.to_string())
+            .map_err(|_| CryptoError::KeyDerivationFailed)
+    }
+
+    /// Check a secret against a stored PHC string.
+    ///
+    /// Returns `false` for a wrong secret *and* for a malformed or empty
+    /// stored hash — an account with no usable verifier must never
+    /// authenticate. Argon2's own comparison is constant-time; the length
+    /// pre-check deliberately runs before it and leaks only length, which the
+    /// caller already knows.
+    pub fn verify_secret(secret: &str, stored_phc: &str) -> bool {
+        if secret.is_empty() || secret.len() > MAX_SECRET_LEN || stored_phc.is_empty() {
+            return false;
+        }
+        let Ok(parsed) = PasswordHash::new(stored_phc) else {
+            return false;
+        };
+        let Ok(argon) = argon2() else {
+            return false;
+        };
+        argon.verify_password(secret.as_bytes(), &parsed).is_ok()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_secret_verifies_against_its_own_hash() {
+            let phc = hash_secret("correct horse battery").unwrap();
+            assert!(verify_secret("correct horse battery", &phc));
+        }
+
+        #[test]
+        fn a_wrong_secret_does_not_verify() {
+            let phc = hash_secret("correct horse battery").unwrap();
+            assert!(!verify_secret("correct horse batteries", &phc));
+            assert!(!verify_secret("", &phc));
+        }
+
+        /// Two accounts with the same password must not share a verifier, or
+        /// the store leaks which users picked the same password.
+        #[test]
+        fn the_same_secret_hashes_differently_each_time() {
+            let a = hash_secret("correct horse battery").unwrap();
+            let b = hash_secret("correct horse battery").unwrap();
+            assert_ne!(a, b);
+            assert!(verify_secret("correct horse battery", &a));
+            assert!(verify_secret("correct horse battery", &b));
+        }
+
+        /// An account row with no credential set, or with a corrupted one,
+        /// must fail closed rather than accept anything.
+        #[test]
+        fn an_absent_or_malformed_stored_hash_never_verifies() {
+            assert!(!verify_secret("anything at all", ""));
+            assert!(!verify_secret("anything at all", "not-a-phc-string"));
+            assert!(!verify_secret("anything at all", "$argon2id$v=19$bogus"));
+        }
+
+        #[test]
+        fn implausible_secret_lengths_are_refused_at_hash_time() {
+            assert!(hash_secret("short").is_err());
+            assert!(hash_secret(&"x".repeat(2048)).is_err());
+        }
+
+        /// The PHC string carries its parameters, so raising cost later does
+        /// not invalidate credentials already stored.
+        #[test]
+        fn the_stored_hash_is_a_parameterised_argon2id_phc_string() {
+            let phc = hash_secret("correct horse battery").unwrap();
+            assert!(phc.starts_with("$argon2id$"), "got {phc}");
+            assert!(phc.contains("m=") && phc.contains("t=") && phc.contains("p="));
+        }
+    }
+}

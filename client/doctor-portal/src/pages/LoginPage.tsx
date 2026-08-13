@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore, type Role } from '../store';
 import {
   Shield,
-  Wallet,
+  KeyRound,
   AlertCircle,
   Loader2,
   UserCircle,
@@ -55,8 +55,11 @@ const DEMO_USERS: DemoUser[] = [
 function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { login, loginWithExtension, isLoading, error, clearError } = useAuthStore();
-  const [walletAddress, setWalletAddress] = useState('');
+  const { login, loginWithCredentials, loginWithExtension, isLoading, error, clearError } =
+    useAuthStore();
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   /**
    * Login using Polkadot extension
@@ -70,15 +73,20 @@ function LoginPage() {
   };
 
   /**
-   * Login with an existing wallet address
+   * The normal way in: employee identifier and password.
+   *
+   * No wallet address is typed, seen, or remembered here — the account's key
+   * is fetched encrypted and opened in the browser. See
+   * `authStore.loginWithCredentials`.
    */
-  const handleWalletLogin = async (e: React.FormEvent) => {
+  const handleCredentialLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
-    
-    if (!walletAddress.trim()) return;
-    
-    const success = await login(walletAddress.trim());
+    if (!identifier.trim() || !password) return;
+    const success = await loginWithCredentials(identifier.trim(), password);
+    // Clear the password from component state either way; on failure the user
+    // retypes it rather than leaving it sitting in memory behind an error.
+    setPassword('');
     if (success) {
       navigate('/dashboard');
     }
@@ -107,61 +115,94 @@ function LoginPage() {
           <p className="text-primary-100 mt-1">{t('docLogin.portal')}</p>
         </div>
 
-        {/* Wallet Login Form */}
-        <form onSubmit={handleWalletLogin} className="p-8">
-          <div className="mb-6">
-            <label htmlFor="walletAddress" className="block text-sm font-medium text-gray-700 mb-2">
-              <Wallet size={16} className="inline mr-2" />
-              {t('docLogin.walletAddress')}
+        {/* Staff sign-in. No wallet address is entered here by design: a
+            clinician cannot be asked to type a 48-character SS58 string, and
+            one typed into a box could never sign a request anyway. */}
+        <form onSubmit={handleCredentialLogin} className="p-8">
+          <div className="mb-4">
+            <label htmlFor="identifier" className="block text-sm font-medium text-gray-700 mb-2">
+              <UserCircle size={16} className="inline mr-2" aria-hidden="true" />
+              {t('docLogin.identifier')}
             </label>
             <input
-              id="walletAddress"
+              id="identifier"
+              name="username"
               type="text"
-              value={walletAddress}
-              onChange={(e) => setWalletAddress(e.target.value)}
-              placeholder={t('docLogin.walletPlaceholder')}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-mono text-sm"
+              autoComplete="username"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder={t('docLogin.identifierPlaceholder')}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               disabled={isLoading}
+              required
             />
-            <p className="mt-1 text-xs text-gray-500">
-              {t('docLogin.ss58Hint')}
-            </p>
+          </div>
+
+          <div className="mb-6">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              <KeyRound size={16} className="inline mr-2" aria-hidden="true" />
+              {t('docLogin.password')}
+            </label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              disabled={isLoading}
+              required
+            />
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
-              <AlertCircle size={18} />
+            <div
+              role="alert"
+              className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800"
+            >
+              <AlertCircle size={18} aria-hidden="true" />
               <span className="text-sm">{error}</span>
             </div>
           )}
 
           <button
             type="submit"
-            disabled={isLoading || !walletAddress.trim()}
+            disabled={isLoading || !identifier.trim() || !password}
             className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mb-4"
           >
             {isLoading ? (
               <>
-                <Loader2 size={18} className="animate-spin" />
-                {t('docLogin.connecting')}
+                <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                {t('docLogin.signingIn')}
               </>
             ) : (
-              <>
-                <Wallet size={18} />
-                {t('docLogin.connectWallet')}
-              </>
+              t('docLogin.signIn')
             )}
           </button>
 
+          {/* The extension route stays available for staff who already hold a
+              wallet, but it is no longer the primary path. */}
           <button
             type="button"
-            onClick={handleExtensionLogin}
-            disabled={isLoading}
-            className="w-full py-3 bg-white border-2 border-primary-600 text-primary-600 font-semibold rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            onClick={() => setShowAdvanced((v) => !v)}
+            aria-expanded={showAdvanced}
+            className="w-full text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
           >
-            <Shield size={18} />
-            {t('docLogin.loginExtension')}
+            {t('docLogin.otherSignInOptions')}
           </button>
+
+          {showAdvanced && (
+            <button
+              type="button"
+              onClick={handleExtensionLogin}
+              disabled={isLoading}
+              className="mt-3 w-full py-3 bg-white border-2 border-primary-600 text-primary-700 font-semibold rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <Shield size={18} aria-hidden="true" />
+              {t('docLogin.loginExtension')}
+            </button>
+          )}
         </form>
 
         {/* Demo Users - Click to login instantly */}
