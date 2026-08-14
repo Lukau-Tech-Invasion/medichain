@@ -20,7 +20,7 @@ pub use auth::*;
 /// The appointment status vocabulary as stored, re-exported so tests and
 /// callers outside `types` can assert against the same contract the entity
 /// conversion writes with (rather than re-deriving the spellings and drifting).
-pub use conversions::appt_status_storage_str;
+pub use conversions::{appt_parse_status_strict, appt_status_storage_str};
 pub use domain::*;
 pub use lab::*;
 pub use legal_basis::*;

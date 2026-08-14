@@ -422,6 +422,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_provider_appointments)
         .service(clinical_endpoints::cancel_appointment)
         .service(clinical_endpoints::check_in_appointment)
+        .service(clinical_endpoints::transition_appointment) // POST /api/appointments/{id}/status
         .service(clinical_endpoints::get_available_slots)
         .service(clinical_endpoints::get_appointment)
         // Phase 24: Wearable Device Integration endpoints

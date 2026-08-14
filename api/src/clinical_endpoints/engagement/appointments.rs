@@ -339,10 +339,18 @@ pub async fn get_provider_appointments(
     }))
 }
 
-/// Cancel appointment request
-#[derive(Debug, Deserialize)]
+/// Cancel appointment request.
+///
+/// `reason` is optional at the wire level on purpose. It used to be required,
+/// and the doctor portal's Cancel button sends no body at all, so every
+/// cancellation from the portal failed deserialization with a 400 before the
+/// handler ran — a dead button (`docs/WORKFLOW_AUDIT.md`, WF-006). Accepting an
+/// absent body and defaulting to a recorded "no reason given" keeps the button
+/// working while still capturing a reason whenever one is offered.
+#[derive(Debug, Default, Deserialize)]
 pub struct CancelAppointmentRequest {
-    pub reason: String,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Cancel an appointment
@@ -351,9 +359,16 @@ pub async fn cancel_appointment(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
     path: web::Path<String>,
-    req: web::Json<CancelAppointmentRequest>,
+    // `Option<web::Json<..>>` so a request with no body at all still reaches
+    // the handler instead of being rejected by the extractor.
+    req: Option<web::Json<CancelAppointmentRequest>>,
 ) -> impl Responder {
     let appointment_id = path.into_inner();
+    let reason = req
+        .and_then(|r| r.into_inner().reason)
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "No reason given".to_string());
 
     let current_user_id = match crate::support::require_registered_caller(&data, &http_req) {
         Ok(u) => u.wallet_address,
@@ -388,7 +403,7 @@ pub async fn cancel_appointment(
     if let Err(e) = data
         .repositories
         .appointments
-        .cancel(&appointment_id, &req.reason, &current_user_id)
+        .cancel(&appointment_id, &reason, &current_user_id)
         .await
     {
         return HttpResponse::InternalServerError().json(ErrorResponse {
@@ -487,12 +502,35 @@ pub async fn check_in_appointment(
     };
     let mut appointment: crate::clinical::Appointment = entity.into();
 
-    // Only patient can check in (usually via NFC/GPS at the clinic)
-    if current_user_id != appointment.patient_id {
+    // The patient can check themselves in (NFC/GPS at the clinic), and so can
+    // the clinician they are seeing or any other clinical staff — reception
+    // checking an arriving patient in is the ordinary case, and the desk is not
+    // the patient. This previously allowed the patient only, so the doctor
+    // portal's Check in button always returned 403 (docs/WORKFLOW_AUDIT.md,
+    // WF-007).
+    let is_patient = current_user_id == appointment.patient_id;
+    let is_clinical_staff = crate::get_user(&data, &current_user_id)
+        .is_some_and(|u| u.role.is_healthcare_provider());
+    if !is_patient && !is_clinical_staff {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Only the patient can check in for an appointment".to_string(),
+            error: "Only the patient or clinic staff can check in an appointment".to_string(),
             code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // Checking in only means something from a booked state.
+    if !is_valid_transition(
+        &appointment.status,
+        &crate::clinical::AppointmentStatus::CheckedIn,
+    ) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "An appointment that is {} cannot be checked in",
+                crate::types::appt_status_storage_str(&appointment.status)
+            ),
+            code: "INVALID_TRANSITION".to_string(),
         });
     }
 
@@ -517,6 +555,211 @@ pub async fn check_in_appointment(
         "success": true,
         "message": "Arrived at clinic. Please wait for your name to be called."
     }))
+}
+
+/// Whether an appointment may move from `from` to `to`.
+///
+/// # Why a table rather than "just set the status"
+///
+/// Before this there was no way to advance an appointment at all: the only
+/// writes were `check_in` and `cancel`, so nothing could reach `Confirmed`,
+/// `InProgress`, `Completed` or `NoShow` and the lifecycle dead-ended after
+/// check-in (`docs/WORKFLOW_AUDIT.md`, WF-009). Adding a general "set the
+/// status" endpoint without a table would be worse than the dead end: it would
+/// let a completed visit go back to scheduled, or a cancelled one silently
+/// resume.
+///
+/// `Completed`, `Cancelled`, `NoShow` and `Rescheduled` are terminal.
+/// Rescheduling produces a *new* appointment that supersedes this one rather
+/// than mutating it, so the original stays in the record.
+fn is_valid_transition(
+    from: &crate::clinical::AppointmentStatus,
+    to: &crate::clinical::AppointmentStatus,
+) -> bool {
+    use crate::clinical::AppointmentStatus as S;
+    matches!(
+        (from, to),
+        (S::Waitlisted, S::Scheduled | S::Cancelled)
+            | (
+                S::Scheduled,
+                S::Confirmed | S::CheckedIn | S::Cancelled | S::NoShow | S::Rescheduled
+            )
+            | (
+                S::Confirmed,
+                S::CheckedIn | S::Cancelled | S::NoShow | S::Rescheduled
+            )
+            | (S::CheckedIn, S::InProgress | S::Cancelled | S::NoShow)
+            | (S::InProgress, S::Completed | S::Cancelled)
+    )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TransitionAppointmentRequest {
+    /// Target status, in the same vocabulary the API returns.
+    pub status: String,
+    /// Required when moving to `cancelled`; recorded on the appointment.
+    pub reason: Option<String>,
+}
+
+/// Advance an appointment through its lifecycle.
+///
+/// One endpoint rather than five (`/confirm`, `/start`, …) because the rule
+/// being enforced is the same in every case: the transition must be legal from
+/// where the appointment currently is, and the caller must be entitled to make
+/// it. Splitting that across five handlers would mean five copies of the check.
+///
+/// Authorization, beyond being a party to the appointment:
+/// - the assigned provider, and any admin, may make any legal transition;
+/// - the patient may only confirm or cancel their own appointment — marking
+///   someone *in progress*, *completed* or a *no-show* is a clinical record of
+///   what staff observed, not something the subject asserts.
+#[post("/api/appointments/{appointment_id}/status")]
+pub async fn transition_appointment(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    req: web::Json<TransitionAppointmentRequest>,
+) -> impl Responder {
+    use crate::clinical::AppointmentStatus as S;
+    let appointment_id = path.into_inner();
+
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+
+    let entity = match data
+        .repositories
+        .appointments
+        .get_by_id(&appointment_id)
+        .await
+    {
+        Ok(e) => e,
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Appointment not found".to_string(),
+                code: "NOT_FOUND".to_string(),
+            })
+        }
+    };
+    let mut appointment: crate::clinical::Appointment = entity.into();
+
+    let target = crate::types::appt_parse_status_strict(&req.status);
+    let Some(target) = target else {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!("'{}' is not a recognised appointment status", req.status),
+            code: "UNKNOWN_APPOINTMENT_STATUS".to_string(),
+        });
+    };
+
+    let is_provider_of_record = caller.wallet_address == appointment.provider_id;
+    let is_patient = caller.wallet_address == appointment.patient_id;
+    let is_admin = caller.role.is_admin();
+    if !is_provider_of_record && !is_patient && !is_admin {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "You are not a party to this appointment".to_string(),
+            code: "FORBIDDEN".to_string(),
+        });
+    }
+    if is_patient
+        && !is_admin
+        && !is_provider_of_record
+        && !matches!(target, S::Confirmed | S::Cancelled)
+    {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "A patient may only confirm or cancel their appointment".to_string(),
+            code: "FORBIDDEN_TRANSITION".to_string(),
+        });
+    }
+
+    if appointment.status == target {
+        // Idempotent: re-sending the current status is a no-op rather than an
+        // error, so a double-tapped button does not surface a failure.
+        return HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "appointment_id": appointment_id,
+            "status": req.status,
+            "message": "Appointment is already in that state"
+        }));
+    }
+    if !is_valid_transition(&appointment.status, &target) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "An appointment that is {} cannot become {}",
+                crate::types::appt_status_storage_str(&appointment.status),
+                crate::types::appt_status_storage_str(&target)
+            ),
+            code: "INVALID_TRANSITION".to_string(),
+        });
+    }
+
+    // Cancellation goes through the repository's own path so the reason and
+    // canceller land in their dedicated columns rather than only in the status.
+    if target == S::Cancelled {
+        let reason = req.reason.clone().unwrap_or_default();
+        if reason.trim().is_empty() {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "A reason is required to cancel an appointment".to_string(),
+                code: "REASON_REQUIRED".to_string(),
+            });
+        }
+        return match data
+            .repositories
+            .appointments
+            .cancel(&appointment_id, &reason, &caller.wallet_address)
+            .await
+        {
+            Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "appointment_id": appointment_id,
+                "status": "cancelled",
+                "message": "Appointment cancelled"
+            })),
+            Err(e) => {
+                log::error!("cancelling {appointment_id} failed: {e}");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "The appointment could not be cancelled".to_string(),
+                    code: "INTERNAL_ERROR".to_string(),
+                })
+            }
+        };
+    }
+
+    let now = chrono::Utc::now().timestamp();
+    if target == S::CheckedIn {
+        appointment.check_in_time = Some(now);
+    }
+    appointment.status = target.clone();
+    appointment.updated_at = now;
+
+    match data
+        .repositories
+        .appointments
+        .update(appointment.into())
+        .await
+    {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "appointment_id": appointment_id,
+            "status": crate::types::appt_status_storage_str(&target),
+            "message": "Appointment updated"
+        })),
+        Err(e) => {
+            log::error!("transitioning {appointment_id} failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "The appointment could not be updated".to_string(),
+                code: "INTERNAL_ERROR".to_string(),
+            })
+        }
+    }
 }
 
 /// Get available slots for a provider
@@ -680,6 +923,86 @@ pub async fn check_and_send_appointment_reminders(data: &crate::AppState) {
             .appointments
             .update(appointment.into())
             .await;
+    }
+}
+
+#[cfg(test)]
+mod appointment_transition_tests {
+    use super::is_valid_transition;
+    use crate::clinical::AppointmentStatus as S;
+    use crate::types::{appt_parse_status_strict, appt_status_storage_str};
+
+    #[test]
+    fn the_ordinary_visit_runs_end_to_end() {
+        for (from, to) in [
+            (S::Scheduled, S::Confirmed),
+            (S::Confirmed, S::CheckedIn),
+            (S::CheckedIn, S::InProgress),
+            (S::InProgress, S::Completed),
+        ] {
+            assert!(is_valid_transition(&from, &to), "{from:?} -> {to:?}");
+        }
+    }
+
+    /// A finished, cancelled or missed appointment is history. Allowing it to
+    /// move again would let a completed visit quietly reopen.
+    #[test]
+    fn terminal_states_never_move_again() {
+        for terminal in [S::Completed, S::Cancelled, S::NoShow, S::Rescheduled] {
+            for target in [
+                S::Scheduled, S::Confirmed, S::CheckedIn, S::InProgress,
+                S::Completed, S::Cancelled, S::NoShow,
+            ] {
+                assert!(
+                    !is_valid_transition(&terminal, &target),
+                    "{terminal:?} must not become {target:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_visit_cannot_skip_straight_to_completed() {
+        assert!(!is_valid_transition(&S::Scheduled, &S::Completed));
+        assert!(!is_valid_transition(&S::Scheduled, &S::InProgress));
+        assert!(!is_valid_transition(&S::Confirmed, &S::Completed));
+    }
+
+    #[test]
+    fn a_booked_appointment_can_always_be_cancelled_or_missed() {
+        for from in [S::Scheduled, S::Confirmed] {
+            assert!(is_valid_transition(&from, &S::Cancelled));
+            assert!(is_valid_transition(&from, &S::NoShow));
+        }
+        assert!(is_valid_transition(&S::CheckedIn, &S::NoShow));
+        assert!(is_valid_transition(&S::InProgress, &S::Cancelled));
+    }
+
+    /// Every status must survive `storage -> parse -> storage` unchanged, or a
+    /// value written today reads back as something else tomorrow.
+    #[test]
+    fn the_stored_spelling_round_trips_through_the_strict_parser() {
+        for status in [
+            S::Scheduled, S::Confirmed, S::CheckedIn, S::InProgress, S::Completed,
+            S::NoShow, S::Cancelled, S::Rescheduled, S::Waitlisted,
+        ] {
+            let stored = appt_status_storage_str(&status);
+            let parsed = appt_parse_status_strict(stored)
+                .unwrap_or_else(|| panic!("stored spelling '{stored}' does not parse back"));
+            assert_eq!(appt_status_storage_str(&parsed), stored);
+        }
+    }
+
+    /// The strict parser exists so a typo cannot silently reset an appointment.
+    #[test]
+    fn a_near_miss_status_is_rejected_rather_than_defaulted() {
+        assert!(appt_parse_status_strict("complete").is_none());
+        assert!(appt_parse_status_strict("done").is_none());
+        assert!(appt_parse_status_strict("").is_none());
+        // Spelling and separator variants staff might reasonably send are fine.
+        assert_eq!(appt_parse_status_strict("checked-in"), Some(S::CheckedIn));
+        assert_eq!(appt_parse_status_strict("No Show"), Some(S::NoShow));
+        assert_eq!(appt_parse_status_strict("canceled"), Some(S::Cancelled));
     }
 }
 

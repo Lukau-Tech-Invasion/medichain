@@ -342,6 +342,35 @@ pub fn appt_parse_status(s: &str) -> crate::clinical::AppointmentStatus {
     }
 }
 
+/// Parse a status from a *client*, refusing anything unrecognised.
+///
+/// [`appt_parse_status`] deliberately falls back to `Scheduled` because it
+/// reads values already in the database, where a best effort beats failing a
+/// read. That fallback is exactly wrong on an inbound request: it would let
+/// `{"status":"complete"}` — a plausible typo for `completed` — silently
+/// reset an appointment to scheduled. Request handlers use this instead and
+/// return a 400.
+pub fn appt_parse_status_strict(s: &str) -> Option<crate::clinical::AppointmentStatus> {
+    use crate::clinical::AppointmentStatus as S;
+    let key: String = s
+        .chars()
+        .filter(|c| !matches!(c, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect();
+    Some(match key.as_str() {
+        "scheduled" => S::Scheduled,
+        "confirmed" => S::Confirmed,
+        "checkedin" => S::CheckedIn,
+        "inprogress" => S::InProgress,
+        "completed" => S::Completed,
+        "noshow" => S::NoShow,
+        "cancelled" | "canceled" => S::Cancelled,
+        "rescheduled" => S::Rescheduled,
+        "waitlisted" => S::Waitlisted,
+        _ => return None,
+    })
+}
+
 /// The stored spelling of an appointment status.
 ///
 /// # Why this is not `format!("{:?}", status)`
