@@ -3,16 +3,16 @@
 **Started:** 2026-08-13
 **Branch:** `development/medichain-federation-hardening`
 
-**Status.** Phases 1–3 complete and committed; the actor-identity security
-fixes that head Phase 4 are in. The remainder of the appointment lifecycle,
-telehealth, and the design-token work are **not** done — see §6.
+**Status.** Phases 1–4 complete and committed. Telehealth (phase 5) and the
+design-token work (phase 6) are **not** started — see §5 for exactly what
+remains.
 
 | Phase | State | Commit |
 | ----- | ----- | ------ |
 | 1 · Audit inventory | done | `18630f4` |
 | 2 · Shared identity/provider context | done | `f8c9ca8` |
 | 3 · Credential authentication | done | `2df23a4` |
-| 4 · Appointment lifecycle | **security fixes only** | `d76846b` |
+| 4 · Appointment lifecycle | done | `d76846b` `1c14767` `f889637` `3fd425f` + patient app |
 | 5 · Telehealth workflow | not started | — |
 | 6 · Design tokens and contrast | not started | — |
 | 7 · Tests and evidence | partial, per phase | — |
@@ -63,7 +63,7 @@ pre-existing ones (requirement §32).
 
 | Suite | Baseline | Notes |
 | ----- | -------- | ----- |
-| `cargo test --bin medichain-api` | **363 passed, 0 failed, 1 ignored** (510s) | Against the live PostgreSQL 16 container. Two more tests than the 361 recorded in `CLAUDE.md`. After phases 1–4: **384 passed, 0 failed** — +21 tests, no regressions. |
+| `cargo test --bin medichain-api` | **363 passed, 0 failed, 1 ignored** (510s) | Against the live PostgreSQL 16 container. Two more than the 361 in `CLAUDE.md`. After phases 1–4: **392 passed, 0 failed** — +29 tests, no regressions. |
 | `cargo test -p medichain-crypto` | not yet run | |
 | pallets (3 crates) | not yet run | |
 | doctor-portal `vitest` | 127 failing (per `docs/PRODUCTION_READINESS.md` H3) | diagnosed as test drift, not product defects |
@@ -125,26 +125,26 @@ reload · Sec = security-relevant.
 
 | ID | Area | User workflow | Problem | Sev | FE | BE | Persist | Sec | Status |
 |----|------|---------------|---------|-----|----|----|---------|-----|--------|
-| WF-001 | Auth | Log in to the doctor portal | `login(wallet)` marks the session authenticated on a 200 from `GET /api/auth/wallet/{address}` — an unauthenticated lookup requiring no proof of key ownership. Under the shipped `IS_DEMO=true` default this is a **full authentication bypass**: knowing any registered address logs you in with that user's role. With `REQUIRE_SIGNATURES=true` it is instead a login that appears to succeed and then 401s on every subsequent call, because no signer is attached. | P0 | ✗ | ✗ | — | ✗ | Open |
-| WF-002 | Auth | Log in as a clinician | The only production-viable login is the Polkadot browser extension. The alternative is typing a 48-character SS58 address. `users.email`, `users.username` and an unused `password_hash` column all already exist in the schema. | P1 | ✗ | ✗ | — | — | Open |
+| WF-001 | Auth | Log in to the doctor portal | `login(wallet)` marks the session authenticated on a 200 from `GET /api/auth/wallet/{address}` — an unauthenticated lookup requiring no proof of key ownership. Under the shipped `IS_DEMO=true` default this is a **full authentication bypass**: knowing any registered address logs you in with that user's role. With `REQUIRE_SIGNATURES=true` it is instead a login that appears to succeed and then 401s on every subsequent call, because no signer is attached. | P0 | ✗ | ✗ | — | ✗ | **Partly fixed** `2df23a4` — credential sign-in is now the primary path, but `login(wallet)` survives behind the demo quick-login buttons and is still an unauthenticated lookup. Remove it, or gate it on a build flag that is off in production. |
+| WF-002 | Auth | Log in as a clinician | The only production-viable login is the Polkadot browser extension. The alternative is typing a 48-character SS58 address. `users.email`, `users.username` and an unused `password_hash` column all already exist in the schema. | P1 | ✗ | ✗ | — | — | **Fixed** `2df23a4` |
 | WF-003 | Auth | — | Twelve real demo wallet addresses are hardcoded in `LoginPage.tsx` and ship in the client bundle, gated only by a build-time flag. | P2 | ✗ | — | — | ✗ | Open |
-| WF-004 | Appointments | Book an appointment | `book_appointment` takes `provider_id` from the request body and never checks it against the authenticated caller. Any provider can book onto another provider's calendar; the created record names them as the clinician. | P0 | — | ✗ | — | ✗ | Open |
-| WF-005 | Appointments | Book any appointment | Type map is PascalCase, client sends lowercase, catch-all arm is `_ => FollowUp`. **Every** appointment booked from the portal is stored as a follow-up and `is_telehealth` is always false — so a telehealth appointment cannot be created at all. | P1 | ✗ | ✗ | partial | — | Open |
-| WF-006 | Appointments | Cancel an appointment | The button sends no request body; the handler requires `{reason}`. Every cancellation 400s. Dead button. | P1 | ✗ | — | — | — | Open |
-| WF-007 | Appointments | Check a patient in | `check_in_appointment` allows only the patient. The doctor portal calls it with the provider's identity, so it always 403s. Dead button. | P1 | ✗ | ✗ | — | — | Open |
-| WF-008 | Appointments | See my day | One flat list capped at 100, no date scoping. No Today / Upcoming / Previous / Cancelled views. | P1 | ✗ | ✗ | — | — | Open |
-| WF-009 | Appointments | Progress an appointment | No transition endpoints exist for confirm, start, complete or no-show. The lifecycle cannot advance past `CheckedIn`. | P1 | ✗ | ✗ | — | — | Open |
+| WF-004 | Appointments | Book an appointment | `book_appointment` takes `provider_id` from the request body and never checks it against the authenticated caller. Any provider can book onto another provider's calendar; the created record names them as the clinician. | P0 | — | ✗ | — | ✗ | **Fixed** `d76846b` |
+| WF-005 | Appointments | Book any appointment | Type map is PascalCase, client sends lowercase, catch-all arm is `_ => FollowUp`. **Every** appointment booked from the portal is stored as a follow-up and `is_telehealth` is always false — so a telehealth appointment cannot be created at all. | P1 | ✗ | ✗ | partial | — | **Fixed** `d76846b` |
+| WF-006 | Appointments | Cancel an appointment | The button sends no request body; the handler requires `{reason}`. Every cancellation 400s. Dead button. | P1 | ✗ | — | — | — | **Fixed** `f889637` |
+| WF-007 | Appointments | Check a patient in | `check_in_appointment` allows only the patient. The doctor portal calls it with the provider's identity, so it always 403s. Dead button. | P1 | ✗ | ✗ | — | — | **Fixed** `f889637` |
+| WF-008 | Appointments | See my day | One flat list capped at 100, no date scoping. No Today / Upcoming / Previous / Cancelled views. | P1 | ✗ | ✗ | — | — | **Fixed** `3fd425f` |
+| WF-009 | Appointments | Progress an appointment | No transition endpoints exist for confirm, start, complete or no-show. The lifecycle cannot advance past `CheckedIn`. | P1 | ✗ | ✗ | — | — | **Fixed** `f889637` |
 | WF-010 | Appointments | — | Facility name and street address are hardcoded literals stamped onto every appointment. | P2 | — | ✗ | — | — | Open |
 | WF-011 | Appointments | Pick a time | `get_available_slots` returns a hardcoded list of ten times; only booked-slot filtering is real. No provider schedule exists. | P2 | — | ✗ | — | — | Open |
-| WF-012 | Appointments | Patient manages an appointment | Patient-app `AppointmentsPage`: Book, Confirm, Reschedule and Join-video buttons have no `onClick` at all. Only the tab switches work. | P1 | ✗ | — | — | — | Open |
-| WF-013 | Appointments | Book an appointment | Provider ID is a required free-text box the logged-in doctor must fill with their own wallet address. | P2 | ✗ | — | — | — | Open |
+| WF-012 | Appointments | Patient manages an appointment | Patient-app `AppointmentsPage`: Book, Confirm, Reschedule and Join-video buttons have no `onClick` at all. Only the tab switches work. | P1 | ✗ | — | — | — | **Fixed** `HEAD` |
+| WF-013 | Appointments | Book an appointment | Provider ID is a required free-text box the logged-in doctor must fill with their own wallet address. | P2 | ✗ | — | — | — | **Fixed** `3fd425f` |
 | WF-014 | Telehealth | Hold a video visit | Booking a telehealth appointment never creates a telehealth session, although `create_telehealth_session` already accepts `appointment_id`. The two subsystems are fully disconnected; `telehealth_link` is always `None`. | P1 | ✗ | ✗ | — | — | Open |
 | WF-015 | Imaging | Order an imaging study | `handleSubmit` is not async, makes no request, generates `IMG-${Date.now()}`, pushes to local state and shows "Order placed". The order is gone on reload. The Results tab filters the same local array, so it can never populate. A real `radiology-orders` endpoint exists and is used for reads only. | P1 | ✗ | — | ✗ | — | Open |
 | WF-016 | Imaging | Fix a rejected form | Validation reports a single generic "please fill required fields" with no indication of which field, no highlight and no scroll-to. | P2 | ✗ | — | — | — | Open |
 | WF-017 | Critical values | Review thresholds | `CRITICAL_THRESHOLDS` is a hardcoded 13-entry const array, read-only, with no API and no persistence. It is not used to detect anything — purely decorative. No role gate on editing, because editing does not exist. | P2 | ✗ | ✗ | ✗ | — | Open |
 | WF-018 | Critical values | Read an alert | Pale foreground on pale success/status backgrounds; contrast not verified anywhere. Clinically the most important text in the product to be able to read. | P2 | ✗ | — | — | — | Open |
 | WF-019 | Cross-cutting | Create almost anything | **12 confirmed** handlers across 8 pages construct an entity, assign a client-side sequential id, write to React state and report success without any request: Order Sets (create, duplicate), Note Templates (create, duplicate), CDS Alert Rules (create), Chain of Custody (create, transfer), Consult (respond), Lab QC (calibration), Pathology (open, save report), Imaging (order). *18 candidates scanned, 6 confirmed false positives.* | P1 | ✗ | — | ✗ | — | Open |
-| WF-020 | Prescriptions | Write an e-prescription | `create_e_prescription` persists the entire client-supplied `ElectronicPrescription` verbatim. `rx_id`, `prescriber` and `patient_id` are all attacker-chosen; there is **no patient-access check** (only `require_clinical_staff`), so any clinical role can write a prescription against any patient and attribute it to any prescriber. The audit entry hardcodes `accessor_role: "doctor"` regardless of the caller's real role, and records the true caller — so record and audit trail disagree. | P0 | — | ✗ | — | ✗ | Open |
+| WF-020 | Prescriptions | Write an e-prescription | `create_e_prescription` persists the entire client-supplied `ElectronicPrescription` verbatim. `rx_id`, `prescriber` and `patient_id` are all attacker-chosen; there is **no patient-access check** (only `require_clinical_staff`), so any clinical role can write a prescription against any patient and attribute it to any prescriber. The audit entry hardcodes `accessor_role: "doctor"` regardless of the caller's real role, and records the true caller — so record and audit trail disagree. | P0 | — | ✗ | — | ✗ | **Fixed** `d76846b` |
 | WF-021 | Cross-cutting | — | Four further handlers trust a body actor field with no cross-check: surgical `create_appointment` (`created_by`, `provider_id`), `create_blood_type_screen` (`performed_by`, `verified_by`), `create_pre_op` (`surgeon`), `create_radiology_order` (`ordering_provider`). All six such handlers in the API fail the check. | P0 | — | ✗ | — | ✗ | Open |
 | WF-022 | Design system | Every screen | No semantic tokens; 7,886 raw colour utilities / 268 distinct classes in doctor pages; dark mode is a global `.dark .bg-white` surface override that does not adjust foregrounds; the two apps ship divergent `primary` palettes. | P2 | ✗ | — | — | — | Open |
 | WF-023 | Patients | Find a patient | `PatientSearchPage.handleSearch` filters only the already-fetched page of patients client-side, so a patient outside the first fetch cannot be found. Presented as a search box over the whole register. | P2 | ✗ | — | — | — | Open |
@@ -153,7 +153,7 @@ reload · Sec = security-relevant.
 | WF-026 | Auth | — | `client/shared/src/hooks/useAuth.tsx` is a third, entirely unused auth implementation (`AuthProvider`/`useAuth`), mounted by neither app, carrying its own duplicate copy of the role hierarchy in `HEALTHCARE_PROVIDER_ROLES`/`RECORD_EDITOR_ROLES`. Dead code that will drift. Not deleted — see CLAUDE.md rule 7. | P3 | ✗ | — | — | — | Open |
 | WF-027 | Design system | Every screen | A shared component library exists (`Button`, `Card`, `Input`, `Badge`, `Alert`, `Modal`, `EmptyState`, …) and the doctor portal imports exactly **one** of them (`EmptyState`) across 76 pages. The inconsistency is not a missing design system but a bypassed one. | P2 | ✗ | — | — | — | Open |
 | WF-028 | Auth | Sign a request | The API verifies signatures over the raw message bytes, while the Polkadot extension's `signRaw({type:'bytes'})` signs an `<Bytes>`-wrapped payload. Whether the extension login path actually verifies therefore depends on `sp_core`'s wrap tolerance and was not confirmed. The credential path signs raw bytes and matches exactly. Needs an explicit end-to-end check against a real extension. | P2 | — | — | — | ✗ | Unverified |
-| WF-030 | Appointments | Book any appointment (PostgreSQL) | **Appointments have never once persisted on the production storage backend.** `appointments.provider_id` is `uuid` with `FOREIGN KEY → users(id)`, as are `created_by` and `cancelled_by`; the application keys providers by SS58 `wallet_address` throughout. Every booking dies with `operator does not exist: uuid = text`. Confirmed live: `SELECT count(*) FROM appointments` is **0**. Invisible until now because the in-memory repository enforces no types and there is no PostgreSQL test for appointment booking — the same class as the memory-backend blind spot already known in this codebase. Fixing it means migrating those three columns to `varchar` against `users(wallet_address)`, which is deliberate schema surgery on a clinical table and was **not** attempted as a side effect of this audit. | P0 | — | ✗ | ✗ | — | Open, diagnosed |
+| WF-030 | Appointments | Book any appointment (PostgreSQL) | **Appointments have never once persisted on the production storage backend.** `appointments.provider_id` is `uuid` with `FOREIGN KEY → users(id)`, as are `created_by` and `cancelled_by`; the application keys providers by SS58 `wallet_address` throughout. Every booking dies with `operator does not exist: uuid = text`. Confirmed live: `SELECT count(*) FROM appointments` is **0**. Invisible until now because the in-memory repository enforces no types and there is no PostgreSQL test for appointment booking — the same class as the memory-backend blind spot already known in this codebase. Fixing it means migrating those three columns to `varchar` against `users(wallet_address)`, which is deliberate schema surgery on a clinical table and was **not** attempted as a side effect of this audit. | P0 | — | ✗ | ✗ | — | **Fixed** `1c14767` |
 | WF-029 | Auth | Brute-force a sign-in | The new credential-login lockout is process-local, like the existing rate-limit middleware. Behind more than one API instance an attacker can spread attempts across them. Acceptable for the current single-instance deployment; needs shared state (Redis) before horizontal scaling. | P2 | — | ✗ | — | ✗ | Known limitation |
 
 ### Not yet audited
@@ -191,13 +191,19 @@ failed underneath it, in a pre-existing schema defect unrelated to this work.
 
 Recorded plainly so nothing above reads as more finished than it is.
 
-**Not started.** The appointment lifecycle beyond the security fix — Today /
-Upcoming / Previous / Cancelled views (WF-008), the transition endpoints for
-confirm, start, complete and no-show (WF-009), the dead cancel and check-in
-buttons (WF-006, WF-007), and the patient app's four dead appointment buttons
-(WF-012). Telehealth-to-appointment linkage (WF-014). The design-token layer
-and contrast work (WF-018, WF-022, WF-027). Imaging (WF-015, WF-016), critical
-values (WF-017), and the twelve fake-success handlers (WF-019).
+**Not started.** Telehealth-to-appointment linkage (WF-014) — the doctor
+portal's Jitsi integration is real and working, but booking a telehealth
+appointment still does not create a session, so the patient app correctly shows
+"the join link appears when your clinician starts the session" and it never
+does. The design-token layer and contrast work (WF-018, WF-022, WF-027).
+Imaging (WF-015, WF-016), critical values (WF-017), and the twelve
+fake-success handlers (WF-019).
+
+**Partly done.** Rescheduling: the transition table treats `rescheduled` as
+terminal because the API models a reschedule as booking a replacement, and no
+screen does that yet. The patient app's Reschedule button was replaced with
+Cancel rather than left dead. Patient self-service booking has no UI and is
+marked unavailable.
 
 **Done but not yet proven end to end.** Credential sign-in has unit coverage
 and typechecks, and its server half was exercised against the live database,

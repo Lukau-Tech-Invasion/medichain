@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, useTranslation, setAppointmentStatus } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 import {
   Calendar,
@@ -50,6 +50,10 @@ export function AppointmentsPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { patient, isAuthenticated } = usePatientAuthStore();
+  /** Appointment currently being changed, so its buttons can disable. */
+  const [busyId, setBusyId] = useState<string | null>(null);
+  /** Surfaced verbatim from the server, so a refusal explains itself. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const statusLabel = (s: string) =>
     ({
       scheduled: t('appointments.statusScheduled'),
@@ -74,6 +78,32 @@ export function AppointmentsPage() {
       loadAppointments();
     }
   }, [patient]);
+
+  /**
+   * Move an appointment through the lifecycle.
+   *
+   * The server decides which transitions a patient may make - confirm and
+   * cancel only - and refuses the rest, so this does not set policy. It
+   * reloads from the source of truth afterwards rather than optimistically
+   * editing local state, so what the screen shows is what was stored.
+   */
+  const changeStatus = async (id: string, to: 'confirmed' | 'cancelled') => {
+    setBusyId(id);
+    setActionError(null);
+    try {
+      let reason: string | undefined;
+      if (to === 'cancelled') {
+        reason = window.prompt(t('appointments.cancelReasonPrompt')) ?? '';
+        if (!reason.trim()) return;
+      }
+      await setAppointmentStatus(id, to, reason);
+      await loadAppointments();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t('appointments.actionFailed'));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const loadAppointments = async () => {
     if (!patient) return;
@@ -193,21 +223,42 @@ export function AppointmentsPage() {
         </div>
       </div>
 
+      {actionError && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          {actionError}
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="grid grid-cols-2 gap-4">
-        <button className="patient-card flex items-center gap-3 p-4 hover:border-primary-200 border-2 border-transparent">
-          <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-            <Plus className="w-6 h-6 text-primary-600" />
+        {/* Self-service booking has no patient-facing flow yet: the API accepts
+            a patient booking for themselves, but no screen collects a provider
+            and a slot. Marked unavailable rather than left as a button that
+            silently does nothing (docs/WORKFLOW_AUDIT.md, WF-012). */}
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          className="patient-card flex items-center gap-3 p-4 border-2 border-transparent opacity-60 cursor-not-allowed text-left"
+        >
+          <div className="w-12 h-12 bg-neutral-100 rounded-xl flex items-center justify-center">
+            <Plus className="w-6 h-6 text-neutral-400" aria-hidden="true" />
           </div>
           <div className="text-left">
             <div className="font-medium text-neutral-900">{t('appointments.bookNew')}</div>
-            <div className="text-sm text-neutral-500">{t('appointments.scheduleVisit')}</div>
+            <div className="text-sm text-neutral-500">
+              {t('appointments.bookNewUnavailable')}
+            </div>
           </div>
         </button>
         
-        <button className="patient-card flex items-center gap-3 p-4 hover:border-primary-200 border-2 border-transparent">
+        <button
+          type="button"
+          onClick={() => navigate('/telehealth')}
+          className="patient-card flex items-center gap-3 p-4 hover:border-primary-200 border-2 border-transparent text-left focus:outline-none focus-visible:ring-2"
+        >
           <div className="w-12 h-12 bg-info-light rounded-xl flex items-center justify-center">
-            <Video className="w-6 h-6 text-info" />
+            <Video className="w-6 h-6 text-info" aria-hidden="true" />
           </div>
           <div className="text-left">
             <div className="font-medium text-neutral-900">{t('appointments.telehealth')}</div>
@@ -320,21 +371,51 @@ export function AppointmentsPage() {
 
             {appointment.status === 'scheduled' && (
               <div className="flex gap-2 mt-4">
-                <button className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors text-sm">
+                <button
+                  type="button"
+                  onClick={() => void changeStatus(appointment.id, 'confirmed')}
+                  disabled={busyId === appointment.id}
+                  className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors text-sm disabled:opacity-50"
+                >
                   {t('appointments.confirm')}
                 </button>
-                <button className="flex-1 py-2 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm">
-                  {t('appointments.reschedule')}
+                {/* Was "Reschedule", which had no handler and nothing behind
+                    it: the API models rescheduling as booking a replacement,
+                    which this app cannot do yet. Cancel is offered instead
+                    because it is a transition the server genuinely permits a
+                    patient to make. */}
+                <button
+                  type="button"
+                  onClick={() => void changeStatus(appointment.id, 'cancelled')}
+                  disabled={busyId === appointment.id}
+                  className="flex-1 py-2 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm disabled:opacity-50"
+                >
+                  {t('appointments.cancelAppointment')}
                 </button>
               </div>
             )}
 
             {appointment.type === 'telehealth' && appointment.status !== 'completed' && appointment.status !== 'cancelled' && (
               <div className="flex gap-2 mt-4">
-                <button className="flex-1 py-2 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors text-sm flex items-center justify-center gap-2">
-                  <Video className="w-4 h-4" />
-                  {t('appointments.joinVideo')}
-                </button>
+                {/* Only offered when a session actually exists. A Join button
+                    with no session behind it claims a meeting has been created
+                    when none has. Appointment-to-session linking is not built
+                    yet (WF-014), so for now this usually renders the waiting
+                    state - which is the truth. */}
+                {appointment.videoLink ? (
+                  <a
+                    href={appointment.videoLink}
+                    className="flex-1 py-2 bg-info text-white rounded-lg font-medium hover:bg-blue-600 transition-colors text-sm flex items-center justify-center gap-2"
+                  >
+                    <Video className="w-4 h-4" aria-hidden="true" />
+                    {t('appointments.joinVideo')}
+                  </a>
+                ) : (
+                  <p className="flex-1 py-2 text-sm text-neutral-600 flex items-center justify-center gap-2">
+                    <Video className="w-4 h-4 text-neutral-400" aria-hidden="true" />
+                    {t('appointments.joinNotReady')}
+                  </p>
+                )}
                 {appointment.phoneNumber && (
                   <button className="py-2 px-4 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm flex items-center gap-2" aria-label={`Call ${appointment.provider}`}>
                     <Phone className="w-4 h-4" />

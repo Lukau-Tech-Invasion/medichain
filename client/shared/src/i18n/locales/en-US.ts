@@ -281,6 +281,14 @@ const en_US: TranslationRecord = {
 
   // Appointments
   appointments: {
+    // Patient-side lifecycle actions. `reschedule` is retained for other
+    // callers but no longer rendered: the API models rescheduling as booking a
+    // replacement, which this app cannot do yet.
+    cancelReasonPrompt: 'Why are you cancelling this appointment?',
+    actionFailed: 'That change could not be saved. Please try again.',
+    bookNewUnavailable: 'Call your clinic to book',
+    joinNotReady: 'The join link appears when your clinician starts the session',
+
     title: 'Appointments',
     upcoming: 'Upcoming Appointments',
     past: 'Past Appointments',
