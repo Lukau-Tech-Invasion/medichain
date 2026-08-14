@@ -3,8 +3,9 @@
 **Started:** 2026-08-13
 **Branch:** `development/medichain-federation-hardening`
 
-**Status.** Phases 1–5 complete and committed. The design-token work (phase 6)
-is **not** started — see §5 for exactly what remains.
+**Status.** Phases 1–6 committed. Phase 6 delivers the token layer, the
+contrast gate and the fix for the reported screen; migrating the remaining
+pages off raw colour utilities is mechanical follow-up work — see §5.
 
 | Phase | State | Commit |
 | ----- | ----- | ------ |
@@ -13,7 +14,7 @@ is **not** started — see §5 for exactly what remains.
 | 3 · Credential authentication | done | `2df23a4` |
 | 4 · Appointment lifecycle | done | `d76846b` `1c14767` `f889637` `3fd425f` + patient app |
 | 5 · Telehealth workflow | done | `HEAD` |
-| 6 · Design tokens and contrast | not started | — |
+| 6 · Design tokens and contrast | foundation done; page migration ongoing | `HEAD` |
 | 7 · Tests and evidence | partial, per phase | — |
 
 This document is the living inventory for the workflow/UX/authentication audit.
@@ -108,8 +109,13 @@ silent data corruption. (WF-005.)
 7,886 raw Tailwind colour utilities across 268 distinct classes in doctor-portal
 pages alone, chosen per page. Dark mode is retrofitted by globally overriding
 `.dark .bg-white { @apply bg-slate-800 }`, which changes surfaces without
-changing the foreground colours placed on them — the mechanism behind the pale
-text on pale backgrounds. The two apps also ship different `primary` scales
+changing the foreground colours placed on them. The precise mechanism, found in phase 6: the
+override layer targeted *bare elements* (`.dark p`, `.dark h1..h6`,
+`.dark label`). A type selector plus a class is specificity (0,1,1), which
+beats a utility class at (0,1,0) — so `.dark p` repainted a paragraph that had
+deliberately chosen `text-green-700` inside a `bg-green-50` alert, producing
+pale grey on pale green. It was not that anyone picked bad colours; a global
+rule overruled good ones. The two apps also ship different `primary` scales
 (#3b82f6 vs #007AFF). (WF-022.)
 
 ---
@@ -141,7 +147,7 @@ reload · Sec = security-relevant.
 | WF-015 | Imaging | Order an imaging study | `handleSubmit` is not async, makes no request, generates `IMG-${Date.now()}`, pushes to local state and shows "Order placed". The order is gone on reload. The Results tab filters the same local array, so it can never populate. A real `radiology-orders` endpoint exists and is used for reads only. | P1 | ✗ | — | ✗ | — | Open |
 | WF-016 | Imaging | Fix a rejected form | Validation reports a single generic "please fill required fields" with no indication of which field, no highlight and no scroll-to. | P2 | ✗ | — | — | — | Open |
 | WF-017 | Critical values | Review thresholds | `CRITICAL_THRESHOLDS` is a hardcoded 13-entry const array, read-only, with no API and no persistence. It is not used to detect anything — purely decorative. No role gate on editing, because editing does not exist. | P2 | ✗ | ✗ | ✗ | — | Open |
-| WF-018 | Critical values | Read an alert | Pale foreground on pale success/status backgrounds; contrast not verified anywhere. Clinically the most important text in the product to be able to read. | P2 | ✗ | — | — | — | Open |
+| WF-018 | Critical values | Read an alert | Pale foreground on pale success/status backgrounds; contrast not verified anywhere. Clinically the most important text in the product to be able to read. **Cause:** bare-element dark overrides outranking utility classes, not poor colour choices. | P2 | ✗ | — | — | — | **Fixed** `HEAD` — bombs removed, page on tokens, 52 pairs gated by `scripts/check-contrast.py` |
 | WF-019 | Cross-cutting | Create almost anything | **12 confirmed** handlers across 8 pages construct an entity, assign a client-side sequential id, write to React state and report success without any request: Order Sets (create, duplicate), Note Templates (create, duplicate), CDS Alert Rules (create), Chain of Custody (create, transfer), Consult (respond), Lab QC (calibration), Pathology (open, save report), Imaging (order). *18 candidates scanned, 6 confirmed false positives.* | P1 | ✗ | — | ✗ | — | Open |
 | WF-020 | Prescriptions | Write an e-prescription | `create_e_prescription` persists the entire client-supplied `ElectronicPrescription` verbatim. `rx_id`, `prescriber` and `patient_id` are all attacker-chosen; there is **no patient-access check** (only `require_clinical_staff`), so any clinical role can write a prescription against any patient and attribute it to any prescriber. The audit entry hardcodes `accessor_role: "doctor"` regardless of the caller's real role, and records the true caller — so record and audit trail disagree. | P0 | — | ✗ | — | ✗ | **Fixed** `d76846b` |
 | WF-021 | Cross-cutting | — | Four further handlers trust a body actor field with no cross-check: surgical `create_appointment` (`created_by`, `provider_id`), `create_blood_type_screen` (`performed_by`, `verified_by`), `create_pre_op` (`surgeon`), `create_radiology_order` (`ordering_provider`). All six such handlers in the API fail the check. | P0 | — | ✗ | — | ✗ | Open |
@@ -190,9 +196,17 @@ failed underneath it, in a pre-existing schema defect unrelated to this work.
 
 Recorded plainly so nothing above reads as more finished than it is.
 
-**Not started.** The design-token layer and contrast work (WF-018, WF-022,
-WF-027). Imaging (WF-015, WF-016), critical values (WF-017), and the twelve
-fake-success handlers (WF-019).
+**Not started.** Imaging (WF-015, WF-016), critical-value thresholds (WF-017),
+and the twelve fake-success handlers (WF-019). The shared component library is
+still imported once across 76 pages (WF-027).
+
+**Design tokens: foundation only.** The token layer, the contrast gate and the
+removal of the bare-element overrides are done, and the reported critical-value
+screen is migrated. The other ~75 doctor pages still use raw Tailwind colour
+utilities. They are no longer *broken* — removing the specificity bombs fixed
+the pale-on-pale class everywhere at once — but they do not yet share a
+vocabulary, and pale status surfaces still look bright in dark mode. Migration
+is mechanical and safe to do incrementally; nothing depends on finishing it.
 
 **Telehealth caveats.** Booking now provisions a real session and both apps
 gate Join on one existing and on the room being open, enforced server-side. Two

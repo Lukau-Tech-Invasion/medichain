@@ -341,11 +341,11 @@ const CriticalValuePage: React.FC = () => {
     const badges = {
       pending: 'bg-red-100 text-red-800',
       'in-progress': 'bg-yellow-100 text-yellow-800',
-      acknowledged: 'bg-green-100 text-green-800',
+      acknowledged: 'bg-ok-subtle text-ok-subtle-fg',
       escalated: 'bg-purple-100 text-purple-800',
-      cancelled: 'bg-gray-100 text-gray-800',
+      cancelled: 'bg-muted text-muted-fg',
     };
-    return badges[status] || 'bg-gray-100 text-gray-800';
+    return badges[status] || 'bg-muted text-muted-fg';
   };
 
   const getStatusIcon = (status: NotificationStatus) => {
@@ -460,12 +460,12 @@ const CriticalValuePage: React.FC = () => {
       {activeTab === 'pending' && (
         <div className="space-y-4">
           {pendingNotifications.length === 0 ? (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-8 text-center">
-              <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
-              <h3 className="text-lg font-semibold text-green-900 mb-2">
+            <div className="bg-ok-subtle border border-ok rounded-lg p-8 text-center">
+              <CheckCircle className="w-12 h-12 text-ok-subtle-fg mx-auto mb-3" aria-hidden="true" />
+              <h3 className="text-lg font-semibold text-ok-subtle-fg mb-2">
                 {t('docCriticalValue.noPendingTitle')}
               </h3>
-              <p className="text-green-700">
+              <p className="text-ok-subtle-fg">
                 {t('docCriticalValue.noPendingHint')}
               </p>
             </div>
