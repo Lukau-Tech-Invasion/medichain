@@ -342,6 +342,35 @@ pub fn appt_parse_status(s: &str) -> crate::clinical::AppointmentStatus {
     }
 }
 
+/// The stored spelling of an appointment status.
+///
+/// # Why this is not `format!("{:?}", status)`
+///
+/// It used to be. `Debug` produced `"Scheduled"` / `"CheckedIn"` / `"NoShow"`,
+/// while the `appointments_status_check` constraint expects the snake_case
+/// vocabulary (`'scheduled'`, `'checked_in'`, `'no_show'`), so every insert was
+/// rejected — one of the two defects that meant no appointment had ever
+/// persisted on PostgreSQL (`docs/WORKFLOW_AUDIT.md`, WF-030).
+///
+/// Beyond the immediate mismatch, `Debug` is the wrong tool for a persistence
+/// format: it is explicitly not a stable contract, so renaming a variant would
+/// silently change what lands in the database. This function is the contract,
+/// and `appt_parse_status` is its inverse.
+pub fn appt_status_storage_str(status: &crate::clinical::AppointmentStatus) -> &'static str {
+    use crate::clinical::AppointmentStatus as S;
+    match status {
+        S::Scheduled => "scheduled",
+        S::Confirmed => "confirmed",
+        S::CheckedIn => "checked_in",
+        S::InProgress => "in_progress",
+        S::Completed => "completed",
+        S::NoShow => "no_show",
+        S::Cancelled => "cancelled",
+        S::Rescheduled => "rescheduled",
+        S::Waitlisted => "waitlisted",
+    }
+}
+
 /// Parse "YYYY-MM-DD" + "HH:MM" into a UTC DateTime; falls back to `now` on error.
 pub fn appt_to_datetime(date: &str, time: &str) -> DateTime<Utc> {
     let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
@@ -372,11 +401,14 @@ impl From<crate::clinical::Appointment> for crate::repositories::traits::Appoint
             a.location.facility_name, a.location.department
         ));
         let room = a.location.room.clone();
-        let visit_type = if a.is_telehealth {
-            Some("telehealth".to_string())
+        // Both spellings are in the `appointments_visit_type_check` vocabulary.
+        // Writing "in_person" rather than NULL makes the distinction explicit:
+        // NULL previously meant "not telehealth" and "never recorded" alike.
+        let visit_type = Some(if a.is_telehealth {
+            "telehealth".to_string()
         } else {
-            None
-        };
+            "in_person".to_string()
+        });
         let extras = appt_pack_extras(&a);
         Self {
             id: a.appointment_id,
@@ -385,7 +417,7 @@ impl From<crate::clinical::Appointment> for crate::repositories::traits::Appoint
             appointment_type: format!("{:?}", a.appointment_type),
             scheduled_datetime,
             duration_minutes: a.duration_minutes as i32,
-            status: format!("{:?}", a.status),
+            status: appt_status_storage_str(&a.status).to_string(),
             location: location_str,
             room,
             reason_for_visit: Some(a.visit_reason),

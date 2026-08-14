@@ -1912,3 +1912,166 @@ async fn test_pg_telehealth_event_types_are_all_accepted_by_the_schema() {
         rejected.join("\n  ")
     );
 }
+
+/// Seed the provider and patient rows an appointment's foreign keys require.
+///
+/// These tests run against a throwaway schema with migrations freshly applied,
+/// so nothing exists yet. `appointments.provider_id` references
+/// `users(wallet_address)` and `patient_id` references `patients(id)`.
+async fn seed_appointment_fks(pool: &PgPool, provider: &str, filed_by: &str, patient: &str) {
+    for wallet in [provider, filed_by] {
+        sqlx::query(
+            "INSERT INTO users (wallet_address, role, name, status)
+             VALUES ($1, 'Doctor', 'Test Provider', 'active')
+             ON CONFLICT (wallet_address) DO NOTHING",
+        )
+        .bind(wallet)
+        .execute(pool)
+        .await
+        .expect("seeding a user failed");
+    }
+    sqlx::query(
+        "INSERT INTO patients (id, health_id, national_id_hash, national_id_type)
+         VALUES ($1, $1, 'test-hash', 'SmartID')
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(patient)
+    .execute(pool)
+    .await
+    .expect("seeding a patient failed");
+}
+
+/// An appointment must survive a round trip through PostgreSQL.
+///
+/// # Why this test exists
+///
+/// It did not, and that absence hid a total feature outage. `provider_id`,
+/// `created_by` and `cancelled_by` were `uuid` columns while the application
+/// binds SS58 wallet strings, and the status writer emitted Rust `Debug`
+/// output ("Scheduled") against a CHECK expecting snake_case ('scheduled'). So
+/// **every** booking failed on the production storage backend and
+/// `SELECT count(*) FROM appointments` was 0 — while the whole suite stayed
+/// green, because the in-memory repository enforces neither types nor CHECK
+/// constraints (docs/WORKFLOW_AUDIT.md, WF-030).
+///
+/// A memory-backend test could never have caught this. Any future change to
+/// the appointment column types, the status vocabulary, or the entity
+/// conversion has to come through here.
+#[tokio::test]
+async fn test_pg_appointment_round_trip_survives_restart() {
+    use crate::repositories::traits::{AppointmentEntity, AppointmentRepository};
+    let pool = get_test_pool().await;
+    let id = format!("APT-{}", uuid::Uuid::new_v4());
+    let now = Utc::now();
+
+    // A wallet address, not a uuid — the identifier the application actually
+    // uses for providers everywhere else.
+    let provider = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string();
+    // Distinct from `provider_id`: an administrator scheduling for a colleague.
+    let filed_by = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string();
+
+    let entity = AppointmentEntity {
+        id: id.clone(),
+        patient_id: "PAT-APPT-RESTART".into(),
+        provider_id: provider.clone(),
+        appointment_type: "Telehealth".into(),
+        scheduled_datetime: now,
+        duration_minutes: 30,
+        // snake_case, matching appointments_status_check.
+        status: "checked_in".into(),
+        location: Some("Test Clinic / General".into()),
+        room: None,
+        reason_for_visit: Some("Round-trip check".into()),
+        visit_type: Some("telehealth".into()),
+        priority: None,
+        recurring: false,
+        recurrence_pattern: None,
+        parent_appointment_id: None,
+        insurance_verified: false,
+        copay_amount: None,
+        copay_collected: false,
+        reminder_sent: false,
+        reminder_sent_at: None,
+        check_in_time: Some(now),
+        check_out_time: None,
+        cancelled_at: None,
+        cancellation_reason: None,
+        cancelled_by: None,
+        notes: None,
+        created_by: filed_by.clone(),
+        created_at: now,
+        updated_at: now,
+        data: serde_json::json!({"is_telehealth": true}),
+    };
+
+    seed_appointment_fks(&pool, &provider, &filed_by, "PAT-APPT-RESTART").await;
+
+    let repo = crate::repositories::postgres::PgAppointmentRepository::new(pool.clone());
+    repo.create(entity).await.expect("appointment insert failed");
+
+    let fetched = repo.get_by_id(&id).await.expect("appointment lost on restart");
+    assert_eq!(fetched.provider_id, provider, "provider must survive as a wallet address");
+    assert_eq!(fetched.created_by, filed_by, "the real actor must be retained");
+    assert_eq!(fetched.status, "checked_in");
+    assert_eq!(fetched.visit_type.as_deref(), Some("telehealth"));
+
+    sqlx::query("DELETE FROM appointments WHERE id = $1")
+        .bind(&id)
+        .execute(&pool)
+        .await
+        .ok();
+    pool.close().await;
+}
+
+/// Every status the domain enum can hold must be storable.
+///
+/// The CHECK constraint originally listed seven of the nine `AppointmentStatus`
+/// variants, so `rescheduled` and `waitlisted` were a latent 500 for whoever
+/// first rescheduled an appointment.
+#[tokio::test]
+async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
+    use crate::clinical::AppointmentStatus as S;
+    use crate::repositories::traits::AppointmentRepository;
+    let pool = get_test_pool().await;
+    let repo = crate::repositories::postgres::PgAppointmentRepository::new(pool.clone());
+    let provider = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+    seed_appointment_fks(&pool, provider, provider, "PAT-APPT-STATUS").await;
+
+    for status in [
+        S::Scheduled, S::Confirmed, S::CheckedIn, S::InProgress, S::Completed,
+        S::NoShow, S::Cancelled, S::Rescheduled, S::Waitlisted,
+    ] {
+        let stored = crate::types::appt_status_storage_str(&status);
+        let id = format!("APT-STATUS-{}", uuid::Uuid::new_v4());
+        let now = Utc::now();
+        let entity = crate::repositories::traits::AppointmentEntity {
+            id: id.clone(),
+            patient_id: "PAT-APPT-STATUS".into(),
+            provider_id: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".into(),
+            appointment_type: "FollowUp".into(),
+            scheduled_datetime: now,
+            duration_minutes: 15,
+            status: stored.to_string(),
+            location: None, room: None, reason_for_visit: None,
+            visit_type: Some("in_person".into()), priority: None,
+            recurring: false, recurrence_pattern: None, parent_appointment_id: None,
+            insurance_verified: false, copay_amount: None, copay_collected: false,
+            reminder_sent: false, reminder_sent_at: None,
+            check_in_time: None, check_out_time: None,
+            cancelled_at: None, cancellation_reason: None, cancelled_by: None,
+            notes: None,
+            created_by: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".into(),
+            created_at: now, updated_at: now,
+            data: serde_json::json!({}),
+        };
+        repo.create(entity)
+            .await
+            .unwrap_or_else(|e| panic!("status '{stored}' rejected by the schema: {e}"));
+        sqlx::query("DELETE FROM appointments WHERE id = $1")
+            .bind(&id)
+            .execute(&pool)
+            .await
+            .ok();
+    }
+    pool.close().await;
+}
