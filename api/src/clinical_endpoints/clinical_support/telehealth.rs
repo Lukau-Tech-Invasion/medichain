@@ -21,6 +21,136 @@ pub struct CreateTelehealthSessionRequest {
     pub recording_enabled: Option<bool>,
 }
 
+/// How long before the scheduled start a session may be joined, and how long
+/// after it stays joinable.
+///
+/// A telehealth room is a private clinical space. Leaving it open indefinitely
+/// means a link shared once works forever; opening it weeks early means the
+/// room exists long before anyone should be in it. The window is generous
+/// enough for an early patient and an overrunning clinic, and no more.
+pub(crate) const JOIN_OPENS_BEFORE_SECS: i64 = 15 * 60;
+pub(crate) const JOIN_CLOSES_AFTER_SECS: i64 = 4 * 60 * 60;
+
+/// Whether `now` falls inside the joinable window for a session starting at
+/// `scheduled_start`.
+pub(crate) fn within_join_window(scheduled_start: i64, now: i64) -> bool {
+    now >= scheduled_start - JOIN_OPENS_BEFORE_SECS
+        && now <= scheduled_start + JOIN_CLOSES_AFTER_SECS
+}
+
+/// A freshly provisioned session, plus which backend produced its URLs.
+pub(crate) struct ProvisionedSession {
+    pub session: crate::clinical::TelehealthSession,
+    /// The video backend that issued the room, or `jitsi-fallback` when the
+    /// configured provider was unreachable. Reported so an operator can tell
+    /// which sessions were created while the primary provider was down.
+    pub platform: String,
+}
+
+/// Provision a telehealth session and persist it.
+///
+/// Extracted from `create_telehealth_session` so that booking a telehealth
+/// appointment can create the session too. Before this, the only way a session
+/// came into existence was a clinician separately filling in the Telehealth
+/// screen — re-entering the patient — so a "telehealth" appointment and an
+/// actual meeting were unrelated objects (`docs/WORKFLOW_AUDIT.md`, WF-014).
+///
+/// Returns the session on success. Errors are surfaced to the caller rather
+/// than swallowed: an appointment that believes it has a meeting when none was
+/// created is the exact failure this work exists to remove.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn provision_session(
+    data: &crate::AppState,
+    patient_id: &str,
+    provider_id: &str,
+    appointment_id: Option<String>,
+    scheduled_start: i64,
+    session_type: crate::clinical::TelehealthType,
+    recording_enabled: bool,
+) -> Result<ProvisionedSession, String> {
+    let session_id = format!("TH-{}", uuid::Uuid::new_v4());
+    let scheduled_at =
+        chrono::DateTime::from_timestamp(scheduled_start, 0).unwrap_or_else(chrono::Utc::now);
+
+    let service_params = crate::telehealth::CreateSessionParams {
+        session_id: session_id.clone(),
+        patient_id: patient_id.to_string(),
+        provider_id: provider_id.to_string(),
+        scheduled_at,
+        duration_minutes: 60,
+    };
+    let (provider_join_url, patient_join_url, platform) =
+        match data.telehealth_service.create_session(service_params).await {
+            Ok(info) => (
+                info.provider_join_url,
+                info.patient_join_url,
+                info.provider_name,
+            ),
+            Err(e) => {
+                // The configured provider is unavailable. Fall back to a Jitsi
+                // room rather than failing the booking: the appointment is
+                // still real and the room is still a real, joinable place.
+                log::warn!("TelehealthService::create_session failed ({e}); falling back to Jitsi");
+                let room = format!(
+                    "medichain-{}-{}",
+                    session_id.to_lowercase().replace('_', "-"),
+                    &uuid::Uuid::new_v4().to_string()[..8]
+                );
+                (
+                    format!("https://meet.jit.si/{room}#userInfo.displayName=%22Provider%22"),
+                    format!("https://meet.jit.si/{room}#userInfo.displayName=%22Patient%22"),
+                    "jitsi-fallback".to_string(),
+                )
+            }
+        };
+
+    let session = crate::clinical::TelehealthSession {
+        session_id: session_id.clone(),
+        appointment_id,
+        patient_id: patient_id.to_string(),
+        provider_id: provider_id.to_string(),
+        session_type,
+        scheduled_start,
+        actual_start: None,
+        actual_end: None,
+        status: crate::clinical::TelehealthStatus::Scheduled,
+        video_room_url: provider_join_url,
+        waiting_room_url: patient_join_url,
+        join_instructions: "Use the provided link to join your telehealth session. \
+            Ensure camera and microphone are enabled."
+            .to_string(),
+        technical_requirements: vec![
+            "Modern web browser (Chrome, Firefox, Safari, Edge)".to_string(),
+            "Stable internet connection (2+ Mbps)".to_string(),
+            "Camera and microphone access".to_string(),
+        ],
+        patient_joined_at: None,
+        provider_joined_at: None,
+        recording_enabled,
+        recording_consent: false,
+        chat_enabled: true,
+        screen_share_enabled: true,
+        quality_metrics: None,
+        visit_notes: None,
+        follow_up_scheduled: None,
+    };
+
+    let now_dt = chrono::Utc::now();
+    data.repositories
+        .telehealth_session_records
+        .create(crate::repositories::traits::JsonRecordEntity {
+            id: session_id,
+            owner_id: session.patient_id.clone(),
+            data: serde_json::to_value(&session).unwrap_or_default(),
+            created_at: now_dt,
+            updated_at: now_dt,
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(ProvisionedSession { session, platform })
+}
+
 /// Create a new telehealth session
 #[post("/api/telehealth/sessions")]
 pub async fn create_telehealth_session(
@@ -56,104 +186,36 @@ pub async fn create_telehealth_session(
         _ => crate::clinical::TelehealthType::VideoVisit,
     };
 
-    let session_id = format!("TH-{}", uuid::Uuid::new_v4());
-
-    // Delegate URL generation to the configured TelehealthService provider
-    // (internal / Daily.co / Twilio). Falls back gracefully to Jitsi-style URLs.
-    let scheduled_at =
-        chrono::DateTime::from_timestamp(req.scheduled_start, 0).unwrap_or_else(chrono::Utc::now);
-    let service_params = crate::telehealth::CreateSessionParams {
-        session_id: session_id.clone(),
-        patient_id: req.patient_id.clone(),
-        provider_id: current_user_id.clone(),
-        scheduled_at,
-        duration_minutes: 60,
-    };
-    let session_info = data.telehealth_service.create_session(service_params).await;
-
-    let (provider_join_url, patient_join_url, video_room_url, waiting_room_url, platform) =
-        match session_info {
-            Ok(ref info) => (
-                info.provider_join_url.clone(),
-                info.patient_join_url.clone(),
-                info.provider_join_url.clone(),
-                info.patient_join_url.clone(),
-                info.provider_name.clone(),
-            ),
-            Err(ref e) => {
-                // Graceful fallback to Jitsi if the provider call fails
-                log::warn!(
-                    "TelehealthService::create_session failed ({}); falling back to Jitsi",
-                    e
-                );
-                let room_name = format!(
-                    "medichain-{}-{}",
-                    session_id.to_lowercase().replace('_', "-"),
-                    &uuid::Uuid::new_v4().to_string()[..8]
-                );
-                (
-                    format!(
-                        "https://meet.jit.si/{}#userInfo.displayName=%22Provider%22",
-                        room_name
-                    ),
-                    format!(
-                        "https://meet.jit.si/{}#userInfo.displayName=%22Patient%22",
-                        room_name
-                    ),
-                    format!("https://meet.jit.si/{}", room_name),
-                    format!("https://meet.jit.si/{}", room_name),
-                    "jitsi-fallback".to_string(),
-                )
-            }
-        };
-
-    let session = crate::clinical::TelehealthSession {
-        session_id: session_id.clone(),
-        appointment_id: req.appointment_id.clone(),
-        patient_id: req.patient_id.clone(),
-        provider_id: current_user_id.clone(),
+    // Same provisioning path the appointment booking uses, so a session
+    // created here and one created by booking a telehealth appointment are the
+    // same object with the same guarantees.
+    let provisioned = match provision_session(
+        &data,
+        &req.patient_id,
+        &current_user_id,
+        req.appointment_id.clone(),
+        req.scheduled_start,
         session_type,
-        scheduled_start: req.scheduled_start,
-        actual_start: None,
-        actual_end: None,
-        status: crate::clinical::TelehealthStatus::Scheduled,
-        video_room_url: video_room_url.clone(),
-        waiting_room_url: waiting_room_url.clone(),
-        join_instructions: "Use the provided link to join your telehealth session. \
-            Ensure camera and microphone are enabled."
-            .to_string(),
-        technical_requirements: vec![
-            "Modern web browser (Chrome, Firefox, Safari, Edge)".to_string(),
-            "Stable internet connection (2+ Mbps)".to_string(),
-            "Camera and microphone access".to_string(),
-        ],
-        patient_joined_at: None,
-        provider_joined_at: None,
-        recording_enabled: req.recording_enabled.unwrap_or(false),
-        recording_consent: false,
-        chat_enabled: true,
-        screen_share_enabled: true,
-        quality_metrics: None,
-        visit_notes: None,
-        follow_up_scheduled: None,
-    };
-
+        req.recording_enabled.unwrap_or(false),
+    )
+    .await
     {
-        // Persist via repository (was: in-memory data.telehealth_sessions HashMap)
-        let now_dt = chrono::Utc::now();
-        let entity = crate::repositories::traits::JsonRecordEntity {
-            id: session_id.clone(),
-            owner_id: session.patient_id.clone(),
-            data: serde_json::to_value(&session).unwrap_or_default(),
-            created_at: now_dt,
-            updated_at: now_dt,
-        };
-        let _ = data
-            .repositories
-            .telehealth_session_records
-            .create(entity)
-            .await;
-    }
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("telehealth session provisioning failed: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The telehealth session could not be created".to_string(),
+                code: "TELEHEALTH_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let session_id = provisioned.session.session_id.clone();
+    let provider_join_url = provisioned.session.video_room_url.clone();
+    let patient_join_url = provisioned.session.waiting_room_url.clone();
+    let video_room_url = provider_join_url.clone();
+    let waiting_room_url = patient_join_url.clone();
+    let platform = provisioned.platform;
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -257,6 +319,32 @@ pub async fn join_telehealth_session(
             success: false,
             error: "You are not part of this session".to_string(),
             code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // A finished consultation is not a room you can walk back into. Without
+    // this, a link from a completed visit kept working indefinitely.
+    if matches!(
+        session.status,
+        crate::clinical::TelehealthStatus::Completed
+            | crate::clinical::TelehealthStatus::Cancelled
+            | crate::clinical::TelehealthStatus::NoShow
+    ) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "This consultation has ended".to_string(),
+            code: "SESSION_ENDED".to_string(),
+        });
+    }
+
+    // Nor is it a room that exists from the moment it is booked. The window is
+    // enforced here, not merely hidden in the UI, so a saved link cannot be
+    // used weeks early or long afterwards.
+    if !within_join_window(session.scheduled_start, now) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "This consultation is not open to join yet".to_string(),
+            code: "OUTSIDE_JOIN_WINDOW".to_string(),
         });
     }
 
@@ -922,5 +1010,41 @@ pub async fn telehealth_join_qr(
             error: "Failed to generate QR code".to_string(),
             code: "QR_ERROR".to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod join_window_tests {
+    use super::{within_join_window, JOIN_CLOSES_AFTER_SECS, JOIN_OPENS_BEFORE_SECS};
+
+    const START: i64 = 1_800_000_000;
+
+    #[test]
+    fn the_room_is_open_around_the_appointment() {
+        assert!(within_join_window(START, START), "at the scheduled minute");
+        assert!(within_join_window(START, START - JOIN_OPENS_BEFORE_SECS + 1));
+        assert!(within_join_window(START, START + JOIN_CLOSES_AFTER_SECS - 1));
+    }
+
+    /// A link is a private clinical space, not a permanent address. Booking an
+    /// appointment must not make its room reachable from that moment on.
+    #[test]
+    fn the_room_is_shut_well_before_the_appointment() {
+        assert!(!within_join_window(START, START - JOIN_OPENS_BEFORE_SECS - 1));
+        assert!(!within_join_window(START, START - 7 * 24 * 3600));
+    }
+
+    #[test]
+    fn the_room_does_not_stay_open_forever_afterwards() {
+        assert!(!within_join_window(START, START + JOIN_CLOSES_AFTER_SECS + 1));
+        assert!(!within_join_window(START, START + 30 * 24 * 3600));
+    }
+
+    /// The boundaries are inclusive, so a patient arriving exactly on the
+    /// early edge is not turned away by a rounding accident.
+    #[test]
+    fn the_window_boundaries_are_inclusive() {
+        assert!(within_join_window(START, START - JOIN_OPENS_BEFORE_SECS));
+        assert!(within_join_window(START, START + JOIN_CLOSES_AFTER_SECS));
     }
 }

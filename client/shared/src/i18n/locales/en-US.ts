@@ -1355,6 +1355,8 @@ const en_US: TranslationRecord = {
   docAppointments: {
     // Lifecycle rebuild: tabs, real status vocabulary, and the actions the
     // server's transition table actually permits.
+    joinConsultation: 'Join consultation',
+    joinOpensSoon: 'Join opens 15 min before',
     tabToday: 'Today',
     tabUpcoming: 'Upcoming',
     tabPrevious: 'Previous',

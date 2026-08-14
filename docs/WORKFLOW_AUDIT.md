@@ -3,9 +3,8 @@
 **Started:** 2026-08-13
 **Branch:** `development/medichain-federation-hardening`
 
-**Status.** Phases 1–4 complete and committed. Telehealth (phase 5) and the
-design-token work (phase 6) are **not** started — see §5 for exactly what
-remains.
+**Status.** Phases 1–5 complete and committed. The design-token work (phase 6)
+is **not** started — see §5 for exactly what remains.
 
 | Phase | State | Commit |
 | ----- | ----- | ------ |
@@ -13,7 +12,7 @@ remains.
 | 2 · Shared identity/provider context | done | `f8c9ca8` |
 | 3 · Credential authentication | done | `2df23a4` |
 | 4 · Appointment lifecycle | done | `d76846b` `1c14767` `f889637` `3fd425f` + patient app |
-| 5 · Telehealth workflow | not started | — |
+| 5 · Telehealth workflow | done | `HEAD` |
 | 6 · Design tokens and contrast | not started | — |
 | 7 · Tests and evidence | partial, per phase | — |
 
@@ -138,7 +137,7 @@ reload · Sec = security-relevant.
 | WF-011 | Appointments | Pick a time | `get_available_slots` returns a hardcoded list of ten times; only booked-slot filtering is real. No provider schedule exists. | P2 | — | ✗ | — | — | Open |
 | WF-012 | Appointments | Patient manages an appointment | Patient-app `AppointmentsPage`: Book, Confirm, Reschedule and Join-video buttons have no `onClick` at all. Only the tab switches work. | P1 | ✗ | — | — | — | **Fixed** `HEAD` |
 | WF-013 | Appointments | Book an appointment | Provider ID is a required free-text box the logged-in doctor must fill with their own wallet address. | P2 | ✗ | — | — | — | **Fixed** `3fd425f` |
-| WF-014 | Telehealth | Hold a video visit | Booking a telehealth appointment never creates a telehealth session, although `create_telehealth_session` already accepts `appointment_id`. The two subsystems are fully disconnected; `telehealth_link` is always `None`. | P1 | ✗ | ✗ | — | — | Open |
+| WF-014 | Telehealth | Hold a video visit | Booking a telehealth appointment never creates a telehealth session, although `create_telehealth_session` already accepts `appointment_id`. The two subsystems are fully disconnected; `telehealth_link` is always `None`. | P1 | ✗ | ✗ | — | — | **Fixed** `HEAD` |
 | WF-015 | Imaging | Order an imaging study | `handleSubmit` is not async, makes no request, generates `IMG-${Date.now()}`, pushes to local state and shows "Order placed". The order is gone on reload. The Results tab filters the same local array, so it can never populate. A real `radiology-orders` endpoint exists and is used for reads only. | P1 | ✗ | — | ✗ | — | Open |
 | WF-016 | Imaging | Fix a rejected form | Validation reports a single generic "please fill required fields" with no indication of which field, no highlight and no scroll-to. | P2 | ✗ | — | — | — | Open |
 | WF-017 | Critical values | Review thresholds | `CRITICAL_THRESHOLDS` is a hardcoded 13-entry const array, read-only, with no API and no persistence. It is not used to detect anything — purely decorative. No role gate on editing, because editing does not exist. | P2 | ✗ | ✗ | ✗ | — | Open |
@@ -191,13 +190,17 @@ failed underneath it, in a pre-existing schema defect unrelated to this work.
 
 Recorded plainly so nothing above reads as more finished than it is.
 
-**Not started.** Telehealth-to-appointment linkage (WF-014) — the doctor
-portal's Jitsi integration is real and working, but booking a telehealth
-appointment still does not create a session, so the patient app correctly shows
-"the join link appears when your clinician starts the session" and it never
-does. The design-token layer and contrast work (WF-018, WF-022, WF-027).
-Imaging (WF-015, WF-016), critical values (WF-017), and the twelve
+**Not started.** The design-token layer and contrast work (WF-018, WF-022,
+WF-027). Imaging (WF-015, WF-016), critical values (WF-017), and the twelve
 fake-success handlers (WF-019).
+
+**Telehealth caveats.** Booking now provisions a real session and both apps
+gate Join on one existing and on the room being open, enforced server-side. Two
+things are deliberately not done: an appointment moved to a new date does not
+move its session's `scheduled_start`, because rescheduling produces a new
+appointment rather than mutating one; and ending a telehealth session does not
+transition the parent appointment to `completed` — the clinician still marks
+that, since leaving a call is not the same as finishing a consultation.
 
 **Partly done.** Rescheduling: the transition table treats `rescheduled` as
 terminal because the API models a reschedule as booking a replacement, and no

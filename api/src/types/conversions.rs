@@ -302,6 +302,7 @@ pub fn appt_pack_extras(a: &crate::clinical::Appointment) -> serde_json::Value {
         "start_time": a.start_time,
         "scheduled_time": a.scheduled_time,
         "is_telehealth": a.is_telehealth,
+        "telehealth_session_id": a.telehealth_session_id,
         "location": a.location,
         "reminders_sent": a.reminders_sent,
         "instructions": a.instructions,
@@ -526,6 +527,10 @@ impl From<crate::repositories::traits::AppointmentEntity> for crate::clinical::A
             .get("instructions")
             .and_then(|v| v.as_str())
             .map(String::from);
+        let telehealth_session_id = extras
+            .get("telehealth_session_id")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         let booked_by = extras
             .get("booked_by")
             .and_then(|v| v.as_str())
@@ -555,6 +560,7 @@ impl From<crate::repositories::traits::AppointmentEntity> for crate::clinical::A
             booked_by,
             check_in_time: e.check_in_time.map(|d| d.timestamp()),
             is_telehealth,
+            telehealth_session_id,
             reminders_sent,
             instructions,
             insurance_verified: e.insurance_verified,

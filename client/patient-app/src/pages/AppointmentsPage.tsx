@@ -132,9 +132,11 @@ export function AppointmentsPage() {
           scheduled_date: string;
           scheduled_time: string;
           duration_minutes: number;
-          location?: string;
+          location?: string | { telehealth_link?: string | null };
           reason: string;
           notes?: string;
+          is_telehealth?: boolean;
+          telehealth_session_id?: string;
         }) => ({
           id: a.appointment_id,
           type: a.type || 'in-person',
@@ -144,9 +146,16 @@ export function AppointmentsPage() {
           date: a.scheduled_date,
           time: a.scheduled_time,
           duration: a.duration_minutes || 30,
-          location: a.location,
+          location: typeof a.location === 'string' ? a.location : undefined,
           reason: a.reason,
           notes: a.notes,
+          // Only a provisioned session yields a link. Without one the card
+          // shows the waiting state rather than a Join button, because there
+          // is genuinely no meeting to join yet.
+          videoLink:
+            a.telehealth_session_id && typeof a.location === 'object'
+              ? a.location?.telehealth_link ?? undefined
+              : undefined,
         }));
         
         setAppointments(appts);

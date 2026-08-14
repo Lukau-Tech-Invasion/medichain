@@ -51,7 +51,14 @@ interface Appointment {
   start_time: string;
   status: string;
   is_telehealth?: boolean;
-  location?: { facility_name?: string; department?: string; room?: string | null };
+  /** Present only once a session has actually been provisioned. */
+  telehealth_session_id?: string;
+  location?: {
+    facility_name?: string;
+    department?: string;
+    room?: string | null;
+    telehealth_link?: string | null;
+  };
 }
 
 type Tab = 'today' | 'upcoming' | 'previous' | 'cancelled';
@@ -70,6 +77,23 @@ function normaliseStatus(raw: string): AppointmentStatus {
   ];
   const compact = key.replace(/_/g, '');
   return known.find((s) => s === key || s.replace(/_/g, '') === compact) ?? 'scheduled';
+}
+
+/**
+ * How long before the scheduled start the join action appears.
+ *
+ * Mirrors `JOIN_OPENS_BEFORE_SECS` in the API. The server enforces the window
+ * regardless — this only decides whether to *offer* the action, so that a
+ * clinician is not shown a button that would be refused.
+ */
+const JOIN_OPENS_BEFORE_MS = 15 * 60 * 1000;
+const JOIN_CLOSES_AFTER_MS = 4 * 60 * 60 * 1000;
+
+function withinJoinWindow(dateISO: string, time: string): boolean {
+  const start = new Date(`${dateISO}T${time || '00:00'}`).getTime();
+  if (Number.isNaN(start)) return false;
+  const now = Date.now();
+  return now >= start - JOIN_OPENS_BEFORE_MS && now <= start + JOIN_CLOSES_AFTER_MS;
 }
 
 function todayISO(): string {
@@ -462,6 +486,29 @@ export default function AppointmentSchedulerPage() {
                       )}
                     </div>
                     <div className="flex gap-2 flex-wrap">
+                      {/* Only offered when a session genuinely exists and the
+                          room is open. A telehealth appointment with no
+                          session should never show Join - that was the old
+                          behaviour on the patient side, a button pointing at
+                          nothing (docs/WORKFLOW_AUDIT.md, WF-014). */}
+                      {a.is_telehealth && a.telehealth_session_id && (
+                        withinJoinWindow(a.scheduled_date, a.start_time) ? (
+                          <a
+                            href={a.location?.telehealth_link ?? undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded bg-cyan-700 text-white hover:bg-cyan-800"
+                          >
+                            <Video size={14} aria-hidden="true" />
+                            {t('docAppointments.joinConsultation')}
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400">
+                            <Video size={14} aria-hidden="true" />
+                            {t('docAppointments.joinOpensSoon')}
+                          </span>
+                        )
+                      )}
                       {actions.map((to) => {
                         const Icon = ACTION_ICON[to] ?? CheckCircle;
                         const destructive = to === 'cancelled' || to === 'no_show';

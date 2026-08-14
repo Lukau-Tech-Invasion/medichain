@@ -213,4 +213,76 @@ describe('AppointmentSchedulerPage', () => {
     fireEvent.click(await screen.findByRole('tab', { name: /Upcoming/i }));
     expect(await screen.findByText(/Virtual/i)).toBeInTheDocument();
   });
+
+  describe('telehealth', () => {
+    const telehealthAppt = (over: Record<string, unknown>) => ({
+      appointment_id: 'APT-TH',
+      patient_id: 'PAT-001-DEMO',
+      provider_id: '5GrwvaEF...mock',
+      appointment_type: 'Telehealth',
+      status: 'scheduled',
+      is_telehealth: true,
+      ...over,
+    });
+
+    const withAppointments = (appointments: unknown[]) => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ appointments }),
+      });
+    };
+
+    /** Local date/time strings so the window maths matches the browser clock. */
+    const inMinutes = (mins: number) => {
+      const d = new Date(Date.now() + mins * 60_000);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return {
+        scheduled_date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+        start_time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      };
+    };
+
+    it('offers Join once a session exists and the room is open', async () => {
+      withAppointments([
+        telehealthAppt({
+          ...inMinutes(5),
+          telehealth_session_id: 'TH-1',
+          location: { telehealth_link: 'https://meet.jit.si/room' },
+        }),
+      ]);
+      render(<AppointmentSchedulerPage />);
+
+      const join = await screen.findByRole('link', { name: /Join consultation/i });
+      expect(join).toHaveAttribute('href', 'https://meet.jit.si/room');
+    });
+
+    /**
+     * The defect: a Join button that claims a meeting exists when none was
+     * ever created. A telehealth appointment without a session must not offer
+     * one, however close the appointment is.
+     */
+    it('offers no Join when no session was provisioned', async () => {
+      withAppointments([telehealthAppt({ ...inMinutes(5) })]);
+      render(<AppointmentSchedulerPage />);
+
+      await screen.findByText(/Virtual/i);
+      expect(screen.queryByRole('link', { name: /Join consultation/i })).not.toBeInTheDocument();
+    });
+
+    it('does not open the room days ahead of the appointment', async () => {
+      withAppointments([
+        telehealthAppt({
+          ...inMinutes(60 * 24 * 3),
+          telehealth_session_id: 'TH-2',
+          location: { telehealth_link: 'https://meet.jit.si/room' },
+        }),
+      ]);
+      render(<AppointmentSchedulerPage />);
+
+      fireEvent.click(await screen.findByRole('tab', { name: /Upcoming/i }));
+      expect(await screen.findByText(/Join opens 15 min before/i)).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Join consultation/i })).not.toBeInTheDocument();
+    });
+  });
 });

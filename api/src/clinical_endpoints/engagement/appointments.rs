@@ -161,7 +161,7 @@ pub async fn book_appointment(
         crate::clinical::AppointmentType::Telehealth
     ) || req.location_type.as_deref() == Some("Telehealth");
 
-    let appointment = crate::clinical::Appointment {
+    let mut appointment = crate::clinical::Appointment {
         appointment_id: format!("APT-{}", uuid::Uuid::new_v4()),
         patient_id: req.patient_id.clone(),
         // Server-derived. Equal to what the client asked for only when that
@@ -198,13 +198,67 @@ pub async fn book_appointment(
         booked_by: Some(current_user_id),
         check_in_time: None,
         is_telehealth,
+        // Filled in below, once a session has actually been provisioned.
+        telehealth_session_id: None,
         reminders_sent: Vec::new(),
         instructions: req.instructions.clone(),
         insurance_verified: false,
         notes: req.notes.clone(),
     };
 
+    // A telehealth appointment gets a real meeting, created now and linked to
+    // it. Booking one used to produce nothing but a differently-labelled
+    // appointment: `create_telehealth_session` already accepted an
+    // `appointment_id`, but nothing ever called it from here, so the two
+    // subsystems never met (`docs/WORKFLOW_AUDIT.md`, WF-014).
+    //
+    // Provisioning failure is reported, not swallowed. An appointment that
+    // says "virtual" while no room exists is precisely the fake-integration
+    // this work removes — better to refuse the booking than to create one that
+    // cannot be attended.
+    if appointment.is_telehealth {
+        let scheduled_start = appointment
+            .scheduled_time
+            .unwrap_or_else(|| {
+                // No explicit epoch was supplied, so derive one from the date
+                // and time the booking actually carries. The join window is
+                // measured against this, so it must not silently become "now".
+                crate::types::appt_to_datetime(
+                    &appointment.scheduled_date,
+                    &appointment.start_time,
+                )
+                .timestamp()
+            });
+        match crate::clinical_endpoints::provision_session(
+            &data,
+            &appointment.patient_id,
+            attribution.provider_id(),
+            Some(appointment.appointment_id.clone()),
+            scheduled_start,
+            crate::clinical::TelehealthType::VideoVisit,
+            false,
+        )
+        .await
+        {
+            Ok(provisioned) => {
+                appointment.location.telehealth_link =
+                    Some(provisioned.session.waiting_room_url.clone());
+                appointment.telehealth_session_id = Some(provisioned.session.session_id.clone());
+            }
+            Err(e) => {
+                log::error!("telehealth session provisioning failed: {e}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    success: false,
+                    error: "The video consultation could not be set up.                             Please try again, or book an in-person appointment."
+                        .to_string(),
+                    code: "TELEHEALTH_UNAVAILABLE".to_string(),
+                });
+            }
+        }
+    }
+
     let appointment_id = appointment.appointment_id.clone();
+    let telehealth_session_id = appointment.telehealth_session_id.clone();
     let appointment_patient_id = appointment.patient_id.clone();
     let appointment_provider_name = appointment.provider_name.clone();
     let entity: crate::repositories::traits::AppointmentEntity = appointment.into();
@@ -251,6 +305,7 @@ pub async fn book_appointment(
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
         "appointment_id": appointment_id,
+        "telehealth_session_id": telehealth_session_id,
         "message": "Appointment booked successfully"
     }))
 }
@@ -1088,6 +1143,7 @@ mod appointment_reminder_tests {
             booked_by: Some("PAT-1".to_string()),
             check_in_time: None,
             is_telehealth: false,
+            telehealth_session_id: None,
             reminders_sent: Vec::new(),
             instructions: None,
             insurance_verified: false,

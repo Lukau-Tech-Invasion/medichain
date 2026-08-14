@@ -7275,6 +7275,16 @@ pub struct Appointment {
     pub check_in_time: Option<i64>,
     /// Is telehealth appointment
     pub is_telehealth: bool,
+    /// The telehealth session this appointment is held in, once one exists.
+    ///
+    /// `None` on an in-person appointment, and on a telehealth appointment
+    /// whose session could not be provisioned — which is why it is an option
+    /// rather than assumed. A client must treat `None` as "there is no meeting
+    /// yet" and must not offer a join action: previously nothing ever set this,
+    /// so the two subsystems were entirely disconnected and the patient app's
+    /// Join button pointed at nothing (`docs/WORKFLOW_AUDIT.md`, WF-014).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telehealth_session_id: Option<String>,
     /// Reminders sent
     pub reminders_sent: Vec<AppointmentReminder>,
     /// Instructions
