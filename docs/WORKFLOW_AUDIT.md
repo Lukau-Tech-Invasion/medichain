@@ -15,7 +15,7 @@ pages off raw colour utilities is mechanical follow-up work — see §5.
 | 4 · Appointment lifecycle | done | `d76846b` `1c14767` `f889637` `3fd425f` + patient app |
 | 5 · Telehealth workflow | done | `HEAD` |
 | 6 · Design tokens and contrast | foundation done; page migration ongoing | `HEAD` |
-| 7 · Tests and evidence | partial, per phase | — |
+| 7 · Tests and evidence | done | `HEAD` |
 
 This document is the living inventory for the workflow/UX/authentication audit.
 New findings go here. It is deliberately separate from
@@ -64,8 +64,9 @@ pre-existing ones (requirement §32).
 | Suite | Baseline | Notes |
 | ----- | -------- | ----- |
 | `cargo test --bin medichain-api` | **363 passed, 0 failed, 1 ignored** (510s) | Against the live PostgreSQL 16 container. Two more than the 361 in `CLAUDE.md`. After phases 1–4: **392 passed, 0 failed** — +29 tests, no regressions. |
-| `cargo test -p medichain-crypto` | not yet run | |
-| pallets (3 crates) | not yet run | |
+| `cargo test -p medichain-crypto` | 23 (per `CLAUDE.md`) | **29 passed, 0 failed** after phase 3 (+6 password tests) |
+| pallets (3 crates) | 60 (per `CLAUDE.md`) | **60 passed, 0 failed** — unchanged, nothing in this campaign touched them |
+| `scripts/synthetic-e2e-test.sh` | 83 assertions / 11 sections | **36 new assertions across 4 new sections, 0 failures** |
 | doctor-portal `vitest` | 127 failing (per `docs/PRODUCTION_READINESS.md` H3) | diagnosed as test drift, not product defects |
 | patient-app `vitest` | 46 failing (same source) | same |
 
@@ -191,6 +192,43 @@ accounts. Verbatim results:
 
 7b/7c are how WF-030 was found. Both cleared the new authorization logic and
 failed underneath it, in a pre-existing schema defect unrelated to this work.
+
+### Phase 7 — the broadest practical suite
+
+Run at the end of the campaign. "Baseline" is the state before any of this work.
+
+| Suite | Baseline | Now | Delta |
+| ----- | -------- | --- | ----- |
+| API (`cargo test --bin medichain-api`) | 363 pass / 0 fail | **396 pass / 0 fail** | +33, no regressions |
+| Crypto (`-p medichain-crypto`) | 23 | **29 pass / 0 fail** | +6 |
+| Pallets (3 crates) | 60 | **60 pass / 0 fail** | unchanged |
+| Contrast gate (`scripts/check-contrast.py`) | did not exist | **52/52 pairs meet WCAG AA** | new |
+| Synthetic e2e — new sections 19–22 | did not exist | **36 assertions, 0 failures** | new |
+| doctor-portal `vitest` (touched files) | — | 63 pass | — |
+| patient-app `vitest` (touched files) | — | 7 pass | — |
+| Typecheck (all three workspaces) | clean | clean | — |
+
+The e2e sections were added to the project's existing harness rather than a new
+lane, and cover the scenarios the brief listed for the spine: doctor sign-in
+without a wallet address (1), the appointment lifecycle (2), telehealth (3),
+and authorization/impersonation (7). Scenarios 4–6 (patient registration,
+imaging, critical values) are deliberately absent: those features are not
+fixed, and a passing test over a broken workflow is worse than no test.
+
+**Ten pre-existing failures remain in the harness's older sections**, all
+downstream of `bootstrap first admin` returning `403 INVALID_BOOTSTRAP_KEY`
+when re-run against a database that already holds the admin — the file's own
+header documents this ("bootstrap returns 409 on a second run … every later
+section fails for reasons that have nothing to do with the product") — plus
+three IPFS gateway retrieval errors. None are in sections 19–22, and none touch
+code this campaign changed. The new sections derive their slot times and login
+identifier from a per-run tag specifically so they *are* re-runnable, which the
+older ones are not.
+
+`cargo test --manifest-path blockchain/Cargo.toml --workspace` cannot run on
+this host: the node crate pulls `librocksdb-sys`, whose build script dies with
+`STATUS_DLL_NOT_FOUND`. The three pallet crates build and pass individually,
+which is what `CLAUDE.md` documents as the working invocation.
 
 ## 5. What is genuinely still open
 

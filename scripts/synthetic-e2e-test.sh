@@ -699,6 +699,181 @@ check "patient CANNOT read another patient's records" 403 "$(code GET "/api/reco
 check "patient CANNOT read another patient's vitals"  403 "$(code GET "/api/clinical/patient/$PAT_C11/vitals" '' "$SELFREAD_WALLET")"
 
 # ---------------------------------------------------------------------------
+# Sections 19-22 cover the workflow-audit spine (docs/WORKFLOW_AUDIT.md).
+# Each asserts a defect the audit found is actually gone, against a real
+# server and real persistence — not that an endpoint returns 200.
+# ---------------------------------------------------------------------------
+
+say "19. A clinician signs in without ever typing a wallet address (WF-001/WF-002)"
+
+# Unique per run: login_id is uniquely indexed, so a re-run must not collide
+# with the previous run's enrolment.
+RUN_TAG=$(date +%s)
+LOGIN_ID="dr.e2e.$RUN_TAG"
+# The client derives this from the password; the server only ever sees the
+# proof. Any opaque hex of the right shape exercises the same contract.
+AUTH_PROOF=$(printf 'a%.0s' $(seq 1 64))
+WRONG_PROOF=$(printf 'b%.0s' $(seq 1 64))
+KEYSTORE='{"v":1,"iv":"YWJjZGVmZ2hpamts","ct":"'"$(printf 'Q%.0s' $(seq 1 64))"'","address":"'"$DOCTOR"'"}'
+ENROL_BODY=$(python -c '
+import json, sys
+print(json.dumps({"login_id": sys.argv[1], "auth_proof": sys.argv[2],
+                  "encrypted_keystore": sys.argv[3]}))' "$LOGIN_ID" "$AUTH_PROOF" "$KEYSTORE")
+
+check "enrolment is authenticated by the wallet that owns the key" 200 \
+  "$(code POST /api/auth/credentials "$ENROL_BODY" "$DOCTOR")" "$(body)"
+
+LOGIN_BODY=$(python -c '
+import json, sys
+print(json.dumps({"identifier": sys.argv[1], "auth_proof": sys.argv[2]}))' "$LOGIN_ID" "$AUTH_PROOF")
+check "sign in with an employee id, no wallet address typed" 200 \
+  "$(code POST /api/auth/staff/login "$LOGIN_BODY")" "$(body)"
+check "  the wallet is resolved server-side, not supplied" "$DOCTOR" "$(jget wallet_address)"
+check "  the encrypted keystore comes back for the client to open" "true" \
+  "$([ -n "$(jget encrypted_keystore)" ] && echo true || echo false)"
+
+BAD_BODY=$(python -c '
+import json, sys
+print(json.dumps({"identifier": sys.argv[1], "auth_proof": sys.argv[2]}))' "$LOGIN_ID" "$WRONG_PROOF")
+check "a wrong password is refused" 401 "$(code POST /api/auth/staff/login "$BAD_BODY")"
+WRONG_ID_BODY=$(python -c '
+import json, sys
+print(json.dumps({"identifier": "no.such.person", "auth_proof": sys.argv[1]}))' "$AUTH_PROOF")
+check "an unknown identifier is refused identically (no enumeration)" 401 \
+  "$(code POST /api/auth/staff/login "$WRONG_ID_BODY")"
+
+# ---------------------------------------------------------------------------
+say "20. Appointment lifecycle persists and advances (WF-005/WF-008/WF-009/WF-030)"
+
+APPT_DATE=$(date -u -d '+3 days' +%Y-%m-%d 2>/dev/null || date -u -v+3d +%Y-%m-%d)
+# Slot times are derived from RUN_TAG, not fixed. book_appointment_atomic
+# rejects an overlapping booking (correctly), so fixed times made the suite
+# pass once and then 409 on every later run against the same database.
+SLOT_BASE=$(( RUN_TAG % 8 ))
+T1=$(printf '%02d:05' $(( 8 + SLOT_BASE )))
+T2=$(printf '%02d:35' $(( 8 + SLOT_BASE )))
+T3=$(printf '%02d:05' $(( 16 + (RUN_TAG % 4) )))
+T4=$(printf '%02d:35' $(( 16 + (RUN_TAG % 4) )))
+# The patient this harness created for itself, not a PostgreSQL demo seed:
+# PAT-001-DEMO does not exist on the in-memory backend.
+APPT_PATIENT="$PAT_ADULT"
+BOOK=$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
+                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": "Synthetic lifecycle run"}))' "$DOCTOR" "$APPT_DATE" "$T1" "$APPT_PATIENT")
+check "a doctor books an appointment for themselves" 201 \
+  "$(code POST /api/appointments "$BOOK" "$DOCTOR")" "$(body)"
+APT_ID=$(jget appointment_id)
+
+# The whole point of WF-030: this used to 500 on PostgreSQL, so the row never
+# existed. Reading it back proves persistence, not just a 201.
+check "  the appointment can be read back" 200 "$(code GET "/api/appointments/$APT_ID" '' "$DOCTOR")"
+check "  it is stored as a consultation, not silently defaulted" "Consultation" "$(jget appointment_type)"
+
+# WF-005: the type map used to fall through to FollowUp for every value the
+# portal actually sends.
+check "an unrecognised appointment type is rejected, not defaulted" 400 \
+  "$(code POST /api/appointments "$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
+                  "appointment_type": "brain-transplant", "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": "x"}))' "$DOCTOR" "$APPT_DATE" "$T2" "$APPT_PATIENT")" "$DOCTOR")"
+
+st() { code POST "/api/appointments/$APT_ID/status" "{\"status\":\"$1\"}" "$DOCTOR"; }
+check "confirm"                      200 "$(st confirmed)"
+check "cannot skip straight to completed" 409 "$(st completed)"
+check "check in"                     200 "$(st checked_in)"
+check "start the consultation"       200 "$(st in_progress)"
+check "complete"                     200 "$(st completed)"
+check "a completed visit cannot reopen" 409 "$(st in_progress)"
+check "a typo'd status is refused rather than applied" 400 "$(st complete)"
+check "  the completed status persisted" 200 "$(code GET "/api/appointments/$APT_ID" '' "$DOCTOR")"
+check "  status reads back as Completed" "Completed" "$(jget status)"
+
+# WF-006: the portal's Cancel button sends no body at all, and the handler
+# used to require one, so every cancellation 400'd before reaching the code.
+CANCEL_BOOK=$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
+                  "appointment_type": "follow-up", "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": "Cancellation path"}))' "$DOCTOR" "$APPT_DATE" "$T2" "$APPT_PATIENT")
+code POST /api/appointments "$CANCEL_BOOK" "$DOCTOR" >/dev/null
+CANCEL_ID=$(jget appointment_id)
+check "cancel works with no request body (the dead button)" 200 \
+  "$(code POST "/api/appointments/$CANCEL_ID/cancel" '' "$DOCTOR")" "$(body)"
+
+# ---------------------------------------------------------------------------
+say "21. Booking telehealth creates a real, gated session (WF-014)"
+
+TH_BOOK=$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
+                  "appointment_type": "telehealth", "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": "Synthetic telehealth run"}))' "$DOCTOR" "$APPT_DATE" "$T3" "$APPT_PATIENT")
+check "a telehealth appointment is booked" 201 \
+  "$(code POST /api/appointments "$TH_BOOK" "$DOCTOR")" "$(body)"
+TH_APT=$(jget appointment_id)
+TH_SESSION=$(jget telehealth_session_id)
+check "  a session is provisioned and returned with the booking" "true" \
+  "$([ -n "$TH_SESSION" ] && echo true || echo false)"
+
+check "  the appointment carries the session" 200 "$(code GET "/api/appointments/$TH_APT" '' "$DOCTOR")"
+check "  it is flagged virtual" "True" "$(jget is_telehealth)"
+check "  it links to the session that was created" "$TH_SESSION" "$(jget telehealth_session_id)"
+check "  it carries a real join link" "true" \
+  "$([ -n "$(jget location telehealth_link)" ] && echo true || echo false)"
+
+# The appointment is days away, so the room must not be reachable. This is the
+# control that stops a saved link working whenever someone likes.
+check "the room is shut days before the appointment" 403 \
+  "$(code POST "/api/telehealth/sessions/$TH_SESSION/join" '' "$DOCTOR")" "$(body)"
+check "  and refused for the right reason" "OUTSIDE_JOIN_WINDOW" "$(jget error code)"
+
+# Someone who is neither the patient nor the provider.
+check "an unrelated clinician cannot join" 403 \
+  "$(code POST "/api/telehealth/sessions/$TH_SESSION/join" '' "$PARAMEDIC")"
+
+# ---------------------------------------------------------------------------
+say "22. Client-supplied identity cannot impersonate (WF-004/WF-020/WF-021)"
+
+# The headline defect: a doctor naming a colleague as the provider. The caller
+# is authenticated and authorized to book — the question is purely whether the
+# body's provider_id is believed.
+IMPERSONATE=$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
+                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": "Impersonation attempt"}))' "$PARAMEDIC" "$APPT_DATE" "$T3" "$APPT_PATIENT")
+check "a doctor cannot book onto a colleague's calendar" 403 \
+  "$(code POST /api/appointments "$IMPERSONATE" "$DOCTOR")" "$(body)"
+check "  refused as a provider mismatch, not a generic 403" "PROVIDER_MISMATCH" "$(jget error code)"
+
+# An administrator legitimately schedules for a colleague, and the record must
+# still name who actually did it.
+ADMIN_BOOKS=$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
+                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": "Delegated scheduling"}))' "$DOCTOR" "$APPT_DATE" "$T4" "$APPT_PATIENT")
+check "an admin may schedule on a colleague's behalf" 201 \
+  "$(code POST /api/appointments "$ADMIN_BOOKS" "$ADMIN")" "$(body)"
+DELEGATED=$(jget appointment_id)
+check "  the appointment is attributed to the colleague" 200 \
+  "$(code GET "/api/appointments/$DELEGATED" '' "$DOCTOR")"
+check "  provider is the colleague" "$DOCTOR" "$(jget provider_id)"
+check "  but the real actor is recorded" "$ADMIN" "$(jget created_by)"
+
+# Naming a provider who does not exist, or who is not a provider at all.
+GHOST=$(python -c '
+import json, sys
+print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
+                  "appointment_type": "consultation", "preferred_date": sys.argv[2],
+                  "preferred_time": sys.argv[3], "reason": "Unknown provider"}))' "$UNREGISTERED_WALLET" "$APPT_DATE" "$T4" "$APPT_PATIENT")
+check "an unknown wallet cannot be named as the provider" 400 \
+  "$(code POST /api/appointments "$GHOST" "$ADMIN")" "$(body)"
+
+# ---------------------------------------------------------------------------
 say "RESULTS"
 printf '  passed=%d failed=%d\n' "$PASS" "$FAIL"
 printf '%s\n' "${RESULTS[@]}" > /tmp/synthetic-results.txt
