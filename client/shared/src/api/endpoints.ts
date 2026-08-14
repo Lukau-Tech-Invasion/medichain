@@ -1469,6 +1469,28 @@ export async function createAppointment(data: unknown): Promise<AppointmentCreat
   return getApiClient().post('/api/appointments', data);
 }
 
+/**
+ * Advance an appointment through its lifecycle.
+ *
+ * The server enforces the transition table and the caller's rights, so a
+ * rejected move comes back as 409 INVALID_TRANSITION or 403, not as a silent
+ * no-op. `reason` is required when cancelling.
+ */
+export async function setAppointmentStatus(
+  appointmentId: string,
+  status:
+    | 'scheduled'
+    | 'confirmed'
+    | 'checked_in'
+    | 'in_progress'
+    | 'completed'
+    | 'cancelled'
+    | 'no_show',
+  reason?: string
+): Promise<{ success: boolean; appointment_id: string; status: string; message: string }> {
+  return getApiClient().post(`/api/appointments/${appointmentId}/status`, { status, reason });
+}
+
 export async function getAppointment(appointmentId: string): Promise<Appointment> {
   return getApiClient().get(`/api/appointments/${appointmentId}`);
 }
