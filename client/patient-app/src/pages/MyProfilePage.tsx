@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react';
-import { apiUrl, addEmergencyContact, isValidPhoneNumber, useTranslation } from '@medichain/shared';
+import {
+  apiUrl,
+  isValidPhoneNumber,
+  useTranslation,
+  updateDemographics,
+  replaceEmergencyContacts,
+} from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 import {
   User,
   Heart,
@@ -15,13 +22,58 @@ import {
   X,
   Save,
   Info,
+  MapPin,
+  CreditCard,
+  Pencil,
+  Trash2,
+  Globe,
 } from 'lucide-react';
 
 interface EmergencyContact {
   name: string;
   phone: string;
   relationship: string;
+  canMakeMedicalDecisions?: boolean;
 }
+
+interface PatientAddress {
+  street: string;
+  city: string;
+  state: string;
+  country: string;
+  postalCode: string;
+}
+
+interface PatientInsurance {
+  provider: string;
+  policyNumber: string;
+  groupNumber: string;
+  validFrom: string;
+  validTo: string;
+  coverageType: 'Public' | 'Private' | 'Employer' | 'NHIS' | 'Community' | 'None';
+  isActive: boolean;
+}
+
+const EMPTY_ADDRESS: PatientAddress = {
+  street: '',
+  city: '',
+  state: '',
+  country: '',
+  postalCode: '',
+};
+
+const EMPTY_INSURANCE: PatientInsurance = {
+  provider: '',
+  policyNumber: '',
+  groupNumber: '',
+  validFrom: '',
+  validTo: '',
+  coverageType: 'Private',
+  isActive: true,
+};
+
+/** Server-side cap; mirrored here so the Add button disables at the same point. */
+const MAX_EMERGENCY_CONTACTS = 10;
 
 interface PatientProfile {
   patientId: string;
@@ -35,49 +87,65 @@ interface PatientProfile {
   emergencyContacts: EmergencyContact[];
   organDonor: boolean;
   dnrStatus: boolean;
+  phone: string;
+  gender: string;
+  languages: string[];
+  address: PatientAddress | null;
+  insurance: PatientInsurance | null;
   lastUpdated: string;
 }
 
 /**
  * My Profile Page
  * 
- * Displays patient's personal and medical information.
- * Patients can ONLY add emergency contacts.
- * All other profile changes must be made by healthcare providers.
+ * Displays the patient's personal and medical information.
+ *
+ * The split of what is editable here is deliberate, not incidental: demographic
+ * and administrative facts (contact details, address, insurance, emergency
+ * contacts) are the patient's own to maintain, while clinical facts (blood type,
+ * allergies, conditions, DNR) stay read-only because a self-declared blood type
+ * must never be mistaken for a verified clinical record.
  * 
  * © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
  */
 export function MyProfilePage() {
   const { t } = useTranslation();
+  const patient = usePatientAuthStore(state => state.patient);
   const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [newContact, setNewContact] = useState<EmergencyContact>({ name: '', phone: '', relationship: '' });
   const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Each editable section keeps its own draft so opening one does not discard
+  // unsaved edits in another, and cancelling reverts only that section.
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsDraft, setDetailsDraft] = useState({ phone: '', gender: '', languages: '' });
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addressDraft, setAddressDraft] = useState<PatientAddress>(EMPTY_ADDRESS);
+  const [editingInsurance, setEditingInsurance] = useState(false);
+  const [insuranceDraft, setInsuranceDraft] = useState<PatientInsurance>(EMPTY_INSURANCE);
 
   useEffect(() => {
     loadProfile();
-  }, []);
+  }, [patient?.healthId]);
 
   const loadProfile = async () => {
     setIsLoading(true);
     
     try {
-      // Get patient ID from stored auth
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : null;
-      
-      if (!patientId) {
+      if (!patient) {
         setProfile(null);
         setIsLoading(false);
         return;
       }
 
-      const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
+      const response = await fetch(apiUrl(`/api/patients/${patient.healthId}`), {
         headers: {
-          'X-User-Id': patientId,
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
           'Content-Type': 'application/json',
         },
       });
@@ -95,9 +163,39 @@ export function MyProfilePage() {
           allergies: emergencyInfo.allergies?.map((a: { name: string }) => a.name) || [],
           currentMedications: emergencyInfo.current_medications || [],
           chronicConditions: emergencyInfo.chronic_conditions || [],
-          emergencyContacts: emergencyInfo.emergency_contacts || [],
+          emergencyContacts: (emergencyInfo.emergency_contacts || []).map(
+            (c: { name: string; phone: string; relationship: string; can_make_medical_decisions?: boolean }) => ({
+              name: c.name,
+              phone: c.phone,
+              relationship: c.relationship,
+              canMakeMedicalDecisions: c.can_make_medical_decisions ?? false,
+            })
+          ),
           organDonor: emergencyInfo.organ_donor || false,
           dnrStatus: emergencyInfo.dnr_status || false,
+          phone: data.phone || '',
+          gender: data.gender || '',
+          languages: emergencyInfo.languages || [],
+          address: data.address
+            ? {
+                street: data.address.street || '',
+                city: data.address.city || '',
+                state: data.address.state || '',
+                country: data.address.country || '',
+                postalCode: data.address.postal_code || '',
+              }
+            : null,
+          insurance: data.insurance
+            ? {
+                provider: data.insurance.provider || '',
+                policyNumber: data.insurance.policy_number || '',
+                groupNumber: data.insurance.group_number || '',
+                validFrom: data.insurance.valid_from || '',
+                validTo: data.insurance.valid_to || '',
+                coverageType: data.insurance.coverage_type || 'Private',
+                isActive: data.insurance.is_active ?? true,
+              }
+            : null,
           lastUpdated: data.last_updated || new Date().toISOString(),
         });
       } else {
@@ -111,49 +209,192 @@ export function MyProfilePage() {
     setIsLoading(false);
   };
 
+  /** Show a message for a few seconds, then clear it. */
+  const flash = (message: string) => {
+    setSaveSuccess(message);
+    setTimeout(() => setSaveSuccess(null), 3000);
+  };
+
+  /**
+   * Persist the whole contact list.
+   *
+   * Add, edit and remove all funnel through here because the endpoint replaces
+   * the list wholesale — which keeps the server the single source of truth for
+   * priority ordering instead of the client guessing at it.
+   */
+  const persistContacts = async (contacts: EmergencyContact[]) => {
+    if (!profile) return false;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await replaceEmergencyContacts(
+        profile.patientId,
+        contacts.map(c => ({
+          name: c.name,
+          phone: c.phone,
+          relationship: c.relationship,
+          can_make_medical_decisions: c.canMakeMedicalDecisions ?? false,
+        }))
+      );
+      if (!response.success) {
+        setError(response.message || t('profile.saveFailed'));
+        return false;
+      }
+      setProfile({ ...profile, emergencyContacts: contacts, lastUpdated: new Date().toISOString() });
+      return true;
+    } catch (err) {
+      console.error('Failed to save contacts:', err);
+      setError(t('profile.saveFailedRetry'));
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleAddContact = async () => {
-    if (!newContact.name || !newContact.phone || !newContact.relationship) {
+    if (!profile || !newContact.name || !newContact.phone || !newContact.relationship) {
       return;
     }
-
-    if (!profile) return;
-
     // Reject malformed numbers before submit so we never save a broken contact.
     if (!isValidPhoneNumber(newContact.phone)) {
       setError(t('profile.invalidPhone'));
       return;
     }
-
-    setIsSaving(true);
-    setError(null);
-    
-    try {
-      const response = await addEmergencyContact(profile.patientId, newContact);
-      
-      if (response.success) {
-        setProfile({
-          ...profile,
-          emergencyContacts: [...profile.emergencyContacts, newContact],
-          lastUpdated: new Date().toISOString(),
-        });
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
-      } else {
-        setError(response.message || t('profile.saveFailed'));
-      }
-    } catch (err) {
-      console.error('Failed to save contact:', err);
-      setError(t('profile.saveFailedRetry'));
-    } finally {
-      setIsSaving(false);
+    const ok = await persistContacts([...profile.emergencyContacts, newContact]);
+    if (ok) {
+      flash(t('profile.contactAdded'));
       setIsAddingContact(false);
       setNewContact({ name: '', phone: '', relationship: '' });
+    }
+  };
+
+  const handleRemoveContact = async (index: number) => {
+    if (!profile) return;
+    const remaining = profile.emergencyContacts.filter((_, i) => i !== index);
+    if (await persistContacts(remaining)) {
+      flash(t('profile.contactsSaved'));
     }
   };
 
   const cancelAddContact = () => {
     setIsAddingContact(false);
     setNewContact({ name: '', phone: '', relationship: '' });
+  };
+
+  const beginEditDetails = () => {
+    if (!profile) return;
+    setDetailsDraft({
+      phone: profile.phone,
+      gender: profile.gender,
+      languages: profile.languages.join(', '),
+    });
+    setEditingDetails(true);
+  };
+
+  const handleSaveDetails = async () => {
+    if (!profile) return;
+    if (detailsDraft.phone.trim() && !isValidPhoneNumber(detailsDraft.phone)) {
+      setError(t('profile.invalidPhone'));
+      return;
+    }
+    const languages = detailsDraft.languages
+      .split(',')
+      .map(l => l.trim())
+      .filter(Boolean);
+    setIsSaving(true);
+    setError(null);
+    try {
+      await updateDemographics(profile.patientId, {
+        phone: detailsDraft.phone.trim(),
+        gender: detailsDraft.gender,
+        languages,
+      });
+      setProfile({
+        ...profile,
+        phone: detailsDraft.phone.trim(),
+        gender: detailsDraft.gender,
+        languages,
+        lastUpdated: new Date().toISOString(),
+      });
+      setEditingDetails(false);
+      flash(t('profile.detailsSaved'));
+    } catch (err) {
+      console.error('Failed to save details:', err);
+      setError(t('profile.saveFailedRetry'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const beginEditAddress = () => {
+    setAddressDraft(profile?.address ?? EMPTY_ADDRESS);
+    setEditingAddress(true);
+  };
+
+  const handleSaveAddress = async () => {
+    if (!profile) return;
+    if (!addressDraft.city.trim() || !addressDraft.country.trim()) {
+      setError(t('profile.addressIncomplete'));
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      await updateDemographics(profile.patientId, {
+        address: {
+          street: addressDraft.street.trim() || null,
+          city: addressDraft.city.trim(),
+          state: addressDraft.state.trim() || null,
+          country: addressDraft.country.trim(),
+          postal_code: addressDraft.postalCode.trim() || null,
+          coordinates: null,
+        },
+      });
+      setProfile({ ...profile, address: addressDraft, lastUpdated: new Date().toISOString() });
+      setEditingAddress(false);
+      flash(t('profile.detailsSaved'));
+    } catch (err) {
+      console.error('Failed to save address:', err);
+      setError(t('profile.saveFailedRetry'));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const beginEditInsurance = () => {
+    setInsuranceDraft(profile?.insurance ?? EMPTY_INSURANCE);
+    setEditingInsurance(true);
+  };
+
+  const handleSaveInsurance = async () => {
+    if (!profile) return;
+    if (!insuranceDraft.provider.trim() || !insuranceDraft.policyNumber.trim()) {
+      setError(t('profile.insuranceIncomplete'));
+      return;
+    }
+    setIsSaving(true);
+    setError(null);
+    try {
+      await updateDemographics(profile.patientId, {
+        insurance: {
+          provider: insuranceDraft.provider.trim(),
+          policy_number: insuranceDraft.policyNumber.trim(),
+          group_number: insuranceDraft.groupNumber.trim() || null,
+          valid_from: insuranceDraft.validFrom,
+          valid_to: insuranceDraft.validTo,
+          coverage_type: insuranceDraft.coverageType,
+          is_active: insuranceDraft.isActive,
+        },
+      });
+      setProfile({ ...profile, insurance: insuranceDraft, lastUpdated: new Date().toISOString() });
+      setEditingInsurance(false);
+      flash(t('profile.detailsSaved'));
+    } catch (err) {
+      console.error('Failed to save insurance:', err);
+      setError(t('profile.saveFailedRetry'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -212,7 +453,7 @@ export function MyProfilePage() {
       {saveSuccess && (
         <div className="success-card flex items-center gap-3">
           <CheckCircle className="w-5 h-5 text-success-500" />
-          <span>{t('profile.contactAdded')}</span>
+          <span>{saveSuccess}</span>
         </div>
       )}
 
@@ -376,6 +617,402 @@ export function MyProfilePage() {
         </div>
       </div>
 
+      {/* Contact Details Card - patient-editable */}
+      <div className="patient-card">
+        <div className="flex items-center justify-between mb-6 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Phone className="w-6 h-6 text-primary-600" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-semibold text-lg text-neutral-900">{t('profile.contactDetails')}</h2>
+              <p className="text-sm text-neutral-500">{t('profile.contactDetailsSub')}</p>
+            </div>
+          </div>
+          {!editingDetails && (
+            <button
+              onClick={beginEditDetails}
+              className="flex items-center gap-2 px-4 py-2 text-primary-600 hover:bg-primary-50 rounded-xl transition-colors flex-shrink-0"
+            >
+              <Pencil className="w-4 h-4" />
+              {t('profile.edit')}
+            </button>
+          )}
+        </div>
+
+        {editingDetails ? (
+          <div className="space-y-4">
+              <div>
+                <label htmlFor="profile-phone" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.phoneNumber')}
+                </label>
+                <input
+                  type="tel"
+                  id="profile-phone"
+                  value={detailsDraft.phone}
+                  onChange={(e) => setDetailsDraft({ ...detailsDraft, phone: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder={t('profile.phonePlaceholder')}
+                />
+              </div>
+              <div>
+                <label htmlFor="profile-gender" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.gender')}
+                </label>
+                <select
+                  id="profile-gender"
+                  value={detailsDraft.gender}
+                  onChange={(e) => setDetailsDraft({ ...detailsDraft, gender: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="">{t('profile.genderUnspecified')}</option>
+                  <option value="female">{t('profile.genderFemale')}</option>
+                  <option value="male">{t('profile.genderMale')}</option>
+                  <option value="other">{t('profile.genderOther')}</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="profile-languages" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.spokenLanguages')}
+                </label>
+                <input
+                  type="text"
+                  id="profile-languages"
+                  value={detailsDraft.languages}
+                  onChange={(e) => setDetailsDraft({ ...detailsDraft, languages: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder={t('profile.spokenLanguagesHint')}
+                />
+              </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setEditingDetails(false)}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+              >
+                <X className="w-4 h-4" />
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSaveDetails}
+                disabled={isSaving}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {t('profile.saveChanges')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-neutral-500">{t('profile.phoneNumber')}</label>
+              <p className="font-medium text-neutral-900">
+                {profile?.phone || t('profile.notRecorded')}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-neutral-500">{t('profile.gender')}</label>
+              <p className="font-medium text-neutral-900 capitalize">
+                {profile?.gender || t('profile.notRecorded')}
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-sm text-neutral-500 flex items-center gap-2">
+                <Globe className="w-4 h-4" />
+                {t('profile.spokenLanguages')}
+              </label>
+              <p className="font-medium text-neutral-900">
+                {profile && profile.languages.length > 0
+                  ? profile.languages.join(', ')
+                  : t('profile.notRecorded')}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Home Address Card - patient-editable */}
+      <div className="patient-card">
+        <div className="flex items-center justify-between mb-6 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <MapPin className="w-6 h-6 text-primary-600" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-semibold text-lg text-neutral-900">{t('profile.addressTitle')}</h2>
+              <p className="text-sm text-neutral-500">{t('profile.addressSub')}</p>
+            </div>
+          </div>
+          {!editingAddress && (
+            <button
+              onClick={beginEditAddress}
+              className="flex items-center gap-2 px-4 py-2 text-primary-600 hover:bg-primary-50 rounded-xl transition-colors flex-shrink-0"
+            >
+              <Pencil className="w-4 h-4" />
+              {t('profile.edit')}
+            </button>
+          )}
+        </div>
+
+        {editingAddress ? (
+          <div className="space-y-4">
+              <div>
+                <label htmlFor="address-street" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.addressStreet')}
+                </label>
+                <input
+                  type="text"
+                  id="address-street"
+                  value={addressDraft.street}
+                  onChange={(e) => setAddressDraft({ ...addressDraft, street: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="address-city" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.addressCity')}
+                </label>
+                <input
+                  type="text"
+                  id="address-city"
+                  value={addressDraft.city}
+                  onChange={(e) => setAddressDraft({ ...addressDraft, city: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="address-state" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.addressState')}
+                </label>
+                <input
+                  type="text"
+                  id="address-state"
+                  value={addressDraft.state}
+                  onChange={(e) => setAddressDraft({ ...addressDraft, state: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="address-country" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.addressCountry')}
+                </label>
+                <input
+                  type="text"
+                  id="address-country"
+                  value={addressDraft.country}
+                  onChange={(e) => setAddressDraft({ ...addressDraft, country: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="ZA"
+                />
+              </div>
+              <div>
+                <label htmlFor="address-postal" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.addressPostalCode')}
+                </label>
+                <input
+                  type="text"
+                  id="address-postal"
+                  value={addressDraft.postalCode}
+                  onChange={(e) => setAddressDraft({ ...addressDraft, postalCode: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setEditingAddress(false)}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+              >
+                <X className="w-4 h-4" />
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSaveAddress}
+                disabled={isSaving}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {t('profile.saveChanges')}
+              </button>
+            </div>
+          </div>
+        ) : profile?.address ? (
+          <div className="text-neutral-900 space-y-1">
+            {profile.address.street && <p className="font-medium">{profile.address.street}</p>}
+            <p className="font-medium">
+              {[profile.address.city, profile.address.state, profile.address.postalCode]
+                .filter(Boolean)
+                .join(', ')}
+            </p>
+            <p className="font-medium">{profile.address.country}</p>
+          </div>
+        ) : (
+          <p className="text-neutral-500">{t('profile.noAddress')}</p>
+        )}
+      </div>
+
+      {/* Insurance Card - patient-editable */}
+      <div className="patient-card">
+        <div className="flex items-center justify-between mb-6 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <CreditCard className="w-6 h-6 text-primary-600" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-semibold text-lg text-neutral-900">{t('profile.insuranceTitle')}</h2>
+              <p className="text-sm text-neutral-500">{t('profile.insuranceSub')}</p>
+            </div>
+          </div>
+          {!editingInsurance && (
+            <button
+              onClick={beginEditInsurance}
+              className="flex items-center gap-2 px-4 py-2 text-primary-600 hover:bg-primary-50 rounded-xl transition-colors flex-shrink-0"
+            >
+              <Pencil className="w-4 h-4" />
+              {t('profile.edit')}
+            </button>
+          )}
+        </div>
+
+        {editingInsurance ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="insurance-provider" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.insuranceProvider')}
+                </label>
+                <input
+                  type="text"
+                  id="insurance-provider"
+                  value={insuranceDraft.provider}
+                  onChange={(e) => setInsuranceDraft({ ...insuranceDraft, provider: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="insurance-policy" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.insurancePolicyNumber')}
+                </label>
+                <input
+                  type="text"
+                  id="insurance-policy"
+                  value={insuranceDraft.policyNumber}
+                  onChange={(e) => setInsuranceDraft({ ...insuranceDraft, policyNumber: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="insurance-group" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.insuranceGroupNumber')}
+                </label>
+                <input
+                  type="text"
+                  id="insurance-group"
+                  value={insuranceDraft.groupNumber}
+                  onChange={(e) => setInsuranceDraft({ ...insuranceDraft, groupNumber: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="insurance-type" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.insuranceCoverageType')}
+                </label>
+                <select
+                  id="insurance-type"
+                  value={insuranceDraft.coverageType}
+                  onChange={(e) =>
+                    setInsuranceDraft({
+                      ...insuranceDraft,
+                      coverageType: e.target.value as PatientInsurance['coverageType'],
+                    })
+                  }
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="Public">{t('profile.coveragePublic')}</option>
+                  <option value="Private">{t('profile.coveragePrivate')}</option>
+                  <option value="Employer">{t('profile.coverageEmployer')}</option>
+                  <option value="NHIS">{t('profile.coverageNHIS')}</option>
+                  <option value="Community">{t('profile.coverageCommunity')}</option>
+                  <option value="None">{t('profile.coverageNone')}</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="insurance-from" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.insuranceValidFrom')}
+                </label>
+                <input
+                  type="date"
+                  id="insurance-from"
+                  value={insuranceDraft.validFrom}
+                  onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validFrom: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label htmlFor="insurance-to" className="block text-sm font-medium text-neutral-700 mb-1">
+                  {t('profile.insuranceValidTo')}
+                </label>
+                <input
+                  type="date"
+                  id="insurance-to"
+                  value={insuranceDraft.validTo}
+                  onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validTo: e.target.value })}
+                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <label className="flex items-center gap-3 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={insuranceDraft.isActive}
+                onChange={(e) => setInsuranceDraft({ ...insuranceDraft, isActive: e.target.checked })}
+                className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+              />
+              {t('profile.insuranceActive')}
+            </label>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setEditingInsurance(false)}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+              >
+                <X className="w-4 h-4" />
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSaveInsurance}
+                disabled={isSaving}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {t('profile.saveChanges')}
+              </button>
+            </div>
+          </div>
+        ) : profile?.insurance ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-neutral-500">{t('profile.insuranceProviderLabel')}</label>
+              <p className="font-medium text-neutral-900">{profile.insurance.provider}</p>
+            </div>
+            <div>
+              <label className="text-sm text-neutral-500">{t('profile.insurancePolicyLabel')}</label>
+              <p className="font-medium text-neutral-900 font-mono">{profile.insurance.policyNumber}</p>
+            </div>
+            <div>
+              <label className="text-sm text-neutral-500">{t('profile.insuranceCoverageType')}</label>
+              <p className="font-medium text-neutral-900">{profile.insurance.coverageType}</p>
+            </div>
+            <div>
+              <label className="text-sm text-neutral-500">{t('profile.insuranceValidTo')}</label>
+              <p className="font-medium text-neutral-900">{profile.insurance.validTo || '-'}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-neutral-500">{t('profile.noInsurance')}</p>
+        )}
+      </div>
+
       {/* Emergency Contacts Card */}
       <div className="patient-card">
         <div className="flex items-center justify-between mb-6">
@@ -388,7 +1025,7 @@ export function MyProfilePage() {
               <p className="text-sm text-neutral-500">{t('profile.emergencyContactsSub')}</p>
             </div>
           </div>
-          {!isAddingContact && (
+          {!isAddingContact && profile !== null && profile.emergencyContacts.length < MAX_EMERGENCY_CONTACTS && (
             <button
               onClick={() => setIsAddingContact(true)}
               className="flex items-center gap-2 px-4 py-2 text-success-600 hover:bg-success-50 rounded-xl transition-colors"
@@ -443,6 +1080,17 @@ export function MyProfilePage() {
                   <option value="Other">{t('profile.relOther')}</option>
                 </select>
               </div>
+              <label className="flex items-center gap-3 text-sm text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={newContact.canMakeMedicalDecisions ?? false}
+                  onChange={(e) =>
+                    setNewContact({ ...newContact, canMakeMedicalDecisions: e.target.checked })
+                  }
+                  className="w-4 h-4 rounded border-neutral-300 text-success-600 focus:ring-success-500"
+                />
+                {t('profile.canMakeDecisions')}
+              </label>
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={cancelAddContact}
@@ -474,17 +1122,35 @@ export function MyProfilePage() {
               key={idx}
               className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl"
             >
-              <div>
-                <p className="font-medium text-neutral-900">{contact.name}</p>
-                <p className="text-sm text-neutral-500">{contact.relationship}</p>
+              <div className="min-w-0">
+                <p className="font-medium text-neutral-900 truncate">
+                  <span className="text-neutral-400 mr-2">{idx + 1}.</span>
+                  {contact.name}
+                </p>
+                <p className="text-sm text-neutral-500 truncate">
+                  {contact.relationship} · {contact.phone}
+                </p>
+                {contact.canMakeMedicalDecisions && (
+                  <p className="text-xs text-primary-600 mt-1">{t('profile.canMakeDecisions')}</p>
+                )}
               </div>
-              <a
-                href={`tel:${sanitizePhoneForTel(contact.phone)}`}
-                className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
-              >
-                <Phone className="w-4 h-4" />
-                {t('profile.call')}
-              </a>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <a
+                  href={`tel:${sanitizePhoneForTel(contact.phone)}`}
+                  className="flex items-center gap-2 px-4 py-2 bg-success-500 text-white rounded-xl hover:bg-success-600 transition-colors"
+                >
+                  <Phone className="w-4 h-4" />
+                  {t('profile.call')}
+                </a>
+                <button
+                  onClick={() => handleRemoveContact(idx)}
+                  disabled={isSaving}
+                  aria-label={`${t('profile.removeContact')} ${contact.name}`}
+                  className="p-2 text-danger-500 hover:bg-danger-50 rounded-xl transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))}
           {profile?.emergencyContacts.length === 0 && (

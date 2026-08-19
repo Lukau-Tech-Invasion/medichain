@@ -21,6 +21,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import type { LabResultSubmission } from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 
 interface MedicalRecord {
   id: string;
@@ -43,6 +44,65 @@ interface MedicalRecord {
   reviewedBy?: string;
 }
 
+interface SoapNoteResponse {
+  notes?: Array<{
+    note_id: string;
+    author_id?: string;
+    created_at?: number;
+    assessment?: {
+      /**
+       * A structured diagnosis, NOT a bare string: the API returns
+       * `{ description, icd10_code, status }`. Typing it as a string here is
+       * what let an object reach `title.toLowerCase()` and blank the whole app.
+       */
+      primary_diagnosis?: { description?: string; icd10_code?: string | null; status?: string };
+      clinical_summary?: string;
+    };
+  }>;
+}
+
+interface PrescriptionResponse {
+  prescriptions?: Array<{
+    prescription_id: string;
+    medication_name?: string;
+    prescriber_id?: string;
+    created_at?: number | string;
+    dosage?: string;
+    directions?: string;
+  }>;
+}
+
+interface TriageResponse {
+  assessments?: Array<{
+    assessment_id: string;
+    chief_complaint?: string;
+    performed_by?: string;
+    performed_at?: number;
+    esi_level?: string;
+  }>;
+}
+
+function timestampDate(value?: number | string): string {
+  if (!value) return '';
+  const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+}
+
+function medicalRecordType(value: string): MedicalRecord['type'] {
+  const supported: MedicalRecord['type'][] = [
+    'lab_result', 'imaging', 'prescription', 'consultation',
+    'discharge_summary', 'vaccination', 'other',
+  ];
+  return supported.includes(value as MedicalRecord['type'])
+    ? value as MedicalRecord['type']
+    : 'other';
+}
+
+async function fetchJson(url: string, headers: HeadersInit): Promise<Record<string, unknown>> {
+  const response = await fetch(apiUrl(url), { headers });
+  return response.ok ? response.json() : {};
+}
+
 /**
  * My Records Page
  * 
@@ -60,36 +120,40 @@ export function MyRecordsPage() {
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedRecord, setSelectedRecord] = useState<MedicalRecord | null>(null);
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
+  const patient = usePatientAuthStore(state => state.patient);
 
   useEffect(() => {
     loadRecords();
-  }, []);
+  }, [patient?.healthId]);
 
   const loadRecords = async () => {
     setIsLoading(true);
     
-    // Get patient ID from stored auth
-    const authData = localStorage.getItem('patient-auth');
-    const userId = authData ? JSON.parse(authData).patientId : localStorage.getItem('medichain_user_id');
-    
-    if (!userId) {
+    if (!patient) {
       setRecords([]);
       setIsLoading(false);
       return;
     }
+
+    const patientId = patient.healthId;
+    const headers = {
+      'X-User-Id': patient.walletAddress,
+      'X-Health-Id': patientId,
+    };
     
     // Fetch records from API
     const allRecords: MedicalRecord[] = [];
     
     try {
-      // Fetch lab results
-      const labResponse = await fetch(`/api/lab/patient/${userId}`, {
-        headers: { 'X-User-Id': userId },
-      });
-      
-      if (labResponse.ok) {
-        const data = await labResponse.json();
-        const labRecords = (data.submissions || []).map((sub: LabResultSubmission) => ({
+      const [labData, genericData, soapData, prescriptionData, triageData] = await Promise.all([
+        fetchJson(`/api/lab/patient/${patientId}`, headers),
+        fetchJson(`/api/records/${patientId}`, headers),
+        fetchJson(`/api/clinical/patient/${patientId}/soap`, headers),
+        fetchJson(`/api/e-prescriptions/patient/${patientId}`, headers),
+        fetchJson(`/api/clinical/patient/${patientId}/triage`, headers),
+      ]);
+
+      const labRecords = ((labData.submissions as LabResultSubmission[] | undefined) || []).map(sub => ({
           id: sub.id,
           type: 'lab_result' as const,
           title: sub.test_name,
@@ -101,30 +165,17 @@ export function MyRecordsPage() {
           verified: true,
           labResults: sub.results,
           reviewedBy: sub.reviewed_by,
-        }));
-        allRecords.push(...labRecords);
-      }
+      }));
+      allRecords.push(...labRecords);
 
-      // Fetch medical records from IPFS/storage
-      const recordsResponse = await fetch(`/api/records/${userId}`, {
-        headers: { 'X-User-Id': userId },
-      });
-      
-      if (recordsResponse.ok) {
-        const data = await recordsResponse.json();
-        // The backend returns bare MedicalRecordReference objects
-        // ({ content_hash, metadata_hash, record_type, uploaded_at, ... }).
-        // Records are keyed for download by their content_hash — the
-        // GET /api/records/{content_hash}/download route streams the decrypted
-        // bytes. (There is no per-record provider/description in the reference.)
-        const medRecords = (data.records || []).map((rec: {
+      const medRecords = ((genericData.records as Array<{
           content_hash: string;
           metadata_hash: string;
           record_type: string;
           uploaded_at: number;
-        }) => ({
+        }> | undefined) || []).map(rec => ({
           id: rec.content_hash,
-          type: rec.record_type,
+          type: medicalRecordType(rec.record_type),
           title: rec.record_type.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
           description: t('records.defaultDescription'),
           provider: 'MediChain',
@@ -132,9 +183,47 @@ export function MyRecordsPage() {
           contentHash: rec.content_hash,
           metadataHash: rec.metadata_hash,
           verified: true,
-        }));
-        allRecords.push(...medRecords);
-      }
+      }));
+      allRecords.push(...medRecords);
+
+      const soapRecords = ((soapData as SoapNoteResponse).notes || []).map(note => ({
+        id: note.note_id,
+        type: 'consultation' as const,
+        title: note.assessment?.primary_diagnosis?.description || 'SOAP Consultation',
+        description: note.assessment?.clinical_summary || 'Clinical consultation note',
+        provider: note.author_id || 'MediChain provider',
+        date: timestampDate(note.created_at),
+        contentHash: `soap-${note.note_id}`,
+        metadataHash: note.note_id,
+        verified: true,
+      }));
+      allRecords.push(...soapRecords);
+
+      const prescriptionRecords = ((prescriptionData as PrescriptionResponse).prescriptions || []).map(rx => ({
+        id: rx.prescription_id,
+        type: 'prescription' as const,
+        title: rx.medication_name || 'Prescription',
+        description: [rx.dosage, rx.directions].filter(Boolean).join(' — ') || 'Electronic prescription',
+        provider: rx.prescriber_id || 'MediChain provider',
+        date: timestampDate(rx.created_at),
+        contentHash: `rx-${rx.prescription_id}`,
+        metadataHash: rx.prescription_id,
+        verified: true,
+      }));
+      allRecords.push(...prescriptionRecords);
+
+      const triageRecords = ((triageData as TriageResponse).assessments || []).map(assessment => ({
+        id: assessment.assessment_id,
+        type: 'consultation' as const,
+        title: 'Triage Assessment',
+        description: [assessment.chief_complaint, assessment.esi_level].filter(Boolean).join(' — '),
+        provider: assessment.performed_by || 'MediChain provider',
+        date: timestampDate(assessment.performed_at),
+        contentHash: `triage-${assessment.assessment_id}`,
+        metadataHash: assessment.assessment_id,
+        verified: true,
+      }));
+      allRecords.push(...triageRecords);
     } catch (error) {
       console.error('Failed to fetch records:', error);
     }
@@ -210,15 +299,86 @@ export function MyRecordsPage() {
     });
   };
 
+  /**
+   * In-app preview of a record's contents.
+   *
+   * The View button used to have no `onClick` at all - it rendered, took the
+   * click and did nothing. Viewing goes through the same authorised download
+   * endpoint as the Download button; the difference is only that the bytes are
+   * shown here instead of being written to a file.
+   */
+  const [preview, setPreview] = useState<{
+    title: string;
+    kind: 'text' | 'image' | 'pdf' | 'unsupported';
+    text?: string;
+    url?: string;
+    contentType: string;
+  } | null>(null);
+  const [isViewing, setIsViewing] = useState<string | null>(null);
+
+  /** Revoke the object URL when the preview closes, so blobs are not leaked. */
+  const closePreview = () => {
+    setPreview(current => {
+      if (current?.url) URL.revokeObjectURL(current.url);
+      return null;
+    });
+  };
+
+  const handleView = async (record: MedicalRecord) => {
+    setIsViewing(record.id);
+    try {
+      const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
+        headers: {
+          'X-User-Id': patient?.walletAddress || '',
+          'X-Health-Id': patient?.healthId || '',
+        },
+      });
+      if (!response.ok) {
+        showError(t('records.viewFailed', { title: record.title }));
+        return;
+      }
+      const contentType = response.headers.get('content-type') || '';
+      const blob = await response.blob();
+
+      if (contentType.startsWith('text/') || contentType.includes('json')) {
+        setPreview({
+          title: record.title,
+          kind: 'text',
+          text: await blob.text(),
+          contentType,
+        });
+      } else if (contentType.startsWith('image/')) {
+        setPreview({
+          title: record.title,
+          kind: 'image',
+          url: URL.createObjectURL(blob),
+          contentType,
+        });
+      } else if (contentType.includes('pdf')) {
+        setPreview({
+          title: record.title,
+          kind: 'pdf',
+          url: URL.createObjectURL(blob),
+          contentType,
+        });
+      } else {
+        // Say so rather than rendering bytes as mojibake; Download still works.
+        setPreview({ title: record.title, kind: 'unsupported', contentType });
+      }
+    } catch {
+      showError(t('records.viewError', { title: record.title }));
+    } finally {
+      setIsViewing(null);
+    }
+  };
+
   const handleDownload = async (record: MedicalRecord) => {
     setIsDownloading(record.id);
     try {
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : '';
-      
-      const response = await fetch(apiUrl(`/api/records/${record.id}/download`), {
+      const response = await fetch(apiUrl(`/api/records/${record.contentHash}/download`), {
         headers: {
-          'X-User-Id': patientId,
+          'X-User-Id': patient?.walletAddress || '',
+          'X-Health-Id': patient?.healthId || '',
         },
       });
       
@@ -243,8 +403,9 @@ export function MyRecordsPage() {
   };
 
   const filteredRecords = records.filter(record => {
-    const matchesSearch = record.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         record.provider.toLowerCase().includes(searchQuery.toLowerCase());
+    const needle = searchQuery.toLowerCase();
+    const hit = (value: unknown) => String(value ?? '').toLowerCase().includes(needle);
+    const matchesSearch = hit(record.title) || hit(record.provider);
     const matchesFilter = filterType === 'all' || record.type === filterType;
     return matchesSearch && matchesFilter;
   });
@@ -489,11 +650,59 @@ export function MyRecordsPage() {
                   )}
                   {t('records.download')}
                 </button>
-                <button className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors">
-                  <Eye className="w-5 h-5" />
+                <button
+                  onClick={() => void handleView(selectedRecord)}
+                  disabled={isViewing === selectedRecord.id}
+                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors disabled:opacity-50"
+                >
+                  {isViewing === selectedRecord.id ? (
+                    <div className="w-5 h-5 border-2 border-neutral-300 border-t-neutral-600 rounded-full animate-spin" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
                   {t('records.view')}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {preview && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.title}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-neutral-200">
+              <h2 className="font-semibold text-neutral-900 truncate">{preview.title}</h2>
+              <button
+                type="button"
+                onClick={closePreview}
+                className="px-3 py-1 text-sm text-neutral-600 hover:text-neutral-900"
+              >
+                {t('records.close')}
+              </button>
+            </div>
+            <div className="p-4 overflow-auto">
+              {preview.kind === 'text' && (
+                <pre className="text-sm text-neutral-900 whitespace-pre-wrap break-words font-mono">
+                  {preview.text}
+                </pre>
+              )}
+              {preview.kind === 'image' && (
+                <img src={preview.url} alt={preview.title} className="max-w-full h-auto mx-auto" />
+              )}
+              {preview.kind === 'pdf' && (
+                <iframe src={preview.url} title={preview.title} className="w-full h-[65vh]" />
+              )}
+              {preview.kind === 'unsupported' && (
+                <p className="text-sm text-neutral-600">
+                  {t('records.viewUnsupported', { type: preview.contentType })}
+                </p>
+              )}
             </div>
           </div>
         </div>
