@@ -31,6 +31,23 @@ export default defineConfig({
         // Nginx gateway (http://127.0.0.1) instead.
         target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8090',
         changeOrigin: true,
+        configure: (proxy) => {
+          // /api/events is an SSE stream, so `res` here can be a raw socket
+          // with no writeHead. Without this the dev server dies outright when
+          // the API restarts under it, instead of failing the one request.
+          proxy.on('error', (err, _req, res) => {
+            console.log('Proxy error:', err.message);
+            if (!res) return;
+            if ('writeHead' in res) {
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'application/json' });
+              }
+              res.end(JSON.stringify({ error: 'API server unavailable', details: err.message }));
+              return;
+            }
+            if ('destroy' in res) res.destroy();
+          });
+        },
       },
     },
   },
