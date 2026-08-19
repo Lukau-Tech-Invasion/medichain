@@ -2,6 +2,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { MyProfilePage } from './MyProfilePage';
+import { usePatientAuthStore } from '../store/authStore';
+
+vi.mock('../store/authStore', () => ({
+  usePatientAuthStore: vi.fn(),
+}));
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -19,14 +24,20 @@ describe('MyProfilePage (Patient)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Mock localStorage
-    const authData = JSON.stringify({ patientId: mockPatientId });
-    localStorage.getItem = vi.fn().mockReturnValue(authData);
+
+    (usePatientAuthStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: (state: unknown) => unknown) => selector({
+        patient: {
+          healthId: mockPatientId,
+          walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+        },
+      }),
+    );
 
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           patient_id: 'HEALTH123',
           full_name: 'Test Patient',
@@ -56,8 +67,10 @@ describe('MyProfilePage (Patient)', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/Personal Information/i)).toBeInTheDocument();
-    
+    await waitFor(() =>
+      expect(screen.getByText(/Personal Information/i)).toBeInTheDocument()
+    );
+
     await waitFor(() => {
       expect(screen.getByText(/Test Patient/i)).toBeInTheDocument();
       expect(screen.getByText(/ID12345/i)).toBeInTheDocument();
@@ -73,7 +86,7 @@ describe('MyProfilePage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Emergency Contacts/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Emergency Contacts/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Jane Doe/i)).toBeInTheDocument();
       expect(screen.getByText(/Wife/i)).toBeInTheDocument();
     });
@@ -86,12 +99,18 @@ describe('MyProfilePage (Patient)', () => {
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      const addButton = screen.getByText(/Add Contact/i);
-      fireEvent.click(addButton);
-    });
+    // 'Add Emergency Contact' is the section heading; the control that opens
+    // the form is a button labelled just 'Add'.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^Add$/i })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Add$/i }));
 
-    expect(screen.getByPlaceholderText(/Full Name/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Phone Number/i)).toBeInTheDocument();
+    // The form opens asynchronously after the click inside waitFor above; the
+    // placeholders are the example values, not the field names.
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/Jane Doe/i)).toBeInTheDocument()
+    );
+    expect(screen.getByPlaceholderText(/801-234-5678/i)).toBeInTheDocument();
   });
 });

@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -34,24 +39,24 @@ describe('NursingPage', () => {
     render(<NursingPage />);
 
     expect(screen.getByText(/Nursing Documentation/i)).toBeInTheDocument();
-    expect(screen.getByText(/Patient monitoring and shift documentation/i)).toBeInTheDocument();
+    expect(screen.getByText(/MAR, Intake\/Output, and Care Plans/i)).toBeInTheDocument();
   });
 
   it('displays assessment tabs', () => {
     render(<NursingPage />);
 
-    expect(screen.getByText(/Daily Assessment/i)).toBeInTheDocument();
-    expect(screen.getByText(/Shift Note/i)).toBeInTheDocument();
-    expect(screen.getByText(/Wound Care/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/MAR/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Intake/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Care Plan/i).length).toBeGreaterThan(0);
   });
 
-  it('allows entering a shift note', () => {
+  it('allows switching to the care plan tab', async () => {
     render(<NursingPage />);
 
-    fireEvent.click(screen.getByText(/Shift Note/i));
-
-    const input = screen.getByPlaceholderText(/Enter shift summary/i);
-    fireEvent.change(input, { target: { value: 'Patient stable throughout shift.' } });
-    expect(input).toHaveValue('Patient stable throughout shift.');
+    // Tab bodies render behind the page's initial load spinner, so wait for
+    // the MAR tab (the default) to have content before switching away.
+    const carePlansTab = await screen.findByRole('button', { name: /Care Plans/i });
+    fireEvent.click(carePlansTab);
+    expect(carePlansTab.className).toContain('bg-primary-600');
   });
 });

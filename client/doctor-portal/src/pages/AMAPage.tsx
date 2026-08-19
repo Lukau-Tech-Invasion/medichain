@@ -87,6 +87,13 @@ const AMAPage: React.FC = () => {
   const [riskLevel, setRiskLevel] = useState<RiskLevel>('moderate');
   const [riskDisclosures, setRiskDisclosures] = useState<RiskDisclosure[]>([]);
   const [witnessName, setWitnessName] = useState('');
+  // Decision-making capacity is the legal precondition for an AMA discharge:
+  // a refusal is only informed if the patient could understand the risks they
+  // are accepting. The form captured the risk disclosures but never recorded
+  // whether the clinician assessed capacity at all, so a record could assert a
+  // valid refusal by a patient nobody had established could give one.
+  const [hasCapacity, setHasCapacity] = useState(false);
+  const [capacityBasis, setCapacityBasis] = useState('');
 
   useEffect(() => {
     const fetchAMARecords = async () => {
@@ -166,6 +173,8 @@ const AMAPage: React.FC = () => {
         // This form has no signature-capture step, so the only truthful value
         // is `false`: the record exists, the signatures do not yet. That is now
         // consistent with the 'pending-signatures' status it is created under.
+        hasCapacity,
+        capacityBasis,
         patientSigned: false,
         witnessSigned: false,
         witnessName: witnessName,
@@ -248,6 +257,9 @@ const AMAPage: React.FC = () => {
   };
 
   const allRisksAcknowledged = riskDisclosures.every(r => r.acknowledged);
+  // Signatures may only be collected once capacity is affirmed AND every risk
+  // is acknowledged — an unassessed patient cannot give an informed refusal.
+  const readyForSignatures = allRisksAcknowledged && hasCapacity;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -718,6 +730,39 @@ const AMAPage: React.FC = () => {
                 <p className="text-sm text-gray-600 mb-4">
                   {t('docAMA.riskDisclosureIntro')}
                 </p>
+
+                {/* Capacity assessment — precedes the risk disclosures because
+                    acknowledging risks means nothing if the patient could not
+                    weigh them. */}
+                <fieldset className="mb-4 p-4 border border-amber-300 bg-amber-50 rounded-lg">
+                  <legend className="px-1 text-sm font-semibold text-amber-900">
+                    {t('docAMA.capacityHeading')}
+                  </legend>
+                  <label htmlFor="ama-has-capacity" className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      id="ama-has-capacity"
+                      type="checkbox"
+                      checked={hasCapacity}
+                      onChange={() => setHasCapacity(!hasCapacity)}
+                      className="mt-1 rounded border-gray-300 text-red-600"
+                    />
+                    <span className="text-sm font-medium text-gray-900">
+                      {t('docAMA.capacityLabel')}
+                    </span>
+                  </label>
+                  <label htmlFor="ama-capacity-basis" className="sr-only">
+                    {t('docAMA.capacityBasisLabel')}
+                  </label>
+                  <textarea
+                    id="ama-capacity-basis"
+                    value={capacityBasis}
+                    onChange={(e) => setCapacityBasis(e.target.value)}
+                    rows={2}
+                    placeholder={t('docAMA.capacityBasisPh')}
+                    className="mt-2 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-red-500"
+                  />
+                </fieldset>
+
                 <div className="space-y-3">
                   {riskDisclosures.map(risk => (
                     <div
@@ -765,9 +810,9 @@ const AMAPage: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setFormStep(4)}
-                    disabled={!allRisksAcknowledged}
+                    disabled={!readyForSignatures}
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
-                      allRisksAcknowledged
+                      readyForSignatures
                         ? 'bg-red-600 text-white hover:bg-red-700'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     }`}

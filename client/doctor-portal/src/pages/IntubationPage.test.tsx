@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -34,7 +39,7 @@ describe('IntubationPage', () => {
     render(<IntubationPage />);
 
     expect(screen.getByText(/Intubation & Airway Management/i)).toBeInTheDocument();
-    expect(screen.getByText(/Documentation of advanced airway procedures/i)).toBeInTheDocument();
+    expect(screen.getByText(/RSI documentation and airway assessment/i)).toBeInTheDocument();
   });
 
   it('displays procedure details section', () => {
@@ -47,7 +52,7 @@ describe('IntubationPage', () => {
   it('allows selecting tube size', () => {
     render(<IntubationPage />);
 
-    const select = screen.getByLabelText(/Tube Size/i);
+    const select = screen.getByLabelText(/ETT Size/i);
     fireEvent.change(select, { target: { value: '7.5' } });
     expect(select).toHaveValue('7.5');
   });

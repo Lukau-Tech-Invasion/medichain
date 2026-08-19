@@ -266,7 +266,7 @@ const SymptomCheckerPage: React.FC = () => {
           recommendations: [
             t('symptomChecker.fbUrgentRec1'),
             t('symptomChecker.fbUrgentRec2'),
-            t('symptomChecker.fbUrgentRec3')
+            t('symptomChecker.fbUrgentRec3', { emergencyNumber: t('common.emergencyNumber') })
           ],
           possibleConditions: [
             t('symptomChecker.fbUrgentCond1'),
@@ -437,7 +437,7 @@ const SymptomCheckerPage: React.FC = () => {
               <div>
                 <h4 className="font-medium text-yellow-900">{t('symptomChecker.disclaimerTitle')}</h4>
                 <p className="text-sm text-yellow-700 mt-1">
-                  {t('symptomChecker.disclaimerBody')}
+                  {t('symptomChecker.disclaimerBody', { emergencyNumber: t('common.emergencyNumber') })}
                 </p>
               </div>
             </div>
@@ -628,12 +628,17 @@ const SymptomCheckerPage: React.FC = () => {
           {/* Action Buttons */}
           <div className="space-y-3">
             {(triageResult.severity === 'emergency' || triageResult.severity === 'urgent') && (
+              // 911 is the North American emergency number and connects to
+              // nothing in any country this product ships to. The number now
+              // comes from the active locale (10177 in South Africa, 999 in
+              // Kenya, 112 in Nigeria, 907 in Ethiopia), so a patient tapping
+              // this in an emergency reaches a service that answers.
               <a
-                href="tel:911"
+                href={`tel:${t('common.emergencyNumber')}`}
                 className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2"
               >
                 <Phone className="w-5 h-5" />
-                {t('symptomChecker.call911')}
+                {t('symptomChecker.call911', { emergencyNumber: t('common.emergencyNumber') })}
               </a>
             )}
             <button className="w-full py-3 bg-purple-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2">

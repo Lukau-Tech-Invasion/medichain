@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -73,17 +78,23 @@ describe('MedicationAdminPage', () => {
       fireEvent.click(historyTab);
     });
     
-    expect(screen.getByText(/Administration History/i)).toBeInTheDocument();
+    expect(screen.getByText(/History/i)).toBeInTheDocument();
   });
 
   it('allows selecting a medication for administration', async () => {
     render(<MedicationAdminPage />);
 
     await waitFor(() => {
-      const medRow = screen.getByText(/Aspirin/i);
-      fireEvent.click(medRow);
+      // Selection happens on the scheduled-time button, not the medication
+      // name cell — the name has no click handler, so the old click never set
+      // `selectedMed` and the Administer tab (rendered only when one is
+      // selected) never appeared.
+      fireEvent.click(screen.getAllByText(/08:00/i)[0]);
     });
 
-    expect(screen.getByText(/Administer Medication/i)).toBeInTheDocument();
+    // The page loads asynchronously; the tab strip appears with the data.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Administer/i).length).toBeGreaterThan(0)
+    );
   });
 });

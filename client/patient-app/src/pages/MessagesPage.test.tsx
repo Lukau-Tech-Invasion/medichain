@@ -61,11 +61,13 @@ describe('MessagesPage (Patient)', () => {
       if (url.includes('/api/messages')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({ conversations: mockConversations }),
         });
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -79,7 +81,7 @@ describe('MessagesPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Messages/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Messages/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Dr. Smith/i)).toBeInTheDocument();
       expect(screen.getByText(/Hello, how are you?/i)).toBeInTheDocument();
     });
@@ -99,7 +101,7 @@ describe('MessagesPage (Patient)', () => {
 
     await waitFor(() => {
       // In mobile view it might show a back button, in desktop it shows the chat area
-      expect(screen.getByPlaceholderText(/Type your message/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Type a message/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Hello, how are you?/i).length).toBeGreaterThan(0);
     });
   });

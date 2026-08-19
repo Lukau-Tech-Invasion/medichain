@@ -37,7 +37,8 @@ type AppointmentStatus =
   | 'cancelled'
   | 'no_show'
   | 'rescheduled'
-  | 'waitlisted';
+  | 'waitlisted'
+  | 'declined';
 
 interface Appointment {
   appointment_id: string;
@@ -53,6 +54,12 @@ interface Appointment {
   is_telehealth?: boolean;
   /** Present only once a session has actually been provisioned. */
   telehealth_session_id?: string;
+  /**
+   * Which side still owes an answer while the booking is only a proposal.
+   * Derived by the server from who booked it, so this screen never has to
+   * guess - and never offers a Confirm the server would refuse.
+   */
+  awaiting_confirmation_from?: 'patient' | 'provider' | null;
   location?: {
     facility_name?: string;
     department?: string;
@@ -65,7 +72,7 @@ type Tab = 'today' | 'upcoming' | 'previous' | 'cancelled';
 
 /** Statuses that mean the appointment is over, one way or another. */
 const CLOSED: AppointmentStatus[] = ['completed', 'no_show', 'rescheduled'];
-const CANCELLED: AppointmentStatus[] = ['cancelled'];
+const CANCELLED: AppointmentStatus[] = ['cancelled', 'declined'];
 
 function normaliseStatus(raw: string): AppointmentStatus {
   // The API returns snake_case; tolerate the older PascalCase spelling so a
@@ -73,7 +80,7 @@ function normaliseStatus(raw: string): AppointmentStatus {
   const key = raw?.toLowerCase().replace(/[\s-]/g, '_') ?? '';
   const known: AppointmentStatus[] = [
     'scheduled', 'confirmed', 'checked_in', 'in_progress',
-    'completed', 'cancelled', 'no_show', 'rescheduled', 'waitlisted',
+    'completed', 'cancelled', 'no_show', 'rescheduled', 'waitlisted', 'declined',
   ];
   const compact = key.replace(/_/g, '');
   return known.find((s) => s === key || s.replace(/_/g, '') === compact) ?? 'scheduled';
@@ -123,6 +130,7 @@ const STATUS_STYLE: Record<AppointmentStatus, string> = {
   in_progress: 'bg-indigo-100 text-indigo-900 dark:bg-indigo-900 dark:text-indigo-100',
   completed: 'bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100',
   cancelled: 'bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100',
+  declined: 'bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100',
   no_show: 'bg-orange-100 text-orange-900 dark:bg-orange-900 dark:text-orange-100',
   rescheduled: 'bg-purple-100 text-purple-900 dark:bg-purple-900 dark:text-purple-100',
   waitlisted: 'bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-100',
@@ -138,14 +146,19 @@ const STATUS_STYLE: Record<AppointmentStatus, string> = {
 /** The statuses this screen can drive an appointment to. */
 type DrivableStatus =
   | 'confirmed'
+  | 'declined'
   | 'checked_in'
   | 'in_progress'
   | 'completed'
   | 'cancelled'
   | 'no_show';
 
+// `scheduled` no longer offers check-in: a booking is a proposal until the
+// party who did not make it agrees, and the server refuses to skip that step.
+// Whether `confirmed`/`declined` are offered at all depends on whose answer is
+// outstanding - see `actionsFor`.
 const NEXT_ACTIONS: Partial<Record<AppointmentStatus, DrivableStatus[]>> = {
-  scheduled: ['confirmed', 'checked_in', 'cancelled', 'no_show'],
+  scheduled: ['confirmed', 'declined', 'cancelled', 'no_show'],
   confirmed: ['checked_in', 'cancelled', 'no_show'],
   checked_in: ['in_progress', 'no_show'],
   in_progress: ['completed'],
@@ -153,6 +166,7 @@ const NEXT_ACTIONS: Partial<Record<AppointmentStatus, DrivableStatus[]>> = {
 
 const ACTION_ICON: Partial<Record<DrivableStatus, typeof CheckCircle>> = {
   confirmed: CheckCircle,
+  declined: XCircle,
   checked_in: UserCheck,
   in_progress: PlayCircle,
   completed: CheckCircle,
@@ -448,7 +462,13 @@ export default function AppointmentSchedulerPage() {
           <ul className="divide-y dark:divide-slate-700">
             {rows.map((a) => {
               const status = normaliseStatus(a.status);
-              const actions = NEXT_ACTIONS[status] ?? [];
+              // Only the side that did not book may answer a proposal, so drop
+              // confirm/decline whenever the patient is the one being waited on.
+              const awaitingPatient =
+                status === 'scheduled' && a.awaiting_confirmation_from === 'patient';
+              const actions = (NEXT_ACTIONS[status] ?? []).filter(
+                (to) => !(awaitingPatient && (to === 'confirmed' || to === 'declined'))
+              );
               return (
                 <li key={a.appointment_id} className="p-4 hover:bg-gray-50 dark:hover:bg-slate-700/50">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -460,6 +480,11 @@ export default function AppointmentSchedulerPage() {
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[status]}`}>
                           {t(`docAppointments.status_${status}`)}
                         </span>
+                        {awaitingPatient && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100">
+                            {t('docAppointments.awaitingPatient')}
+                          </span>
+                        )}
                         {a.is_telehealth && (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-900 dark:bg-cyan-900 dark:text-cyan-100 inline-flex items-center gap-1">
                             <Video size={11} aria-hidden="true" />

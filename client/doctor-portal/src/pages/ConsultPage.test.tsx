@@ -27,18 +27,34 @@ describe('ConsultPage', () => {
     });
 
     mockFetch.mockImplementation(() => {
+      // The page calls the typed client `listConsults()`, which returns
+      // `{ success, items }`. The generated fixture used `{ consultations }`
+      // with `id`/`patientName`, so the list stayed empty and every assertion
+      // about its contents failed.
       return Promise.resolve({
         ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
-          consultations: [
+          success: true,
+          items: [
             {
-              id: 'c1',
+              consultId: 'CONS-001',
+              patientId: 'PAT-001',
               patientName: 'John Doe',
-              requestingProvider: 'Dr. Smith',
-              reason: 'Cardiac evaluation',
-              status: 'Pending',
-              timestamp: new Date().toISOString(),
-            }
+              specialty: 'cardiology',
+              urgency: 'routine',
+              // Must be one of the statuses the page's icon map knows
+              // (requested/acknowledged/in-progress/completed/declined/
+              // cancelled) — an unknown value renders `undefined` as a
+              // component and crashes the page.
+              status: 'requested',
+              reason: 'Chest pain evaluation',
+              clinicalQuestion: 'Rule out ACS',
+              relevantHistory: 'Hypertension',
+              requestedBy: 'Dr Smith',
+              requestedAt: '2026-08-11T09:00:00Z',
+            },
           ],
         }),
       });
@@ -55,7 +71,7 @@ describe('ConsultPage', () => {
     await waitFor(() => {
       expect(screen.getAllByText(/Specialty Consultations/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
-      expect(screen.getByText(/Cardiac evaluation/i)).toBeInTheDocument();
+      expect(screen.getByText(/Chest pain evaluation/i)).toBeInTheDocument();
     });
   });
 
@@ -67,7 +83,7 @@ describe('ConsultPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Pending/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Requested/i).length).toBeGreaterThan(0);
     });
   });
 });

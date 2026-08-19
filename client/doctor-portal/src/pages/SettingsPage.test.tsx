@@ -3,6 +3,17 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import SettingsPage from './SettingsPage';
 import { useAuthStore, useThemeStore } from '../store';
+import { getUserSettings, saveUserSettings } from '@medichain/shared';
+
+vi.mock('@medichain/shared', async importOriginal => {
+  const actual = await importOriginal<typeof import('@medichain/shared')>();
+  return {
+    ...actual,
+    debugLog: vi.fn(),
+    getUserSettings: vi.fn(),
+    saveUserSettings: vi.fn(),
+  };
+});
 
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
@@ -14,8 +25,8 @@ describe('SettingsPage', () => {
     walletAddress: '5GrwvaEF...mock',
     username: 'Dr. Smith',
     role: 'Doctor',
-    fullName: 'Smith, J.',
-    email: 'smith@hospital.com',
+    userId: '5GrwvaEF...mock',
+    createdAt: '2026-01-01T00:00:00Z',
   };
 
   beforeEach(() => {
@@ -29,8 +40,16 @@ describe('SettingsPage', () => {
       setTheme: vi.fn(),
     });
 
+    vi.mocked(getUserSettings).mockResolvedValue({});
+    vi.mocked(saveUserSettings).mockResolvedValue({
+      success: true,
+      message: 'saved',
+      user_id: mockUser.walletAddress,
+    });
+
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({}),
     });
   });
@@ -44,8 +63,8 @@ describe('SettingsPage', () => {
 
     expect(screen.getAllByText(/Settings/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Profile Information/i)).toBeInTheDocument();
-    expect(screen.getByText(mockUser.fullName)).toBeInTheDocument();
-    expect(screen.getByText(mockUser.email)).toBeInTheDocument();
+    expect(screen.getByText(mockUser.username)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(`${mockUser.username}@medichain.health`)).toBeInTheDocument();
   });
 
   it('allows switching to notifications tab', () => {
@@ -88,7 +107,7 @@ describe('SettingsPage', () => {
     const displayTab = screen.getByText(/Display/i);
     fireEvent.click(displayTab);
 
-    expect(screen.getByText(/Theme Preferences/i)).toBeInTheDocument();
+    expect(screen.getByText(/Display Preferences/i)).toBeInTheDocument();
     
     const darkThemeButton = screen.getByText(/Dark/i);
     fireEvent.click(darkThemeButton);
@@ -109,14 +128,9 @@ describe('SettingsPage', () => {
     expect(screen.getByText(/Saving.../i)).toBeInTheDocument();
     
     await waitFor(() => {
-      expect(screen.getByText(/All changes saved/i)).toBeInTheDocument();
+      expect(screen.getByText(/^Saved!$/i)).toBeInTheDocument();
     });
     
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/api/settings'),
-      expect.objectContaining({
-        method: 'POST',
-      })
-    );
+    expect(saveUserSettings).toHaveBeenCalledTimes(1);
   });
 });

@@ -30,6 +30,7 @@ describe('NurseDashboardPage', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           assigned_patients: 5,
           pending_medications: 12,
@@ -49,9 +50,8 @@ describe('NurseDashboardPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Nursing Dashboard/i)).toBeInTheDocument();
-      expect(screen.getByText(/Assigned Patients/i)).toBeInTheDocument();
-      expect(screen.getByText('5')).toBeInTheDocument();
-      expect(screen.getByText(/Pending Meds/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/My Patients/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Vitals Due/i)).toBeInTheDocument();
     });
   });
 
@@ -63,9 +63,9 @@ describe('NurseDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Triage/i)).toBeInTheDocument();
-      expect(screen.getByText(/Medication Admin/i)).toBeInTheDocument();
-      expect(screen.getByText(/Vital Signs/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Open MAR/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/I\/O Documentation/i)).toBeInTheDocument();
+      expect(screen.getByText(/Record Vitals/i)).toBeInTheDocument();
     });
   });
 });

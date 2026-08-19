@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useAuthStore, usePatientStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { useAuthStore } from '../store';
+import PatientSelect from '../components/PatientSelect';
+import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -43,6 +44,20 @@ interface VitalFlowsheet {
   patient_id: string;
   patient_name: string;
   readings: VitalReading[];
+}
+
+function normalizeFlowsheet(data: any): VitalFlowsheet {
+  return {
+    patient_id: data.patient_id,
+    patient_name: data.patient_name || '',
+    readings: (data.readings || []).map((reading: any) => ({
+      ...reading,
+      recorded_at: reading.recorded_at || new Date((reading.timestamp || 0) * 1000).toISOString(),
+      blood_pressure_systolic: reading.blood_pressure_systolic ?? reading.systolic_bp ?? null,
+      blood_pressure_diastolic: reading.blood_pressure_diastolic ?? reading.diastolic_bp ?? null,
+      gcs_total: reading.gcs_total ?? reading.gcs_score ?? null,
+    })),
+  };
 }
 
 // Normal ranges for vitals
@@ -93,7 +108,6 @@ function VitalSignsPage() {
   const { t } = useTranslation();
 
   const { user, isAuthenticated } = useAuthStore();
-  const { recentPatients } = usePatientStore();
   
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdFromUrl || '');
   const [flowsheet, setFlowsheet] = useState<VitalFlowsheet | null>(null);
@@ -152,7 +166,7 @@ function VitalSignsPage() {
         }
 
         const data = await response.json();
-        setFlowsheet(data);
+        setFlowsheet(normalizeFlowsheet(data));
       } catch (err) {
         setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
       } finally {
@@ -176,8 +190,8 @@ function VitalSignsPage() {
         patient_id: selectedPatientId,
         heart_rate: newVitals.heart_rate ? Number(newVitals.heart_rate) : null,
         respiratory_rate: newVitals.respiratory_rate ? Number(newVitals.respiratory_rate) : null,
-        blood_pressure_systolic: newVitals.bp_systolic ? Number(newVitals.bp_systolic) : null,
-        blood_pressure_diastolic: newVitals.bp_diastolic ? Number(newVitals.bp_diastolic) : null,
+        systolic_bp: newVitals.bp_systolic ? Number(newVitals.bp_systolic) : null,
+        diastolic_bp: newVitals.bp_diastolic ? Number(newVitals.bp_diastolic) : null,
         temperature_celsius: newVitals.temperature ? Number(newVitals.temperature) : null,
         oxygen_saturation: newVitals.oxygen_saturation ? Number(newVitals.oxygen_saturation) : null,
         pain_scale: newVitals.pain_scale ? Number(newVitals.pain_scale) : null,
@@ -199,7 +213,7 @@ function VitalSignsPage() {
 
       if (!response.ok) {
         const errData = await response.json();
-        throw new Error(errData.error || t('docVitalSigns.errorRecordVitals'));
+        throw new Error(getApiErrorMessage(errData, t('docVitalSigns.errorRecordVitals')));
       }
 
       setSuccess(t('docVitalSigns.recordSuccess'));
@@ -229,7 +243,7 @@ function VitalSignsPage() {
         }
       );
       if (refreshResponse.ok) {
-        setFlowsheet(await refreshResponse.json());
+        setFlowsheet(normalizeFlowsheet(await refreshResponse.json()));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docVitalSigns.errorRecordVitalsGeneric'));
@@ -266,22 +280,13 @@ function VitalSignsPage() {
           {t('docVitalSigns.selectPatientLabel')}
         </label>
         <div className="flex gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <select
-              id="vitals-patient-select"
-              value={selectedPatientId}
-              onChange={(e) => setSelectedPatientId(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 appearance-none"
-            >
-              <option value="">{t('docVitalSigns.selectPatientPlaceholder')}</option>
-              {recentPatients.map((patient) => (
-                <option key={patient.patientId} value={patient.patientId}>
-                  {patient.fullName} ({patient.patientId})
-                </option>
-              ))}
-            </select>
-          </div>
+          <PatientSelect
+            id="vitals-patient-select"
+            value={selectedPatientId}
+            onChange={setSelectedPatientId}
+            placeholder={t('docVitalSigns.selectPatientPlaceholder')}
+            className="flex-1"
+          />
           {selectedPatientId && (
             <button
               onClick={() => setShowForm(!showForm)}

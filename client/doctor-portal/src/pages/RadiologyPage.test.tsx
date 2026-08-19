@@ -2,10 +2,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import RadiologyPage from './RadiologyPage';
-import { useAuthStore } from '../store';
+import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
-vi.mock('../store', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -26,21 +31,39 @@ describe('RadiologyPage', () => {
       isAuthenticated: true,
     });
 
-    mockFetch.mockImplementation(() => {
+    // One blanket response is not enough: the page loads patients and
+    // radiology orders in the same Promise.all, so handing the patients call a
+    // radiology payload rejects the pair and the page renders its error state.
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
+      if (url.includes('/api/patients')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ patients: [] }),
+        });
+      }
+      // listRadiology() GETs /api/platform/list/radiology-orders and wraps the
+      // raw array as `orders.items`, so the endpoint must answer with the array
+      // itself — not an `{ studies: [...] }` envelope, which nothing unwraps.
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({
-          studies: [
-            {
-              id: 'r1',
-              patientName: 'Jane Doe',
-              studyType: 'Chest X-Ray',
-              status: 'Completed',
-              requestedAt: new Date().toISOString(),
-              requestedBy: 'Dr. Smith',
-            }
-          ],
-        }),
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve([
+          {
+            order_id: 'r1',
+            accession_number: 'ACC-0001',
+            patient_id: 'PAT-001',
+            patient_name: 'Jane Doe',
+            modality: 'XR',
+            study_description: 'Chest X-Ray',
+            study_date: new Date().toISOString(),
+            referring_physician: 'Dr. Smith',
+            status: 'final',
+            priority: 'routine',
+            num_images: 2,
+          },
+        ]),
       });
     });
   });
@@ -67,7 +90,9 @@ describe('RadiologyPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Completed/i)).toBeInTheDocument();
+      // Radiology reports are pending -> in-progress -> preliminary -> final
+      // -> addendum; there is no 'completed' state.
+      expect(screen.getAllByText(/Final/i).length).toBeGreaterThan(0);
     });
   });
 });

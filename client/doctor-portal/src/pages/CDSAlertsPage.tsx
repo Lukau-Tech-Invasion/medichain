@@ -184,7 +184,7 @@ const CDSAlertsPage: React.FC = () => {
       isEnabled: newRule.isEnabled || false,
       testMode: newRule.testMode !== undefined ? newRule.testMode : true,
       targetRoles: newRule.targetRoles || ['doctor'],
-      evidenceLevel: newRule.evidenceLevel || 'C',
+      evidenceLevel: newRule.evidenceLevel || undefined,
       references: newRule.references || [],
     };
 
@@ -855,6 +855,25 @@ const CDSAlertsPage: React.FC = () => {
                     <option value="medium">{t('docCDS.severity_medium')}</option>
                     <option value="low">{t('docCDS.severity_low')}</option>
                     <option value="info">{t('docCDS.severity_info')}</option>
+                  </select>
+                </div>
+
+                {/* Evidence level was initialised to 'B' with no control, so every
+                    authored rule asserted moderate literature support it had not
+                    been given. 'Unspecified' is the honest default: a rule with
+                    no stated evidence should say so rather than claim a grade. */}
+                <div>
+                  <label htmlFor="cds-evidence-level" className="block text-sm font-medium text-gray-700 mb-1">{t('docCDS.evidenceLevelFieldLabel')}</label>
+                  <select
+                    id="cds-evidence-level"
+                    value={newRule.evidenceLevel || ''}
+                    onChange={(e) => setNewRule({ ...newRule, evidenceLevel: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  >
+                    <option value="">{t('docCDS.evidence_unspecified')}</option>
+                    <option value="A">{t('docCDS.evidence_a')}</option>
+                    <option value="B">{t('docCDS.evidence_b')}</option>
+                    <option value="C">{t('docCDS.evidence_c')}</option>
                   </select>
                 </div>
 

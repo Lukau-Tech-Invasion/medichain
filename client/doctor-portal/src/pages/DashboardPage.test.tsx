@@ -31,6 +31,7 @@ describe('DashboardPage', () => {
 
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({
         role: 'Doctor',
         patients: { total: 10, list: [] },
@@ -71,6 +72,7 @@ describe('DashboardPage', () => {
   it('shows critical alerts when present', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({
         alerts: { critical_values_count: 1, code_blues_count: 1 },
         critical_values: [{ id: '1', patient_id: 'PAT-001', test_name: 'Glucose', value: '30', critical_reason: 'Hypoglycemia', reported_at: new Date().toISOString() }],

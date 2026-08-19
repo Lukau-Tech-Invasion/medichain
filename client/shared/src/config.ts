@@ -227,6 +227,28 @@ export const clearAuth = (): void => {
   localStorage.removeItem(STORAGE_KEYS.PROVIDER_AUTH);
 };
 
+/** Clear only the clinician session and preserve a patient portal session. */
+export const clearProviderAuth = (): void => {
+  localStorage.removeItem(STORAGE_KEYS.PROVIDER_AUTH);
+  const patient = getPatientAuth();
+  if (patient) {
+    localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: patient.address, role: 'Patient' }));
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.WALLET);
+  }
+};
+
+/** Clear only the patient session and preserve a clinician portal session. */
+export const clearPatientAuth = (): void => {
+  localStorage.removeItem(STORAGE_KEYS.PATIENT_AUTH);
+  const provider = getProviderAuth();
+  if (provider) {
+    localStorage.setItem(STORAGE_KEYS.WALLET, JSON.stringify({ address: provider.address, role: provider.role }));
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.WALLET);
+  }
+};
+
 /**
  * Check if user is authenticated
  */

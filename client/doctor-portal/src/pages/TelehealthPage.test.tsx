@@ -1,10 +1,15 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import TelehealthPage from './TelehealthPage';
-import { useAuthStore } from '../store';
+import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
-vi.mock('../store', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -35,6 +40,7 @@ describe('TelehealthPage', () => {
     mockFetch.mockImplementation(() =>
       Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () =>
           Promise.resolve({
             sessions: [

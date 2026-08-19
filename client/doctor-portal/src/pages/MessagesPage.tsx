@@ -67,7 +67,7 @@ export default function MessagesPage() {
     try {
       const payload: Record<string, string> = {
         recipient_id: sendForm.recipient_id,
-        body: sendForm.body,
+        content: sendForm.body,
       };
       if (sendForm.subject) payload.subject = sendForm.subject;
       if (selectedMessage?.thread_id) payload.thread_id = selectedMessage.thread_id;

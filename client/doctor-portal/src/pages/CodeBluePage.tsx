@@ -287,6 +287,20 @@ export default function CodeBluePage() {
                 <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.epi')}</span>
               </button>
 
+              {/* Amiodarone is the ACLS antiarrhythmic for shock-refractory
+                  VF/pVT and is given alongside epinephrine, not instead of it.
+                  Only epi was one tap away, so the drug that follows the third
+                  shock had to be typed into the narrative — the one place it is
+                  least likely to be timed accurately during a code. */}
+              <button
+                onClick={() => logEvent('Medication: Amiodarone 300mg')}
+                disabled={!isActive}
+                className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-amber-50 disabled:opacity-50"
+              >
+                <Syringe className="h-8 w-8 text-amber-600 mb-2" />
+                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.amiodarone')}</span>
+              </button>
+
               <button
                 onClick={() => logEvent('Pulse Check - Pulse Present')}
                 disabled={!isActive}

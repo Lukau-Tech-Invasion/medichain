@@ -58,6 +58,30 @@ interface PatientOption {
   mrn: string;
 }
 
+/**
+ * Suture materials and gauges in routine laceration-repair use.
+ *
+ * Absorbable (Vicryl, chromic/plain gut, PDS) for deep and mucosal layers;
+ * non-absorbable (nylon, Prolene, silk) for skin, which needs removal. Gauge is
+ * chosen by site — finer on the face, heavier over the scalp and extremities.
+ */
+const SUTURE_TYPES = [
+  '4-0 Nylon',
+  '5-0 Nylon',
+  '6-0 Nylon',
+  '3-0 Nylon',
+  '4-0 Prolene',
+  '5-0 Prolene',
+  '3-0 Vicryl',
+  '4-0 Vicryl',
+  '5-0 Vicryl Rapide',
+  '4-0 Chromic Gut',
+  '5-0 Chromic Gut',
+  '4-0 Plain Gut',
+  '3-0 Silk',
+  '4-0 PDS',
+] as const;
+
 const LacerationRepairPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'repairs' | 'new' | 'follow-up'>('repairs');
@@ -429,6 +453,27 @@ const LacerationRepairPage: React.FC = () => {
                     <option value="combination">{t('docLaceration.clCombination')}</option>
                   </select>
                 </div>
+                {/* Suture material and gauge. `sutureType` was initialised to
+                    '4-0 Nylon' and had no control, so every repair was filed as
+                    4-0 nylon whatever was actually used — and the backend
+                    persists it (`suture_material`/`suture_size`). Material and
+                    gauge determine removal timing, so a wrong value misdirects
+                    the follow-up visit. */}
+                {(newRepair.closureMethod === 'sutures' || newRepair.closureMethod === 'combination') && (
+                  <div>
+                    <label htmlFor="laceration-suture-type" className="block text-sm font-medium mb-1">{t('docLaceration.sutureTypeReq')}</label>
+                    <select
+                      id="laceration-suture-type"
+                      value={newRepair.sutureType}
+                      onChange={(e) => setNewRepair({ ...newRepair, sutureType: e.target.value })}
+                      className="w-full border rounded-lg px-3 py-2"
+                    >
+                      {SUTURE_TYPES.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label htmlFor="laceration-count" className="block text-sm font-medium mb-1">{t('docLaceration.count')}</label>
                   <input

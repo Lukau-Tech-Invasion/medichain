@@ -333,7 +333,7 @@ export default function TelehealthPage() {
                     </span>
                     <span className="flex items-center gap-1">
                       <Clock size={13} />
-                      {t('docTelehealth.minutes', { count: session.duration_minutes })}
+                      {(session.duration_minutes ?? 30)} min
                     </span>
                   </div>
                 </div>

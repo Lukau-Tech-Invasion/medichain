@@ -1,5 +1,13 @@
-import React, { useState } from 'react';
-import { useTranslation } from '@medichain/shared';
+import React, { useEffect, useState } from 'react';
+import {
+  createSatisfactionSurvey,
+  debugLog,
+  getPatientAppointments,
+  type Appointment,
+  type SatisfactionSurveyResponseInput,
+  useTranslation,
+} from '@medichain/shared';
+import { usePatientAuthStore } from '../store/authStore';
 import {
   Star,
   ThumbsUp,
@@ -45,12 +53,15 @@ interface SurveyResponse {
 
 const SatisfactionSurveyPage: React.FC = () => {
   const { t } = useTranslation();
+  const patient = usePatientAuthStore(state => state.patient);
   const [step, setStep] = useState<SurveyStep>('intro');
   const [responses, setResponses] = useState<SurveyResponse[]>([]);
   const [overallRating, setOverallRating] = useState<RatingType>(0);
   const [wouldRecommend, setWouldRecommend] = useState<boolean | null>(null);
   const [additionalComments, setAdditionalComments] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [recentVisit, setRecentVisit] = useState<Appointment | null>(null);
   const [hoveredStar, setHoveredStar] = useState<number>(0);
 
   const visitQuestions: SurveyQuestion[] = [
@@ -73,6 +84,24 @@ const SatisfactionSurveyPage: React.FC = () => {
     { id: 'f3', category: 'facility', question: t('survey.qF3'), type: 'stars', required: false },
     { id: 'f4', category: 'facility', question: t('survey.qF4'), type: 'yesno', required: false }
   ];
+
+  useEffect(() => {
+    if (!patient?.healthId) return;
+
+    const loadRecentVisit = async () => {
+      try {
+        const result = await getPatientAppointments(patient.healthId);
+        const latest = [...result.appointments]
+          .filter(appointment => appointment.status.toLowerCase() === 'completed')
+          .sort((left, right) => (right.scheduled_time ?? 0) - (left.scheduled_time ?? 0))[0];
+        setRecentVisit(latest ?? null);
+      } catch (error) {
+        debugLog('SatisfactionSurveyPage', 'Could not load a recent completed visit:', error);
+      }
+    };
+
+    void loadRecentVisit();
+  }, [patient?.healthId]);
 
   const getResponse = (questionId: string): SurveyResponse | undefined => {
     return responses.find(r => r.questionId === questionId);
@@ -99,43 +128,39 @@ const SatisfactionSurveyPage: React.FC = () => {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
-      const userId = localStorage.getItem('user_id') || sessionStorage.getItem('user_id');
-      const staffRating = responses.find(r => r.questionId === 's1')?.rating || 0;
-      const waitTimeResponse = responses.find(r => r.questionId === 'v2');
-      const waitTimeSatisfaction = waitTimeResponse?.yesNo === true ? 5 : waitTimeResponse?.yesNo === false ? 2 : 3;
-      const cleanlinessRating = responses.find(r => r.questionId === 'f1')?.rating || 0;
-      const communicationRating = responses.find(r => r.questionId === 'v4')?.rating || 0;
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8080'}/api/clinical/satisfaction-survey`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': userId || '',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          survey_id: `SURV-${Date.now()}`,
-          patient_id: userId || 'unknown',
-          overall_satisfaction: overallRating,
-          staff_professionalism: staffRating,
-          wait_time_satisfaction: waitTimeSatisfaction,
-          facility_cleanliness: cleanlinessRating,
-          communication_quality: communicationRating,
-          would_recommend: wouldRecommend ?? (overallRating >= 4),
-          comments: additionalComments,
-          submitted_at: new Date().toISOString(),
-        }),
+      const questions = [...visitQuestions, ...staffQuestions, ...facilityQuestions];
+      const apiResponses: SatisfactionSurveyResponseInput[] = responses.map(response => {
+        const question = questions.find(candidate => candidate.id === response.questionId);
+        const responseType = question?.type === 'yesno' ? 'YesNo' : 'Rating';
+        const responseValue = question?.type === 'yesno'
+          ? String(response.yesNo)
+          : String(response.rating ?? response.scale ?? '');
+        return {
+          question_id: response.questionId,
+          question_text: question?.question ?? response.questionId,
+          response_type: responseType,
+          response_value: responseValue,
+        };
       });
-      if (response.ok || response.status === 201) {
-        setStep('submitted');
-      } else {
-        throw new Error('Submission failed');
-      }
-    } catch (error) {
-      console.error('Survey submission error:', error);
-      // Fallback: show submitted anyway for UX
+
+      await createSatisfactionSurvey({
+        visit_id: recentVisit?.appointment_id,
+        visit_date: recentVisit?.scheduled_date ?? new Date().toISOString().slice(0, 10),
+        department: recentVisit?.appointment_type ?? 'General care',
+        survey_type: 'PostVisit',
+        responses: apiResponses,
+        overall_rating: overallRating,
+        nps_score: wouldRecommend ? 10 : 0,
+        comments: additionalComments,
+        anonymous: false,
+        follow_up_requested: false,
+      });
       setStep('submitted');
+    } catch (error) {
+      debugLog('SatisfactionSurveyPage', 'Survey submission failed:', error);
+      setSubmitError(t('survey.submitError'));
     } finally {
       setIsSubmitting(false);
     }
@@ -148,6 +173,8 @@ const SatisfactionSurveyPage: React.FC = () => {
         {[1, 2, 3, 4, 5].map(star => (
           <button
             key={star}
+            type="button"
+            aria-label={`${questionId}: ${star} of 5`}
             onClick={() => setResponse(questionId, { rating: star as RatingType })}
             onMouseEnter={() => setHoveredStar(star)}
             onMouseLeave={() => setHoveredStar(0)}
@@ -170,6 +197,8 @@ const SatisfactionSurveyPage: React.FC = () => {
     return (
       <div className="flex gap-4">
         <button
+          type="button"
+          aria-label={`${questionId}: ${t('common.yes')}`}
           onClick={() => setResponse(questionId, { yesNo: true })}
           className={`flex items-center gap-2 px-6 py-3 rounded-lg border-2 transition-all ${
             currentValue === true
@@ -181,6 +210,8 @@ const SatisfactionSurveyPage: React.FC = () => {
           <span className="font-medium">{t('common.yes')}</span>
         </button>
         <button
+          type="button"
+          aria-label={`${questionId}: ${t('common.no')}`}
           onClick={() => setResponse(questionId, { yesNo: false })}
           className={`flex items-center gap-2 px-6 py-3 rounded-lg border-2 transition-all ${
             currentValue === false
@@ -278,11 +309,17 @@ const SatisfactionSurveyPage: React.FC = () => {
               <div className="bg-pink-50 rounded-lg p-4 mb-6">
                 <h3 className="font-medium text-pink-900 mb-2">{t('survey.recentVisit')}</h3>
                 <div className="text-sm text-pink-700">
-                  <p>Dr. Sarah Chen - Primary Care</p>
-                  <p className="flex items-center justify-center gap-1 mt-1">
-                    <Clock className="w-4 h-4" />
-                    January 10, 2025
-                  </p>
+                  {recentVisit ? (
+                    <>
+                      <p>{recentVisit.provider_name} - {recentVisit.appointment_type}</p>
+                      <p className="flex items-center justify-center gap-1 mt-1">
+                        <Clock className="w-4 h-4" />
+                        {recentVisit.scheduled_date}
+                      </p>
+                    </>
+                  ) : (
+                    <p>{t('survey.noRecentVisit')}</p>
+                  )}
                 </div>
               </div>
 
@@ -317,18 +354,28 @@ const SatisfactionSurveyPage: React.FC = () => {
               <h2 className="text-lg font-bold text-gray-900">{t('survey.visitHeader')}</h2>
             </div>
             {renderQuestionSet(visitQuestions)}
-            <button
-              onClick={() => setStep('staff')}
-              disabled={!isStepComplete(visitQuestions)}
-              className={`w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
-                isStepComplete(visitQuestions)
-                  ? 'bg-pink-500 text-white hover:bg-pink-600'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              {t('survey.continue')}
-              <ChevronRight className="w-5 h-5" />
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setStep('intro')}
+                className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50"
+              >
+                {t('common.back')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setStep('staff')}
+                disabled={!isStepComplete(visitQuestions)}
+                className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
+                  isStepComplete(visitQuestions)
+                    ? 'bg-pink-500 text-white hover:bg-pink-600'
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                }`}
+              >
+                {t('survey.continue')}
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         )}
 
@@ -406,6 +453,8 @@ const SatisfactionSurveyPage: React.FC = () => {
                 {[1, 2, 3, 4, 5].map(star => (
                   <button
                     key={star}
+                    type="button"
+                    aria-label={`overall: ${star} of 5`}
                     onClick={() => setOverallRating(star as RatingType)}
                     className="p-2 transition-transform hover:scale-110"
                   >
@@ -433,6 +482,8 @@ const SatisfactionSurveyPage: React.FC = () => {
               </p>
               <div className="flex gap-4 justify-center">
                 <button
+                  type="button"
+                  aria-label={`recommend: ${t('common.yes')}`}
                   onClick={() => setWouldRecommend(true)}
                   className={`flex items-center gap-2 px-8 py-4 rounded-lg border-2 transition-all ${
                     wouldRecommend === true
@@ -444,6 +495,8 @@ const SatisfactionSurveyPage: React.FC = () => {
                   <span className="font-medium">{t('common.yes')}</span>
                 </button>
                 <button
+                  type="button"
+                  aria-label={`recommend: ${t('common.no')}`}
                   onClick={() => setWouldRecommend(false)}
                   className={`flex items-center gap-2 px-8 py-4 rounded-lg border-2 transition-all ${
                     wouldRecommend === false
@@ -471,6 +524,12 @@ const SatisfactionSurveyPage: React.FC = () => {
                 className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
               />
             </div>
+
+            {submitError && (
+              <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {submitError}
+              </div>
+            )}
 
             <div className="flex gap-3">
               <button
@@ -518,6 +577,7 @@ const SatisfactionSurveyPage: React.FC = () => {
                 setOverallRating(0);
                 setWouldRecommend(null);
                 setAdditionalComments('');
+                setSubmitError(null);
               }}
               className="px-6 py-3 bg-pink-500 text-white rounded-lg font-semibold hover:bg-pink-600"
             >

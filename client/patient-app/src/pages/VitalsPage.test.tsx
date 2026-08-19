@@ -33,6 +33,7 @@ describe('VitalsPage (Patient)', () => {
       if (url.includes('/vitals/latest')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             heart_rate: 72,
             systolic_bp: 120,
@@ -45,6 +46,7 @@ describe('VitalsPage (Patient)', () => {
       if (url.includes('/vitals')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             readings: [
               {
@@ -60,6 +62,7 @@ describe('VitalsPage (Patient)', () => {
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -76,7 +79,7 @@ describe('VitalsPage (Patient)', () => {
       expect(screen.getByText(/Vital Signs/i)).toBeInTheDocument();
       expect(screen.getByText('72')).toBeInTheDocument(); // Heart rate
       expect(screen.getByText('120/80')).toBeInTheDocument(); // BP
-      expect(screen.getByText('36.6°C')).toBeInTheDocument(); // Temp
+      expect(screen.getAllByText('36.6°C').length).toBeGreaterThan(0); // Temp
     });
   });
 
@@ -88,7 +91,7 @@ describe('VitalsPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Recent History/i)).toBeInTheDocument();
+      expect(screen.getByText(/History/i)).toBeInTheDocument();
     });
   });
 });

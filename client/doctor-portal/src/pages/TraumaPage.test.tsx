@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -44,7 +49,7 @@ describe('TraumaPage', () => {
 
     expect(screen.getByText(/Trauma Assessment/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/Document trauma mechanism, primary survey, and injury severity/i)
+      screen.getByText(/Document trauma mechanism, primary survey, and injury severity\./i)
     ).toBeInTheDocument();
   });
 

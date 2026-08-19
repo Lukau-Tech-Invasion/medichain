@@ -12,43 +12,15 @@ import { persist } from 'zustand/middleware';
 import {
   apiUrl,
   setPatientAuth,
-  clearAuth as clearStoredAuth,
+  clearPatientAuth as clearStoredAuth,
   getPatientAuth,
   debugLog,
   IS_DEVELOPMENT,
   generateHealthId,
   syncApiClientUserId,
   getApiClient,
-  issueJwt,
-  enterPatientContext,
   initPushNotifications,
 } from '@medichain/shared';
-
-/**
- * Acquire JWT access + refresh tokens after a successful login (Phase 9.4).
- * Non-fatal: falls back to the legacy `X-User-Id` header if issuance fails.
- * Patient demo wallets cannot sign, so this uses demo-mode (unsigned) issuance.
- */
-async function acquireJwtTokens(walletAddress: string): Promise<void> {
-  try {
-    const resp = await issueJwt({ wallet_address: walletAddress });
-    if (resp?.access_token) {
-      getApiClient().setTokens(resp.access_token, resp.refresh_token);
-      // Phase 1: patient screens use an explicit personal-health token. A
-      // legacy fallback keeps existing accounts usable until their profile is
-      // linked by the migration workflow.
-      try {
-        const context = await enterPatientContext();
-        getApiClient().setTokens(context.access_token);
-      } catch (contextError) {
-        debugLog('patientAuthStore', 'Patient context unavailable; using legacy JWT:', contextError);
-      }
-      debugLog('patientAuthStore', 'JWT acquired');
-    }
-  } catch (e) {
-    debugLog('patientAuthStore', 'JWT acquisition failed; continuing with X-User-Id:', e);
-  }
-}
 
 /**
  * Request push-notification permission and register the device token
@@ -183,7 +155,6 @@ export const usePatientAuthStore = create<AuthState>()(
               error: null,
             });
 
-            await acquireJwtTokens(patient.walletAddress);
             initPush();
 
             debugLog('patientAuthStore', 'Logged in with wallet:', walletAddress);
@@ -256,7 +227,6 @@ export const usePatientAuthStore = create<AuthState>()(
             error: null,
           });
 
-          await acquireJwtTokens(patient.walletAddress);
           initPush();
 
           debugLog('patientAuthStore', 'Created demo wallet:', { walletAddress, healthId });
@@ -311,6 +281,9 @@ export const usePatientAuthStore = create<AuthState>()(
        */
       restoreSession: () => {
         const storedAuth = getPatientAuth();
+        // Zustand may already have rehydrated its persisted state, but the API
+        // singleton still needs the portal-specific wallet after a reload.
+        if (storedAuth) getApiClient().setUserId(storedAuth.address);
         if (storedAuth && !get().isAuthenticated) {
           // We only have limited data from storage, 
           // but enough to authenticate for API calls
@@ -324,8 +297,6 @@ export const usePatientAuthStore = create<AuthState>()(
             },
             isAuthenticated: true,
           });
-          // Re-acquire JWTs (not persisted); fire-and-forget since this is sync.
-          void acquireJwtTokens(storedAuth.address);
           initPush();
           debugLog('patientAuthStore', 'Restored session from storage');
         }

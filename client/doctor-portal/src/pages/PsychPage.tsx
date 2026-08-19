@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Brain, AlertTriangle, Shield, User, Plus, Phone } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, createPsych, useTranslation } from '@medichain/shared';
+import { getPatients, createPsych, getPsychForPatient, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type RiskLevel = 'none' | 'low' | 'moderate' | 'high' | 'imminent';
@@ -133,6 +133,24 @@ const PsychPage: React.FC = () => {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (!selectedPatient) return;
+    getPsychForPatient(selectedPatient)
+      .then(({ assessments: saved }) => {
+        setAssessments(saved.map((item: any) => ({
+          ...item,
+          id: item.assessment_id,
+          patientId: item.patient_id,
+          chiefComplaint: item.chief_complaint,
+          assessedBy: item.assessed_by,
+          assessedAt: new Date(item.assessed_at * 1000).toISOString(),
+          disposition: item.disposition,
+          patientName: patients.find((patient) => patient.patient_id === item.patient_id)?.full_name || item.patient_id,
+        })));
+      })
+      .catch((err) => console.error('Failed to load psychiatric assessments:', err));
+  }, [selectedPatient, patients]);
+
   // Auto-calculate suicide risk
   useEffect(() => {
     let level: RiskLevel = 'none';
@@ -162,6 +180,18 @@ const PsychPage: React.FC = () => {
       showWarning(t('docPsych.warnSelectPatient'));
       return;
     }
+    if (!disposition) {
+      showWarning('Select a disposition before saving the assessment.');
+      return;
+    }
+    const apiDisposition: Record<string, string> = {
+      discharge: 'DischargeHome',
+      'admit-voluntary': 'InpatientAdmission',
+      'admit-involuntary': 'InpatientAdmission',
+      transfer: 'TransferToPsychFacility',
+      'crisis-stabilization': 'CrisisStabilization',
+      outpatient: 'OutpatientFollowUp',
+    };
     const patient = patients.find(p => p.patient_id === selectedPatient);
     const newAssessment: PsychAssessment = {
       id: `PSYCH-${Date.now()}`,
@@ -179,17 +209,98 @@ const PsychPage: React.FC = () => {
       homicideRisk,
       legalStatus,
       diagnoses: selectedDiagnoses,
-      disposition,
+      disposition: apiDisposition[disposition] as PsychAssessment['disposition'],
       safetyPlan,
       notes
     };
     try {
-      await createPsych(newAssessment);
+      const result = await createPsych({
+        assessment_id: newAssessment.id,
+        patient_id: newAssessment.patientId,
+        chief_complaint: newAssessment.chiefComplaint,
+        mental_status_exam: {
+          appearance: newAssessment.mentalStatusExam.appearance,
+          behavior: newAssessment.mentalStatusExam.behavior,
+          speech: newAssessment.mentalStatusExam.speech,
+          mood: newAssessment.mentalStatusExam.mood,
+          affect: newAssessment.mentalStatusExam.affect,
+          thought_process: newAssessment.mentalStatusExam.thoughtProcess,
+          thought_content: newAssessment.mentalStatusExam.thoughtContent.join(', '),
+          perceptions: newAssessment.mentalStatusExam.perceptions.join(', '),
+          cognition: newAssessment.mentalStatusExam.cognition,
+          insight: newAssessment.mentalStatusExam.insight,
+          judgment: newAssessment.mentalStatusExam.judgment,
+        },
+        suicide_risk: {
+          ideation: newAssessment.suicideRisk.ideation,
+          ideation_description: null,
+          plan: newAssessment.suicideRisk.plan,
+          plan_description: null,
+          intent: newAssessment.suicideRisk.intent,
+          access_to_means: newAssessment.suicideRisk.means,
+          means_description: null,
+          prior_attempts: newAssessment.suicideRisk.priorAttempts > 0,
+          attempt_count: newAssessment.suicideRisk.priorAttempts || null,
+          recent_attempt_details: null,
+          risk_factors: [],
+          protective_factors: [],
+          risk_level: newAssessment.suicideRisk.riskLevel === 'none' ? 'Low' : newAssessment.suicideRisk.riskLevel[0].toUpperCase() + newAssessment.suicideRisk.riskLevel.slice(1),
+          cssrs_used: false,
+          cssrs_score: null,
+        },
+        homicidal_risk: {
+          ideation: newAssessment.homicideRisk.ideation,
+          target_identified: newAssessment.homicideRisk.target,
+          target_description: null,
+          plan: newAssessment.homicideRisk.plan,
+          access_to_weapons: newAssessment.homicideRisk.means,
+          history_of_violence: false,
+          risk_level: newAssessment.homicideRisk.riskLevel,
+          duty_to_warn: false,
+          law_enforcement_notified: false,
+        },
+        substance_use: {
+          currently_intoxicated: false,
+          substances: newAssessment.substanceUse.map((item) => ({ ...item, route: '', amount: null, last_use: item.lastUse })),
+          in_withdrawal: false,
+          withdrawal_symptoms: [],
+          withdrawal_score: null,
+          withdrawal_protocol: false,
+        },
+        psych_history: {
+          diagnoses: newAssessment.psychiatricHistory,
+          hospitalizations: 0,
+          suicide_attempts: newAssessment.suicideRisk.priorAttempts,
+          self_harm_history: false,
+          trauma_history: null,
+          family_history: [],
+        },
+        psych_medications: newAssessment.medications,
+        medication_compliant: null,
+        social_history: {
+          living_situation: '',
+          support_system: '',
+          employment: '',
+          recent_stressors: [],
+          legal_issues: null,
+          financial_issues: null,
+        },
+        legal_status: { admission_type: 'Voluntary', hold_type: null, hold_expiration: null, court_hearing: null, guardian: null },
+        safety_precautions: [],
+        disposition: newAssessment.disposition,
+        safety_plan: null,
+        assessed_by: newAssessment.assessedBy,
+        assessed_at: Math.floor(Date.now() / 1000),
+      }) as { success?: boolean };
+      if (result?.success === false) {
+        throw new Error('Psychiatric assessment was not saved.');
+      }
+      setAssessments([newAssessment, ...assessments]);
+      showSuccess(t('docPsych.saved'));
     } catch (err) {
       console.error('Failed to save psychiatric assessment:', err);
+      showError('Psychiatric assessment could not be saved.');
     }
-    setAssessments([newAssessment, ...assessments]);
-    showSuccess(t('docPsych.saved'));
   };
 
   return (

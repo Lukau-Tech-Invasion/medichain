@@ -41,19 +41,23 @@ export function FamilyGroupPage() {
 
   const loadGroups = () => {
     getMyFamilyGroups()
-      .then((res: any) => setGroups(res.groups || []))
+      .then((res: any) => setGroups((res.groups || []).map((group: any) => ({
+        ...group,
+        group_id: group.group_id || group.family_id,
+        group_name: group.group_name || group.family_name,
+      }))))
       .catch(console.error)
       .finally(() => setLoading(false));
   };
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!patient?.healthId || !newGroupName.trim()) return;
+    if (!patient?.walletAddress || !newGroupName.trim()) return;
     setIsCreating(true);
     try {
       await createFamilyGroup({
         group_name: newGroupName.trim(),
-        primary_contact_id: patient.healthId,
+        primary_contact_id: patient.walletAddress,
       });
       setNewGroupName('');
       showSuccess(t('family.groupCreated'));
@@ -74,6 +78,7 @@ export function FamilyGroupPage() {
       await addFamilyMember(addMemberGroupId, {
         patient_id: newMemberHealthId.trim(),
         relationship: newMemberRelationship.trim() || undefined,
+        access_level: 'ViewOnly',
       });
       setNewMemberHealthId('');
       setNewMemberRelationship('');
@@ -141,8 +146,13 @@ export function FamilyGroupPage() {
         ) : (
           groups.map(group => (
             <div key={group.group_id} className="patient-card">
-              <div
-                className="flex items-center justify-between cursor-pointer"
+              {/* A clickable <div> is not operable by keyboard and is invisible
+                  to assistive tech — this control expands the member list, so
+                  it needs to be a real button. */}
+              <button
+                type="button"
+                aria-expanded={expandedGroup === group.group_id}
+                className="w-full flex items-center justify-between cursor-pointer text-left"
                 onClick={() => setExpandedGroup(expandedGroup === group.group_id ? null : group.group_id)}
               >
                 <div className="flex items-center gap-3">
@@ -161,7 +171,7 @@ export function FamilyGroupPage() {
                 ) : (
                   <ChevronDown className="w-5 h-5 text-neutral-400" />
                 )}
-              </div>
+              </button>
 
               {expandedGroup === group.group_id && (
                 <div className="mt-4 space-y-3">

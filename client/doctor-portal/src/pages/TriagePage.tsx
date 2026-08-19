@@ -468,8 +468,18 @@ function TriagePage() {
 
           {/* Chief Complaint */}
           <div className="bg-white rounded-xl shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('docTriage.chiefComplaintTitle')}</h2>
+            {/* A heading is not a label: this required field had no
+                accessible name at all, so a screen reader announced an unnamed
+                text box — unlike every other field on this form, which uses
+                `<label htmlFor>`. Kept as a heading visually, bound properly. */}
+            <label
+              htmlFor="triage-chief-complaint"
+              className="block text-lg font-semibold text-gray-900 mb-4"
+            >
+              {t('docTriage.chiefComplaintTitle')}
+            </label>
             <textarea
+              id="triage-chief-complaint"
               value={chiefComplaint}
               onChange={(e) => setChiefComplaint(e.target.value)}
               placeholder={t('docTriage.chiefComplaintPlaceholder')}

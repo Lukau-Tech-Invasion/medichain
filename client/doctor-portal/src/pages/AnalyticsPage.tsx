@@ -103,8 +103,12 @@ const AnalyticsPage: React.FC = () => {
           }
         });
 
+        if (response.status === 403) {
+          throw new Error('Analytics are available to administrators only.');
+        }
+
         if (!response.ok) {
-          throw new Error(`Failed to fetch analytics: ${response.status}`);
+          throw new Error('Unable to load analytics right now.');
         }
 
         const data = await response.json();

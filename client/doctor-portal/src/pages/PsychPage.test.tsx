@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -34,14 +39,15 @@ describe('PsychPage', () => {
     render(<PsychPage />);
 
     expect(screen.getByText(/Psychiatric Assessment/i)).toBeInTheDocument();
-    expect(screen.getByText(/Mental Status Examination and psychiatric evaluation/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mental Status Examination/i)).toBeInTheDocument();
   });
 
   it('displays MSE sections', () => {
     render(<PsychPage />);
 
-    expect(screen.getByText(/Appearance & Behavior/i)).toBeInTheDocument();
-    expect(screen.getByText(/Mood & Affect/i)).toBeInTheDocument();
+    expect(screen.getByText(/Appearance/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mood \(patient states\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Affect \(observed\)/i)).toBeInTheDocument();
     expect(screen.getByText(/Thought Content/i)).toBeInTheDocument();
   });
 

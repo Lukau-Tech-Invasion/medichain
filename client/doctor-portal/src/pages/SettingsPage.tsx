@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useThemeStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import {
+  debugLog,
+  getUserSettings,
+  saveUserSettings,
+  useTranslation,
+} from '@medichain/shared';
 import { 
   Settings, 
   User, 
@@ -63,10 +68,12 @@ function SettingsPage() {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
+  const loadErrorMessage = t('docSettings.loadError');
   const [settings, setSettings] = useState<UserSettings>(initialSettings);
   const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'security' | 'display'>('profile');
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -79,28 +86,36 @@ function SettingsPage() {
     }));
   }, [isAuthenticated, navigate, theme]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    const loadSettings = async () => {
+      try {
+        const stored = await getUserSettings<Partial<UserSettings>>();
+        setSettings(current => ({
+          notifications: { ...current.notifications, ...stored.notifications },
+          security: { ...current.security, ...stored.security },
+          display: { ...current.display, ...stored.display },
+        }));
+      } catch (error) {
+        debugLog('DoctorSettingsPage', 'Could not load settings:', error);
+        setSettingsError(loadErrorMessage);
+      }
+    };
+    void loadSettings();
+  }, [isAuthenticated, loadErrorMessage, user]);
+
   const handleSave = async () => {
     if (!user) return;
-    
+
     setIsSaving(true);
+    setSettingsError(null);
     try {
-      const response = await fetch(apiUrl('/api/settings'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': user.walletAddress,
-          'X-Provider-Role': user.role,
-        },
-        body: JSON.stringify(settings),
-      });
-      if (response.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-      } else {
-        console.error('Failed to save settings');
-      }
+      await saveUserSettings(settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
     } catch (error) {
-      console.error('Error saving settings:', error);
+      debugLog('DoctorSettingsPage', 'Could not save settings:', error);
+      setSettingsError(t('docSettings.saveError'));
     } finally {
       setIsSaving(false);
     }
@@ -168,6 +183,12 @@ function SettingsPage() {
           )}
         </button>
       </div>
+
+      {settingsError && (
+        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {settingsError}
+        </div>
+      )}
 
       <div className="flex gap-8">
         {/* Tabs */}

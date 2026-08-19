@@ -615,11 +615,18 @@ export default function PreOpPage() {
                   <Shield className="h-6 w-6 mr-2 text-indigo-500" />
                   {t('docPreOp.asaHeading')}
                 </h2>
-                <div className="space-y-3">
+                {/* ASA physical status is a single mutually-exclusive choice, so
+                    it is a radio group. As bare <button>s, assistive tech was told
+                    neither that the options are alternatives nor which one is
+                    selected — the selection was conveyed only by colour and a
+                    check glyph. */}
+                <div className="space-y-3" role="radiogroup" aria-label={t('docPreOp.asaClassLabel')}>
                   {asaClassifications.map(asa => (
                     <button
                       key={asa.value}
                       type="button"
+                      role="radio"
+                      aria-checked={asaClass === asa.value}
                       onClick={() => setAsaClass(asa.value)}
                       className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
                         asaClass === asa.value

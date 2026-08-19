@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -15,6 +20,34 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
+
+/**
+ * Walk the AMA wizard as far as the risk-disclosure step.
+ *
+ * The AMA form is a four-step wizard behind a tab, not a single page: patient
+ * info, medical details, risk disclosure + capacity, then signatures. Each step
+ * gates the next on its own required fields, so a test that renders the page
+ * and asserts on step-3 content sees only the records list.
+ */
+const goToRiskDisclosureStep = async () => {
+  // Tabs render only once the records load resolves — before that the page is
+  // a spinner, so every query below would miss.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /New AMA Form/i })).toBeInTheDocument()
+  );
+  fireEvent.click(screen.getByRole('button', { name: /New AMA Form/i }));
+
+  fireEvent.change(screen.getByLabelText(/Patient ID/i), { target: { value: 'PAT-001' } });
+  fireEvent.change(screen.getByLabelText(/Patient Name/i), { target: { value: 'Test Patient' } });
+  fireEvent.change(screen.getByLabelText(/MRN/i), { target: { value: 'MRN-001' } });
+  fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+
+  fireEvent.change(screen.getByLabelText(/Diagnosis/i), { target: { value: 'Chest pain' } });
+  fireEvent.change(screen.getByLabelText(/Recommended Treatment/i), {
+    target: { value: 'Admit for observation and serial troponins' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+};
 
 describe('AMAPage', () => {
   const mockUser = {
@@ -34,22 +67,47 @@ describe('AMAPage', () => {
     render(<AMAPage />);
 
     expect(screen.getByText(/Against Medical Advice \(AMA\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/Documentation of patient refusal of care and AMA discharge/i)).toBeInTheDocument();
+    expect(screen.getByText(/Document patient refusal of care and AMA discharges/i)).toBeInTheDocument();
   });
 
-  it('displays assessment sections', () => {
+  it('displays assessment sections', async () => {
     render(<AMAPage />);
+    await goToRiskDisclosureStep();
 
-    expect(screen.getByText(/Capacity Assessment/i)).toBeInTheDocument();
-    expect(screen.getByText(/Risks Explained/i)).toBeInTheDocument();
-    expect(screen.getByText(/Patient Statements/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText(/Decision-Making Capacity/i)).toBeInTheDocument()
+    );
+    // 'Risk Disclosure' is both the step-strip label and the section heading.
+    expect(screen.getAllByText(/Risk Disclosure/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Each risk must be verbally explained/i)).toBeInTheDocument();
   });
 
-  it('allows selecting capacity status', () => {
+  it('allows recording the capacity assessment', async () => {
     render(<AMAPage />);
+    await goToRiskDisclosureStep();
 
-    const select = screen.getByLabelText(/Patient has capacity to refuse/i);
-    fireEvent.change(select, { target: { value: 'yes' } });
-    expect(select).toHaveValue('yes');
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Patient has capacity to refuse/i)).toBeInTheDocument()
+    );
+    const capacity = screen.getByLabelText(/Patient has capacity to refuse/i);
+    expect(capacity).not.toBeChecked();
+
+    fireEvent.click(capacity);
+    expect(capacity).toBeChecked();
+  });
+
+  it('blocks signature collection until capacity is affirmed', async () => {
+    render(<AMAPage />);
+    await goToRiskDisclosureStep();
+
+    // Acknowledging every risk is not sufficient on its own: an unassessed
+    // patient cannot give an informed refusal, so the signature step stays
+    // closed until capacity is affirmed too.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Continue to Signatures/i })).toBeDisabled()
+    );
+
+    fireEvent.click(screen.getByLabelText(/Patient has capacity to refuse/i));
+    expect(screen.getByRole('button', { name: /Continue to Signatures/i })).toBeDisabled();
   });
 });

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { MedicalHistoryPage } from './MedicalHistoryPage';
@@ -32,12 +32,29 @@ describe('MedicalHistoryPage (Patient)', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
-          patient_id: '1',
-          medical_conditions: ['Diabetes', 'Hypertension'],
-          past_surgeries: ['Appendectomy (2015)'],
-          family_history: ['Father: Diabetes'],
-          allergies: ['Peanuts'],
+          // The page reads `family_history` (or `entries`) and renders
+          // `entry.condition` with `entry.relationship` beneath it. The
+          // generated fixture used `medical_conditions`, a key the component
+          // never looks at, so the list stayed empty.
+          family_history: [
+            {
+              id: 'fh1',
+              condition: 'Diabetes',
+              relationship: 'Father',
+              deceased: false,
+              age_of_onset: 45,
+            },
+            {
+              id: 'fh2',
+              condition: 'Hypertension',
+              relationship: 'Mother',
+              deceased: false,
+            },
+          ],
+          immunizations: [],
+          records: [],
         }),
       });
     });
@@ -49,6 +66,12 @@ describe('MedicalHistoryPage (Patient)', () => {
         <MedicalHistoryPage />
       </MemoryRouter>
     );
+
+    // Family history is behind its own tab; the page opens on Immunizations.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Family History/i })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Family History/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/Medical History/i)).toBeInTheDocument();
@@ -64,9 +87,14 @@ describe('MedicalHistoryPage (Patient)', () => {
       </MemoryRouter>
     );
 
+    // Open the tab before asserting on its contents.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Family History/i })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Family History/i }));
+
     await waitFor(() => {
-      expect(screen.getByText(/Family History/i)).toBeInTheDocument();
-      expect(screen.getByText(/Father: Diabetes/i)).toBeInTheDocument();
+      expect(screen.getByText(/Father/i)).toBeInTheDocument();
     });
   });
 });

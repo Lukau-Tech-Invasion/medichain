@@ -1154,6 +1154,27 @@ export interface PatientSatisfactionSurvey {
   contact_method: string | null;
 }
 
+export interface SatisfactionSurveyResponseInput {
+  question_id: string;
+  question_text: string;
+  response_type: 'Rating' | 'YesNo' | 'MultipleChoice' | 'FreeText';
+  response_value: string;
+}
+
+export interface CreateSatisfactionSurveyInput {
+  visit_id?: string;
+  visit_date: string;
+  department: string;
+  survey_type: 'CAHPS' | 'HCAHPS' | 'Custom' | 'PostDischarge' | 'PostVisit';
+  responses: SatisfactionSurveyResponseInput[];
+  overall_rating: number;
+  nps_score: number;
+  comments?: string;
+  anonymous: boolean;
+  follow_up_requested: boolean;
+  contact_method?: string;
+}
+
 // ============================================================================
 // GCS / SAMPLE History
 // ============================================================================

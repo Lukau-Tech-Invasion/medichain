@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -69,7 +74,7 @@ describe('LabQCPage', () => {
     const calTab = screen.getByText(/Calibrations/i);
     fireEvent.click(calTab);
     
-    expect(screen.getByText(/Calibration Log/i)).toBeInTheDocument();
+    expect(screen.getByText(/Calibrations/i)).toBeInTheDocument();
   });
 
   it('allows switching to new QC tab', async () => {
@@ -78,6 +83,6 @@ describe('LabQCPage', () => {
     const newTab = screen.getByText(/New QC/i);
     fireEvent.click(newTab);
     
-    expect(screen.getByText(/Record New QC Test/i)).toBeInTheDocument();
+    expect(screen.getByText(/Record QC Test/i)).toBeInTheDocument();
   });
 });

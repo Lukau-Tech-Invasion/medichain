@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { usePatientAuthStore } from '../store/authStore';
 
 interface EmergencyData {
   patientId: string;
@@ -63,19 +64,13 @@ export function EmergencyCardPage() {
   const { showSuccess, showError, showWarning } = useToastActions();
   const [showMedicalInfo, setShowMedicalInfo] = useState(true);
   const [copied, setCopied] = useState(false);
+  const patient = usePatientAuthStore(state => state.patient);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [qrError, setQrError] = useState(false);
 
-  // Patient ID from stored auth (used as the cache key + request identity).
-  const patientId = (() => {
-    try {
-      const authData = localStorage.getItem('patient-auth');
-      return authData ? JSON.parse(authData).patientId : null;
-    } catch {
-      return null;
-    }
-  })();
+  // Canonical patient record id; the wallet is the authenticated caller.
+  const patientId = patient?.healthId || null;
 
   // Fetch + map the emergency card. Throws on failure so useOfflineCache can fall
   // back to the cached copy (critical: emergency data must be viewable offline).
@@ -85,7 +80,8 @@ export function EmergencyCardPage() {
     }
     const response = await fetch(apiUrl(`/api/patients/${patientId}`), {
       headers: {
-        'X-User-Id': patientId,
+        'X-User-Id': patient?.walletAddress || '',
+        'X-Health-Id': patientId,
         'Content-Type': 'application/json',
       },
     });
@@ -117,7 +113,7 @@ export function EmergencyCardPage() {
       cardHash: String(data.patient_id || '').replace(/-/g, '').toLowerCase(),
       lastUpdated: data.last_updated || new Date().toISOString(),
     };
-  }, [patientId]);
+  }, [patient?.walletAddress, patientId]);
 
   // Cache-through: caches on every successful load, serves cached card offline.
   const {

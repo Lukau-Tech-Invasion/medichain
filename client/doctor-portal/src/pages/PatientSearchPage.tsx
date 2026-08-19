@@ -5,26 +5,58 @@ import { apiUrl, useTranslation } from '@medichain/shared';
 import { Search, Users, Filter, ChevronRight, Loader2, AlertCircle, Droplet, Pill, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
+/**
+ * A patient as `GET /api/patients` actually returns it.
+ *
+ * The clinical fields live inside the emergency capsule (`emergency_info`),
+ * not on the patient root. This page previously declared them flat
+ * (`blood_type`, `allergies`, `medical_conditions`, ...), so every one of them
+ * read back `undefined`: blood type rendered as "Unknown", the allergy and
+ * medication tags never appeared, and the i18n interpolation for a missing
+ * value printed the raw `{{gender}}` / `{{id}}` placeholder to the clinician.
+ * Keep this shape in step with `PatientProfile` in `api/src/types/domain.rs`.
+ */
+interface ApiAllergy {
+  name: string;
+}
+
+interface ApiEmergencyInfo {
+  blood_type?: string;
+  /** Structured allergies; older/summary payloads may still send bare strings. */
+  allergies?: Array<ApiAllergy | string>;
+  current_medications?: string[];
+  chronic_conditions?: string[];
+}
+
 interface ApiPatient {
   patient_id: string;
-  health_id: string;
+  /** Only some endpoints expose a distinct health ID; it falls back to `patient_id`. */
+  health_id?: string;
   full_name: string;
   date_of_birth: string;
-  gender: string;
+  /** Not captured at registration yet, so this is routinely absent. */
+  gender?: string | null;
   national_id: string;
-  blood_type?: string;
-  allergies: string[];
-  current_medications: string[];
-  medical_conditions: string[];
-  emergency_contact?: {
-    name: string;
-    phone: string;
-    relationship: string;
-  };
+  emergency_info?: ApiEmergencyInfo;
+  /**
+   * False when the patient is stored but their encrypted profile could not be
+   * decrypted. Such rows carry only the unencrypted columns — no name, no DOB —
+   * and must be rendered as "unreadable" rather than as an empty patient.
+   */
+  content_available?: boolean;
+  content_unavailable_reason?: string;
+}
+
+/** Allergies arrive as objects but may be bare strings; render just the name. */
+function allergyNames(allergies: ApiEmergencyInfo['allergies']): string[] {
+  return (allergies ?? []).map((a) => (typeof a === 'string' ? a : a.name));
 }
 
 interface Patient {
   patientId: string;
+  /** False for a stored patient whose PHI could not be decrypted. */
+  contentAvailable: boolean;
+  unavailableReason?: string;
   healthId: string;
   fullName: string;
   dateOfBirth: string;
@@ -62,6 +94,14 @@ function PatientSearchPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [patients, setPatients] = useState<Patient[]>([]);
+  /**
+   * What the server says it holds, which is not the same as what this page has
+   * loaded: `/api/patients` is cursor-paginated (50 per page by default), so
+   * counting the local array reported the page size as the system total.
+   */
+  const [totalInSystem, setTotalInSystem] = useState<number | null>(null);
+  /** Non-zero means some stored records could not be decrypted. */
+  const [unreadableCount, setUnreadableCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [apiConnected, setApiConnected] = useState(false);
@@ -102,21 +142,30 @@ function PatientSearchPage() {
         const patientArray = Array.isArray(data) ? data : (data.data || []);
         
         // Transform API response to Patient format
-        const transformedPatients: Patient[] = patientArray.map((p: ApiPatient) => ({
-          patientId: p.patient_id,
-          healthId: p.health_id,
-          fullName: p.full_name,
-          dateOfBirth: p.date_of_birth,
-          gender: p.gender,
-          bloodType: formatBloodType(p.blood_type),
-          nationalHealthId: p.national_id,
-          allergies: p.allergies || [],
-          medications: p.current_medications || [],
-          conditions: p.medical_conditions || [],
-          lastVisit: new Date().toISOString().split('T')[0],
-        }));
+        const transformedPatients: Patient[] = patientArray.map((p: ApiPatient) => {
+          const emergency = p.emergency_info;
+          return {
+            patientId: p.patient_id,
+            contentAvailable: p.content_available !== false,
+            unavailableReason: p.content_unavailable_reason,
+            healthId: p.health_id ?? p.patient_id,
+            fullName: p.full_name ?? '',
+            dateOfBirth: p.date_of_birth,
+            gender: p.gender ?? '',
+            bloodType: formatBloodType(emergency?.blood_type),
+            nationalHealthId: p.national_id,
+            allergies: allergyNames(emergency?.allergies),
+            medications: emergency?.current_medications ?? [],
+            conditions: emergency?.chronic_conditions ?? [],
+            lastVisit: new Date().toISOString().split('T')[0],
+          };
+        });
         
         setPatients(transformedPatients);
+        setTotalInSystem(
+          typeof data.total === 'number' ? data.total : transformedPatients.length
+        );
+        setUnreadableCount(typeof data.unreadable_count === 'number' ? data.unreadable_count : 0);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('docPatientSearch.failFetch'));
@@ -311,7 +360,14 @@ function PatientSearchPage() {
             </span>
           </div>
           <span className="text-sm text-gray-400">
-            {t('docPatientSearch.totalInSystem', { count: patients.length })}
+            {t('docPatientSearch.totalInSystem', {
+              count: totalInSystem ?? patients.length,
+            })}
+            {unreadableCount > 0 && (
+              <span className="ml-2 text-caution-subtle-fg">
+                {t('docPatientSearch.unreadableSummary', { count: unreadableCount })}
+              </span>
+            )}
           </span>
         </div>
 
@@ -328,13 +384,44 @@ function PatientSearchPage() {
                   <div className="flex items-start gap-4">
                     <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
                       <span className="text-primary-600 font-bold">
-                        {patient.fullName.split(' ').map(n => n[0]).join('')}
+                        {patient.fullName
+                          ? patient.fullName.split(' ').map(n => n[0]).join('')
+                          : '?'}
                       </span>
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900">{patient.fullName}</p>
+                      <p className="font-medium text-gray-900">
+                        {patient.fullName || (
+                          <span className="text-gray-500 italic">
+                            {t('docPatientSearch.recordUnreadable')}
+                          </span>
+                        )}
+                      </p>
+                      {!patient.contentAvailable && (
+                        <p
+                          className="mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-caution-subtle text-caution-subtle-fg text-xs"
+                          title={patient.unavailableReason}
+                        >
+                          <AlertCircle size={12} aria-hidden="true" />
+                          {t('docPatientSearch.phiUnavailable')}
+                        </p>
+                      )}
+                      {/* Composed from whatever is actually known rather than
+                          from one fixed template per combination. Interpolating
+                          an absent value leaves the literal "{{dob}}" on screen,
+                          and gender and DOB are independently optional — gender
+                          is not always collected, and neither is readable on a
+                          record whose PHI could not be decrypted. */}
                       <p className="text-sm text-gray-500">
-                        {t('docPatientSearch.patientMeta', { id: patient.patientId, gender: patient.gender, dob: patient.dateOfBirth })}
+                        {[
+                          patient.patientId,
+                          patient.gender || null,
+                          patient.dateOfBirth
+                            ? t('docPatientSearch.dobLabel', { dob: patient.dateOfBirth })
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' • ')}
                       </p>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {t('docPatientSearch.healthId', { id: patient.healthId })}
@@ -368,7 +455,7 @@ function PatientSearchPage() {
                     <div className="text-right">
                       <div className="flex items-center gap-1 justify-end">
                         <Droplet size={14} className="text-red-500" />
-                        <span className="text-sm font-medium text-red-600">{patient.bloodType}</span>
+                        <span className="text-sm font-semibold text-critical-subtle-fg">{patient.bloodType}</span>
                       </div>
                       <p className="text-xs text-gray-400 mt-1">
                         {t('docPatientSearch.lastVisit', { date: patient.lastVisit ?? '' })}

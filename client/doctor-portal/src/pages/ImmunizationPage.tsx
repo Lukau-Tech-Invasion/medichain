@@ -41,6 +41,75 @@ type AdministrationRoute = 'intramuscular' | 'subcutaneous' | 'intradermal' | 'o
 type AdministrationSite = 'left-deltoid' | 'right-deltoid' | 'left-thigh' | 'right-thigh' | 'oral' | 'nasal';
 type VaccinationStatus = 'scheduled' | 'administered' | 'declined' | 'deferred' | 'contraindicated';
 
+/**
+ * Map a stored immunization record onto this screen's model.
+ *
+ * The API returns snake_case (`vaccine_name`, `lot_number`, ...); this screen's
+ * `VaccineAdministration` is camelCase. The list used to be cast straight across
+ * with `as VaccineAdministration[]`, so every field read back `undefined` — and
+ * the search filter's `a.vaccineName.toLowerCase()` threw, taking the whole
+ * portal down to the error boundary rather than just breaking this page.
+ *
+ * A cast silences the compiler without changing the data, which is why
+ * TypeScript never flagged it. Mapping explicitly means a field rename on
+ * either side surfaces as a type error instead of a crash.
+ */
+/** Normalise an enum-ish value to the lowercase-hyphenated form the i18n keys use. */
+function slug(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, '-');
+}
+
+function toAdministration(raw: unknown): VaccineAdministration {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const str = (key: string, fallback = ''): string => {
+    const value = r[key];
+    return typeof value === 'string' && value ? value : fallback;
+  };
+  const num = (key: string, fallback: number): number => {
+    const value = r[key];
+    return typeof value === 'number' ? value : fallback;
+  };
+  return {
+    administrationId: str('id', str('record_id', '—')),
+    patientId: str('patient_id'),
+    patientName: str('patient_name', str('patient_id')),
+    // Stored free-form by the API; narrowed here because this screen's filters
+    // key off the union. An unrecognised value simply will not match a filter.
+    vaccineType: str('vaccine_type') as VaccineType,
+    vaccineName: str('vaccine_name'),
+    manufacturer: str('manufacturer'),
+    lotNumber: str('lot_number'),
+    expiryDate: str('expiration_date'),
+    dose: str('dose_amount'),
+    // The API stores these free-form and has accumulated both spellings
+    // ("Intramuscular" from the server contract, "intramuscular" from this
+    // screen). The i18n keys are lowercase-hyphenated, so an unnormalised value
+    // rendered the raw key -- "docImmunization.route_Intramuscular" -- on screen.
+    route: slug(str('route')) as VaccineAdministration['route'],
+    site: slug(str('administration_site')) as VaccineAdministration['site'],
+    administeredBy: str('administered_by_name', str('administered_by')),
+    administeredAt: str('administration_date', str('created_at')),
+    status: 'administered',
+    doseNumber: num('dose_number', 1),
+    totalDoses: num('total_doses', 1),
+    nextDueDate: str('next_dose_due') || undefined,
+    consentObtained: r['patient_consent'] === true,
+    consentBy: str('consent_by') || undefined,
+    adverseReactions: str('reaction_details') || undefined,
+    notes: str('notes') || undefined,
+    vfcEligible: r['vfc_eligibility'] === true,
+    insuranceReported: r['registry_reported'] === true,
+  };
+}
+
+const API_ROUTES: Record<AdministrationRoute, string> = {
+  intramuscular: 'Intramuscular',
+  subcutaneous: 'Subcutaneous',
+  intradermal: 'Intradermal',
+  oral: 'Oral',
+  intranasal: 'Intranasal',
+};
+
 interface VaccineAdministration {
   administrationId: string;
   patientId: string;
@@ -117,7 +186,7 @@ const ImmunizationPage: React.FC = () => {
       setError(null);
       const response = await listImmunizations();
       if (response.success && response.records?.items) {
-        setAdministrations(response.records.items as VaccineAdministration[]);
+        setAdministrations(response.records.items.map(toAdministration));
       }
     } catch (err) {
       console.error('Error fetching immunizations:', err);
@@ -243,7 +312,30 @@ const ImmunizationPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createImmunization(newAdmin) as { success?: boolean; error?: string };
+      // The API's `ImmunizationRecord` is snake_case with its own required
+      // fields; spreading this screen's camelCase `VaccineAdministration`
+      // straight onto it failed deserialization with
+      // "missing field `record_id`", so recording a vaccination never once
+      // reached the database. Map explicitly instead of spreading, so a rename
+      // on either side shows up as a type error rather than a dead button.
+      const response = await createImmunization({
+        patient_id: newAdmin.patientId,
+        vaccine_name: newAdmin.vaccineName,
+        cvx_code: newAdmin.vaccineType,
+        manufacturer: newAdmin.manufacturer,
+        lot_number: newAdmin.lotNumber,
+        expiration_date: newAdmin.expiryDate,
+        administration_date: newAdmin.administeredAt,
+        dose_number: newAdmin.doseNumber,
+        route: API_ROUTES[newAdmin.route],
+        site: newAdmin.site,
+        administered_by: newAdmin.administeredBy,
+        vis_date: newAdmin.administeredAt,
+        funding_source: newAdmin.vfcEligible ? 'PublicVFC' : 'Private',
+        registry_reported: newAdmin.insuranceReported,
+        adverse_reaction: newAdmin.adverseReactions,
+        notes: newAdmin.notes,
+      }) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setAdministrations([newAdmin, ...administrations]);
         setNewVaccine({
@@ -279,11 +371,12 @@ const ImmunizationPage: React.FC = () => {
   };
 
   const filteredAdministrations = administrations.filter((a) => {
+    // Defensive: a search box must never be able to crash a clinical screen,
+    // whatever shape a record arrives in.
+    const needle = searchTerm.toLowerCase();
+    const hit = (value?: string) => (value ?? '').toLowerCase().includes(needle);
     const matchesSearch =
-      a.administrationId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.vaccineName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      a.lotNumber.toLowerCase().includes(searchTerm.toLowerCase());
+      hit(a.administrationId) || hit(a.patientName) || hit(a.vaccineName) || hit(a.lotNumber);
 
     const matchesStatus = statusFilter === 'all' || a.status === statusFilter;
     const matchesPatient = !selectedPatient || a.patientId === selectedPatient;

@@ -45,6 +45,7 @@ describe('MedicalIdPage (Patient)', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           patient_id: 'HEALTH123',
           name: 'Test Patient',
@@ -93,6 +94,7 @@ describe('MedicalIdPage (Patient)', () => {
     mockFetch.mockImplementationOnce(() =>
       Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           patient_id: 'HEALTH123',
           name: 'Test Patient',

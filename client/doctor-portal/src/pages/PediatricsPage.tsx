@@ -12,8 +12,8 @@ import {
   Heart,
   FileSignature
 } from 'lucide-react';
-import { createPeds } from '../../../shared/src/api/endpoints';
-import { useTranslation } from '@medichain/shared';
+import { createPeds, listPedsForPatient } from '../../../shared/src/api/endpoints';
+import { getPatients, useTranslation } from '@medichain/shared';
 
 /**
  * PediatricsPage
@@ -49,6 +49,16 @@ interface PediatricPatient {
   alerts: string[];
 }
 
+/**
+ * The child's most recent growth point, or `undefined` when none is recorded.
+ *
+ * Returning `undefined` rather than indexing blindly is the point: a newly
+ * registered child has no assessment yet, and every caller here renders a dash
+ * instead of crashing the page.
+ */
+const latestGrowthOf = (patient: PediatricPatient): GrowthData | undefined =>
+  patient.growthData.length > 0 ? patient.growthData[patient.growthData.length - 1] : undefined;
+
 const PediatricsPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'patients' | 'assessment' | 'growth'>('patients');
@@ -69,68 +79,114 @@ const PediatricsPage: React.FC = () => {
     notes: ''
   });
 
+  /**
+   * Load the paediatric caseload from the patient register.
+   *
+   * This effect used to `setPatients([...])` with two invented children and
+   * four hand-written growth points each. The page therefore charted the same
+   * fictional growth curves in every deployment, and no real child ever
+   * appeared on it.
+   *
+   * Patients now come from the register and are filtered to under-18s by date
+   * of birth; each child's growth series is loaded from their own pediatric
+   * assessments on selection, so nothing is charted that was not recorded.
+   */
   useEffect(() => {
-    const now = new Date();
-    const monthsAgo = (m: number) => {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - m);
-      return d;
+    const ageGroupFor = (months: number): AgeGroup => {
+      if (months < 1) return 'newborn';
+      if (months < 12) return 'infant';
+      if (months < 36) return 'toddler';
+      if (months < 60) return 'preschool';
+      if (months < 144) return 'school-age';
+      return 'adolescent';
     };
 
-    setPatients([
-      {
-        id: 'PED-001',
-        name: 'Yusuf Al-Rashid',
-        mrn: '123456',
-        dob: monthsAgo(8),
-        ageMonths: 8,
-        ageGroup: 'infant',
-        gender: 'male',
-        growthData: [
-          { date: monthsAgo(6), weight: 5.2, height: 58, headCircumference: 39, weightPercentile: 45, heightPercentile: 50 },
-          { date: monthsAgo(4), weight: 6.8, height: 63, headCircumference: 41, weightPercentile: 50, heightPercentile: 55 },
-          { date: monthsAgo(2), weight: 7.9, height: 68, headCircumference: 43, weightPercentile: 55, heightPercentile: 60 },
-          { date: now, weight: 8.5, height: 71, headCircumference: 44.5, weightPercentile: 55, heightPercentile: 58 }
-        ],
-        vaccinesUpToDate: true,
-        developmentStatus: 'on-track',
-        alerts: []
-      },
-      {
-        id: 'PED-002',
-        name: 'Sara Hassan',
-        mrn: '234567',
-        dob: monthsAgo(24),
-        ageMonths: 24,
-        ageGroup: 'toddler',
-        gender: 'female',
-        growthData: [
-          { date: monthsAgo(12), weight: 9.5, height: 76, weightPercentile: 40, heightPercentile: 45 },
-          { date: monthsAgo(6), weight: 10.8, height: 82, weightPercentile: 35, heightPercentile: 40 },
-          { date: now, weight: 11.2, height: 85, weightPercentile: 30, heightPercentile: 35, bmi: 15.5 }
-        ],
-        vaccinesUpToDate: false,
-        developmentStatus: 'monitor',
-        alerts: ['Vaccines overdue: MMR, Varicella', 'Weight tracking below curve']
-      },
-      {
-        id: 'PED-003',
-        name: 'Omar Khalil Jr.',
-        mrn: '345678',
-        dob: monthsAgo(72),
-        ageMonths: 72,
-        ageGroup: 'school-age',
-        gender: 'male',
-        growthData: [
-          { date: monthsAgo(12), weight: 18.5, height: 108, weightPercentile: 50, heightPercentile: 55, bmi: 15.9 },
-          { date: now, weight: 21, height: 115, weightPercentile: 55, heightPercentile: 60, bmi: 15.9 }
-        ],
-        vaccinesUpToDate: true,
-        developmentStatus: 'on-track',
-        alerts: []
+    const monthsBetween = (dob: Date, now: Date) =>
+      Math.max(0, (now.getFullYear() - dob.getFullYear()) * 12 + (now.getMonth() - dob.getMonth()));
+
+    const loadPatients = async () => {
+      try {
+        const register = await getPatients();
+        const now = new Date();
+        const children = (register || [])
+          .map((entry) => {
+            const raw = entry as unknown as Record<string, unknown>;
+            const dobRaw = (raw.date_of_birth ?? raw.dob ?? raw.dateOfBirth) as string | undefined;
+            if (!dobRaw) return null;
+            const dob = new Date(dobRaw);
+            if (Number.isNaN(dob.getTime())) return null;
+            const ageMonths = monthsBetween(dob, now);
+            // Paediatrics covers birth to the 18th birthday.
+            if (ageMonths >= 216) return null;
+            return {
+              id: String(raw.patient_id ?? ''),
+              name: String(raw.full_name ?? ''),
+              mrn: String(raw.mrn ?? raw.health_id ?? raw.patient_id ?? ''),
+              dob,
+              ageMonths,
+              ageGroup: ageGroupFor(ageMonths),
+              gender: String(raw.gender ?? '').toLowerCase() === 'female' ? 'female' : 'male',
+              // Filled in from the child's own assessments on selection.
+              growthData: [],
+              vaccinesUpToDate: Boolean(raw.vaccines_up_to_date ?? false),
+              developmentStatus: 'on-track',
+              alerts: [],
+            } as PediatricPatient;
+          })
+          .filter((entry): entry is PediatricPatient => entry !== null);
+        setPatients(children);
+      } catch (err) {
+        console.error('Failed to load pediatric patients:', err);
+        setPatients([]);
       }
-    ]);
+    };
+    loadPatients();
   }, []);
+
+  /** Load the selected child's recorded growth points. */
+  useEffect(() => {
+    if (!selectedPatient || selectedPatient.growthData.length > 0) return;
+    let cancelled = false;
+    const loadGrowth = async () => {
+      try {
+        const response = await listPedsForPatient(selectedPatient.id);
+        if (cancelled) return;
+        const points: GrowthData[] = (response.items || [])
+          .map((item) => {
+            const wrapper = item as { data?: Record<string, unknown>; created_at?: string };
+            const record = wrapper.data ?? (item as Record<string, unknown>);
+            const weight = Number(record.weight_kg ?? 0);
+            const height = Number(record.height_cm ?? 0);
+            if (!weight && !height) return null;
+            return {
+              date: new Date(wrapper.created_at ?? Date.now()),
+              weight,
+              height,
+              headCircumference: record.head_circumference_cm
+                ? Number(record.head_circumference_cm)
+                : undefined,
+              weightPercentile: Number(record.weight_percentile ?? 0),
+              heightPercentile: Number(record.height_percentile ?? 0),
+            } as GrowthData;
+          })
+          .filter((point): point is GrowthData => point !== null)
+          .sort((a, b) => a.date.getTime() - b.date.getTime());
+        if (points.length > 0) {
+          setSelectedPatient((current) =>
+            current && current.id === selectedPatient.id
+              ? { ...current, growthData: points }
+              : current,
+          );
+        }
+      } catch (err) {
+        console.error('Failed to load growth history:', err);
+      }
+    };
+    loadGrowth();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPatient]);
 
   const getAgeDisplay = (months: number): string => {
     if (months < 1) return 'Newborn';
@@ -309,7 +365,7 @@ const PediatricsPage: React.FC = () => {
 
           <div className="space-y-3">
             {filteredPatients.map(patient => {
-              const latestGrowth = patient.growthData[patient.growthData.length - 1];
+              const latestGrowth = latestGrowthOf(patient);
               return (
                 <div
                   key={patient.id}
@@ -336,13 +392,13 @@ const PediatricsPage: React.FC = () => {
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <div className="bg-gray-50 rounded p-2 text-center">
                       <Scale className="w-4 h-4 mx-auto text-gray-400 mb-1" />
-                      <p className="text-sm font-semibold">{latestGrowth.weight} kg</p>
-                      <p className="text-xs text-gray-500">{latestGrowth.weightPercentile}%ile</p>
+                      <p className="text-sm font-semibold">{latestGrowth?.weight ?? '-'} kg</p>
+                      <p className="text-xs text-gray-500">{latestGrowth?.weightPercentile ?? '-'}%ile</p>
                     </div>
                     <div className="bg-gray-50 rounded p-2 text-center">
                       <Ruler className="w-4 h-4 mx-auto text-gray-400 mb-1" />
-                      <p className="text-sm font-semibold">{latestGrowth.height} cm</p>
-                      <p className="text-xs text-gray-500">{latestGrowth.heightPercentile}%ile</p>
+                      <p className="text-sm font-semibold">{latestGrowth?.height ?? '-'} cm</p>
+                      <p className="text-xs text-gray-500">{latestGrowth?.heightPercentile ?? '-'}%ile</p>
                     </div>
                     <div className="bg-gray-50 rounded p-2 text-center">
                       <Heart className="w-4 h-4 mx-auto text-gray-400 mb-1" />
@@ -563,8 +619,8 @@ const PediatricsPage: React.FC = () => {
                     <span className="text-sm">{t('docPediatrics.growthCurveVisualization')}</span>
                   </div>
                   <div className="mt-2 flex justify-between text-xs text-gray-500">
-                    <span>{t('docPediatrics.weightPercentileLine', { pct: patient.growthData[patient.growthData.length - 1].weightPercentile })}</span>
-                    <span>{t('docPediatrics.heightPercentileLine', { pct: patient.growthData[patient.growthData.length - 1].heightPercentile })}</span>
+                    <span>{t('docPediatrics.weightPercentileLine', { pct: latestGrowthOf(patient)?.weightPercentile ?? '-' })}</span>
+                    <span>{t('docPediatrics.heightPercentileLine', { pct: latestGrowthOf(patient)?.heightPercentile ?? '-' })}</span>
                   </div>
                 </div>
               ))}
@@ -589,13 +645,13 @@ const PediatricsPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-sky-50 rounded-lg p-4 text-center">
                   <Scale className="w-6 h-6 mx-auto text-sky-600 mb-1" />
-                  <p className="text-xl font-bold">{selectedPatient.growthData[selectedPatient.growthData.length - 1].weight} kg</p>
-                  <p className="text-sm text-sky-600">{t('docPediatrics.percentileLine', { pct: selectedPatient.growthData[selectedPatient.growthData.length - 1].weightPercentile })}</p>
+                  <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.weight ?? '-'} kg</p>
+                  <p className="text-sm text-sky-600">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.weightPercentile ?? '-' })}</p>
                 </div>
                 <div className="bg-purple-50 rounded-lg p-4 text-center">
                   <Ruler className="w-6 h-6 mx-auto text-purple-600 mb-1" />
-                  <p className="text-xl font-bold">{selectedPatient.growthData[selectedPatient.growthData.length - 1].height} cm</p>
-                  <p className="text-sm text-purple-600">{t('docPediatrics.percentileLine', { pct: selectedPatient.growthData[selectedPatient.growthData.length - 1].heightPercentile })}</p>
+                  <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.height ?? '-'} cm</p>
+                  <p className="text-sm text-purple-600">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.heightPercentile ?? '-' })}</p>
                 </div>
               </div>
 

@@ -89,7 +89,16 @@ function OrdersPage() {
 
       if (response.ok) {
         const data = await response.json();
-        setOrders(data.orders || []);
+        setOrders((data.orders || []).map((order: Record<string, unknown>) => ({
+          ...order,
+          order_type: String(order.order_type || order.category || '').toLowerCase() === 'laboratory'
+            ? 'lab'
+            : String(order.order_type || order.category || '').toLowerCase(),
+          order_details: order.order_details || order.order_text || '',
+          ordered_by: order.ordered_by || order.ordering_provider || '',
+          ordered_at: order.ordered_at || order.order_time || 0,
+          notes: order.notes || order.instructions || '',
+        })));
         setError(null);
       } else {
         setError(t('docOrders.failConnect'));
@@ -108,6 +117,7 @@ function OrdersPage() {
     if (!user) return;
     
     try {
+      const now = Date.now();
       const response = await fetch(apiUrl('/api/clinical/order'), {
         method: 'POST',
         headers: {
@@ -115,7 +125,26 @@ function OrdersPage() {
           'X-User-Id': user.walletAddress,
           'X-Provider-Role': user.role,
         },
-        body: JSON.stringify(newOrder),
+        body: JSON.stringify({
+          order_id: `ORD-E2E-${now}`,
+          patient_id: newOrder.patient_id,
+          category: newOrder.order_type === 'lab' ? 'Laboratory' : newOrder.order_type.charAt(0).toUpperCase() + newOrder.order_type.slice(1),
+          order_text: newOrder.order_details,
+          priority: newOrder.priority.charAt(0).toUpperCase() + newOrder.priority.slice(1),
+          start_time: now,
+          end_time: null,
+          frequency: null,
+          instructions: newOrder.notes || null,
+          ordering_provider: user.walletAddress,
+          order_time: now,
+          verbal_order: false,
+          read_back: null,
+          cosign_required: false,
+          cosigned_by: null,
+          status: 'Pending',
+          acknowledged_by: null,
+          acknowledged_time: null,
+        }),
       });
 
       if (response.ok) {

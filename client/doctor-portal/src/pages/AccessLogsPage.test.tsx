@@ -4,9 +4,18 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import AccessLogsPage from './AccessLogsPage';
 import { useAuthStore } from '../store';
 
-// Mock the auth store
+// Mock the auth store.
+//
+// The component reads the store through the STATIC api —
+// `useAuthStore.getState().user` (AccessLogsPage.tsx:45) — not through the
+// hook. A bare `vi.fn()` has no `.getState`, so the call threw, the surrounding
+// try/catch swallowed it, and the component bailed with `setLogs([])` before
+// ever issuing a fetch. Every assertion then failed against an empty page while
+// the component was behaving correctly.
+//
+// Zustand stores are callable AND carry statics, so the mock has to be both.
 vi.mock('../store', () => ({
-  useAuthStore: vi.fn(),
+  useAuthStore: Object.assign(vi.fn(), { getState: vi.fn() }),
 }));
 
 // Mock fetch
@@ -25,22 +34,39 @@ describe('AccessLogsPage', () => {
       user: mockUser,
       isAuthenticated: true,
     });
+    // Both call styles must be configured: the hook for render-time reads, and
+    // `getState()` for the effect that actually fetches.
+    (useAuthStore as any).getState.mockReturnValue({
+      user: mockUser,
+      isAuthenticated: true,
+    });
 
+    // The key must be one the component actually reads. AccessLogsPage does
+    // `data.access_logs || data.data || []` (AccessLogsPage.tsx:64); the
+    // original fixture used `logs`, which matches none of them, so the page
+    // received an empty list and rendered its empty state. The component was
+    // correct — the test had invented an API contract.
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
-          logs: [
+          // Matches the component's `AccessLog` interface
+          // (AccessLogsPage.tsx:19) field for field. The original fixture was
+          // camelCase with an entirely different model — `patientName`,
+          // `providerName`, `resourceType`, `status` — none of which exist.
+          // The page renders `patient_id`/`accessor_id`, never a person's name,
+          // so the old assertions on /John Doe/i could never have passed.
+          access_logs: [
             {
-              id: '1',
+              access_id: 'ACC-001',
+              patient_id: 'PAT-001',
+              accessor_id: 'DOC-001',
+              accessor_role: 'Doctor',
+              access_type: 'View Record',
+              location: 'Ward A',
               timestamp: new Date().toISOString(),
-              action: 'View Record',
-              patientId: 'PAT-001',
-              patientName: 'John Doe',
-              providerId: 'DOC-001',
-              providerName: 'Dr. Smith',
-              resourceType: 'MedicalRecord',
-              status: 'Success',
+              emergency: false,
             }
           ],
         }),
@@ -57,7 +83,8 @@ describe('AccessLogsPage', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText(/Access Logs/i).length).toBeGreaterThan(0);
-      expect(screen.getByText(/John Doe/i)).toBeInTheDocument();
+      // The page shows identifiers, not names — assert what it renders.
+      expect(screen.getByText(/PAT-001/i)).toBeInTheDocument();
       expect(screen.getByText(/View Record/i)).toBeInTheDocument();
     });
   });
@@ -70,8 +97,10 @@ describe('AccessLogsPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/MedicalRecord/i)).toBeInTheDocument();
-      expect(screen.getByText(/Success/i)).toBeInTheDocument();
+      // `resourceType`/`status` do not exist on AccessLog. The table shows the
+      // accessor and their role.
+      expect(screen.getByText(/DOC-001/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Doctor/i).length).toBeGreaterThan(0);
     });
   });
 });

@@ -199,7 +199,29 @@ const FamilyHistoryPage: React.FC = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await createFamilyHistory(member) as { success?: boolean; error?: string };
+      const relationship = member.relationship
+        .split('-')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join('');
+      const response = await createFamilyHistory({
+        patient_id: member.patientId,
+        family_members: [{
+          relationship,
+          living: member.vitalStatus === 'alive',
+          current_age: member.currentAge,
+          age_at_death: member.ageAtDeath,
+          cause_of_death: member.causeOfDeath,
+          conditions: member.conditions.map((condition) => ({
+            condition: condition.conditionName,
+            age_at_diagnosis: condition.ageOfOnset,
+            notes: condition.notes,
+          })),
+        }],
+        genetic_conditions: [],
+        three_gen_complete: false,
+        last_updated: Date.now(),
+        updated_by: member.recordedBy,
+      }) as { success?: boolean; error?: string };
       if (response.success !== false) {
         setFamilyMembers([member, ...familyMembers]);
         setNewMember({

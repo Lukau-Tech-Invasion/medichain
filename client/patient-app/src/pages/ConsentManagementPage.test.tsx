@@ -41,6 +41,7 @@ describe('ConsentManagementPage (Patient)', () => {
       if (url.includes('/api/access/patient/HEALTH123/grants')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             grants: [
               {
@@ -62,6 +63,7 @@ describe('ConsentManagementPage (Patient)', () => {
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -75,7 +77,7 @@ describe('ConsentManagementPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Consent Management/i)).toBeInTheDocument();
+      expect(screen.getByText(/Access Control/i)).toBeInTheDocument();
       expect(screen.getByText(/Dr. Smith/i)).toBeInTheDocument();
     });
   });
@@ -88,23 +90,24 @@ describe('ConsentManagementPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Consent Management/i)).toBeInTheDocument();
+      expect(screen.getByText(/Access Control/i)).toBeInTheDocument();
     });
 
     const requestsTab = screen.getByText(/Requests/i);
     fireEvent.click(requestsTab);
     
-    expect(screen.getByText(/Pending Access Requests/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pending Requests/i)).toBeInTheDocument();
 
-    const historyTab = screen.getByText(/History/i);
+    // 'History' appears as both a tab and a section label.
+    const historyTab = screen.getAllByText(/History/i)[0];
     fireEvent.click(historyTab);
     
-    expect(screen.getByText(/Access History/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/History/i).length).toBeGreaterThan(0);
 
-    const formsTab = screen.getByText(/Consent Forms/i);
+    const formsTab = screen.getByRole('button', { name: /^Forms$/i });
     fireEvent.click(formsTab);
     
-    expect(screen.getByText(/Legal Consent Forms/i)).toBeInTheDocument();
+    expect(screen.getByText(/Signed Consent Forms/i)).toBeInTheDocument();
   });
 
   it('filters active grants by search query', async () => {
@@ -118,7 +121,7 @@ describe('ConsentManagementPage (Patient)', () => {
       expect(screen.getByText(/Dr. Smith/i)).toBeInTheDocument();
     });
 
-    const searchInput = screen.getByPlaceholderText(/Search healthcare providers/i);
+    const searchInput = screen.getByPlaceholderText(/Search providers/i);
     fireEvent.change(searchInput, { target: { value: 'Dr. Jones' } });
 
     expect(screen.queryByText(/Dr. Smith/i)).not.toBeInTheDocument();

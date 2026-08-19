@@ -9,31 +9,41 @@ describe('SymptomCheckerPage (Patient)', () => {
   it('renders intro step initially', () => {
     render(<SymptomCheckerPage />);
 
-    expect(screen.getByText(/AI Symptom Checker/i)).toBeInTheDocument();
-    expect(screen.getByText(/Start Check/i)).toBeInTheDocument();
+    expect(screen.getByText(/Symptom Checker/i)).toBeInTheDocument();
+    expect(screen.getByText(/Start Assessment/i)).toBeInTheDocument();
   });
 
   it('navigates to chat step when clicking Start Check', () => {
     render(<SymptomCheckerPage />);
 
-    const startButton = screen.getByText(/Start Check/i);
+    // Start is disabled until age and gender are supplied — correct product
+    // behaviour, and the generated test skipped both.
+    fireEvent.change(screen.getByPlaceholderText(/Enter your age/i), {
+      target: { value: '34' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Female$/i }));
+
+    const startButton = screen.getByText(/Start Assessment/i);
     fireEvent.click(startButton);
 
-    expect(screen.getByText(/MediChain Assistant/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Type your message/i)).toBeInTheDocument();
+    // Clicking Start leaves the intro step, so its heading is gone; the chat
+    // step is identified by its message input.
+    expect(screen.getByPlaceholderText(/Describe your symptoms/i)).toBeInTheDocument();
   });
 
   it('allows entering age and gender', () => {
     render(<SymptomCheckerPage />);
     
-    fireEvent.click(screen.getByText(/Start Check/i));
+    fireEvent.click(screen.getByText(/Start Assessment/i));
 
-    const ageInput = screen.getByPlaceholderText(/Enter age/i);
+    const ageInput = screen.getByPlaceholderText(/Enter your age/i);
     fireEvent.change(ageInput, { target: { value: '30' } });
     expect(ageInput).toHaveValue(30);
 
-    const femaleOption = screen.getByText(/Female/i);
-    fireEvent.click(femaleOption);
-    expect(femaleOption.parentElement).toHaveClass('border-primary-500');
+    // The label sits inside the button, so `parentElement` is the button
+    // itself only by coincidence of markup — target the button directly.
+    const femaleButton = screen.getByRole('button', { name: /^Female$/i });
+    fireEvent.click(femaleButton);
+    expect(femaleButton).toHaveClass('border-purple-500');
   });
 });

@@ -40,6 +40,42 @@ interface Conversation {
   messages: Message[];
 }
 
+interface Provider {
+  wallet_address: string;
+  name: string;
+  role: string;
+  specialty?: string;
+}
+
+function messageTimestamp(value: number | string): string {
+  return typeof value === 'number'
+    ? new Date(value * 1000).toISOString()
+    : value;
+}
+
+function normalizeConversation(raw: Record<string, any>, patientWallet: string): Conversation {
+  return {
+    id: raw.id,
+    providerId: raw.providerId,
+    providerName: raw.providerName,
+    providerRole: raw.providerRole || 'Provider',
+    specialty: raw.specialty || raw.providerRole || 'Healthcare provider',
+    lastMessage: raw.lastMessage || '',
+    lastMessageTime: messageTimestamp(raw.lastMessageTime),
+    unreadCount: raw.unreadCount || 0,
+    messages: (raw.messages || []).map((message: Record<string, any>) => ({
+      id: message.id || message.message_id,
+      senderId: message.senderId || message.sender_id,
+      senderName: message.senderName || message.sender_name,
+      senderRole: message.senderRole || message.sender_role,
+      content: message.content,
+      timestamp: messageTimestamp(message.timestamp || message.sent_at),
+      read: Boolean(message.read),
+      isPatient: (message.senderId || message.sender_id) === patientWallet,
+    })),
+  };
+}
+
 /**
  * MessagesPage - Secure messaging with healthcare providers
  * 
@@ -61,6 +97,9 @@ export function MessagesPage() {
   const [loading, setLoading] = useState(true);
   const [apiConnected, setApiConnected] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [showProviders, setShowProviders] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Redirect if not authenticated
@@ -85,7 +124,7 @@ export function MessagesPage() {
     
     setLoading(true);
     try {
-      const response = await fetch(apiUrl(`/api/messages`), {
+      const response = await fetch(apiUrl('/api/messages?folder=all'), {
         headers: { 
           'X-User-Id': patient.walletAddress,
           'X-Health-Id': patient.healthId,
@@ -96,7 +135,9 @@ export function MessagesPage() {
         const data = await response.json();
         setApiConnected(true);
         // Transform API data to conversations format
-        setConversations(data.conversations || []);
+        setConversations((data.conversations || []).map(
+          (conversation: Record<string, any>) => normalizeConversation(conversation, patient.walletAddress)
+        ));
       } else {
         setApiConnected(false);
       }
@@ -107,39 +148,74 @@ export function MessagesPage() {
     }
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!newMessage.trim() || !selectedConversation || !patient) return;
 
-    const message: Message = {
-      id: `MSG-${Date.now()}`,
-      senderId: patient.healthId,
-      senderName: patient.fullName,
-      senderRole: 'Patient',
-      content: newMessage,
-      timestamp: new Date().toISOString(),
-      read: true,
-      isPatient: true,
-    };
+    setSendError(null);
+    const content = newMessage.trim();
+    try {
+      const response = await fetch(apiUrl('/api/messages/send'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
+        },
+        body: JSON.stringify({
+          recipient_id: selectedConversation.providerId,
+          subject: 'Patient message',
+          content,
+          related_patient_id: patient.healthId,
+        }),
+      });
+      if (!response.ok) throw new Error('The message could not be sent. Please try again.');
+      setNewMessage('');
+      await loadConversations();
+      setSelectedConversation(prev => prev ? {
+        ...prev,
+        messages: [...prev.messages, {
+          id: `MSG-${Date.now()}`,
+          senderId: patient.walletAddress,
+          senderName: patient.fullName,
+          senderRole: 'Patient',
+          content,
+          timestamp: new Date().toISOString(),
+          read: false,
+          isPatient: true,
+        }],
+      } : null);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'The message could not be sent.');
+    }
+  };
 
-    setConversations(prev => prev.map(conv => 
-      conv.id === selectedConversation.id
-        ? {
-            ...conv,
-            messages: [...conv.messages, message],
-            lastMessage: newMessage,
-            lastMessageTime: new Date().toISOString(),
-          }
-        : conv
-    ));
+  const startConversation = async () => {
+    if (!patient) return;
+    const response = await fetch(apiUrl('/api/providers'), {
+      headers: { 'X-User-Id': patient.walletAddress, 'X-Health-Id': patient.healthId },
+    });
+    if (!response.ok) {
+      setSendError('The provider directory could not be loaded.');
+      return;
+    }
+    const data = await response.json();
+    setProviders(data.providers || []);
+    setShowProviders(true);
+  };
 
-    setSelectedConversation(prev => prev ? {
-      ...prev,
-      messages: [...prev.messages, message],
-      lastMessage: newMessage,
+  const selectProvider = (provider: Provider) => {
+    setSelectedConversation({
+      id: provider.wallet_address,
+      providerId: provider.wallet_address,
+      providerName: provider.name,
+      providerRole: provider.role,
+      specialty: provider.specialty || provider.role,
+      lastMessage: '',
       lastMessageTime: new Date().toISOString(),
-    } : null);
-
-    setNewMessage('');
+      unreadCount: 0,
+      messages: [],
+    });
+    setShowProviders(false);
   };
 
   const formatTime = (timestamp: string) => {
@@ -223,6 +299,7 @@ export function MessagesPage() {
 
         {/* Input */}
         <div className="bg-white border-t border-neutral-200 p-4">
+          {sendError && <p role="alert" className="mb-2 text-sm text-red-700">{sendError}</p>}
           <div className="flex items-center gap-3">
             <button className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg" aria-label="Attach file">
               <Paperclip className="w-5 h-5" />
@@ -231,12 +308,12 @@ export function MessagesPage() {
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyDown={(e) => e.key === 'Enter' && void sendMessage()}
               placeholder={t('messages.typePlaceholder')}
               className="flex-1 px-4 py-2 border border-neutral-200 rounded-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             />
             <button
-              onClick={sendMessage}
+              onClick={() => void sendMessage()}
               disabled={!newMessage.trim()}
               className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -282,7 +359,7 @@ export function MessagesPage() {
       </div>
 
       {/* New Message Button */}
-      <button className="w-full patient-card flex items-center gap-4 p-4 hover:border-primary-200 border-2 border-transparent">
+      <button onClick={() => void startConversation()} className="w-full patient-card flex items-center gap-4 p-4 hover:border-primary-200 border-2 border-transparent">
         <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
           <Plus className="w-6 h-6 text-primary-600" />
         </div>
@@ -291,6 +368,23 @@ export function MessagesPage() {
           <div className="text-sm text-neutral-500">{t('messages.startNewDesc')}</div>
         </div>
       </button>
+
+      {sendError && <p role="alert" className="text-sm text-red-700">{sendError}</p>}
+      {showProviders && (
+        <div className="patient-card space-y-2" aria-label="Provider directory">
+          <h2 className="font-semibold text-neutral-900">Choose a provider</h2>
+          {providers.map(provider => (
+            <button
+              key={provider.wallet_address}
+              onClick={() => selectProvider(provider)}
+              className="w-full rounded-lg border border-neutral-200 p-3 text-left hover:border-primary-300"
+            >
+              <span className="block font-medium">{provider.name}</span>
+              <span className="text-sm text-neutral-500">{provider.specialty || provider.role}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Conversations */}
       <div className="space-y-3">

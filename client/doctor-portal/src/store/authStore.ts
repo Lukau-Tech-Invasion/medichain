@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { 
   apiUrl, 
   setProviderAuth, 
-  clearAuth as clearStoredAuth,
+  clearProviderAuth as clearStoredAuth,
   getProviderAuth,
   debugLog,
   IS_DEVELOPMENT,
@@ -531,8 +531,11 @@ export const useAuthStore = create<AuthState>()(
 
       logout: () => {
         clearStoredAuth();
-        // Clear API client userId + JWT tokens
+        // Clear every credential held by the singleton client. Keeping the
+        // signature provider after logout allowed a later request to continue
+        // signing as the clinician whose UI session had ended.
         getApiClient().clearTokens();
+        getApiClient().setSignatureProvider(null);
         syncApiClientUserId();
         set({
           user: null,
@@ -575,7 +578,12 @@ export const useAuthStore = create<AuthState>()(
         if (!storedAuth) {
           return false; // No stored auth
         }
-        
+
+        // Each portal can be open in its own tab. The shared WALLET key tracks
+        // only the most recently active portal, so bind this tab's singleton
+        // explicitly to its provider session before any early return.
+        getApiClient().setUserId(storedAuth.address);
+
         if (get().isAuthenticated) {
           return true; // Already authenticated
         }
@@ -587,8 +595,11 @@ export const useAuthStore = create<AuthState>()(
           const response = await fetch(apiUrl(`/api/auth/wallet/${storedAuth.address}`), {
             headers: { 'Accept': 'application/json' },
           });
-          
+
           if (response.ok) {
+            // Logout may have happened while the validation request was in
+            // flight. Never let that stale response resurrect the session.
+            if (getProviderAuth()?.address !== storedAuth.address) return false;
             // User exists in API, restore session
             set({
               user: {
@@ -630,6 +641,7 @@ export const useAuthStore = create<AuthState>()(
           
           if (response.ok) {
             const demoUser = await response.json();
+            if (getProviderAuth()?.address !== storedAuth.address) return false;
             set({
               user: {
                 walletAddress: demoUser.wallet_address || storedAuth.address,

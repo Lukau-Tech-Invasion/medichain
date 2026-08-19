@@ -17,7 +17,7 @@ import {
   FileText,
   PenLine,
 } from 'lucide-react';
-import { getPatientConsents, getConsentTypes, signConsent, useTranslation } from '@medichain/shared';
+import { apiUrl, getPatientConsents, getConsentTypes, signConsent, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 interface AccessGrant {
@@ -56,13 +56,21 @@ interface AccessRequest {
 interface SignedConsent {
   consent_id: string;
   consent_type: string;
-  signed_at: string;
+  signed_at: string | number;
   status?: string;
 }
 
 interface ConsentType {
   consent_type: string;
   display_name: string;
+  description?: string;
+}
+
+interface ConsentTypeResponse {
+  consent_type?: string;
+  display_name?: string;
+  type_id?: string;
+  name?: string;
   description?: string;
 }
 
@@ -86,10 +94,11 @@ export function ConsentManagementPage() {
   const [signedConsents, setSignedConsents] = useState<SignedConsent[]>([]);
   const [consentTypes, setConsentTypes] = useState<ConsentType[]>([]);
   const [isSigning, setIsSigning] = useState<string | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [patient?.healthId]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -111,8 +120,8 @@ export function ConsentManagementPage() {
       const userId = patient?.walletAddress || patientId;
 
       // Fetch access grants from API
-      const grantsResponse = await fetch(`/api/access/patient/${patientId}/grants`, {
-        headers: { 'X-User-Id': userId },
+      const grantsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/grants`), {
+        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
       });
       if (grantsResponse.ok) {
         const data = await grantsResponse.json();
@@ -122,8 +131,8 @@ export function ConsentManagementPage() {
       }
 
       // Fetch pending access requests from API
-      const requestsResponse = await fetch(`/api/access/patient/${patientId}/requests`, {
-        headers: { 'X-User-Id': userId },
+      const requestsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/requests`), {
+        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
       });
       if (requestsResponse.ok) {
         const data = await requestsResponse.json();
@@ -136,10 +145,14 @@ export function ConsentManagementPage() {
       try {
         const [consentsResult, typesResult] = await Promise.all([
           getPatientConsents(patientId) as Promise<{ consents: SignedConsent[] }>,
-          getConsentTypes() as Promise<{ consent_types: ConsentType[] }>,
+          getConsentTypes() as Promise<{ consent_types: ConsentTypeResponse[] }>,
         ]);
         setSignedConsents(consentsResult.consents || []);
-        setConsentTypes(typesResult.consent_types || []);
+        setConsentTypes((typesResult.consent_types || []).map(type => ({
+          consent_type: type.consent_type || type.type_id || '',
+          display_name: type.display_name || type.name || type.type_id || '',
+          description: type.description,
+        })).filter(type => Boolean(type.consent_type)));
       } catch (err) {
         console.warn('Could not load consent forms:', err);
       }
@@ -155,6 +168,7 @@ export function ConsentManagementPage() {
   const handleSignConsent = async (consentType: string) => {
     if (!patient?.healthId) return;
     setIsSigning(consentType);
+    setConsentError(null);
     try {
       await signConsent({ patient_id: patient.healthId, consent_type: consentType });
       // Reload consents
@@ -162,13 +176,15 @@ export function ConsentManagementPage() {
       setSignedConsents(result.consents || []);
     } catch (err) {
       console.error('Failed to sign consent:', err);
+      setConsentError(err instanceof Error ? err.message : 'The consent could not be signed.');
     } finally {
       setIsSigning(null);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateValue: string | number) => {
+    const date = typeof dateValue === 'number' ? new Date(dateValue * 1000) : new Date(dateValue);
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -222,18 +238,16 @@ export function ConsentManagementPage() {
   };
 
   const handleRevokeAccess = async () => {
-    if (!selectedGrant) return;
+    if (!selectedGrant || !patient) return;
     
     setIsRevoking(true);
     try {
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : '';
-      
-      const response = await fetch(`/api/access/grants/${selectedGrant.id}/revoke`, {
+      const response = await fetch(apiUrl(`/api/access/grants/${selectedGrant.id}/revoke`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patientId,
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
         },
       });
       
@@ -256,15 +270,14 @@ export function ConsentManagementPage() {
   };
 
   const handleApproveRequest = async (requestId: string) => {
+    if (!patient) return;
     try {
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : '';
-      
-      const response = await fetch(`/api/access/requests/${requestId}/approve`, {
+      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/approve`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patientId,
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
         },
       });
       
@@ -281,15 +294,14 @@ export function ConsentManagementPage() {
   };
 
   const handleDenyRequest = async (requestId: string) => {
+    if (!patient) return;
     try {
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : '';
-      
-      const response = await fetch(`/api/access/requests/${requestId}/deny`, {
+      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/deny`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patientId,
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
         },
       });
       
@@ -439,6 +451,7 @@ export function ConsentManagementPage() {
       {/* Consent Forms Tab */}
       {activeTab === 'consents' && (
         <div className="space-y-6">
+          {consentError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{consentError}</p>}
           {/* Signed Consents */}
           <div>
             <h3 className="font-semibold text-neutral-800 mb-3 flex items-center gap-2">

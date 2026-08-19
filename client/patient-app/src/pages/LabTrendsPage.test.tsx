@@ -29,15 +29,53 @@ describe('LabTrendsPage (Patient)', () => {
     (usePatientAuthStore as any).mockReturnValue({
       patient: mockPatient,
     });
-    (shared.getLabTrends as any).mockResolvedValue({ success: true, trends: [] });
+    // An empty `trends` array means the page correctly renders its empty
+    // state; the generated test then asserted a test name that could never
+    // appear. This is the shape the page transforms: `loinc_code`,
+    // `test_name`, `unit`, `reference_range` and `data_points[]`.
+    (shared.getLabTrends as any).mockResolvedValue({
+      success: true,
+      trends: [
+        {
+          loinc_code: '2345-7',
+          test_name: 'Glucose',
+          unit: 'mg/dL',
+          reference_range: { low: 70, high: 99 },
+          data_points: [
+            {
+              result_id: 'r1',
+              value: 92,
+              collected_at: 1755000000,
+              status: 'Normal',
+              performing_lab: 'Main Lab',
+            },
+          ],
+        },
+        {
+          loinc_code: '4548-4',
+          test_name: 'Hemoglobin A1c',
+          unit: '%',
+          reference_range: { low: 4, high: 5.6 },
+          data_points: [
+            {
+              result_id: 'r2',
+              value: 5.4,
+              collected_at: 1755000000,
+              status: 'Normal',
+              performing_lab: 'Main Lab',
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it('renders lab trends page', async () => {
     render(<LabTrendsPage />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Lab Result Trends/i)).toBeInTheDocument();
-      expect(screen.getByText(/Analyze your health over time/i)).toBeInTheDocument();
+      expect(screen.getByText(/Lab Trends/i)).toBeInTheDocument();
+      expect(screen.getByText(/Track your lab results over time/i)).toBeInTheDocument();
     });
   });
 
@@ -58,13 +96,11 @@ describe('LabTrendsPage (Patient)', () => {
       expect(screen.getByText(/Glucose/i)).toBeInTheDocument();
     });
 
-    const filterButton = screen.getByText(/Filter/i);
-    fireEvent.click(filterButton);
+    // The page filters by TIME RANGE (3 Months / 6 Months / 1 Year), not by
+    // test-panel category — the generated test described a filter UI that
+    // does not exist here.
+    fireEvent.click(screen.getByText(/3 Months/i));
 
-    const metabolicPanelOption = screen.getByText(/Metabolic Panel/i);
-    fireEvent.click(metabolicPanelOption);
-
-    // Should still show Glucose (part of metabolic panel)
-    expect(screen.getByText(/Glucose/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Glucose/i).length).toBeGreaterThan(0);
   });
 });

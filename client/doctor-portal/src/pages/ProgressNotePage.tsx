@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { apiUrl, useTranslation } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
+import PatientSelect, { type Patient } from '../components/PatientSelect';
 
 /**
  * ProgressNotePage
@@ -51,6 +52,11 @@ const ProgressNotePage: React.FC = () => {
   const [filterType, setFilterType] = useState<NoteType | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    patientId: '', patientName: '', noteType: 'daily' as NoteType,
+    subjective: '', objective: '', assessment: '', plan: '',
+  });
 
   useEffect(() => {
     const fetchNotes = async () => {
@@ -70,6 +76,16 @@ const ProgressNotePage: React.FC = () => {
 
         if (response.ok) {
           const data = await response.json();
+          const patientsResponse = await fetch(apiUrl('/api/patients'), {
+            headers: {
+              'X-User-Id': user.walletAddress,
+              'X-Provider-Role': user.role,
+            },
+          });
+          const patientsBody = patientsResponse.ok ? await patientsResponse.json() : { data: [] };
+          const patientNames = new Map(
+            (patientsBody.data || patientsBody || []).map((patient: any) => [patient.patient_id, patient.full_name])
+          );
           // The list endpoint returns a bare array of record entities of the
           // shape { id, patient_id, data: {...the note...}, created_at }. Flatten
           // the inner `data` up so the note's own fields (note_type, status, …)
@@ -87,18 +103,20 @@ const ProgressNotePage: React.FC = () => {
             return ({
             id: note.note_id || note.id,
             patientId: note.patient_id,
-            patientName: note.patient_name || t('docProgressNote.unknownPatient'),
-            mrn: note.mrn || '',
+            patientName: note.patient_name || patientNames.get(note.patient_id) || t('docProgressNote.unknownPatient'),
+            mrn: note.mrn || note.patient_id || '',
             noteType: (note.note_type || 'daily') as NoteType,
-            status: (note.status || 'draft') as NoteStatus,
+            status: (note.status === 'final' ? 'signed' : (note.status || 'draft')) as NoteStatus,
             author: note.author || note.created_by || '',
             authorRole: note.author_role || 'Physician',
             createdAt: new Date(note.created_at as string || Date.now()),
             updatedAt: new Date(note.updated_at as string || Date.now()),
             subjective: note.subjective as string || '',
-            objective: note.objective as string || '',
-            assessment: note.assessment as string || '',
-            plan: note.plan as string || '',
+            objective: note.objective || note.exam || '',
+            assessment: Array.isArray(note.assessment)
+              ? note.assessment.map((problem: any) => problem.problem || '').filter(Boolean).join('\n')
+              : (note.assessment || ''),
+            plan: Array.isArray(note.plan) ? note.plan.join('\n') : (note.plan || ''),
             signedAt: note.signed_at ? new Date(note.signed_at as string) : undefined,
             cosigner: note.cosigner as string | undefined,
             });
@@ -167,6 +185,81 @@ const ProgressNotePage: React.FC = () => {
     const matchesType = filterType === 'all' || n.noteType === filterType;
     return matchesSearch && matchesType;
   });
+
+  const updateForm = (field: keyof typeof form, value: string) => {
+    setForm(current => ({ ...current, [field]: value }));
+  };
+
+  const selectPatient = (patientId: string, patient?: Patient) => {
+    setForm(current => ({
+      ...current,
+      patientId,
+      patientName: patient?.full_name || '',
+    }));
+  };
+
+  const saveNote = async (status: 'draft' | 'signed') => {
+    if (!user || !form.patientId || !form.subjective || !form.objective || !form.assessment || !form.plan) {
+      setError(t('docProgressNote.patientRequired'));
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    const now = new Date();
+    const noteId = `PN-${Date.now()}`;
+    const payload = {
+      note_id: noteId,
+      patient_id: form.patientId,
+      note_date: now.toISOString().slice(0, 10),
+      hospital_day: 1,
+      post_op_day: null,
+      subjective: form.subjective,
+      overnight_events: '',
+      vital_signs: form.objective,
+      io_summary: null,
+      exam: form.objective,
+      labs_studies: '',
+      assessment: [{ problem_number: 1, problem: form.assessment, status: 'stable', plan: form.plan }],
+      plan: [form.plan],
+      disposition: null,
+      code_status: 'Full code',
+      discussed_with: null,
+      author: user.username,
+      note_time: Math.floor(now.getTime() / 1000),
+      cosigned_by: status === 'signed' ? user.username : null,
+    };
+
+    try {
+      const response = await fetch(apiUrl('/api/clinical/progress-note'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || t('docProgressNote.failFetch'));
+      }
+      setNotes(current => [{
+        id: noteId, patientId: form.patientId, patientName: form.patientName,
+        mrn: form.patientId, noteType: form.noteType, status,
+        author: user.username, authorRole: user.role, createdAt: now, updatedAt: now,
+        subjective: form.subjective, objective: form.objective,
+        assessment: form.assessment, plan: form.plan,
+        signedAt: status === 'signed' ? now : undefined,
+      }, ...current]);
+      setForm({ patientId: '', patientName: '', noteType: 'daily', subjective: '', objective: '', assessment: '', plan: '' });
+      setActiveTab('notes');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('docProgressNote.cannotConnect'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -312,16 +405,13 @@ const ProgressNotePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="progress-patient" className="block text-sm font-medium mb-1">{t('docProgressNote.patientRequired')}</label>
-                  <select id="progress-patient" className="w-full border rounded-lg px-3 py-2">
-                    <option value="">{t('docProgressNote.selectPatient')}</option>
-                    {notes.map(n => (
-                      <option key={n.patientId} value={n.patientId}>{n.patientName}</option>
-                    ))}
-                  </select>
+                  <PatientSelect id="progress-patient" value={form.patientId} onChange={selectPatient}
+                    placeholder={t('docProgressNote.selectPatient')} required />
                 </div>
                 <div>
                   <label htmlFor="progress-note-type" className="block text-sm font-medium mb-1">{t('docProgressNote.noteTypeRequired')}</label>
-                  <select id="progress-note-type" className="w-full border rounded-lg px-3 py-2">
+                  <select id="progress-note-type" value={form.noteType}
+                    onChange={e => updateForm('noteType', e.target.value)} className="w-full border rounded-lg px-3 py-2">
                     <option value="daily">{t('docProgressNote.typeDailyProgress')}</option>
                     <option value="admission">{t('docProgressNote.typeAdmission')}</option>
                     <option value="discharge">{t('docProgressNote.typeDischarge')}</option>
@@ -336,6 +426,8 @@ const ProgressNotePage: React.FC = () => {
                 <label htmlFor="progress-subjective" className="block text-sm font-medium mb-1">{t('docProgressNote.subjectiveRequired')}</label>
                 <textarea
                   id="progress-subjective"
+                  value={form.subjective}
+                  onChange={e => updateForm('subjective', e.target.value)}
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
                   placeholder={t('docProgressNote.subjectivePlaceholder')}
@@ -346,6 +438,8 @@ const ProgressNotePage: React.FC = () => {
                 <label htmlFor="progress-objective" className="block text-sm font-medium mb-1">{t('docProgressNote.objectiveRequired')}</label>
                 <textarea
                   id="progress-objective"
+                  value={form.objective}
+                  onChange={e => updateForm('objective', e.target.value)}
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
                   placeholder={t('docProgressNote.objectivePlaceholder')}
@@ -356,6 +450,8 @@ const ProgressNotePage: React.FC = () => {
                 <label htmlFor="progress-assessment" className="block text-sm font-medium mb-1">{t('docProgressNote.assessmentRequired')}</label>
                 <textarea
                   id="progress-assessment"
+                  value={form.assessment}
+                  onChange={e => updateForm('assessment', e.target.value)}
                   className="w-full border rounded-lg px-3 py-2"
                   rows={2}
                   placeholder={t('docProgressNote.assessmentPlaceholder')}
@@ -366,6 +462,8 @@ const ProgressNotePage: React.FC = () => {
                 <label htmlFor="progress-plan" className="block text-sm font-medium mb-1">{t('docProgressNote.planRequired')}</label>
                 <textarea
                   id="progress-plan"
+                  value={form.plan}
+                  onChange={e => updateForm('plan', e.target.value)}
                   className="w-full border rounded-lg px-3 py-2"
                   rows={3}
                   placeholder={t('docProgressNote.planPlaceholder')}
@@ -373,10 +471,12 @@ const ProgressNotePage: React.FC = () => {
               </div>
 
               <div className="flex gap-2">
-                <button className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium">
+                <button type="button" disabled={saving} onClick={() => saveNote('draft')}
+                  className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium disabled:opacity-50">
                   {t('docProgressNote.saveDraft')}
                 </button>
-                <button className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
+                <button type="button" disabled={saving} onClick={() => saveNote('signed')}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50">
                   <Edit className="w-5 h-5" /> {t('docProgressNote.signNote')}
                 </button>
               </div>

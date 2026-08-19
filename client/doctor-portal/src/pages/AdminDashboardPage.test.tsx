@@ -29,12 +29,18 @@ describe('AdminDashboardPage', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        // The page reads `system_stats`, not `stats`, and counts users by
+        // role rather than by an 'active providers' aggregate.
         json: () => Promise.resolve({
-          stats: {
+          system_stats: {
             total_users: 100,
-            active_providers: 25,
-            new_registrations: 5,
-            system_uptime: '99.9%',
+            total_patients: 80,
+            doctors: 12,
+            nurses: 25,
+            lab_technicians: 4,
+            pharmacists: 3,
+            patient_users: 80,
           },
         }),
       });
@@ -51,8 +57,8 @@ describe('AdminDashboardPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/System Administration/i)).toBeInTheDocument();
       expect(screen.getByText(/System Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/100/i)).toBeInTheDocument(); // total users
-      expect(screen.getByText(/25/i)).toBeInTheDocument(); // active providers
+      expect(screen.getAllByText('100').length).toBeGreaterThan(0); // total users
+      expect(screen.getByText(/Total Users/i)).toBeInTheDocument();
     });
   });
 
@@ -64,9 +70,9 @@ describe('AdminDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/User Management/i)).toBeInTheDocument();
-      expect(screen.getByText(/Audit Logs/i)).toBeInTheDocument();
-      expect(screen.getByText(/System Settings/i)).toBeInTheDocument();
+      expect(screen.getByText(/Add User/i)).toBeInTheDocument();
+      expect(screen.getByText(/Audit Report/i)).toBeInTheDocument();
+      expect(screen.getByText(/Manage Roles/i)).toBeInTheDocument();
     });
   });
 });

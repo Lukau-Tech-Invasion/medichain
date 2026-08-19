@@ -30,6 +30,7 @@ describe('EPrescribePage', () => {
       if (url.includes('/api/medications/search')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve([
             { id: 'm1', name: 'Amoxicillin', strength: '500mg' },
             { id: 'm2', name: 'Lisinopril', strength: '10mg' },
@@ -38,6 +39,7 @@ describe('EPrescribePage', () => {
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -51,22 +53,25 @@ describe('EPrescribePage', () => {
     );
 
     expect(screen.getByText(/E-Prescribing/i)).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Search for medication/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Amoxicillin/i)).toBeInTheDocument();
   });
 
-  it('allows searching for medication', async () => {
+  it('records the medication name and strength', async () => {
     render(
       <MemoryRouter>
         <EPrescribePage />
       </MemoryRouter>
     );
 
-    const input = screen.getByPlaceholderText(/Search for medication/i);
-    fireEvent.change(input, { target: { value: 'Amox' } });
+    // The medication name is a free-text field, not a typeahead — this page
+    // has no /api/medications/search lookup behind it.
+    const name = screen.getByPlaceholderText(/Amoxicillin/i);
+    fireEvent.change(name, { target: { value: 'Amoxicillin' } });
+    expect(name).toHaveValue('Amoxicillin');
 
-    await waitFor(() => {
-      expect(screen.getByText(/Amoxicillin/i)).toBeInTheDocument();
-    });
+    const strength = screen.getByPlaceholderText(/500mg/i);
+    fireEvent.change(strength, { target: { value: '250mg' } });
+    expect(strength).toHaveValue('250mg');
   });
 
   it('allows entering dosage instructions', async () => {
@@ -76,11 +81,11 @@ describe('EPrescribePage', () => {
       </MemoryRouter>
     );
 
-    const dosageInput = screen.getByPlaceholderText(/Enter dosage/i);
+    const dosageInput = screen.getByPlaceholderText(/500mg/i);
     fireEvent.change(dosageInput, { target: { value: '1 tablet' } });
     expect(dosageInput).toHaveValue('1 tablet');
 
-    const instructionsInput = screen.getByPlaceholderText(/Instructions for patient/i);
+    const instructionsInput = screen.getByPlaceholderText(/Complete entire course/i);
     fireEvent.change(instructionsInput, { target: { value: 'Take twice daily' } });
     expect(instructionsInput).toHaveValue('Take twice daily');
   });

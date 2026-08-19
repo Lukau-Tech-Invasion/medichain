@@ -88,23 +88,26 @@ export function DashboardPage() {
 
         if (response.ok) {
           const data = await response.json();
+          const emergencyInfo = data.emergency_info || {};
           setApiConnected(true);
           
           setPatientData({
             patientId: data.patient_id,
             name: data.full_name || patient.fullName,
             healthId: data.health_id || patient.healthId,
-            bloodType: formatBloodType(data.blood_type) || patient.bloodType || 'Unknown',
-            allergies: data.allergies || [],
-            medications: data.current_medications || [],
-            conditions: data.medical_conditions || [],
+            bloodType: formatBloodType(emergencyInfo.blood_type) || patient.bloodType || 'Unknown',
+            allergies: (emergencyInfo.allergies || []).map((allergy: string | { name: string }) =>
+              typeof allergy === 'string' ? allergy : allergy.name
+            ),
+            medications: emergencyInfo.current_medications || [],
+            conditions: emergencyInfo.chronic_conditions || [],
             lastVisit: data.last_visit || new Date().toISOString().split('T')[0],
             upcomingAppointments: data.upcoming_appointments || 0,
             unreadMessages: data.unread_messages || 0,
           });
 
           // Fetch access logs for recent activity
-          const logsResponse = await fetch(`/api/access-logs/${patientId}`, {
+          const logsResponse = await fetch(apiUrl(`/api/access-logs/${patientId}`), {
             headers: { 
               'X-User-Id': patient.walletAddress,
               'X-Health-Id': patient.healthId,

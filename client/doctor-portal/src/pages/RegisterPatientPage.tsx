@@ -11,8 +11,11 @@ import {
 
 interface FormData {
   fullName: string;
+  walletAddress: string;
   dateOfBirth: string;
   nationalId: string;
+  /** Optional: blank means "not recorded", which the patient list renders by omission. */
+  gender: string;
   bloodType: string;
   allergies: string;
   currentMedications: string;
@@ -26,8 +29,10 @@ interface FormData {
 
 const initialFormData: FormData = {
   fullName: '',
+  walletAddress: '',
   dateOfBirth: '',
   nationalId: '',
+  gender: '',
   bloodType: '',
   allergies: '',
   currentMedications: '',
@@ -40,6 +45,9 @@ const initialFormData: FormData = {
 };
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+
+/** Values the API's `normalized_gender` accepts; blank submits as absent. */
+const genders = ['male', 'female', 'other', 'unknown'] as const;
 
 function RegisterPatientPage() {
   const { t } = useTranslation();
@@ -89,8 +97,12 @@ function RegisterPatientPage() {
         },
         body: JSON.stringify({
           full_name: formData.fullName,
+          wallet_address: formData.walletAddress,
           date_of_birth: formData.dateOfBirth,
           national_id: formData.nationalId,
+          // Omit rather than send '' so the server records "not stated" as absent.
+          gender: formData.gender || undefined,
+          phone: '',
           blood_type: formData.bloodType,
           allergies: formData.allergies.split(',').map(s => s.trim()).filter(Boolean),
           current_medications: formData.currentMedications.split(',').map(s => s.trim()).filter(Boolean),
@@ -103,15 +115,24 @@ function RegisterPatientPage() {
         }),
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get('content-type') || '';
+      const responseText = contentType.includes('application/json')
+        ? JSON.stringify(await response.json())
+        : await response.text();
+      let data: { patient_id?: string; nfc_tag_id?: string };
+      try {
+        data = JSON.parse(responseText) as { patient_id?: string; nfc_tag_id?: string };
+      } catch {
+        throw new Error(responseText || t('docRegisterPatient.regFailed'));
+      }
 
       if (!response.ok) {
         throw new Error(getApiErrorMessage(data, t('docRegisterPatient.regFailed')));
       }
 
       setSuccess({
-        patientId: data.patient_id,
-        nfcTagId: data.nfc_tag_id,
+        patientId: data.patient_id ?? '',
+        nfcTagId: data.nfc_tag_id ?? '',
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docRegisterPatient.regFailed'));
@@ -220,6 +241,20 @@ function RegisterPatientPage() {
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
               />
             </div>
+
+            <div className="md:col-span-2">
+              <label htmlFor="register-wallet-address" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.walletAddress')}</label>
+              <input
+                type="text"
+                id="register-wallet-address"
+                name="walletAddress"
+                value={formData.walletAddress}
+                onChange={handleChange}
+                required
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                placeholder={t('docRegisterPatient.walletAddressPlaceholder')}
+              />
+            </div>
             
             <div>
               <label htmlFor="register-national-id" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.nationalId')}</label>
@@ -248,6 +283,22 @@ function RegisterPatientPage() {
                 <option value="">{t('docRegisterPatient.selectBloodType')}</option>
                 {bloodTypes.map(bt => (
                   <option key={bt} value={bt}>{bt}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="register-gender" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.gender')}</label>
+              <select
+                id="register-gender"
+                name="gender"
+                value={formData.gender}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              >
+                <option value="">{t('docRegisterPatient.selectGender')}</option>
+                {genders.map(g => (
+                  <option key={g} value={g}>{t(`docRegisterPatient.gender_${g}`)}</option>
                 ))}
               </select>
             </div>

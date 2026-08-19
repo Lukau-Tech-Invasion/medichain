@@ -48,7 +48,7 @@ const bodyParts = [
 const ImagingPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showWarning } = useToastActions();
+  const { showSuccess, showWarning, showError } = useToastActions();
 
   const modalityLabel = (m: ImagingModality): string => {
     switch (m) {
@@ -101,6 +101,7 @@ const ImagingPage: React.FC = () => {
   const [allergies, setAllergies] = useState('');
   const [creatinine, setCreatinine] = useState<number | undefined>();
   const [pregnant, setPregnant] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -126,27 +127,44 @@ const ImagingPage: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          const fetchedOrders = Array.isArray(data) ? data : (data.orders || []);
-          if (fetchedOrders.length > 0) {
-            setOrders(prev => {
-              const existingIds = new Set(prev.map(o => o.id));
-              return [...prev, ...fetchedOrders.filter((o: ImagingOrder) => !existingIds.has(o.id))];
-            });
-          }
+          const rawOrders = Array.isArray(data) ? data : (data.orders || []);
+          const fetchedOrders: ImagingOrder[] = rawOrders.map((entity: any) => {
+            if (entity.patientId && entity.modality) return entity as ImagingOrder;
+            const raw = entity.data && typeof entity.data === 'object' ? entity.data : entity;
+            const patient = patients.find(p => p.patient_id === (raw.patient_id || entity.patient_id));
+            return {
+              id: raw.order_id || entity.id,
+              patientId: raw.patient_id || entity.patient_id,
+              patientName: patient?.full_name || raw.patient_id || entity.patient_id,
+              modality: ({ XRay: 'xray', CT: 'ct', CTWithContrast: 'ct', MRI: 'mri', MRIWithContrast: 'mri', Ultrasound: 'ultrasound', Nuclear: 'nuclear', PET: 'pet', Fluoroscopy: 'fluoro', Mammography: 'mammo', Angiography: 'ct' } as Record<string, ImagingModality>)[raw.study_type] || 'xray',
+              study: raw.special_instructions || raw.study_type || entity.study_type,
+              bodyPart: raw.body_part || entity.body_part,
+              laterality: String(raw.laterality || entity.laterality || 'NA').toLowerCase() as ImagingOrder['laterality'],
+              indication: raw.indication || entity.clinical_indication,
+              priority: String(raw.priority || entity.priority || 'Routine').toLowerCase() as ImagingPriority,
+              status: ({ Ordered: 'ordered', Scheduled: 'scheduled', InProgress: 'in-progress', Completed: 'completed', Preliminary: 'prelim', Final: 'final' } as Record<string, ImagingStatus>)[raw.status] || 'ordered',
+              orderedBy: raw.ordering_provider || entity.ordering_provider_id,
+              orderedAt: raw.order_time ? new Date(raw.order_time * 1000).toISOString() : entity.created_at,
+              contrast: Boolean(raw.contrast), allergies: raw.allergies_reviewed ? 'Reviewed' : '',
+              criticalValue: false,
+            };
+          });
+          setOrders(fetchedOrders);
         }
       } catch (err) {
         console.error('Failed to fetch imaging orders:', err);
       }
     };
     fetchOrders();
-  }, [user]);
+  }, [user, patients]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient || !indication) {
       showWarning(t('docImaging.fillRequired'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
+    if (!user) return;
     const order: ImagingOrder = {
       id: `IMG-${Date.now()}`,
       patientId: selectedPatient,
@@ -157,9 +175,46 @@ const ImagingPage: React.FC = () => {
       orderedAt: new Date().toISOString(),
       contrast, allergies, creatinine, pregnant, criticalValue: false
     };
-    setOrders([order, ...orders]);
-    showSuccess(t('docImaging.orderPlaced'));
-    setActiveTab('orders');
+    const studyTypes: Record<ImagingModality, string> = {
+      xray: 'XRay', ct: contrast ? 'CTWithContrast' : 'CT',
+      mri: contrast ? 'MRIWithContrast' : 'MRI', ultrasound: 'Ultrasound',
+      fluoro: 'Fluoroscopy', mammo: 'Mammography', dexa: 'XRay',
+      pet: 'PET', nuclear: 'Nuclear',
+    };
+    setSubmitting(true);
+    try {
+      const response = await fetch(apiUrl('/api/surgical/radiology/order'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role,
+        },
+        body: JSON.stringify({
+          order_id: order.id, patient_id: order.patientId,
+          study_type: studyTypes[modality], body_part: bodyPart,
+          laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
+          indication, priority: priority[0].toUpperCase() + priority.slice(1),
+          ordering_provider: user.walletAddress,
+          order_time: Math.floor(Date.now() / 1000), contrast,
+          allergies_reviewed: Boolean(allergies.trim()),
+          creatinine_checked: contrast ? creatinine !== undefined : null,
+          pregnancy_checked: pregnant ? pregnant === 'no' : null,
+          special_instructions: study || null, status: 'Ordered',
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Imaging order could not be saved.');
+      }
+      setOrders(current => [order, ...current]);
+      showSuccess(t('docImaging.orderPlaced'));
+      setActiveTab('orders');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Imaging order could not be saved.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const getStatusBadge = (status: ImagingStatus) => {
@@ -453,6 +508,7 @@ const ImagingPage: React.FC = () => {
 
             <button
               onClick={handleSubmit}
+              disabled={submitting}
               className="w-full py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800"
             >
               {t('docImaging.submitOrder')}

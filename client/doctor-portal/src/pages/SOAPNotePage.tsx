@@ -37,22 +37,27 @@ interface CreateSOAPNoteRequest {
     chief_complaint: string;
     history_of_present_illness: string;
     symptoms: string[];
+    social_history?: string;
+    family_history?: string;
     symptom_duration?: string;
     review_of_systems?: string;
     modifying_factors?: string;
     previous_treatments?: string;
   };
   objective: {
+    vital_signs?: null;
     general_appearance?: string;
     physical_exam: PhysicalExamFinding[];
     lab_results: string[];
     imaging_results: string[];
+    diagnostic_tests: string[];
   };
   assessment: {
     primary_diagnosis?: DiagnosisEntry;
     secondary_diagnoses: DiagnosisEntry[];
     clinical_summary: string;
     severity?: string;
+    prognosis?: string;
   };
   plan: {
     treatment_plan: string;
@@ -309,16 +314,20 @@ function SOAPNotePage() {
           chief_complaint: chiefComplaint.trim(),
           history_of_present_illness: hpi.trim(),
           symptoms: symptomsList,
+          social_history: undefined,
+          family_history: undefined,
           symptom_duration: symptomDuration.trim() || undefined,
           review_of_systems: reviewOfSystems.trim() || undefined,
           modifying_factors: modifyingFactors.trim() || undefined,
           previous_treatments: previousTreatments.trim() || undefined,
         },
         objective: {
+          vital_signs: null,
           general_appearance: generalAppearance.trim() || undefined,
           physical_exam: physicalExams.filter(pe => pe.findings.trim()),
           lab_results: labResultsList,
           imaging_results: imagingResultsList,
+          diagnostic_tests: [],
         },
         assessment: {
           primary_diagnosis: primaryDiagnosis.trim() ? {
@@ -329,6 +338,7 @@ function SOAPNotePage() {
           secondary_diagnoses: [],
           clinical_summary: clinicalSummary.trim(),
           severity: severity.trim() || undefined,
+          prognosis: undefined,
         },
         plan: {
           treatment_plan: treatmentPlan.trim(),
@@ -355,7 +365,13 @@ function SOAPNotePage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorText = await response.text();
+        let errorData: unknown;
+        try {
+          errorData = JSON.parse(errorText) as unknown;
+        } catch {
+          throw new Error(errorText || t('docSOAPNote.errorCreateFailed'));
+        }
         throw new Error(getApiErrorMessage(errorData, t('docSOAPNote.errorCreateFailed')));
       }
 

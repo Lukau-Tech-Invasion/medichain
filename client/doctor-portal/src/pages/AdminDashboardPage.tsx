@@ -117,7 +117,7 @@ export default function AdminDashboardPage() {
     try {
       setHealthLoading(true);
       const healthData = await detailedHealthCheck();
-      const services: SystemStatus[] = healthData.services.map((svc: ServiceHealth) => ({
+      const services: SystemStatus[] = (healthData.services ?? []).map((svc: ServiceHealth) => ({
         name: svc.name,
         status: svc.status as 'online' | 'degraded' | 'offline',
         lastCheck: healthData.timestamp,

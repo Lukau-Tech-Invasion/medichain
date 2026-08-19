@@ -31,7 +31,22 @@ type SiteLocation =
 
 type CatheterType = 'peripheral' | 'midline' | 'picc' | 'central';
 type CatheterGauge = '14G' | '16G' | '18G' | '20G' | '22G' | '24G';
-type SiteCondition = 'clean-dry-intact' | 'redness' | 'swelling' | 'drainage' | 'tenderness' | 'warmth' | 'induration';
+type SiteCondition =
+  | 'clean-dry-intact'
+  | 'redness'
+  | 'swelling'
+  | 'drainage'
+  | 'tenderness'
+  | 'warmth'
+  | 'induration'
+  // Infiltration signs. The site assessment previously offered only the
+  // inflammatory signs that drive the VIP phlebitis score, so a leaking
+  // cannula presented as 'swelling' — which the score reads as phlebitis
+  // grade 2. Coolness and blanching are what separate the two, and they had
+  // nowhere to be recorded.
+  | 'coolness'
+  | 'blanching'
+  | 'leakage';
 type DressingType = 'transparent' | 'gauze' | 'statlock' | 'biopatch';
 
 interface IVSite {
@@ -64,6 +79,7 @@ interface IVAssessment {
   infusionRate?: string;
   notes: string;
   phlebitisScore: number;
+  infiltrationGrade: number;
 }
 
 export default function IVSitePage() {
@@ -133,8 +149,27 @@ export default function IVSitePage() {
     'drainage': { label: t('docIVSite.condition_drainage'), severity: 'critical' },
     'tenderness': { label: t('docIVSite.condition_tenderness'), severity: 'warning' },
     'warmth': { label: t('docIVSite.condition_warmth'), severity: 'warning' },
-    'induration': { label: t('docIVSite.condition_induration'), severity: 'critical' }
+    'induration': { label: t('docIVSite.condition_induration'), severity: 'critical' },
+    'coolness': { label: t('docIVSite.condition_coolness'), severity: 'warning' },
+    'blanching': { label: t('docIVSite.condition_blanching'), severity: 'warning' },
+    'leakage': { label: t('docIVSite.condition_leakage'), severity: 'critical' }
   };
+
+  /**
+   * INS Infiltration Scale (0–4).
+   *
+   * Graded by the clinician rather than derived from the condition flags: the
+   * grade turns on the measured extent of oedema (<1 inch, 1–6 inches, >6
+   * inches), which no checkbox records. Deriving it from flags would invent a
+   * measurement nobody took.
+   */
+  const infiltrationGrades = [
+    { grade: 0, description: t('docIVSite.infiltrationDesc_0') },
+    { grade: 1, description: t('docIVSite.infiltrationDesc_1') },
+    { grade: 2, description: t('docIVSite.infiltrationDesc_2') },
+    { grade: 3, description: t('docIVSite.infiltrationDesc_3') },
+    { grade: 4, description: t('docIVSite.infiltrationDesc_4') }
+  ];
 
   // Phlebitis scale (VIP Score)
   const phlebitisScores = [
@@ -264,7 +299,8 @@ export default function IVSitePage() {
       infusing: newAssessment.infusing || '',
       infusionRate: newAssessment.infusionRate,
       notes: newAssessment.notes || '',
-      phlebitisScore: calculatePhlebitisScore(newAssessment.conditions || [])
+      phlebitisScore: calculatePhlebitisScore(newAssessment.conditions || []),
+      infiltrationGrade: newAssessment.infiltrationGrade ?? 0
     };
 
     setIvSites(prev => prev.map(site => 
@@ -467,6 +503,26 @@ export default function IVSitePage() {
                 </div>
               </div>
             )}
+
+            {/* Infiltration Scale Reference */}
+            <div className="bg-white rounded-lg shadow p-4 mt-4">
+              <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <Droplet className="h-4 w-4 mr-2" />
+                {t('docIVSite.infiltrationScaleReference')}
+              </h3>
+              <div className="space-y-1 text-xs">
+                {infiltrationGrades.map(({ grade, description }) => (
+                  <div key={grade} className={`flex items-start p-1 rounded ${
+                    grade === 0 ? 'bg-green-50' :
+                    grade <= 2 ? 'bg-yellow-50' :
+                    'bg-red-50'
+                  }`}>
+                    <span className="font-bold w-6 flex-shrink-0">{grade}:</span>
+                    <span className="text-gray-600">{description}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* VIP Score Reference */}
             <div className="bg-white rounded-lg shadow p-4 mt-4">
@@ -820,6 +876,27 @@ export default function IVSitePage() {
                                     </button>
                                   ))}
                                 </div>
+                              </div>
+
+                              <div>
+                                <label htmlFor="iv-infiltration-grade" className="block text-sm font-medium text-gray-700 mb-2">
+                                  {t('docIVSite.infiltrationGradeLabel')}
+                                </label>
+                                <select
+                                  id="iv-infiltration-grade"
+                                  value={newAssessment.infiltrationGrade ?? 0}
+                                  onChange={(e) => setNewAssessment({ ...newAssessment, infiltrationGrade: Number(e.target.value) })}
+                                  className="w-full p-3 border border-gray-300 rounded-lg"
+                                >
+                                  {infiltrationGrades.map(({ grade, description }) => (
+                                    <option key={grade} value={grade}>{grade} — {description}</option>
+                                  ))}
+                                </select>
+                                {(newAssessment.infiltrationGrade ?? 0) >= 3 && (
+                                  <p className="mt-2 text-sm text-red-700 font-medium">
+                                    {t('docIVSite.infiltrationSevereWarning')}
+                                  </p>
+                                )}
                               </div>
 
                               <div className="grid grid-cols-2 gap-4">

@@ -7,7 +7,7 @@ describe('LanguageSettingsPage (Patient)', () => {
     render(<LanguageSettingsPage />);
 
     expect(screen.getByText(/Language & Region/i)).toBeInTheDocument();
-    expect(screen.getByText(/English \(US\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/English \(US\)/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Spanish \(Spain\)/i)).toBeInTheDocument();
   });
 
@@ -24,7 +24,7 @@ describe('LanguageSettingsPage (Patient)', () => {
   it('allows toggling regional settings', () => {
     render(<LanguageSettingsPage />);
 
-    const toggleButton = screen.getByText(/Show Regional Settings/i);
+    const toggleButton = screen.getByText(/Regional Format Settings/i);
     fireEvent.click(toggleButton);
 
     expect(screen.getByText(/Date Format/i)).toBeInTheDocument();
@@ -34,13 +34,13 @@ describe('LanguageSettingsPage (Patient)', () => {
   it('handles saving settings', async () => {
     render(<LanguageSettingsPage />);
 
-    const saveButton = screen.getByText(/Save Changes/i);
+    const saveButton = screen.getByText(/Save Language Settings/i);
     fireEvent.click(saveButton);
 
     expect(screen.getByText(/Saving.../i)).toBeInTheDocument();
     
     await waitFor(() => {
-      expect(screen.getByText(/Changes saved/i)).toBeInTheDocument();
+      expect(screen.getByText(/Settings Saved/i)).toBeInTheDocument();
     });
   });
 });

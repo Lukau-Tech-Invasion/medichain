@@ -54,6 +54,7 @@ describe('TelehealthPage (Patient)', () => {
       if (url.includes('/api/telehealth/patient/')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             sessions: [
               {
@@ -78,6 +79,7 @@ describe('TelehealthPage (Patient)', () => {
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });

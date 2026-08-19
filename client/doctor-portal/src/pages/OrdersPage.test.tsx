@@ -29,16 +29,24 @@ describe('OrdersPage', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           orders: [
+            // The page reads snake_case `PhysicianOrder` fields
+            // (order_id/order_type/order_details/ordered_at); the generated
+            // fixture used camelCase `description`/`orderType`, which the
+            // component never looks at, so rows rendered blank.
             {
-              id: 'o1',
-              patientName: 'John Doe',
-              orderType: 'Lab',
-              description: 'CBC with diff',
-              status: 'Active',
-              timestamp: new Date().toISOString(),
-            }
+              order_id: 'o1',
+              patient_id: 'PAT-001',
+              patient_name: 'John Doe',
+              order_type: 'lab',
+              order_details: 'CBC with diff',
+              priority: 'routine',
+              status: 'active',
+              ordered_by: 'Dr Smith',
+              ordered_at: 1755000000,
+            },
           ],
         }),
       });
@@ -67,7 +75,7 @@ describe('OrdersPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/All Orders/i)).toBeInTheDocument();
+      expect(screen.getByText(/All Statuses/i)).toBeInTheDocument();
     });
   });
 });

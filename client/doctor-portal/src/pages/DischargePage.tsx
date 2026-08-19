@@ -108,7 +108,7 @@ function DischargePage() {
     diet_instructions: 'Resume regular diet as tolerated',
     activity_restrictions: '',
     warning_signs: '',
-    emergency_instructions: 'If you experience any warning signs, call 911 or go to the nearest emergency room immediately.',
+    emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: t('common.emergencyNumber') }),
   });
 
   const [medications, setMedications] = useState<DischargeMedication[]>([]);
@@ -272,7 +272,7 @@ function DischargePage() {
       diet_instructions: 'Resume regular diet as tolerated',
       activity_restrictions: '',
       warning_signs: '',
-      emergency_instructions: 'If you experience any warning signs, call 911 or go to the nearest emergency room immediately.',
+      emergency_instructions: t('docDischarge.defaultEmergencyInstructions', { emergencyNumber: t('common.emergencyNumber') }),
     });
     setMedications([]);
     setFollowUps([]);
