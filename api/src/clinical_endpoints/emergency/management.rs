@@ -1013,16 +1013,56 @@ pub async fn get_incident(
 #[post("/api/emergency/fall-risk")]
 pub async fn create_fall_risk(
     data: web::Data<AppState>,
-    req: web::Json<crate::clinical::FallRiskAssessment>,
+    req: web::Json<serde_json::Value>,
     http_req: HttpRequest,
 ) -> impl Responder {
     if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
         return resp;
     }
 
-    let assessment = req.into_inner();
-    let id = assessment.assessment_id.clone();
-    let entity = fall_risk_entity(&assessment, json_value(&assessment));
+    let body = req.into_inner();
+    let now = chrono::Utc::now();
+    // Server-generated: a client-supplied id lets one submission overwrite another.
+    let id = format!("FRA-{}", uuid::Uuid::new_v4().simple());
+    let entity = FallRiskAssessmentEntity {
+        id: id.clone(),
+        patient_id: body.get("patient_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        assessment_tool: body.get("assessment_tool").and_then(|v| v.as_str()).map(str::to_string),
+        history_of_falling: body.get("history_of_falling").and_then(|v| v.as_i64()).map(|v| v as i32),
+        secondary_diagnosis: body.get("secondary_diagnosis").and_then(|v| v.as_i64()).map(|v| v as i32),
+        ambulatory_aid: body.get("ambulatory_aid").and_then(|v| v.as_i64()).map(|v| v as i32),
+        iv_therapy: body.get("iv_therapy").and_then(|v| v.as_i64()).map(|v| v as i32),
+        gait_status: body.get("gait_status").and_then(|v| v.as_i64()).map(|v| v as i32),
+        mental_status: body.get("mental_status").and_then(|v| v.as_i64()).map(|v| v as i32),
+        additional_factors: body.get("additional_factors").cloned(),
+        interventions: body.get("interventions").cloned(),
+        notes: body.get("notes").and_then(|v| v.as_str()).map(str::to_string),
+        assessed_by: body.get("assessed_by").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        assessed_at: body.get("assessed_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or(now),
+        next_assessment_due: body.get("next_assessment_due").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
+        created_at: now,
+        updated_at: now,
+        facility_id: body.get("facility_id").and_then(|v| v.as_str()).map(str::to_string),
+        data: body.clone(),
+        // The Morse Fall Scale total drives the risk band, so derive the band
+        // from the score rather than trusting a separate field that can
+        // disagree with it.
+        total_score: body
+            .get("total_score")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32,
+        risk_level: {
+            let score = body.get("total_score").and_then(|v| v.as_i64()).unwrap_or(0);
+            if score >= 45 {
+                "high"
+            } else if score >= 25 {
+                "moderate"
+            } else {
+                "low"
+            }
+            .to_string()
+        },
+    };
     match data.repositories.fall_risk_assessments.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
         Err(_) => HttpResponse::InternalServerError().finish(),
