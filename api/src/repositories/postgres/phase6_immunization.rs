@@ -24,6 +24,15 @@ impl PgImmunizationRecordRepository {
     }
 }
 
+/// Explicit projection for `VaccineInventoryEntity`.
+///
+/// `storage_temperature_min` / `_max` are `numeric` in the schema but
+/// `Option<f64>` in Rust, and sqlx will not decode NUMERIC into f64 — so a bare
+/// `SELECT *` fails to decode every row and the cold-chain record can be written
+/// but never read back. Casting at the read boundary keeps the column's numeric
+/// precision while matching the Rust type.
+const VACCINE_INVENTORY_COLUMNS: &str = "id, facility_id, vaccine_type, vaccine_name, manufacturer, lot_number, ndc_code, quantity_received, quantity_remaining, unit_of_measure, storage_location, storage_temperature_min::float8 AS storage_temperature_min, storage_temperature_max::float8 AS storage_temperature_max, temperature_monitored, received_date, expiration_date, first_use_date, status, recall_number, disposal_date, disposal_reason, created_at, updated_at";
+
 #[async_trait]
 impl ImmunizationRecordRepository for PgImmunizationRecordRepository {
     async fn create(
@@ -453,7 +462,7 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
                 .push_bind(&i.disposal_reason);
         });
 
-        qb.push(" RETURNING *");
+        qb.push(format!(" RETURNING {VACCINE_INVENTORY_COLUMNS}"));
 
         let result = qb
             .build_query_as::<VaccineInventoryEntity>()
@@ -465,7 +474,7 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<VaccineInventoryEntity> {
         let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM vaccine_inventory WHERE id = ");
+            QueryBuilder::new(format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE id = "));
         qb.push_bind(id);
 
         let inventory = qb
@@ -481,7 +490,7 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
         facility_id: &str,
     ) -> RepositoryResult<Vec<VaccineInventoryEntity>> {
         let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM vaccine_inventory WHERE facility_id = ");
+            QueryBuilder::new(format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE facility_id = "));
         qb.push_bind(facility_id);
         qb.push(" ORDER BY expiration_date ASC");
 
@@ -499,7 +508,7 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
         vaccine_type: &str,
     ) -> RepositoryResult<Vec<VaccineInventoryEntity>> {
         let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM vaccine_inventory WHERE facility_id = ");
+            QueryBuilder::new(format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE facility_id = "));
         qb.push_bind(facility_id);
         qb.push(" AND vaccine_type = ");
         qb.push_bind(vaccine_type);
@@ -531,7 +540,7 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
             .push_bind(&inventory.disposal_reason);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&inventory.id);
-        qb.push(" RETURNING *");
+        qb.push(format!(" RETURNING {VACCINE_INVENTORY_COLUMNS}"));
 
         let result = qb
             .build_query_as::<VaccineInventoryEntity>()
@@ -556,7 +565,7 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
         qb.push_bind(amount);
         qb.push(" <= 0 THEN 'depleted' ELSE status END, updated_at = NOW() WHERE id = ");
         qb.push_bind(id);
-        qb.push(" RETURNING *");
+        qb.push(format!(" RETURNING {VACCINE_INVENTORY_COLUMNS}"));
 
         let result = qb
             .build_query_as::<VaccineInventoryEntity>()
@@ -568,9 +577,9 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
 
     async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<VaccineInventoryEntity>> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "SELECT * FROM vaccine_inventory 
+            format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory
              WHERE status = 'available' 
-             AND expiration_date <= CURRENT_DATE + ",
+             AND expiration_date <= CURRENT_DATE + "),
         );
         qb.push_bind(days);
         qb.push("::INTEGER ORDER BY expiration_date ASC");
@@ -593,7 +602,7 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
         qb.push_bind(recall_number);
         qb.push(", updated_at = NOW() WHERE lot_number = ");
         qb.push_bind(lot_number);
-        qb.push(" RETURNING *");
+        qb.push(format!(" RETURNING {VACCINE_INVENTORY_COLUMNS}"));
 
         let items = qb
             .build_query_as::<VaccineInventoryEntity>()

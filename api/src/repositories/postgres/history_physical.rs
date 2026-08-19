@@ -186,4 +186,21 @@ impl HistoryPhysicalRepository for PgHistoryPhysicalRepository {
 
         Ok(PaginatedResult::new(hps, total as u64, &pagination))
     }
+
+    /// Every active H&P, newest first.
+    ///
+    /// The trait default returns `NotFound("list_all not implemented")`, and the
+    /// endpoint swallows that into an empty list — so the H&P list read as empty
+    /// no matter how many records existed.
+    async fn list_all(&self) -> RepositoryResult<Vec<HistoryPhysicalEntity>> {
+        let qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "SELECT * FROM history_physicals WHERE is_active = true ORDER BY performed_at DESC LIMIT 200",
+        );
+        let mut qb = qb;
+        let hps = qb
+            .build_query_as::<HistoryPhysicalEntity>()
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(hps)
+    }
 }

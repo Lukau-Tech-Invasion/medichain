@@ -834,7 +834,7 @@ impl PhysicianOrderRepository for MemoryPhysicianOrderRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<_> = data
             .values()
-            .filter(|o| o.patient_id == patient_id)
+            .filter(|o| patient_id == "all" || o.patient_id == patient_id)
             .cloned()
             .collect();
         items.sort_by_key(|b| std::cmp::Reverse(b.order_datetime));

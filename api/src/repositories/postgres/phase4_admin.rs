@@ -360,18 +360,22 @@ impl PhysicianOrderRepository for PgPhysicianOrderRepository {
         patient_id: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PhysicianOrderEntity>> {
-        let mut count_qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT COUNT(*) FROM physician_orders WHERE patient_id = ");
-        count_qb.push_bind(patient_id);
+        let mut count_qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT COUNT(*) FROM physician_orders");
+        if patient_id != "all" {
+            count_qb.push(" WHERE patient_id = ");
+            count_qb.push_bind(patient_id);
+        }
 
         let total = count_qb
             .build_query_scalar::<i64>()
             .fetch_one(&self.pool)
             .await? as u64;
 
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM physician_orders WHERE patient_id = ");
-        qb.push_bind(patient_id);
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM physician_orders");
+        if patient_id != "all" {
+            qb.push(" WHERE patient_id = ");
+            qb.push_bind(patient_id);
+        }
         qb.push(" ORDER BY order_datetime DESC LIMIT ");
         qb.push_bind(pagination.limit() as i32);
         qb.push(" OFFSET ");
