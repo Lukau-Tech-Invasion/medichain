@@ -53,7 +53,86 @@ const SpecimenPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<CollectionStatus | 'all'>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // The collection tab was markup only: no state, no handler, and a button with
+  // no onClick, so nothing a collector entered was ever sent.
+  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const CHECKS = ['verify-id', 'requirements', 'label', 'time'];
+  const [form, setForm] = useState({
+    patientId: '',
+    specimenType: 'blood',
+    priority: 'routine',
+    testsOrdered: '',
+    collectionSite: '',
+    notes: '',
+    checklist: [] as string[],
+  });
   const { user } = useAuthStore();
+
+  // Built from existing specimens before, so a patient with no specimen on file
+  // could never be selected — i.e. a first collection was impossible.
+  useEffect(() => {
+    if (!user?.walletAddress) return;
+    fetch(apiUrl('/api/patients?limit=100'), {
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
+    })
+      .then(r => (r.ok ? r.json() : { data: [] }))
+      .then(body => {
+        const rows = (body.data || []) as Array<{ patient_id: string; full_name: string }>;
+        setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name })));
+      })
+      .catch(() => setPatients([]));
+  }, [user?.walletAddress]);
+
+  const toggleCheck = (key: string) =>
+    setForm(f => ({
+      ...f,
+      checklist: f.checklist.includes(key)
+        ? f.checklist.filter(x => x !== key)
+        : [...f.checklist, key],
+    }));
+
+  const recordCollection = async () => {
+    if (!user?.walletAddress) return;
+    if (!form.patientId || !form.testsOrdered.trim()) {
+      setSaveMessage(t('docSpecimen.errPatientAndTests'));
+      return;
+    }
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const response = await fetch(apiUrl('/api/clinical/specimen'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role || 'Nurse',
+        },
+        body: JSON.stringify({
+          patient_id: form.patientId,
+          specimen_type: form.specimenType,
+          priority: form.priority,
+          tests_ordered: form.testsOrdered.trim(),
+          collection_site: form.collectionSite.trim() || null,
+          notes: form.notes.trim() || null,
+          checklist: form.checklist,
+        }),
+      });
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      setSaveMessage(t('docSpecimen.savedOk'));
+      setForm({
+        patientId: '', specimenType: 'blood', priority: 'routine', testsOrdered: '',
+        collectionSite: '', notes: '', checklist: [],
+      });
+    } catch (err) {
+      console.error('Failed to record specimen collection:', err);
+      setSaveMessage(t('docSpecimen.errSaveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     const fetchSpecimens = async () => {
@@ -332,10 +411,11 @@ const SpecimenPage: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label htmlFor="specimen-patient" className="block text-sm font-medium mb-1">{t('docSpecimen.patientRequired')}</label>
-                <select id="specimen-patient" className="w-full border rounded-lg px-3 py-2">
+                <select id="specimen-patient" className="w-full border rounded-lg px-3 py-2"
+                  value={form.patientId} onChange={(e) => setForm(f => ({ ...f, patientId: e.target.value }))}>
                   <option value="">{t('docSpecimen.selectPatient')}</option>
-                  {specimens.map(s => (
-                    <option key={s.patientId} value={s.patientId}>{s.patientName} - {s.mrn}</option>
+                  {patients.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} - {p.id}</option>
                   ))}
                 </select>
               </div>
@@ -343,7 +423,8 @@ const SpecimenPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="specimen-type" className="block text-sm font-medium mb-1">{t('docSpecimen.specimenTypeRequired')}</label>
-                  <select id="specimen-type" className="w-full border rounded-lg px-3 py-2">
+                  <select id="specimen-type" className="w-full border rounded-lg px-3 py-2"
+                    value={form.specimenType} onChange={(e) => setForm(f => ({ ...f, specimenType: e.target.value }))}>
                     <option value="blood">{t('docSpecimen.typeBlood')}</option>
                     <option value="urine">{t('docSpecimen.typeUrine')}</option>
                     <option value="stool">{t('docSpecimen.typeStool')}</option>
@@ -356,7 +437,8 @@ const SpecimenPage: React.FC = () => {
                 </div>
                 <div>
                   <label htmlFor="specimen-priority" className="block text-sm font-medium mb-1">{t('docSpecimen.priorityRequired')}</label>
-                  <select id="specimen-priority" className="w-full border rounded-lg px-3 py-2">
+                  <select id="specimen-priority" className="w-full border rounded-lg px-3 py-2"
+                    value={form.priority} onChange={(e) => setForm(f => ({ ...f, priority: e.target.value }))}>
                     <option value="routine">{t('docSpecimen.optRoutine')}</option>
                     <option value="urgent">{t('docSpecimen.optUrgent')}</option>
                     <option value="stat">{t('docSpecimen.optStat')}</option>
@@ -366,17 +448,20 @@ const SpecimenPage: React.FC = () => {
 
               <div>
                 <label htmlFor="specimen-tests-ordered" className="block text-sm font-medium mb-1">{t('docSpecimen.testsOrderedRequired')}</label>
-                <input id="specimen-tests-ordered" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.testsPlaceholder')} />
+                <input id="specimen-tests-ordered" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.testsPlaceholder')}
+                  value={form.testsOrdered} onChange={(e) => setForm(f => ({ ...f, testsOrdered: e.target.value }))} />
               </div>
 
               <div>
                 <label htmlFor="specimen-collection-site" className="block text-sm font-medium mb-1">{t('docSpecimen.collectionSite')}</label>
-                <input id="specimen-collection-site" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.sitePlaceholder')} />
+                <input id="specimen-collection-site" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docSpecimen.sitePlaceholder')}
+                  value={form.collectionSite} onChange={(e) => setForm(f => ({ ...f, collectionSite: e.target.value }))} />
               </div>
 
               <div>
                 <label htmlFor="specimen-notes" className="block text-sm font-medium mb-1">{t('docSpecimen.notes')}</label>
-                <textarea id="specimen-notes" className="w-full border rounded-lg px-3 py-2" rows={2} placeholder={t('docSpecimen.notesPlaceholder')} />
+                <textarea id="specimen-notes" className="w-full border rounded-lg px-3 py-2" rows={2} placeholder={t('docSpecimen.notesPlaceholder')}
+                  value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
 
               <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
@@ -384,14 +469,22 @@ const SpecimenPage: React.FC = () => {
                 <div className="space-y-1">
                   {[t('docSpecimen.chkVerifyId'), t('docSpecimen.chkRequirements'), t('docSpecimen.chkLabel'), t('docSpecimen.chkTime')].map((item, idx) => (
                     <label key={idx} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" className="w-4 h-4" />
+                      <input type="checkbox" className="w-4 h-4"
+                        checked={form.checklist.includes(CHECKS[idx])} onChange={() => toggleCheck(CHECKS[idx])} />
                       <span>{item}</span>
                     </label>
                   ))}
                 </div>
               </div>
 
-              <button className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
+              {saveMessage && (
+                <p className="text-sm text-center text-gray-700" role="status">{saveMessage}</p>
+              )}
+              <button
+                onClick={recordCollection}
+                disabled={saving}
+                className="w-full py-3 bg-teal-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+              >
                 <Plus className="w-5 h-5" /> {t('docSpecimen.recordCollection')}
               </button>
             </div>

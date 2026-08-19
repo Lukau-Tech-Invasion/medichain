@@ -69,7 +69,63 @@ const NursingCarePlanPage: React.FC = () => {
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // The create tab had no state, no handler and a button with no onClick, so a
+  // care plan could never be created. Its patient picker was also built from
+  // existing plans, meaning a patient without one could never be chosen.
+  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [form, setForm] = useState({ patientId: '', diagnosis: '', priority: 'medium' });
   const { user } = useAuthStore();
+
+  useEffect(() => {
+    if (!user?.walletAddress) return;
+    fetch(apiUrl('/api/patients?limit=100'), {
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
+    })
+      .then(r => (r.ok ? r.json() : { data: [] }))
+      .then(body => {
+        const rows = (body.data || []) as Array<{ patient_id: string; full_name: string }>;
+        setPatients(rows.map(r => ({ id: r.patient_id, name: r.full_name })));
+      })
+      .catch(() => setPatients([]));
+  }, [user?.walletAddress]);
+
+  const createPlan = async () => {
+    if (!user?.walletAddress) return;
+    if (!form.patientId || !form.diagnosis.trim()) {
+      setSaveMessage(t('docNursingCarePlan.errPatientAndDiagnosis'));
+      return;
+    }
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const response = await fetch(apiUrl('/api/emergency/care-plan'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role || 'Nurse',
+        },
+        body: JSON.stringify({
+          patient_id: form.patientId,
+          diagnosis: form.diagnosis.trim(),
+          priority: form.priority,
+          goals: [],
+          interventions: [],
+        }),
+      });
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      setSaveMessage(t('docNursingCarePlan.savedOk'));
+      setForm({ patientId: '', diagnosis: '', priority: 'medium' });
+    } catch (err) {
+      console.error('Failed to create care plan:', err);
+      setSaveMessage(t('docNursingCarePlan.errSaveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     const fetchPlans = async () => {
@@ -357,28 +413,43 @@ const NursingCarePlanPage: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label htmlFor="ncp-patient" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.patientRequired')}</label>
-                <select id="ncp-patient" className="w-full border rounded-lg px-3 py-2">
+                <select id="ncp-patient" className="w-full border rounded-lg px-3 py-2"
+                  value={form.patientId}
+                  onChange={(e) => setForm(f => ({ ...f, patientId: e.target.value }))}>
                   <option value="">{t('docNursingCarePlan.selectPatient')}</option>
-                  {plans.map(p => (
-                    <option key={p.patientId} value={p.patientId}>{t('docNursingCarePlan.patientRoom', { name: p.patientName, room: p.room })}</option>
+                  {patients.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} - {p.id}</option>
                   ))}
                 </select>
               </div>
               <div>
                 <label htmlFor="ncp-diagnosis" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.diagnosisRequired')}</label>
-                <input id="ncp-diagnosis" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docNursingCarePlan.diagnosisPlaceholder')} />
+                <input id="ncp-diagnosis" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docNursingCarePlan.diagnosisPlaceholder')}
+                  value={form.diagnosis}
+                  onChange={(e) => setForm(f => ({ ...f, diagnosis: e.target.value }))} />
               </div>
               <div role="group" aria-labelledby="ncp-priority-label">
                 <label id="ncp-priority-label" className="block text-sm font-medium mb-1">{t('docNursingCarePlan.priorityRequired')}</label>
                 <div className="flex gap-2">
                   {(['high', 'medium', 'low'] as const).map(p => (
-                    <button key={p} className={`flex-1 py-2 rounded-lg border capitalize ${p === 'high' ? 'bg-red-50 border-red-300 text-red-700' : p === 'medium' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-gray-50 border-gray-300'}`}>
+                    <button
+                      key={p}
+                      onClick={() => setForm(f => ({ ...f, priority: p }))}
+                      aria-pressed={form.priority === p}
+                      className={`flex-1 py-2 rounded-lg border capitalize ${form.priority === p ? 'ring-2 ring-offset-1 ring-purple-500 ' : ''}${p === 'high' ? 'bg-red-50 border-red-300 text-red-700' : p === 'medium' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-gray-50 border-gray-300'}`}>
                       {priorityLabel(p)}
                     </button>
                   ))}
                 </div>
               </div>
-              <button className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
+              {saveMessage && (
+                <p className="text-sm text-center text-gray-700" role="status">{saveMessage}</p>
+              )}
+              <button
+                onClick={createPlan}
+                disabled={saving}
+                className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+              >
                 <Plus className="w-5 h-5" /> {t('docNursingCarePlan.createCarePlan')}
               </button>
             </div>

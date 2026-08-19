@@ -60,6 +60,57 @@ interface Incident {
   preventiveMeasures?: string;
 }
 
+/** One incident report row, as the API returns it. */
+interface IncidentRow {
+  id: string;
+  patient_id: string | null;
+  reporter_id: string;
+  incident_datetime: string;
+  discovery_datetime: string;
+  incident_type: string;
+  severity: string;
+  location: string;
+  department: string | null;
+  description: string;
+  immediate_actions_taken: string | null;
+  witnesses: string[] | null;
+  corrective_actions: string[] | null;
+  investigation_status: string | null;
+}
+
+/**
+ * Map a stored incident onto the shape this page renders.
+ *
+ * The two share no field names — the page expects camelCase with `type`,
+ * `dateTime` and `reportedAt`, while the API returns snake_case columns. Reading
+ * it raw produced Invalid Dates and undefined fields, and the list threw as soon
+ * as one report existed.
+ */
+function toIncident(row: IncidentRow): Incident {
+  const asDate = (value: string | null | undefined) => {
+    const d = new Date(value || '');
+    return isNaN(d.getTime()) ? new Date() : d;
+  };
+  return {
+    id: row.id,
+    type: row.incident_type as IncidentType,
+    severity: row.severity as IncidentSeverity,
+    status: (row.investigation_status || 'open') as IncidentStatus,
+    dateTime: asDate(row.incident_datetime),
+    location: row.location || '',
+    department: row.department || '',
+    description: row.description || '',
+    patientInvolved: !!row.patient_id,
+    patientId: row.patient_id || undefined,
+    staffInvolved: Array.isArray(row.corrective_actions) ? row.corrective_actions : [],
+    witnesses: Array.isArray(row.witnesses) ? row.witnesses : [],
+    immediateActions: row.immediate_actions_taken || '',
+    reportedBy: row.reporter_id || '',
+    reportedAt: asDate(row.discovery_datetime),
+    followUpActions: [],
+  };
+}
+
 const IncidentReportPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'list' | 'new' | 'dashboard'>('list');
@@ -80,7 +131,7 @@ const IncidentReportPage: React.FC = () => {
     severity: 'minor' as IncidentSeverity,
     dateTime: '',
     location: '',
-    department: '',
+    department: 'emergency',
     description: '',
     patientInvolved: false,
     patientId: '',
@@ -102,15 +153,7 @@ const IncidentReportPage: React.FC = () => {
         
         const data = await listIncidentReports();
         // Convert date strings to Date objects
-        const incidentsWithDates = (data || []).map((incident: any) => ({
-          ...incident,
-          dateTime: new Date(incident.dateTime || incident.date_time || Date.now()),
-          reportedAt: new Date(incident.reportedAt || incident.reported_at || Date.now()),
-          followUpActions: (incident.followUpActions || incident.follow_up_actions || []).map((action: any) => ({
-            ...action,
-            dueDate: new Date(action.dueDate || action.due_date || Date.now())
-          }))
-        }));
+        const incidentsWithDates = (((data as unknown) as IncidentRow[]) || []).map(toIncident);
         setIncidents(incidentsWithDates);
       } catch (err) {
         console.error('Error fetching incidents:', err);
@@ -149,11 +192,7 @@ const IncidentReportPage: React.FC = () => {
       
       // Refresh list
       const updatedData = await listIncidentReports();
-      const incidentsWithDates = (updatedData || []).map((incident: any) => ({
-        ...incident,
-        dateTime: new Date(incident.dateTime || incident.date_time || Date.now()),
-        reportedAt: new Date(incident.reportedAt || incident.reported_at || Date.now()),
-      }));
+      const incidentsWithDates = (((updatedData as unknown) as IncidentRow[]) || []).map(toIncident);
       setIncidents(incidentsWithDates);
       
       setActiveTab('list');
@@ -483,22 +522,28 @@ const IncidentReportPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="inc-date-time" className="block text-sm font-medium mb-1">{t('docIncidentReport.dateTimeRequired')} *</label>
-                    <input id="inc-date-time" type="datetime-local" className="w-full border rounded-lg px-3 py-2" />
+                    <input id="inc-date-time" type="datetime-local" className="w-full border rounded-lg px-3 py-2"
+                      value={formData.dateTime}
+                      onChange={(e) => setFormData(f => ({ ...f, dateTime: e.target.value }))} />
                   </div>
                   <div>
                     <label htmlFor="inc-department" className="block text-sm font-medium mb-1">{t('docIncidentReport.departmentRequired')} *</label>
-                    <select id="inc-department" className="w-full border rounded-lg px-3 py-2">
-                      <option>{t('docIncidentReport.dept_emergency')}</option>
-                      <option>{t('docIncidentReport.dept_medSurg')}</option>
-                      <option>{t('docIncidentReport.dept_icu')}</option>
-                      <option>{t('docIncidentReport.dept_pharmacy')}</option>
-                      <option>{t('docIncidentReport.dept_radiology')}</option>
+                    <select id="inc-department" className="w-full border rounded-lg px-3 py-2"
+                      value={formData.department}
+                      onChange={(e) => setFormData(f => ({ ...f, department: e.target.value }))}>
+                      <option value="emergency">{t('docIncidentReport.dept_emergency')}</option>
+                      <option value="med-surg">{t('docIncidentReport.dept_medSurg')}</option>
+                      <option value="icu">{t('docIncidentReport.dept_icu')}</option>
+                      <option value="pharmacy">{t('docIncidentReport.dept_pharmacy')}</option>
+                      <option value="radiology">{t('docIncidentReport.dept_radiology')}</option>
                     </select>
                   </div>
                 </div>
                 <div>
                   <label htmlFor="inc-exact-location" className="block text-sm font-medium mb-1">{t('docIncidentReport.exactLocationRequired')} *</label>
-                  <input id="inc-exact-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.exactLocationPh')} />
+                  <input id="inc-exact-location" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.exactLocationPh')}
+                    value={formData.location}
+                    onChange={(e) => setFormData(f => ({ ...f, location: e.target.value }))} />
                 </div>
               </div>
             )}
@@ -508,14 +553,16 @@ const IncidentReportPage: React.FC = () => {
                 <h3 className="font-medium text-gray-900">{t('docIncidentReport.step2Heading')}</h3>
                 <div>
                   <label htmlFor="inc-description" className="block text-sm font-medium mb-1">{t('docIncidentReport.descriptionRequired')} *</label>
-                  <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.descriptionPh')} />
+                  <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.descriptionPh')}
+                    value={formData.description}
+                    onChange={(e) => setFormData(f => ({ ...f, description: e.target.value }))} />
                 </div>
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                   <input
                     id="inc-patient-involved"
                     type="checkbox"
                     checked={formData.patientInvolved}
-                    onChange={(e) => setFormData({ ...formData, patientInvolved: e.target.checked })}
+                    onChange={(e) => setFormData(f => ({ ...f, patientInvolved: e.target.checked }))}
                     className="w-5 h-5"
                   />
                   <label htmlFor="inc-patient-involved" className="font-medium">{t('docIncidentReport.patientInvolvedCheckbox')}</label>
@@ -525,17 +572,21 @@ const IncidentReportPage: React.FC = () => {
                     id="inc-patient-id"
                     label={t('docIncidentReport.patientSelectLabel')}
                     value={formData.patientId}
-                    onChange={(patientId) => setFormData({ ...formData, patientId })}
+                    onChange={(patientId) => setFormData(f => ({ ...f, patientId }))}
                     placeholder={t('docIncidentReport.patientSelectPh')}
                   />
                 )}
                 <div>
                   <label htmlFor="inc-staff-involved" className="block text-sm font-medium mb-1">{t('docIncidentReport.staffInvolvedLabel')}</label>
-                  <input id="inc-staff-involved" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.staffInvolvedPh')} />
+                  <input id="inc-staff-involved" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.staffInvolvedPh')}
+                    value={formData.staffInvolved}
+                    onChange={(e) => setFormData(f => ({ ...f, staffInvolved: e.target.value }))} />
                 </div>
                 <div>
                   <label htmlFor="inc-witnesses" className="block text-sm font-medium mb-1">{t('docIncidentReport.witnessesLabel')}</label>
-                  <input id="inc-witnesses" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.witnessesPh')} />
+                  <input id="inc-witnesses" type="text" className="w-full border rounded-lg px-3 py-2" placeholder={t('docIncidentReport.witnessesPh')}
+                    value={formData.witnesses}
+                    onChange={(e) => setFormData(f => ({ ...f, witnesses: e.target.value }))} />
                 </div>
               </div>
             )}
@@ -545,7 +596,9 @@ const IncidentReportPage: React.FC = () => {
                 <h3 className="font-medium text-gray-900">{t('docIncidentReport.step3Heading')}</h3>
                 <div>
                   <label htmlFor="inc-immediate-actions" className="block text-sm font-medium mb-1">{t('docIncidentReport.immediateActionsRequired')} *</label>
-                  <textarea id="inc-immediate-actions" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.immediateActionsPh')} />
+                  <textarea id="inc-immediate-actions" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.immediateActionsPh')}
+                    value={formData.immediateActions}
+                    onChange={(e) => setFormData(f => ({ ...f, immediateActions: e.target.value }))} />
                 </div>
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <div className="flex items-start gap-2">

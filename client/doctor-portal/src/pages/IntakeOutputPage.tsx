@@ -58,6 +58,60 @@ interface PatientIO {
   alerts: string[];
 }
 
+/** One stored intake/output record, as the API returns it. */
+interface IoRecordRow {
+  id: string;
+  patient_id: string;
+  record_date: string;
+  shift: string;
+  total_intake: number | null;
+  total_output: number | null;
+  net_balance: number | null;
+  intake_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string }> | null;
+  output_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string }> | null;
+}
+
+/** Fold a patient's stored fluid records into the shape the ward list renders. */
+function toPatientIO(
+  person: { patient_id: string; full_name: string },
+  rows: IoRecordRow[]
+): PatientIO {
+  const mine = rows.filter(r => r.patient_id === person.patient_id);
+  const sum = (pick: (r: IoRecordRow) => number | null) =>
+    mine.reduce((total, r) => total + (pick(r) || 0), 0);
+  const entries: IOEntry[] = mine.flatMap(r =>
+    [
+      ...(r.intake_items || []).map(item => ({ item, type: 'intake' as const })),
+      ...(r.output_items || []).map(item => ({ item, type: 'output' as const })),
+    ].map(({ item, type }, index) => ({
+      id: `${r.id}-${type}-${index}`,
+      type,
+      // Categories are stored as "intake:oral" so the two directions cannot be
+      // confused when totals are recomputed; show just the category.
+      category: (item.category || '').split(':').pop() || '',
+      amount: item.amount_ml || 0,
+      unit: 'ml',
+      source: '',
+      notes: '',
+      timestamp: new Date(item.recorded_at || r.record_date || Date.now()),
+      recordedBy: '',
+    })) as IOEntry[]
+  );
+  const totalIntake24h = sum(r => r.total_intake);
+  const totalOutput24h = sum(r => r.total_output);
+  return {
+    patientId: person.patient_id,
+    patientName: person.full_name,
+    mrn: person.patient_id,
+    room: '',
+    entries,
+    totalIntake24h,
+    totalOutput24h,
+    netBalance: totalIntake24h - totalOutput24h,
+    alerts: [],
+  };
+}
+
 const IntakeOutputPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'patients' | 'entry' | 'trends'>('patients');
@@ -90,16 +144,19 @@ const IntakeOutputPage: React.FC = () => {
       }
       
       try {
-        const data = await listIntakeOutput();
-        if (Array.isArray(data)) {
-          setPatients(data.map((p: any) => ({
-            ...p,
-            entries: (p.entries || []).map((e: any) => ({
-              ...e,
-              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
-            }))
-          })));
-        }
+        // The ward list is the patient roster with each patient's fluid record
+        // folded in — not the raw io_records rows, which carry no patient name
+        // and left every card rendering the untranslated `{{mrn}}` placeholder.
+        const [rosterResponse, records] = await Promise.all([
+          fetch(apiUrl('/api/patients?limit=100'), {
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
+          }).then(r => (r.ok ? r.json() : { data: [] })),
+          listIntakeOutput().catch(() => []),
+        ]);
+
+        const rows = (Array.isArray(records) ? records : []) as unknown as IoRecordRow[];
+        const roster = (rosterResponse.data || []) as Array<{ patient_id: string; full_name: string }>;
+        setPatients(roster.map(person => toPatientIO(person, rows)));
       } catch (err) {
         console.error('Failed to fetch I/O records:', err);
         setError(t('docIntakeOutput.errorLoad'));
@@ -132,9 +189,15 @@ const IntakeOutputPage: React.FC = () => {
           const data = await response.json();
           if (data && (data.entries || data.intake || data.output)) {
             // Update the selected patient's entries with fresh data
-            const entries: IOEntry[] = (data.entries || []).map((e: IOEntry & { timestamp: string }) => ({
+            const rawEntries = Array.isArray(data.entries)
+              ? data.entries
+              : [
+                  ...(Array.isArray(data.intake) ? data.intake : []),
+                  ...(Array.isArray(data.output) ? data.output : []),
+                ];
+            const entries: IOEntry[] = rawEntries.map((e: IOEntry & { timestamp?: string; recorded_at?: string }) => ({
               ...e,
-              timestamp: new Date(e.timestamp)
+              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
             }));
             setSelectedPatient(prev => prev ? { ...prev, entries } : null);
           }
@@ -399,10 +462,12 @@ const IntakeOutputPage: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label htmlFor="io-patient" className="block text-sm font-medium mb-1">{t('docIntakeOutput.patientRequired')} *</label>
-                <select id="io-patient" className="w-full border rounded-lg px-3 py-2">
+                <select id="io-patient" className="w-full border rounded-lg px-3 py-2"
+                  value={selectedPatient?.patientId || ''}
+                  onChange={(e) => setSelectedPatient(patients.find(p => p.patientId === e.target.value) || null)}>
                   <option value="">{t('docIntakeOutput.selectPatientPh')}</option>
                   {patients.map(p => (
-                    <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.room}</option>
+                    <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.patientId}</option>
                   ))}
                 </select>
               </div>
