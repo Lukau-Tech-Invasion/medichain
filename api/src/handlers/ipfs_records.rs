@@ -392,6 +392,406 @@ pub async fn download_medical_record(
 /// expects a raw file blob it can save directly — unlike the base64-JSON
 /// `POST /api/records/download` above. Same ownership rule: a patient may only
 /// download their own records; a provider may download any.
+/// A patient may download only their own record; any healthcare provider may.
+///
+/// The IPFS path gets this from the `medical_records` row; these kinds have no
+/// such row, so they check the owning patient themselves.
+fn may_read_patient(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    patient_id: &str,
+) -> bool {
+    caller.role.is_healthcare_provider()
+        || crate::support::caller_owns_patient_record(data, caller_id, patient_id)
+}
+
+fn access_denied() -> HttpResponse {
+    HttpResponse::Forbidden().json(ErrorResponse {
+        success: false,
+        error: "Patients can only download their own medical records".to_string(),
+        code: "ACCESS_DENIED".to_string(),
+    })
+}
+
+/// Render a stored timestamp, which these records hold as unix seconds.
+///
+/// A string-only read renders every date as "-", because the field is a JSON
+/// number rather than an ISO string.
+fn timestamp_text(object: &serde_json::Value, key: &str) -> String {
+    let value = match object.get(key) {
+        Some(v) => v,
+        None => return "-".to_string(),
+    };
+    if let Some(text) = value.as_str() {
+        return text.to_string();
+    }
+    value
+        .as_i64()
+        .and_then(|secs| chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0))
+        .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| "-".to_string())
+}
+
+/// Wrap a rendered report in the download response every record kind shares.
+fn text_document(filename: &str, body: String) -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/plain; charset=utf-8")
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"{filename}.txt\""),
+        ))
+        .body(body)
+}
+
+fn not_found(kind: &str) -> HttpResponse {
+    HttpResponse::NotFound().json(ErrorResponse {
+        success: false,
+        error: format!("{kind} not found"),
+        code: "RECORD_NOT_FOUND".to_string(),
+    })
+}
+
+/// A SOAP note as a readable document.
+///
+/// SOAP notes live in a JSON record repository and were never uploaded to IPFS,
+/// so the patient portal listed them and then 404'd on both View and Download.
+async fn download_soap_note(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    note_id: &str,
+) -> HttpResponse {
+    let record = match data.repositories.soap_note_records.get_by_id(note_id).await {
+        Ok(Some(record)) => record,
+        Ok(None) => return not_found("SOAP note"),
+        Err(e) => {
+            log::error!("soap note {note_id} lookup failed: {e}");
+            return not_found("SOAP note");
+        }
+    };
+    let v = record.data;
+    let text = |object: &serde_json::Value, key: &str| -> String {
+        object
+            .get(key)
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("—")
+            .to_string()
+    };
+    let patient_id = text(&v, "patient_id");
+    if !may_read_patient(data, caller, caller_id, &patient_id) {
+        return access_denied();
+    }
+
+    // The four SOAP sections are nested objects, each with its own fields — a
+    // flat read of "subjective"/"objective"/... yields nothing but placeholders.
+    let empty = serde_json::Value::Null;
+    let section = |name: &str| v.get(name).unwrap_or(&empty).clone();
+    let (s, o, a, pl) = (
+        section("subjective"),
+        section("objective"),
+        section("assessment"),
+        section("plan"),
+    );
+
+    let mut body = format!("SOAP note {note_id}\n\n");
+    body.push_str(&format!("Patient:    {patient_id}\n"));
+    body.push_str(&format!("Author:     {}\n", text(&v, "author_id")));
+    body.push_str(&format!("Encounter:  {}\n", text(&v, "encounter_type")));
+    body.push_str(&format!("Recorded:   {}\n", timestamp_text(&v, "created_at")));
+    body.push_str(&format!("Status:     {}\n\n", text(&v, "status")));
+
+    body.push_str("SUBJECTIVE\n");
+    body.push_str(&format!("  Chief complaint: {}\n", text(&s, "chief_complaint")));
+    body.push_str(&format!(
+        "  History:         {}\n",
+        text(&s, "history_of_present_illness")
+    ));
+    body.push_str(&format!("  Duration:        {}\n\n", text(&s, "symptom_duration")));
+
+    body.push_str("OBJECTIVE\n");
+    body.push_str(&format!(
+        "  Appearance:      {}\n",
+        text(&o, "general_appearance")
+    ));
+    body.push_str(&format!("  Exam:            {}\n", text(&o, "physical_exam")));
+    body.push_str(&format!("  Labs:            {}\n\n", text(&o, "lab_results")));
+
+    body.push_str("ASSESSMENT\n");
+    // A diagnosis is a structured object ({description, icd10_code, status}),
+    // not a bare string — reading it flat rendered every note's diagnosis as "-".
+    let diagnosis = a.get("primary_diagnosis").unwrap_or(&empty);
+    let code = diagnosis
+        .get("icd10_code")
+        .and_then(|c| c.as_str())
+        .map(|c| format!(" [{c}]"))
+        .unwrap_or_default();
+    body.push_str(&format!(
+        "  Diagnosis:       {}{code}\n",
+        text(diagnosis, "description")
+    ));
+    let secondary: Vec<String> = a
+        .get("secondary_diagnoses")
+        .and_then(|d| d.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|d| d.get("description").and_then(|x| x.as_str()))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !secondary.is_empty() {
+        body.push_str(&format!("  Also:            {}\n", secondary.join(", ")));
+    }
+    body.push_str(&format!("  Severity:        {}\n", text(&a, "severity")));
+    body.push_str(&format!("  Summary:         {}\n\n", text(&a, "clinical_summary")));
+
+    body.push_str("PLAN\n");
+    body.push_str(&format!("  Treatment:       {}\n", text(&pl, "treatment_plan")));
+    body.push_str(&format!("  Follow-up:       {}\n", text(&pl, "follow_up")));
+    body.push_str(&format!(
+        "  Education:       {}\n",
+        text(&pl, "patient_education")
+    ));
+    text_document(note_id, body)
+}
+
+/// A prescription as a readable document.
+async fn download_prescription(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    prescription_id: &str,
+) -> HttpResponse {
+    // The e-signature flow writes to `e_prescriptions_v2` (a JSON record repo),
+    // not the typed `e_prescriptions` table, so that is where the prescriptions
+    // the patient portal lists actually live.
+    let record = match data
+        .repositories
+        .e_prescriptions_v2
+        .get_by_id(prescription_id)
+        .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => return not_found("Prescription"),
+        Err(e) => {
+            log::error!("prescription {prescription_id} lookup failed: {e}");
+            return not_found("Prescription");
+        }
+    };
+    let v = record.data;
+    // The drug and pharmacy details are nested objects, not root fields — a flat
+    // read rendered every line as "—".
+    let text = |object: &serde_json::Value, key: &str| -> String {
+        object
+            .get(key)
+            .and_then(|x| x.as_str())
+            .unwrap_or("—")
+            .to_string()
+    };
+    let patient_id = text(&v, "patient_id");
+    if !may_read_patient(data, caller, caller_id, &patient_id) {
+        return access_denied();
+    }
+    let empty = serde_json::Value::Null;
+    let med = v.get("medication").unwrap_or(&empty);
+    let pharmacy = v.get("pharmacy").unwrap_or(&empty);
+    let quantity = med
+        .get("quantity")
+        .map(|q| q.to_string())
+        .unwrap_or_else(|| "—".to_string());
+    let days = med
+        .get("days_supply")
+        .map(|q| q.to_string())
+        .unwrap_or_else(|| "—".to_string());
+
+    let mut body = format!("Prescription {prescription_id}\n\n");
+    body.push_str(&format!("Patient:      {patient_id}\n"));
+    body.push_str(&format!("Prescriber:   {}\n", text(&v, "prescriber_name")));
+    body.push_str(&format!("Status:       {}\n\n", text(&v, "status")));
+    body.push_str(&format!("Medication:   {}\n", text(med, "name")));
+    body.push_str(&format!("Generic:      {}\n", text(med, "generic_name")));
+    body.push_str(&format!("Strength:     {}\n", text(med, "strength")));
+    body.push_str(&format!("Form:         {}\n", text(med, "form")));
+    body.push_str(&format!(
+        "Quantity:     {quantity} {}\n",
+        text(med, "quantity_unit")
+    ));
+    body.push_str(&format!("Days supply:  {days}\n\n"));
+    body.push_str(&format!("Directions:   {}\n", text(med, "directions")));
+    body.push_str(&format!(
+        "Instructions: {}\n\n",
+        text(&v, "patient_instructions")
+    ));
+    body.push_str(&format!("Pharmacy:     {}\n", text(pharmacy, "name")));
+    body.push_str(&format!("              {}\n", text(pharmacy, "address")));
+    body.push_str(&format!("              {}\n", text(pharmacy, "phone")));
+    text_document(prescription_id, body)
+}
+
+/// A triage assessment as a readable document.
+async fn download_triage(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    assessment_id: &str,
+) -> HttpResponse {
+    let a = match data
+        .repositories
+        .triage_assessments
+        .get_by_id(assessment_id)
+        .await
+    {
+        Ok(a) => a,
+        Err(e) => {
+            log::error!("triage {assessment_id} lookup failed: {e}");
+            return not_found("Triage assessment");
+        }
+    };
+    if !may_read_patient(data, caller, caller_id, &a.patient_id) {
+        return access_denied();
+    }
+
+    let num = |v: Option<i32>| v.map(|n| n.to_string()).unwrap_or_else(|| "-".into());
+    let dec = |v: Option<f64>| v.map(|n| format!("{n:.1}")).unwrap_or_else(|| "-".into());
+    let bp = match (a.blood_pressure_systolic, a.blood_pressure_diastolic) {
+        (Some(s), Some(d)) => format!("{s}/{d}"),
+        _ => "-".to_string(),
+    };
+    let wait = match a.esi_level {
+        1 => "Immediate (0 minutes)",
+        2 => "Immediate to 10 minutes",
+        3 => "Up to 30 minutes",
+        4 => "Up to 60 minutes",
+        _ => "Up to 120 minutes or next available",
+    };
+
+    let mut body = format!("Triage assessment {}\n\n", a.id);
+    body.push_str(&format!("Patient:           {}\n", a.patient_id));
+    body.push_str(&format!("ESI level:         {} ({wait})\n", a.esi_level));
+    body.push_str(&format!(
+        "Triaged:           {}\n",
+        a.triage_time.format("%Y-%m-%d %H:%M UTC")
+    ));
+    body.push_str(&format!("Triaged by:        {}\n", a.performed_by));
+    body.push_str(&format!(
+        "Critical vitals:   {}\n",
+        if a.is_critical { "YES" } else { "no" }
+    ));
+    body.push_str(&format!("Isolation:         {}\n", if a.requires_isolation { "required" } else { "not required" }));
+    body.push_str(&format!("\nChief complaint:   {}\n", a.chief_complaint));
+
+    body.push_str("\nVITALS\n");
+    body.push_str(&format!("  Heart rate:       {}\n", num(a.heart_rate)));
+    body.push_str(&format!("  Respiratory rate: {}\n", num(a.respiratory_rate)));
+    body.push_str(&format!("  Blood pressure:   {bp}\n"));
+    body.push_str(&format!("  Temperature:      {} C\n", dec(a.temperature)));
+    body.push_str(&format!("  O2 saturation:    {}\n", num(a.oxygen_saturation)));
+    body.push_str(&format!("  Pain scale:       {}\n", num(a.pain_scale)));
+    body.push_str(&format!("  GCS score:        {}\n", num(a.gcs_score)));
+    body.push_str(&format!("  Blood glucose:    {}\n", num(a.blood_glucose)));
+    body.push_str(&format!("  Weight:           {} kg\n", dec(a.weight)));
+
+    if a.disposition.is_some() || a.assigned_bed.is_some() {
+        body.push_str("\nDISPOSITION\n");
+        body.push_str(&format!(
+            "  Disposition:      {}\n",
+            a.disposition.as_deref().unwrap_or("-")
+        ));
+        body.push_str(&format!(
+            "  Assigned bed:     {}\n",
+            a.assigned_bed.as_deref().unwrap_or("-")
+        ));
+    }
+    text_document(&a.id, body)
+}
+
+/// Render an approved lab submission as a downloadable report.
+///
+/// Plain text rather than the raw stored JSON: this is handed to a patient as a
+/// file, and a wall of JSON is not a lab result they can read. Values, units and
+/// reference ranges are kept together so an out-of-range figure is interpretable
+/// away from the app.
+async fn download_lab_result(
+    data: &web::Data<AppState>,
+    submission_id: &str,
+) -> HttpResponse {
+    let record = match data
+        .repositories
+        .lab_result_submissions
+        .get_by_id(submission_id)
+        .await
+    {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Lab result not found".to_string(),
+                code: "RECORD_NOT_FOUND".to_string(),
+            })
+        }
+        Err(e) => {
+            log::error!("lab result {submission_id} lookup failed: {e}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Lookup failed".to_string(),
+                code: "REPO_ERROR".to_string(),
+            });
+        }
+    };
+
+    let submission: LabResultSubmission =
+        match serde_json::from_value(record.data) {
+            Ok(submission) => submission,
+            Err(e) => {
+                log::error!("lab result {submission_id} did not parse: {e}");
+                return HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: "Lab result could not be read".to_string(),
+                    code: "REPO_ERROR".to_string(),
+                });
+            }
+        };
+
+    let mut report = String::new();
+    report.push_str(&format!("Lab report: {}\n", submission.test_name));
+    report.push_str(&format!("Category:   {}\n", submission.test_category));
+    report.push_str(&format!("Patient:    {}\n", submission.patient_id));
+    report.push_str(&format!(
+        "Collected:  {}\n",
+        submission.submitted_at.format("%Y-%m-%d %H:%M UTC")
+    ));
+    report.push_str(&format!("Status:     {}\n\n", submission.status));
+    for result in &submission.results {
+        let flag = result.flag.as_deref().unwrap_or("");
+        report.push_str(&format!(
+            "{:<28} {:>12} {:<10} (ref {}){}\n",
+            result.parameter,
+            result.value,
+            result.unit,
+            result.reference_range,
+            if flag.is_empty() {
+                String::new()
+            } else {
+                format!("  [{flag}]")
+            }
+        ));
+    }
+    if let Some(notes) = &submission.notes {
+        report.push_str(&format!("\nNotes: {notes}\n"));
+    }
+
+    HttpResponse::Ok()
+        .content_type("text/plain; charset=utf-8")
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"{submission_id}.txt\""),
+        ))
+        .body(report)
+}
+
 #[get("/api/records/{content_hash}/download")]
 pub async fn download_medical_record_by_hash(
     data: web::Data<AppState>,
@@ -421,6 +821,20 @@ pub async fn download_medical_record_by_hash(
     let content_hash = path.into_inner();
 
     // Resolve the record to get its metadata hash and owner.
+    // Kinds that live in their own store and were never uploaded to IPFS have
+    // no `medical_records` row, so they must be dispatched before the lookup
+    // below — which would otherwise 404 them before they were ever resolved.
+    // Each helper authorizes against the owning patient itself.
+    if let Some(note_id) = content_hash.strip_prefix("soap-") {
+        return download_soap_note(&data, &current_user, &current_user_id, note_id).await;
+    }
+    if let Some(prescription_id) = content_hash.strip_prefix("rx-") {
+        return download_prescription(&data, &current_user, &current_user_id, prescription_id).await;
+    }
+    if let Some(assessment_id) = content_hash.strip_prefix("triage-") {
+        return download_triage(&data, &current_user, &current_user_id, assessment_id).await;
+    }
+
     let entity = match data
         .repositories
         .medical_records
@@ -453,6 +867,21 @@ pub async fn download_medical_record_by_hash(
             code: "ACCESS_DENIED".to_string(),
         });
     }
+    // A record reference is a pointer, and not every pointer is an IPFS CID.
+    // Approving a lab result files it in the patient's records with a synthetic
+    // `lab-<submission id>` hash (see `handlers/lab.rs`), because the result
+    // lives in the lab repository as structured data and was never uploaded to
+    // IPFS. Handing that string to the IPFS client produced
+    // "Invalid IPFS hash: lab-LAB-..." as a 500, so approved lab results
+    // appeared in the record list and then refused to download - the
+    // "some records download, some don't" the portals were showing.
+    //
+    // Resolve it from its real home instead. Authorization above has already
+    // run, so this is reached only by someone entitled to the record.
+    if let Some(submission_id) = content_hash.strip_prefix("lab-") {
+        return download_lab_result(&data, submission_id).await;
+    }
+
     let metadata_hash = match entity.ipfs_metadata_hash {
         Some(h) => h,
         None => {
@@ -566,9 +995,15 @@ pub async fn list_patient_records(
     }
 
     // Get patient records via repository (paginated)
+    // `Pagination::new(page, per_page)` takes a 0-indexed PAGE, not an offset.
+    // These arguments were swapped: `limit` was passed as the page and the
+    // computed offset as `per_page`, so on the default first page `per_page`
+    // was `(1 - 1) * 20 == 0`. `limit()` then returned 0 and this endpoint
+    // handed back an empty `records` array alongside a non-zero `total` — every
+    // patient's document list, in both portals, was permanently empty.
     let pg = crate::repositories::traits::Pagination::new(
+        query.page.saturating_sub(1) as u32,
         query.limit as u32,
-        ((query.page.saturating_sub(1)) * query.limit) as u32,
     );
     let result = match data
         .repositories
