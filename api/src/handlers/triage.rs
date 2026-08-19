@@ -174,10 +174,16 @@ pub async fn create_triage_assessment(
         blood_pressure_diastolic: req.vital_signs.bp_diastolic.map(|v| v as i32),
         temperature: req.vital_signs.temperature_celsius.map(|v| v as f64),
         oxygen_saturation: req.vital_signs.oxygen_saturation.map(|v| v as i32),
-        pain_scale: req.pain_scale.map(|v| v as i32),
-        gcs_score: None,
-        blood_glucose: None,
-        weight: None,
+        // These three were hardcoded to None while the triage form collects them
+        // and the request model carries them, so a clinician's GCS, glucose and
+        // weight entries were accepted and silently discarded.
+        pain_scale: req
+            .pain_scale
+            .or(req.vital_signs.pain_scale)
+            .map(|v| v as i32),
+        gcs_score: req.vital_signs.gcs_score.map(|v| v as i32),
+        blood_glucose: req.vital_signs.blood_glucose.map(|v| v as i32),
+        weight: req.vital_signs.weight_kg.map(|v| v as f64),
         is_critical: has_critical_vitals,
         requires_isolation: false,
         disposition: None,
@@ -190,8 +196,16 @@ pub async fn create_triage_assessment(
         updated_at: Utc::now(),
     };
 
+    // A failed write must not be reported as a created assessment: this
+    // previously logged the error and returned success, so a triage record the
+    // clinician believed was saved could be missing or unreadable.
     if let Err(e) = data.repositories.triage_assessments.create(entity).await {
-        log::error!("Failed to store triage assessment in repository: {}", e);
+        log::error!("Failed to store triage assessment in repository: {e}");
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to save the triage assessment".to_string(),
+            code: "REPO_ERROR".to_string(),
+        });
     }
 
     // Log access in repository
