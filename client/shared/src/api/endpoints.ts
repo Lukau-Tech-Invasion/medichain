@@ -227,6 +227,74 @@ export async function addEmergencyContact(
   return getApiClient().post(`/api/patients/${patientId}/emergency-contacts`, contact);
 }
 
+export interface PatientAddressInput {
+  street?: string | null;
+  city: string;
+  state?: string | null;
+  country: string;
+  postal_code?: string | null;
+  coordinates?: { latitude: number; longitude: number } | null;
+}
+
+export interface PatientInsuranceInput {
+  provider: string;
+  policy_number: string;
+  group_number?: string | null;
+  valid_from: string;
+  valid_to: string;
+  coverage_type: 'Public' | 'Private' | 'Employer' | 'NHIS' | 'Community' | 'None';
+  is_active: boolean;
+}
+
+export interface EmergencyContactInput {
+  name: string;
+  phone: string;
+  relationship: string;
+  can_make_medical_decisions?: boolean;
+  language?: string | null;
+}
+
+/**
+ * Update the demographic and administrative parts of a patient's own profile.
+ *
+ * Deliberately distinct from `updatePatient`, which carries clinical fields and
+ * is restricted to providers: a patient is authoritative for where they live and
+ * who insures them, but not for their own blood type.
+ *
+ * Omitted fields are left unchanged server-side, so a caller may send one
+ * section at a time.
+ */
+export async function updateDemographics(
+  patientId: string,
+  data: Partial<{
+    phone: string;
+    gender: string;
+    address: PatientAddressInput;
+    insurance: PatientInsuranceInput;
+    languages: string[];
+  }>
+): Promise<{ success: boolean; patient_id: string; message: string }> {
+  return getApiClient().put(`/api/patients/${patientId}/demographics`, data);
+}
+
+/**
+ * Replace a patient's entire emergency contact list.
+ *
+ * Whole-list replacement rather than per-index edits, so removing a contact
+ * cannot shift the indices out from under a concurrent edit.
+ */
+export async function replaceEmergencyContacts(
+  patientId: string,
+  contacts: EmergencyContactInput[]
+): Promise<{
+  success: boolean;
+  patient_id: string;
+  contacts: Array<EmergencyContactInput & { priority: number }>;
+  message: string;
+}> {
+  return getApiClient().put(`/api/patients/${patientId}/emergency-contacts`, { contacts });
+}
+
 export async function getMyRecords(): Promise<PatientProfile | PatientProfile[]> {
   return getApiClient().get('/api/my-records');
 }
@@ -1058,6 +1126,10 @@ export async function createPsych(data: unknown): Promise<AssessmentCreateResult
   return getApiClient().post('/api/clinical/psych', data);
 }
 
+export async function getPsychForPatient(patientId: string): Promise<{ assessments: unknown[] }> {
+  return getApiClient().get(`/api/clinical/psych/patient/${patientId}`);
+}
+
 export async function getPsych(assessmentId: string): Promise<PsychiatricAssessment> {
   return getApiClient().get(`/api/clinical/psych/${assessmentId}`);
 }
@@ -1469,6 +1541,29 @@ export async function createAppointment(data: unknown): Promise<AppointmentCreat
   return getApiClient().post('/api/appointments', data);
 }
 
+/** A clinician a patient can choose to book with. */
+export interface BookableProvider {
+  wallet_address: string;
+  name: string;
+  role: string;
+  username?: string;
+  specialty?: string | null;
+}
+
+/**
+ * Registered clinicians, optionally narrowed to one role (e.g. `'doctor'`).
+ *
+ * Readable by any registered caller, patients included, because choosing who
+ * to book with requires knowing who exists. Returns only professional
+ * identity - never other patients.
+ */
+export async function getProviders(
+  role?: string
+): Promise<{ success: boolean; providers: BookableProvider[]; count: number }> {
+  const query = role ? `?role=${encodeURIComponent(role)}` : '';
+  return getApiClient().get(`/api/providers${query}`);
+}
+
 /**
  * Advance an appointment through its lifecycle.
  *
@@ -1485,7 +1580,10 @@ export async function setAppointmentStatus(
     | 'in_progress'
     | 'completed'
     | 'cancelled'
-    | 'no_show',
+    | 'no_show'
+    // The party who did not book refuses the proposed time. Distinct from
+    // 'cancelled', which either party may do to an already-agreed appointment.
+    | 'declined',
   reason?: string
 ): Promise<{ success: boolean; appointment_id: string; status: string; message: string }> {
   return getApiClient().post(`/api/appointments/${appointmentId}/status`, { status, reason });
