@@ -158,8 +158,8 @@ separately from a code-deletion pass. Still open.
 
 ### Migration count vs. reality
 
-179 tables exist in a freshly migrated database. Whether all are reachable from
-live code is unknown. Worth a systematic pass at cleanup time: cross-reference
+179 tables exist in a freshly migrated database (47 migration files as of
+2026-08-11). Whether all are reachable from live code is unknown. Worth a systematic pass at cleanup time: cross-reference
 table names against `api/src/repositories/` to find orphans.
 
 ---
@@ -189,7 +189,11 @@ Not code, but it costs real time every session:
 - Builds repeatedly fill the C: drive to 0 bytes, producing **misleading
   linker errors** that look like code faults. `target/debug/incremental` alone
   reached 3.3 GiB. Current mitigation: `CARGO_INCREMENTAL=0` and periodic
-  `cargo clean`.
+  `cargo clean`. (2026-08-11: not a constraint in this session — a full
+  `cargo build --release` plus the whole test suite completed with ~22 GiB
+  free. The claim in earlier notes that Postgres tests could not run locally
+  was wrong for a different reason: a `medichain_postgres` container is
+  published on :5432 and the tests connect to it by default.)
 - ~~The API's default port (8080) collides with the documented IPFS gateway port~~
   — **RESOLVED 2026-07-31.** The API's default is now **8090**
   (`api/src/main.rs`); Docker pins `PORT: 8080` explicitly (its own container
@@ -197,13 +201,15 @@ Not code, but it costs real time every session:
   scripts, and the docs were moved to 8090 in the same pass. This had already
   caused two misdiagnoses (a 404 read as "the API is still running", and an IPFS
   download failure that looked like a missing record).
-- **`patient_access` (Consent Management access grants/requests) is in-memory
-  only.** Like `emergency_grants`, `mobile_records`, and the surgical
-  document stores, `crate::patient_access::PatientAccessStore` keeps state in
-  the process — correct for the synthetic/demo backend, but a
-  `MEDICHAIN_STORAGE=postgres` deployment does not persist these grants across
-  restarts. Follow-up: a repository-trait + PostgreSQL implementation with a
-  migration, matching the dual-storage pattern used for patients/allergies.
+- ~~**`patient_access` (Consent Management access grants/requests) is in-memory
+  only.**~~ — **RESOLVED.** `PatientAccessRepository` with memory and PostgreSQL
+  implementations, migration `20260809000001_patient_access.sql`, and the state
+  machine extracted into `PatientAccessService`. Three restart tests
+  (`test_pg_patient_access_grant_survives_restart`,
+  `test_pg_revocation_survives_restart`, `test_pg_denial_survives_restart`)
+  pass against a live PostgreSQL 16. The surgical document stores named
+  alongside it were closed in the 2026-08-11 durability pass; `emergency_grants`
+  and `mobile_records` remain in-process (P1 item 2 of the feature audit).
 
 - ~~**Nursing MAR "administer" and I/O "record fluid" are acknowledgement-only.**~~
   — **RESOLVED 2026-08-04 (Horizon HZ-023).** All four endpoints
@@ -418,3 +424,359 @@ Recorded so a future cleanup pass does not "tidy" away something load-bearing:
   extrinsic. Reusing them is a correctness bug, not a tidy-up.
 - **`retention::execution` stopping short of deletion.** The absence of
   destructive code is the design, not an unfinished feature.
+
+---
+
+## Resolved in the 2026-08-11 pass
+
+### 24 vestigial `AppState` maps removed
+
+Every one had had its handler migrated to a repository, leaving the field
+behind. Verified dead by a crate-wide search for `.<field>` — including test
+code — before removal, and by `scripts/check-state-durability.py` reporting
+zero live references.
+
+Removed: `user_settings`, `sample_histories`, `code_blue_records`,
+`trauma_assessments`, `stroke_assessments`, `cardiac_events`,
+`sepsis_assessments`, `psych_assessments`, `tox_assessments`,
+`laceration_records`, `consult_notes`, `immunization_schedules`,
+`family_histories`, `crossmatch_records`, `transfusion_records`,
+`e_prescriptions`, `death_certificates`, `family_link_requests`,
+`provider_schedules`, `device_checks`, `waiting_room`, `supported_languages`,
+`sync_statuses`, `sync_queue`.
+
+`state.rs` fell from 1079 to 979 lines (24 declarations + 48 initialisers).
+
+### `rate_limit.rs` — the question the register asked, answered
+
+The register said the dead-code flags there were "a finding rather than a
+cleanup" and asked whether rate limiting is enforced at all. **It is.**
+
+`cargo clippy --bin medichain-api` reports **zero** dead code in that module;
+only `--all-targets` reports five. The difference is that `cargo test` on a
+binary crate substitutes its own harness `main`, so everything reachable only
+from the real `main` — including `.wrap(rate_limit)` at `main.rs:533` — looks
+unreachable under `cfg(test)`. The middleware is live in the shipped binary.
+
+Recorded in the module as `#![cfg_attr(test, allow(dead_code))]`, scoped to
+test builds so genuine dead code there is still reported for the real binary.
+
+### `key_management.rs` — already gone
+
+The register lists this module as entirely unused and asks whether it was a
+planned envelope-encryption path. The file no longer exists; it was removed in
+an earlier pass. `encryption_keyring.rs` is the live implementation. Entry kept
+only so the next reader does not go looking for it.
+
+### `get_default_supported_languages` — removed, and a real defect behind it
+
+This helper fed only the (now removed) `supported_languages` map. Deleting it
+exposed that the platform had **three disagreeing lists of supported
+languages**:
+
+| Source | Languages |
+|---|---|
+| `GET /api/platform/languages` | en, sw, fr, am, zu, **xh**, **pt** |
+| the helper | en, zu, **xh** |
+| `ACTIVE_LOCALES` + `i18n/locales/` (what actually ships) | en-US, fr-FR, sw-KE, am-ET, zu-ZA, **ha-NG** |
+
+So the API advertised Xhosa and Portuguese, for which no translation bundle
+exists — a patient selecting either got an untranslated interface — while
+hiding Hausa, which is fully translated. The endpoint now returns exactly the
+six locales that have bundles, using the full BCP 47 tags the client switches
+on rather than bare subtags it would have had to guess at.
+
+### Unmapped enum values render `undefined` as a component
+
+Found 2026-08-11 while repairing `ConsultPage.test.tsx`. `ConsultPage.tsx`
+looks an icon up by status:
+
+```ts
+const icons = { requested: Clock, acknowledged: AlertCircle, ... };
+return icons[status];
+```
+
+A status not in that map returns `undefined`, and rendering `undefined` as a
+JSX element throws *"Element type is invalid"* — which unmounts the whole page,
+not just the badge. The test fixture used `status: 'pending'` and the page went
+blank.
+
+`ConsultStatus` is a TypeScript union, so this cannot happen from code that
+type-checks. It **can** happen from data: the value arrives from the API, and
+`as Consult[]` at `ConsultPage.tsx:121` asserts the shape without validating
+it. Any status the backend adds — or any older record — blanks the page for
+that clinician.
+
+Not fixed here because the same `icons[x]` pattern appears on several pages and
+the right fix is one shared helper with a fallback icon, not a local patch.
+Worth doing before launch: a blank consult list is indistinguishable from
+"no consults", which is the failure mode this codebase has repeatedly been
+bitten by.
+
+---
+
+## Burn TBSA uses Rule of 9s where paediatric burns need Lund-Browder
+
+**Where:** `client/doctor-portal/src/pages/BurnPage.tsx` — `bodyRegions` (line ~85)
+and the `isChild` toggle (line ~113, applied at line ~588).
+
+The chart is Rule of 9s throughout: anterior trunk is charted as chest 9% +
+abdomen 9% = 18%, each whole limb as 9%, head as 4.5% front + 4.5% back. The
+paediatric adjustment is a single boolean that swaps `adultPercentage` for
+`childPercentage`.
+
+Two problems:
+
+1. **A boolean is not an age.** Body proportions change continuously through
+   childhood — Lund-Browder bands at 0, 1, 5, 10 and 15 years. A newborn's head
+   is ~19% TBSA, a five-year-old's ~13%, an adult's ~7%. One "is a child"
+   checkbox cannot express that, so every child between the bands is charted
+   with the wrong denominator.
+2. **TBSA drives fluid resuscitation.** The page feeds the Parkland formula
+   (4 mL × kg × %TBSA). A TBSA error is a fluid-volume error in a burned child,
+   which is the population least able to tolerate either under- or
+   over-resuscitation.
+
+**Why it was not fixed in place:** Lund-Browder is not a different set of
+numbers for the same regions — it is a different region set. It splits the limbs
+(upper arm / forearm / hand, thigh / lower leg / foot) and charts the trunk as
+13% anterior and 13% posterior, against Rule of 9s' 18% and 18%. Substituting
+Lund-Browder percentages into the current 13 Rule-of-9s regions produces a chart
+that no longer totals 100%, which is worse than either method used consistently.
+
+**The fix:** replace `bodyRegions` with the Lund-Browder region set and replace
+`isChild: boolean` with an age band (`0 | 1 | 5 | 10 | 15 | 'adult'`), derived
+from the patient's date of birth where one is on file. This changes the clinical
+model of the page, so it wants a deliberate decision rather than a drive-by edit.
+
+`BurnPage.test.tsx` asserts against the Rule of 9s wording the page actually
+shows, so the tests will need updating alongside.
+
+---
+
+## Laceration suture material was a hardcoded default
+
+**Where:** `client/doctor-portal/src/pages/LacerationRepairPage.tsx`
+
+**Fixed 2026-08-11**, recorded because the failure mode is worth recognising
+elsewhere. `newRepair` initialised `sutureType: '4-0 Nylon'` and the form had no
+control for it, so every laceration repair was filed as 4-0 nylon regardless of
+what was used — and the backend does persist it (`suture_material` /
+`suture_size` in `api/src/repositories/traits.rs`). Material and gauge set the
+removal interval, so a wrong value misdirects the follow-up visit.
+
+This is the same shape as the AMA `patientSigned: true` defect: a plausible
+default in initial state, no UI to change it, and a backend that faithfully
+stores the fiction. Worth grepping initial-state objects for other fields that
+have a default but no control.
+
+---
+
+## `911` was hardcoded in a product that ships to five African countries
+
+**Fixed 2026-08-11.** Found by `scripts/check-uncontrolled-defaults.py`.
+
+`911` is the North American emergency number. It connects to nothing in any
+country this product targets. It appeared in four places:
+
+| Where | What it did |
+|---|---|
+| `patient-app/src/pages/SymptomCheckerPage.tsx` | `href="tel:911"` — a live dial link shown when triage returns **emergency** or **urgent** |
+| `shared/.../en-US.ts` `symptomChecker.call911` | the button's label |
+| `shared/.../en-US.ts` `symptomChecker.disclaimerBody` | "In case of emergency, call 911 immediately" |
+| `doctor-portal/src/pages/DischargePage.tsx` | the default `emergency_instructions`, written into `emergency_contact_instructions` on **every** discharge summary |
+
+The `tel:` link is the worst of the four: it is offered precisely when the
+symptom checker has decided the patient may be having an emergency, so the
+failure lands on the patient least able to absorb it.
+
+**Fix:** `common.emergencyNumber` per locale, deep-merged over `en-US` by the
+existing `I18nProvider`, and interpolated into the three strings:
+
+| Locale | Number |
+|---|---|
+| `zu-ZA` South Africa | 10177 (ambulance; 112 from any mobile) |
+| `sw-KE` Kenya | 999 (112 from any mobile) |
+| `ha-NG` Nigeria | 112 |
+| `am-ET` Ethiopia | 907 |
+| `fr-FR` France | 15 (SAMU) |
+| `en-US` | 911 |
+
+112 is GSM-mandated and routes to local services from any mobile handset, which
+is why it is the safe fallback where a national line is ambiguous.
+
+**Watch for:** any new user-facing emergency guidance. The number belongs in the
+locale bundle, never in a component or an English string.
+
+---
+
+## Form fields with a default and no control
+
+`scripts/check-uncontrolled-defaults.py` (added 2026-08-11) reports fields
+initialised in `useState({...})` with an assertive value — a non-empty string,
+a non-zero number, or `true` — that no control ever writes to. Those values are
+submitted verbatim on every save, so the record states something nobody entered.
+
+Three real defects had this exact shape:
+
+* `AMAPage` — `patientSigned: true` on a record simultaneously marked
+  `pending-signatures` (fixed earlier).
+* `LacerationRepairPage` — `sutureType: '4-0 Nylon'` (fixed; see above).
+* `AppointmentSchedulerPage` — `appointment_type: 'consultation'` with no
+  selector, so every appointment booked was filed as a consultation. **Fixed
+  2026-08-11** by adding the type selector.
+
+**The check is a review aid, not a gate**, for two reasons. It cannot see
+computed-key updates (`setMse({ ...mse, [field.key]: v })`), which is how
+`PsychPage` writes its nine mental-status fields — nine false alarms until the
+script learned to skip files that write state through a computed key. And
+deciding whether a default is a lie needs judgement about the field:
+`MCIPage`'s `category: 'immediate'` looks identical to the script but is
+deliberate, because over-triage is the safe error in a mass-casualty incident
+and `updatePatientCategory` lets responders correct it.
+
+Still open, judged low-risk: `CDSAlertsPage.evidenceLevel: 'B'` asserts a
+literature-evidence grade for every authored rule. It is rule-authoring
+metadata rather than patient data, but a rule claiming evidence level B it does
+not have is still a claim.
+
+---
+
+## Wallet-vs-record-id namespace bug: three more sites
+
+**Fixed 2026-08-12.** Found by repairing the synthetic e2e harness.
+
+`support::caller_owns_patient_record` documents that 26 handlers once compared
+`current_user_id` (an SS58 wallet) against `patient_id` (a `PAT-…` record id) —
+two namespaces that are never equal for a real patient account, so every such
+guard denied the patient their own data. That sweep missed three sites:
+
+| Site | Effect |
+|---|---|
+| `handlers/ipfs_records.rs` (two checks) | A patient could **never download their own medical record** — 403 `ACCESS_DENIED` every time. |
+| `clinical_endpoints/engagement/symptoms.rs` | A patient could not read their own symptom-checker session. |
+| `clinical_endpoints/workflow/messaging.rs` | A patient's logged symptom was **filed under their wallet** while `GET /api/symptoms/{patient_id}` reads by record id — so a patient logged a symptom and it vanished from their own history. |
+
+The first three fail closed (denial, not disclosure). The messaging one is a
+silent data-loss bug: the write succeeded, returned 201, and the entry was
+simply unreachable afterwards.
+
+**Why the sweep missed them:** all three read naturally. `entity.patient_id !=
+current_user_id` looks like an ownership check, and it *is* one — just between
+the wrong pair of identifiers. Grep for the shape, not the intent:
+
+```
+grep -rn "patient_id != current_user_id\|patient_id == current_user_id" api/src/
+```
+
+That still returns matches in `billing/e_prescriptions.rs`,
+`clinical_support/telehealth.rs`, `engagement/appointments.rs` and
+`engagement/family.rs`. Each needs reading before changing — some compare
+against ids that genuinely *are* wallets (family group members, telehealth
+provider ids), so a blanket replacement would break them. They are not known to
+be wrong; they are unexamined.
+
+---
+
+## The synthetic e2e harness had drifted three contracts behind
+
+**Fixed 2026-08-12.** The harness reported 59 pass / 102 fail. None of it was a
+product regression — the product had grown four security requirements the
+harness never learned:
+
+1. **Accounts start `pending`.** `support::get_user` resolves only `active`
+   users, so an admin-created doctor is refused 401 `USER_NOT_FOUND` until
+   activated via `PUT /api/users/{wallet}`. The harness never activated
+   anything, so ~100 assertions failed looking like authorization bugs.
+2. **Callers are wallets, not patient ids.** The harness passed `PAT-…` as
+   `X-User-Id` for every "patient does X" assertion. It now provisions a real
+   wallet per synthetic patient — register, activate, claim identity — which is
+   what the product actually expects.
+3. **Break-glass needs a responder, a device and a reason.**
+   `POST /api/emergency/nfc-token` requires an authenticated healthcare
+   responder plus `device_id` and `reason_code`, and the device must be enrolled
+   **and rotated** (`can_access` demands `current_key_id.is_some()`, which a
+   freshly enrolled device does not have).
+4. **Emergency tokens are one-time Bearer credentials.** They go in the
+   `Authorization` header, not `?token=`, and the lock-screen read needs its own
+   token because the card read spends the first. That the reuse was refused is
+   the replay protection working.
+
+**Result: 59 → 170 passing.** The three product defects above were found only
+because fixing the harness exposed them; while it was 102-failures-red, a real
+regression would have been invisible in the noise.
+
+**Keep it honest:** this harness is only meaningful against a **fresh** server.
+It is not idempotent — a second run against the same instance sees 409s on
+bootstrap, never captures the admin wallet, and cascades into false failures.
+Restart the API between runs.
+
+---
+
+## Windows: a running `.exe` cannot be replaced, so `cargo build` keeps the old one
+
+**Process note, 2026-08-12.** Twice during the e2e work a fix appeared not to
+take effect. Both times the code was correct and the binary was stale: the API
+was running, Windows held a lock on `target/debug/medichain-api.exe`, and
+`cargo build` could not overwrite it. The build reported success — it had
+compiled everything, it just could not link over the locked file — so there was
+no error to notice.
+
+The tell is a `Finished` line with a binary whose mtime predates the edit:
+
+```bash
+ls -la target/debug/medichain-api.exe   # compare mtime against your edit
+```
+
+Always stop the server before rebuilding:
+
+```bash
+taskkill //F //IM medichain-api.exe ; cargo build --bin medichain-api
+```
+
+This wastes a lot of time when the symptom is "my authorization fix did not
+work", because that is indistinguishable from a wrong fix.
+
+## Superseded wound-assessment mapper (2026-08-19)
+
+`clinical_endpoints::emergency::mod::wound_assessment_entity` is now dead code,
+marked `#[allow(dead_code)]` rather than deleted.
+
+It mapped the deeply structured `clinical::WoundAssessment` (nested
+`WoundLocation`/`WoundBed`/`WoundDrainage`/`WoundTreatment`) into the storage
+entity, and hardcoded `length_cm`, `width_cm` and `depth_cm` to `None` — so
+wound measurements were discarded even when supplied. The wound-care form could
+never produce that structure in the first place, which is why its Save button
+was never wired up at all.
+
+`management::create_wound` now takes a flat `CreateWoundRequest` matching what
+the form submits and persists the measurements. Remove the old mapper once
+someone confirms nothing else intends to use the structured shape.
+
+## Uninterpolated i18n placeholders (2026-08-19)
+
+Patient pickers render `Health ID: {{id}}` because the call site passes no `id`
+variable to `t()`. The translator returns the key's raw text when a variable is
+missing, so the braces reach the screen. Worth a lint that fails when a rendered
+string still contains `{{`.
+
+## Test schemas are never dropped (2026-08-19)
+
+28 `medichain_test_*` schemas were present again and the dev database had grown
+to 815 MB. Test teardown creates them and does not drop them; a previous cleanup
+took the database from 1.4 GB to 624 MB and the leak simply recurred.
+
+
+## Superseded structured mappers (2026-08-19, round two)
+
+`io_record_entity`, `nursing_care_plan_entity` and `incident_report_entity` in
+`clinical_endpoints::emergency::mod` are dead code, marked `#[allow(dead_code)]`
+rather than deleted, alongside `wound_assessment_entity` recorded above.
+
+Each mapped a deeply structured `clinical::*` type that the corresponding form
+could not produce, which is why those endpoints rejected or dropped real
+submissions. `incident_report_entity` additionally hardcoded
+`severity: "reported"`, discarding the reporter's chosen severity. The handlers
+now take DTOs matching the actual form bodies.
+
+Remove them once someone confirms nothing intends to use the structured shapes.

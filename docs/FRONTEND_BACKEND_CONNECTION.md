@@ -2,9 +2,11 @@
 
 © 2025–2026 Lukau Invasion (Pty) Ltd.
 
-**Last verified: 2026-07-30.** This document records how the React apps connect
-to the Rust API, what is verified working end-to-end, and the precise remaining
-route drift — so the frontend build-out is a checklist, not a hunt.
+**Last verified: 2026-07-30.** This is a historical connectivity snapshot. A
+matching path does not prove authorization, durable persistence, downstream
+policy enforcement or negative-path behavior. The current feature verdict and
+remaining release blockers are in
+[`FEATURE_END_TO_END_AUDIT.md`](FEATURE_END_TO_END_AUDIT.md).
 
 ## How the connection works
 

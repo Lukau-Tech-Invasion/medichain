@@ -1,5 +1,10 @@
 # MediChain High-Risk Backend Audit
 
+> Historical finding snapshot. The descriptions below record the state at
+> discovery and are intentionally not rewritten during remediation. Current
+> implementation and verification status is maintained in
+> [`../PRODUCTION_READINESS.md`](../PRODUCTION_READINESS.md) (2026-08-09).
+
 **Date:** 2026-06-09
 **Scope:** `api/src/blockchain.rs`, `api/src/middleware/signature_auth.rs`, `api/src/security/jwt.rs`, `api/src/handlers/rbac.rs`, `api/src/handlers/auth_jwt.rs`, `api/src/clinical_endpoints/` (emergency, lab, medical_id, workflow, insurance_pharmacy, billing, fhir)
 **Method:** Static read-only analysis — no build, no execution.

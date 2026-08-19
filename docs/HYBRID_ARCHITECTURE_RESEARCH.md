@@ -23,7 +23,7 @@ The recommended approach is **Option B: Hybrid Architecture** - using PostgreSQL
 | ✅ **Doctor Portal: Telehealth** | Complete | TelehealthPage.tsx with session management |
 | ✅ **Patient App: Appointments** | Complete | Booking, reschedule, check-in, telehealth join |
 | ✅ **API: Reschedule endpoint** | Complete | PUT /api/appointments/{id}/reschedule |
-| ✅ **Blockchain→API connection** | Complete | `subxt` signed extrinsics from `api/src/blockchain.rs`; placeholder fallback reports `finalized: false` |
+| ✅ **Blockchain→API connection** | Implemented | `subxt` signed extrinsics finalize or fail; retryable failures are durably queued and no placeholder hash is returned |
 | ⚠️ **Production persistence** | Config | Set DATABASE_URL + MEDICHAIN_STORAGE=postgres |
 
 **Updated 2026-07-29.** The blockchain→API connection described below as "pending" has since been implemented. Remaining work is verification against a live node and the federation scenarios, not construction — see [Remaining work](#remaining-work).
@@ -72,7 +72,7 @@ graph TB
     end
 
     subgraph api["API layer — Rust / Actix-web"]
-        BC["<b>blockchain.rs</b> — subxt client<br/>real signed extrinsics when BLOCKCHAIN_ENABLED=true<br/>deterministic placeholder otherwise;<br/>ChainTxResult reports which you got"]
+        BC["<b>blockchain.rs</b> — subxt client<br/>finalized signed extrinsics when enabled;<br/>typed failure + durable retry outbox"]
         RC["<b>RepositoryContainer</b><br/>94 repository traits"]
         MEMB["Memory backend<br/>(default, ephemeral)"]
         PGB["PostgreSQL backend<br/>MEDICHAIN_STORAGE=postgres"]
@@ -96,7 +96,7 @@ than a technical one.
 
 | Item | Status |
 |---|---|
-| **Blockchain connection** — call pallet extrinsics from the API via `subxt` | **Done.** Real signed submission when enabled and an operator key is configured; falls back to a deterministic placeholder and reports `finalized: false` so a caller can always distinguish the two |
+| **Blockchain connection** — call pallet extrinsics from the API via `subxt` | **Implemented, qualification pending.** Real signed submission returns only finalized hashes; retryable failures are durably queued and other failures are explicit |
 | **Repository migration** — move endpoints off ad-hoc HashMaps onto `RepositoryContainer` | **Largely done.** 94 repository traits with two full backends; some legacy in-memory maps remain in `AppState` |
 | **Hash verification** — store record hashes on-chain for tamper detection | **Done, and extended.** IPFS content hashes plus emergency-capsule commitments are anchored; the break-glass read recomputes the commitment and returns `commitment_verified` |
 
