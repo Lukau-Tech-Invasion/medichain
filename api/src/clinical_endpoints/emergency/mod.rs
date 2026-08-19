@@ -14,6 +14,22 @@ fn json_value<T: serde::Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap_or_default()
 }
 
+/// Morse Fall Scale risk band for a total score.
+///
+/// The published cut-points are 0–24 low, 25–44 moderate, 45+ high. Kept in one
+/// place because the band is what actually drives the interventions — bed
+/// alarm, hourly rounding, signage — and two copies of a threshold eventually
+/// disagree about a patient sitting on the boundary.
+pub(crate) fn morse_risk_band(total_score: i32) -> &'static str {
+    if total_score >= 45 {
+        "high"
+    } else if total_score >= 25 {
+        "moderate"
+    } else {
+        "low"
+    }
+}
+
 /// Append a dose administration to the patient's MAR for today, creating the
 /// day's record if this is the first dose recorded.
 ///
@@ -553,33 +569,6 @@ fn shift_handoff_entity(handoff: &ShiftHandoff, data: Value) -> ShiftHandoffEnti
         handoff_tool_used: Some("SBAR".to_string()),
         created_at: now,
         updated_at: now,
-        data,
-    }
-}
-
-fn fall_risk_entity(assessment: &FallRiskAssessment, data: Value) -> FallRiskAssessmentEntity {
-    let now = Utc::now();
-    FallRiskAssessmentEntity {
-        id: assessment.assessment_id.clone(),
-        patient_id: assessment.patient_id.clone(),
-        assessment_tool: Some("Morse Fall Scale".to_string()),
-        history_of_falling: Some(i32::from(assessment.history_of_falling.score)),
-        secondary_diagnosis: Some(i32::from(assessment.secondary_diagnosis.score)),
-        ambulatory_aid: Some(i32::from(assessment.ambulatory_aid.score)),
-        iv_therapy: Some(i32::from(assessment.iv_heparin_lock.score)),
-        gait_status: Some(i32::from(assessment.gait.score)),
-        mental_status: Some(i32::from(assessment.mental_status.score)),
-        total_score: i32::from(assessment.total_score),
-        risk_level: json_label(&assessment.risk_level),
-        additional_factors: None,
-        interventions: Some(json_value(&assessment.interventions)),
-        notes: None,
-        assessed_by: assessment.assessed_by.clone(),
-        assessed_at: timestamp_to_datetime(assessment.assessed_at),
-        next_assessment_due: None,
-        created_at: now,
-        updated_at: now,
-        facility_id: None,
         data,
     }
 }
