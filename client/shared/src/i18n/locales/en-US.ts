@@ -3220,6 +3220,7 @@ const en_US: TranslationRecord = {
     errorHint: 'Check that the API server is running on port 8090',
     errorCreateFailed: 'Failed to create AMA record',
     errorRequiredFields: 'Please complete all required fields',
+    errorPatientNotLoaded: 'That patient is not in the loaded list. Refresh and select the patient again.',
     successCreated: 'AMA Discharge form created successfully',
     tabRecords: 'AMA Records',
     tabNew: 'New AMA Form',

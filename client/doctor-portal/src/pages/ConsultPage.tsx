@@ -147,7 +147,14 @@ const ConsultPage: React.FC = () => {
     }
 
     const patient = patients.find((p) => p.patient_id === newConsult.patientId);
-    if (!patient) return;
+    if (!patient) {
+      // A bare `return` here meant that if the selected patient was not in the
+      // loaded roster the form did nothing at all - no request, no error, no
+      // feedback of any kind. The clinician fills the whole consult and the
+      // Submit button appears inert.
+      showError(t('docConsult.errorPatientNotLoaded'));
+      return;
+    }
 
     const consult: Consult = {
       consultId: `CONS-${String(consults.length + 1).padStart(3, '0')}`,
