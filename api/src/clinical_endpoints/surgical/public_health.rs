@@ -15,7 +15,14 @@ pub async fn create_immunization(
         return resp;
     }
 
-    let record = req.into_inner();
+    let mut record = req.into_inner();
+    // The id is the primary key, so it is the server's to assign. A blank or
+    // absent one used to be stored verbatim, so the second such record
+    // collided and failed with an opaque 500.
+    if record.record_id.trim().is_empty() {
+        record.record_id = crate::middleware::error_handling::secure_tokens::generate_access_id()
+            .replacen("ACC-", "IMM-", 1);
+    }
     let id = record.record_id.clone();
     // Persisted through the typed repository, so it survives a restart.
     match data

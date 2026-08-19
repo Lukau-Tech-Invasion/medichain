@@ -642,6 +642,7 @@ mod hz_001_regression_tests {
             date_of_birth: "1980-01-01".to_string(),
             time_of_birth: None,
             national_id: format!("NID-{id}"),
+            gender: None,
             phone: "+27000000000".to_string(),
             emergency_info: crate::EmergencyInfo {
                 patient_id: id.to_string(),

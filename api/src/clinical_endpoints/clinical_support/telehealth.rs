@@ -262,8 +262,15 @@ pub async fn get_telehealth_session(
         }
     };
 
-    // Only patient or provider can view session
-    if session.patient_id != current_user_id && session.provider_id != current_user_id {
+    // Only patient or provider can view session.
+    //
+    // `session.patient_id` is a `PAT-…` record id and `current_user_id` is an
+    // SS58 wallet: comparing them directly is never true for a real patient
+    // account, so the data subject was denied their own session.
+    // `caller_owns_patient_record` bridges the two namespaces.
+    let caller_is_patient =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id);
+    if !caller_is_patient && session.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -311,7 +318,12 @@ pub async fn join_telehealth_session(
     };
 
     let now = chrono::Utc::now().timestamp();
-    let is_patient = session.patient_id == current_user_id;
+    // Same namespace bridge as the view handler above: a wallet address is
+    // never equal to a `PAT-…` record id, so this used to tell the patient
+    // "You are not part of this session" about their own consultation —
+    // i.e. a patient could never join their own video call.
+    let is_patient =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id);
     let is_provider = session.provider_id == current_user_id;
 
     if !is_patient && !is_provider {
@@ -418,7 +430,15 @@ pub async fn join_telehealth_session(
         "success": true,
         "session_id": session_id,
         "status": format!("{:?}", session.status),
-        "video_room_url": session.video_room_url,
+        // Role-appropriate room URL. This always returned the *provider*
+        // URL, so a patient using the non-IFrame fallback joined labelled
+        // "Care Provider" and bypassed the waiting room the session model
+        // had just put them in.
+        "video_room_url": if is_provider {
+            session.video_room_url.clone()
+        } else {
+            session.waiting_room_url.clone()
+        },
         "role": role_str,
         "jitsi": jitsi,
         "subject": room_config.subject,

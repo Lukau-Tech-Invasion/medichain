@@ -223,6 +223,38 @@ pub async fn get_psych(
     }
 }
 
+/// List psychiatric assessments for one patient.
+#[get("/api/clinical/psych/patient/{patient_id}")]
+pub async fn list_psych_for_patient(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let current_user = match get_current_user(&data, &http_req) {
+        Some(u) => u,
+        None => return HttpResponse::Unauthorized().finish(),
+    };
+    if !current_user.role.can_view_medical_records() {
+        return HttpResponse::Forbidden().finish();
+    }
+    match data
+        .repositories
+        .psychiatric_assessments
+        .get_by_patient(&path.into_inner(), crate::repositories::Pagination::new(0, 100))
+        .await
+    {
+        Ok(page) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "count": page.items.len(),
+            "assessments": page.items.into_iter().map(|item| item.data).collect::<Vec<_>>(),
+        })),
+        Err(e) => {
+            log::error!("psychiatric assessment list failed: {e}");
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
 /// Create toxicology assessment
 #[post("/api/clinical/tox")]
 pub async fn create_tox(
