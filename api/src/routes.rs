@@ -509,6 +509,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_lab_qc)
         .service(clinical_endpoints::list_critical_values)
         .service(clinical_endpoints::list_radiology_orders)
+        .service(clinical_endpoints::list_radiology_reports)
         .service(clinical_endpoints::list_pathology)
         .service(clinical_endpoints::list_immunizations)
         .service(clinical_endpoints::list_my_immunizations)

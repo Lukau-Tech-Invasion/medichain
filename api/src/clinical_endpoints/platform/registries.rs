@@ -137,6 +137,25 @@ pub async fn list_radiology_orders(
     }
 }
 
+/// List all radiology reports
+///
+/// This endpoint did not exist, so `listRadiology()` in the shared client hard-coded
+/// `reports: { total: 0, items: [] }`. The radiology worklist could therefore show a
+/// study as reported while the report itself was unreachable from any list view.
+#[get("/api/platform/list/radiology-reports")]
+pub async fn list_radiology_reports(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
+    }
+    match data.repositories.radiology_reports.list_all().await {
+        Ok(list) => HttpResponse::Ok().json(list),
+        Err(e) => registry_read_error(&http_req, e),
+    }
+}
+
 /// List all pathology reports
 #[get("/api/platform/list/pathology")]
 pub async fn list_pathology(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {

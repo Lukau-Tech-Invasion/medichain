@@ -2603,19 +2603,25 @@ export async function listCriticalValues(): Promise<ListResponse<unknown>> {
 
 /**
  * List all radiology orders and reports.
- * NOTE: the backend only has an admin list for orders, not reports — `reports` is
- * always empty until a `/api/platform/list/radiology-reports` endpoint exists.
+ *
+ * Both halves are real reads. `reports` used to be hardcoded empty because the
+ * backend had no reports registry; it now has one, so a finalized report is
+ * reachable from a list view rather than only through the order that produced
+ * it.
  */
 export async function listRadiology(): Promise<{
   success: boolean;
   orders: { total: number; items: unknown[] };
   reports: { total: number; items: unknown[] };
 }> {
-  const orders = (await getApiClient().get<unknown[]>('/api/platform/list/radiology-orders')) || [];
+  const [orders, reports] = await Promise.all([
+    getApiClient().get<unknown[]>('/api/platform/list/radiology-orders'),
+    getApiClient().get<unknown[]>('/api/platform/list/radiology-reports'),
+  ]);
   return {
     success: true,
-    orders: { total: orders.length, items: orders },
-    reports: { total: 0, items: [] },
+    orders: { total: (orders || []).length, items: orders || [] },
+    reports: { total: (reports || []).length, items: reports || [] },
   };
 }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Scan, Search, FileText, AlertCircle, Eye, MessageSquare, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, listRadiology, createRadiologyOrder, useTranslation } from '@medichain/shared';
+import { getPatients, listRadiology, createRadiologyOrder, createRadiologyReport, useTranslation } from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 
 type ReportStatus = 'pending' | 'in-progress' | 'preliminary' | 'final' | 'addendum';
@@ -32,13 +32,33 @@ interface RadiologyStudy {
   communicatedAt?: string;
 }
 
+/**
+ * A finalized or preliminary report as returned by the reports registry. Prior
+ * studies are searched over these rather than over the order worklist, because
+ * a prior study is only useful for comparison once it has been reported.
+ */
+interface RadiologyReportRow {
+  id: string;
+  patientId: string;
+  accessionNumber: string;
+  bodyPart: string;
+  findings: string;
+  impression: string;
+  status: string;
+  criticalFinding: boolean;
+  radiologist: string;
+  reportedAt: string;
+}
+
 const RadiologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [_patients, setPatients] = useState<PatientProfile[]>([]);
   const [studies, setStudies] = useState<RadiologyStudy[]>([]);
+  const [reports, setReports] = useState<RadiologyReportRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'worklist' | 'report' | 'search'>('worklist');
@@ -96,6 +116,28 @@ const RadiologyPage: React.FC = () => {
       });
       
       setStudies(mappedStudies);
+
+      const reportItems = radiologyData.reports?.items || [];
+      setReports(reportItems.map((item) => {
+        const r = item as Record<string, unknown>;
+        const impression = r.impression;
+        return {
+          id: (r.id || r.report_id || '') as string,
+          patientId: (r.patient_id || '') as string,
+          accessionNumber: (r.accession_number || '') as string,
+          bodyPart: (r.body_part || '') as string,
+          findings: (r.findings || '') as string,
+          // The backend stores the impression as discrete statements; join them
+          // back for display and for the free-text search below.
+          impression: Array.isArray(impression)
+            ? impression.join('\n')
+            : ((impression || '') as string),
+          status: (r.status || '') as string,
+          criticalFinding: Boolean(r.critical_finding),
+          radiologist: (r.radiologist_id || r.radiologist || '') as string,
+          reportedAt: (r.created_at || r.final_time || '') as string,
+        };
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docRadiology.failFetch'));
     } finally {
@@ -118,25 +160,105 @@ const RadiologyPage: React.FC = () => {
     setActiveTab('report');
   };
 
-  const saveReport = (asFinal: boolean) => {
+  /**
+   * Maps a worklist modality string onto the backend's `RadiologyStudyType`
+   * variant. Falls back to `XRay` only for an unrecognised value, which is the
+   * least-claiming option — it never upgrades a plain study to "with contrast".
+   */
+  const studyTypeFor = (modality: string): string => {
+    const m = modality.trim().toUpperCase();
+    const map: Record<string, string> = {
+      'XR': 'XRay', 'X-RAY': 'XRay', 'XRAY': 'XRay', 'CR': 'XRay', 'DX': 'XRay',
+      'CT': 'CT', 'MR': 'MRI', 'MRI': 'MRI',
+      'US': 'Ultrasound', 'ULTRASOUND': 'Ultrasound',
+      'NM': 'Nuclear', 'NUCLEAR': 'Nuclear',
+      'PT': 'PET', 'PET': 'PET',
+      'RF': 'Fluoroscopy', 'FLUOROSCOPY': 'Fluoroscopy',
+      'MG': 'Mammography', 'MAMMOGRAPHY': 'Mammography',
+      'XA': 'Angiography', 'ANGIOGRAPHY': 'Angiography',
+    };
+    return map[m] ?? 'XRay';
+  };
+
+  const saveReport = async (asFinal: boolean) => {
     if (!selectedStudy) return;
     if (criticalFindings && !communicatedTo) {
       showWarning(t('docRadiology.criticalCommunicate'));
       return;
     }
-    const updatedStudy: RadiologyStudy = {
-      ...selectedStudy,
-      technique, comparison, findings, impression, criticalFindings,
-      communicatedTo: criticalFindings ? communicatedTo : undefined,
-      communicatedAt: criticalFindings ? new Date().toISOString() : undefined,
-      status: asFinal ? 'final' : 'preliminary',
-      radiologist: user?.walletAddress || '',
-      reportedAt: new Date().toISOString()
-    };
-    setStudies(studies.map(s => s.id === selectedStudy.id ? updatedStudy : s));
-    showSuccess(t('docRadiology.savedAs', { status: asFinal ? t('docRadiology.statusFinalUpper') : t('docRadiology.statusPrelimUpper') }));
-    setSelectedStudy(null);
-    setActiveTab('worklist');
+
+    const now = new Date();
+    const nowSeconds = Math.floor(now.getTime() / 1000);
+    const radiologist = user?.walletAddress || '';
+
+    // This used to mutate local state and announce success without calling the
+    // API at all: a radiologist could dictate findings, finalize the report,
+    // see "Saved as FINAL", and lose every word of it on reload. The report is
+    // now persisted first, and the worklist only advances once the server has
+    // accepted it.
+    setIsSaving(true);
+    try {
+      await createRadiologyReport({
+        report_id: `RAD-RPT-${now.getTime()}`,
+        patient_id: selectedStudy.patientId,
+        order_id: selectedStudy.id,
+        accession_number: selectedStudy.accessionNumber,
+        study_type: studyTypeFor(selectedStudy.modality),
+        body_part: selectedStudy.studyDescription || '',
+        study_datetime: selectedStudy.studyDate
+          ? Math.floor(new Date(selectedStudy.studyDate).getTime() / 1000)
+          : nowSeconds,
+        technique,
+        contrast: null,
+        comparison: comparison || null,
+        clinical_history: '',
+        findings,
+        // The backend models the impression as discrete statements; split on
+        // lines so a multi-point impression is stored as multiple points
+        // rather than one blob.
+        impression: impression
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean),
+        recommendations: null,
+        critical_finding: criticalFindings,
+        critical_communicated: criticalFindings
+          ? {
+              communicated_to: communicatedTo,
+              communicated_by: radiologist,
+              communication_time: nowSeconds,
+              method: 'verbal',
+              read_back: false,
+            }
+          : null,
+        radiologist,
+        status: asFinal ? 'Final' : 'Preliminary',
+        preliminary_time: asFinal ? null : nowSeconds,
+        final_time: asFinal ? nowSeconds : null,
+        dicom_study_uid: null,
+        image_ipfs_hash: null,
+      });
+
+      const updatedStudy: RadiologyStudy = {
+        ...selectedStudy,
+        technique, comparison, findings, impression, criticalFindings,
+        communicatedTo: criticalFindings ? communicatedTo : undefined,
+        communicatedAt: criticalFindings ? now.toISOString() : undefined,
+        status: asFinal ? 'final' : 'preliminary',
+        radiologist,
+        reportedAt: now.toISOString()
+      };
+      setStudies(studies.map(s => s.id === selectedStudy.id ? updatedStudy : s));
+      showSuccess(t('docRadiology.savedAs', { status: asFinal ? t('docRadiology.statusFinalUpper') : t('docRadiology.statusPrelimUpper') }));
+      setSelectedStudy(null);
+      setActiveTab('worklist');
+      // Re-read so the worklist reflects what the server actually stored.
+      fetchData();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docRadiology.failSaveReport'));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const getStatusBadge = (status: ReportStatus) => {
@@ -175,6 +297,20 @@ const RadiologyPage: React.FC = () => {
         && !s.accessionNumber.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     return true;
   });
+
+  // Prior-studies search. An empty term lists the most recent reports rather
+  // than nothing, so the tab is useful before the radiologist types anything.
+  const matchingReports = (() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return reports.slice(0, 25);
+    return reports.filter(r =>
+      r.patientId.toLowerCase().includes(term)
+      || r.accessionNumber.toLowerCase().includes(term)
+      || r.bodyPart.toLowerCase().includes(term)
+      || r.impression.toLowerCase().includes(term)
+      || r.findings.toLowerCase().includes(term)
+    );
+  })();
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
@@ -413,15 +549,17 @@ const RadiologyPage: React.FC = () => {
               <div className="flex gap-3">
                 <button
                   onClick={() => saveReport(false)}
-                  className="flex-1 py-2 bg-orange-600 text-white rounded hover:bg-orange-500"
+                  disabled={isSaving}
+                  className="flex-1 py-2 bg-orange-600 text-white rounded hover:bg-orange-500 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {t('docRadiology.savePreliminary')}
+                  {isSaving ? t('docRadiology.saving') : t('docRadiology.savePreliminary')}
                 </button>
                 <button
                   onClick={() => saveReport(true)}
-                  className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-500"
+                  disabled={isSaving}
+                  className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-500 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {t('docRadiology.finalizeReport')}
+                  {isSaving ? t('docRadiology.saving') : t('docRadiology.finalizeReport')}
                 </button>
               </div>
             </div>
@@ -435,8 +573,64 @@ const RadiologyPage: React.FC = () => {
         )}
 
         {activeTab === 'search' && (
-          <div className="bg-gray-800 rounded-lg p-4">
-            <p className="text-gray-400">{t('docRadiology.searchComingSoon')}</p>
+          <div className="bg-gray-800 rounded-lg p-4 space-y-4">
+            <div>
+              <label htmlFor="rad-prior-search" className="block text-sm text-gray-300 mb-1">
+                {t('docRadiology.searchPriorsLabel')}
+              </label>
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-3 text-gray-500" />
+                <input
+                  id="rad-prior-search"
+                  type="search"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  placeholder={t('docRadiology.searchPriorsPlaceholder')}
+                  className="w-full bg-gray-900 border border-gray-700 rounded pl-9 pr-3 py-2 text-white"
+                />
+              </div>
+            </div>
+
+            {matchingReports.length === 0 ? (
+              <p className="text-gray-400 py-6 text-center">
+                {searchTerm
+                  ? t('docRadiology.searchPriorsNoMatch')
+                  : t('docRadiology.searchPriorsEmpty')}
+              </p>
+            ) : (
+              <ul className="divide-y divide-gray-700">
+                {matchingReports.map(r => (
+                  <li key={r.id} className="py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium text-white truncate">
+                          {r.bodyPart || r.accessionNumber || r.id}
+                        </p>
+                        <p className="text-sm text-gray-400 truncate">
+                          {r.patientId} · {r.accessionNumber}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {r.criticalFinding && (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">
+                            <AlertCircle className="w-3 h-3" />
+                            {t('docRadiology.criticalBadge')}
+                          </span>
+                        )}
+                        <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-200">
+                          {r.status}
+                        </span>
+                      </div>
+                    </div>
+                    {r.impression && (
+                      <p className="mt-1 text-sm text-gray-300 whitespace-pre-line">
+                        {r.impression}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>
