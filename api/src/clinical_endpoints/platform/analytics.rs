@@ -51,9 +51,15 @@ pub async fn get_dashboard_metrics(
     // `avg_latency_ms`, `system_uptime` and `blockchain_status` used to be the
     // literals 45, 99.98 and "synced" — an operations dashboard that reported
     // a healthy system no matter what was true, including while the chain was
-    // unreachable. Latency and uptime need a metrics backend this deployment
-    // does not have, so they are reported as null rather than invented; the
-    // chain status is something we can actually answer.
+    // unreachable. They then became nulls, which was honest but left the
+    // dashboard blank. All three are now measured: latency and availability come
+    // from the same Prometheus counters the scrape endpoint serves, and uptime
+    // is the process clock. A field stays null only while its sample is empty,
+    // because 100% availability computed from zero requests is a claim rather
+    // than a measurement.
+    let telemetry = crate::middleware::metrics::telemetry_snapshot();
+    let uptime_seconds = crate::middleware::metrics::uptime_seconds();
+
     let blockchain_status = if !crate::blockchain::blockchain_enabled() {
         "disabled"
     } else if data
@@ -72,8 +78,11 @@ pub async fn get_dashboard_metrics(
             "total_patients": total_patients,
             "total_medical_records": total_records,
             "total_system_accesses": total_logs,
-            "avg_latency_ms": serde_json::Value::Null,
-            "system_uptime": serde_json::Value::Null,
+            "avg_latency_ms": telemetry.avg_latency_ms,
+            "system_uptime": telemetry.availability_percent,
+            "uptime_seconds": uptime_seconds,
+            "total_requests": telemetry.total_requests,
+            "server_errors": telemetry.server_errors,
             "blockchain_status": blockchain_status
         }
     }))
@@ -90,7 +99,24 @@ pub async fn get_patient_analytics(
     }
 
     let total_population = data.repositories.patients.count().await.unwrap_or(0);
-    let gender_dist: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    // This was an always-empty map — a population analytics screen whose only
+    // breakdown reported that the register contains nobody of any gender. It is
+    // now aggregated in the query; `gender` is a plaintext column, so no
+    // profile decryption is involved and no PHI leaves the database beyond the
+    // counts themselves.
+    let gender_dist = match data.repositories.patients.count_by_gender().await {
+        Ok(counts) => counts,
+        Err(e) => {
+            log::error!("patient analytics: gender distribution unavailable: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Population analytics are unavailable because the patient register could not be read"
+                    .to_string(),
+                code: "ANALYTICS_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "gender_distribution": gender_dist,
@@ -151,15 +177,40 @@ pub async fn get_quality_metrics(
             }
         };
 
-    // `compliance_score: 98.5` and `audit_logs_coverage: "100%"` were literals.
-    // A compliance score is a reviewed assessment, not something this endpoint
-    // can compute, and claiming 100% audit coverage without measuring it is the
-    // kind of assertion a POPIA audit would take at face value. Reported as
-    // null until there is a real calculation behind them.
+    // `audit_logs_coverage` was the literal `"100%"`. It is now counted: the
+    // share of access-log entries that actually carry a blockchain anchor. In a
+    // system whose central claim is a tamper-evident access trail, that is the
+    // number an auditor is asking for, and it is `null` — not 100 — while there
+    // is nothing to measure, because a percentage over an empty set is a claim
+    // rather than a measurement.
+    let (audit_total, audit_anchored) = match data.repositories.access_logs.count_anchored().await {
+        Ok(counts) => counts,
+        Err(e) => {
+            log::error!("quality metrics: audit anchoring counts unavailable: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Quality metrics are unavailable because audit coverage could not be read"
+                    .to_string(),
+                code: "METRICS_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let audit_logs_coverage =
+        (audit_total > 0).then(|| (audit_anchored as f64 / audit_total as f64) * 100.0);
+
+    // `compliance_score: 98.5` stays absent deliberately. A compliance score is
+    // a reviewed assessment against a control framework, not an index this
+    // endpoint can derive, and publishing a computed number under that name
+    // invites an auditor to rely on it. The measured indicators above are the
+    // inputs such an assessment would draw on; the assessment itself is a human
+    // artefact and says so.
     HttpResponse::Ok().json(serde_json::json!({
         "clinical_alerts_total": alerts_count,
         "critical_alerts": critical_alerts,
+        "audit_logs_coverage": audit_logs_coverage,
+        "audit_entries_total": audit_total,
+        "audit_entries_anchored": audit_anchored,
         "compliance_score": serde_json::Value::Null,
-        "audit_logs_coverage": serde_json::Value::Null
+        "compliance_score_basis": "requires_reviewed_assessment"
     }))
 }

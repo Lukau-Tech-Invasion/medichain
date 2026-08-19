@@ -124,6 +124,11 @@ async fn main() -> std::io::Result<()> {
     // otherwise the human-readable `env_logger` is used.
     init_logging();
 
+    // Start the uptime clock before anything else can take time, so the
+    // operations dashboard reports how long the process has been up rather than
+    // the hardcoded availability figure it used to print.
+    crate::middleware::metrics::mark_process_start();
+
     // Default 8090, NOT 8080: port 8080 is the IPFS (kubo) gateway's port, which
     // docker-compose publishes on the host. When the API bound 8080 it stole that
     // port, and its own `IPFS_GATEWAY_URL` (default `localhost:8080`) then

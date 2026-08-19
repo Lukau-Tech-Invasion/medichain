@@ -71,6 +71,89 @@ pub fn metrics() -> &'static Metrics {
     })
 }
 
+static PROCESS_START: OnceLock<Instant> = OnceLock::new();
+
+/// Marks the process start instant. Idempotent; the first call wins.
+///
+/// Called from `main` so uptime is measured from the point the server began
+/// serving, not from whenever a dashboard first asked.
+pub fn mark_process_start() {
+    let _ = PROCESS_START.set(Instant::now());
+}
+
+/// Seconds this process has been running, or `None` before `mark_process_start`.
+pub fn uptime_seconds() -> Option<u64> {
+    PROCESS_START.get().map(|t| t.elapsed().as_secs())
+}
+
+/// Snapshot of the operational telemetry an admin dashboard needs.
+///
+/// Every field here was previously a literal on the dashboard endpoint —
+/// `avg_latency_ms: 45` and `system_uptime: 99.98` were reported unchanged
+/// while the service was degraded, which is worse than reporting nothing. They
+/// are now read from the same counters the Prometheus scrape serves, so the
+/// dashboard and the scrape cannot disagree.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TelemetrySnapshot {
+    /// Mean request latency in milliseconds across all routes, or `None` before
+    /// the first request has been observed.
+    pub avg_latency_ms: Option<f64>,
+    /// Share of responses that were not 5xx, as a percentage. `None` until at
+    /// least one request has been served — 100% from a zero sample is a claim,
+    /// not a measurement.
+    pub availability_percent: Option<f64>,
+    /// Requests observed since process start.
+    pub total_requests: u64,
+    /// Responses with a 5xx status since process start.
+    pub server_errors: u64,
+}
+
+/// Reads the live counters into a [`TelemetrySnapshot`].
+pub fn telemetry_snapshot() -> TelemetrySnapshot {
+    let families = metrics().registry.gather();
+
+    let mut latency_sum = 0.0_f64;
+    let mut latency_count = 0_u64;
+    let mut total_requests = 0_u64;
+    let mut server_errors = 0_u64;
+
+    for family in &families {
+        match family.get_name() {
+            "http_request_duration_seconds" => {
+                for metric in family.get_metric() {
+                    let h = metric.get_histogram();
+                    latency_sum += h.get_sample_sum();
+                    latency_count += h.get_sample_count();
+                }
+            }
+            "http_requests_total" => {
+                for metric in family.get_metric() {
+                    let value = metric.get_counter().get_value() as u64;
+                    total_requests += value;
+                    let is_server_error = metric
+                        .get_label()
+                        .iter()
+                        .any(|l| l.get_name() == "status" && l.get_value().starts_with('5'));
+                    if is_server_error {
+                        server_errors += value;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    TelemetrySnapshot {
+        avg_latency_ms: (latency_count > 0)
+            .then(|| (latency_sum / latency_count as f64) * 1000.0),
+        availability_percent: (total_requests > 0).then(|| {
+            ((total_requests - server_errors) as f64 / total_requests as f64) * 100.0
+        }),
+        total_requests,
+        server_errors,
+    }
+}
+
 /// `GET /api/metrics` — Prometheus exposition format.
 /// Compare two byte strings without short-circuiting on the first difference.
 ///
