@@ -103,6 +103,41 @@ async fn primary_guardian_contact_json(
     })
 }
 
+/// The contact a responder should actually call.
+///
+/// A verified guardian outranks a self-declared contact — the guardian
+/// relationship is one the system checked, and for a minor it is the legally
+/// answerable person. When no guardian exists this falls back to the first
+/// emergency contact the patient recorded at registration, which is the case
+/// the guardian-only lookup used to drop: those patients showed an emergency
+/// card with nobody to call, even though they had supplied next of kin.
+///
+/// `verified` distinguishes the two, so a client never presents a self-declared
+/// number as though the system had confirmed it.
+async fn primary_emergency_contact_json(
+    data: &web::Data<AppState>,
+    patient_id: &str,
+    profile: &Option<crate::PatientProfile>,
+) -> serde_json::Value {
+    let guardian = primary_guardian_contact_json(data, patient_id).await;
+    if !guardian.is_null() {
+        return guardian;
+    }
+
+    profile
+        .as_ref()
+        .and_then(|p| p.emergency_info.emergency_contacts.first())
+        .map(|c| {
+            serde_json::json!({
+                "name": c.name,
+                "phone": c.phone,
+                "relationship": c.relationship,
+                "verified": false
+            })
+        })
+        .unwrap_or(serde_json::Value::Null)
+}
+
 /// Get emergency-only view (minimal data for first responders)
 /// This endpoint can be accessed without full authentication for emergency scenarios
 #[get("/api/medical-id/{patient_id}/emergency")]
@@ -283,7 +318,9 @@ pub async fn get_emergency_medical_id(
         }),
     };
 
-    let guardian_contact = primary_guardian_contact_json(&data, &patient_id).await;
+    let emergency_profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
+    let guardian_contact =
+        primary_emergency_contact_json(&data, &patient_id, &emergency_profile).await;
 
     // Real chronic conditions and current medications, read off the decrypted
     // profile. Returns `(conditions, medications)`.
@@ -367,8 +404,16 @@ pub async fn get_emergency_medical_id(
         // wired to this repository yet, unchanged from before this pass).
         "emergency_contact": guardian_contact,
 
-        // LANGUAGE (for communication)
-        "primary_language": "en",
+        // LANGUAGE (for communication).
+        //
+        // Hardcoded to "en" for every patient. In a deployment spanning isiZulu,
+        // Sesotho, Afrikaans, Amharic and Twi, telling a responder that an
+        // unresponsive patient speaks English is worse than telling them
+        // nothing: it stops them looking for an interpreter. Null when the
+        // patient recorded no preference.
+        "primary_language": emergency_profile
+            .as_ref()
+            .and_then(|p| p.preferences.display_language.clone()),
 
         // ACCESS LOG WARNING
         "access_logged": true,
@@ -562,7 +607,9 @@ pub async fn get_lockscreen_medical_id(
     };
 
     // Lock screen format - maximum simplicity, high contrast
-    let guardian_contact = primary_guardian_contact_json(&data, &patient_id).await;
+    let lockscreen_profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
+    let lockscreen_contact = primary_emergency_contact_json(&data, &patient_id, &lockscreen_profile)
+        .await;
 
     let lockscreen_data = serde_json::json!({
         "format": "lockscreen",
@@ -611,14 +658,25 @@ pub async fn get_lockscreen_medical_id(
         // LINE 3: DNR Warning (computed above; gated on verification)
         "dnr_line": dnr_line,
 
-        // LINE 4: Name
+        // LINE 4: Name.
+        //
+        // This printed the literal "Patient". The lock screen is the patient's
+        // own handset showing their own medical ID to whoever picks it up, and
+        // a responder's first job is to confirm the card belongs to the person
+        // in front of them — a card that cannot name its holder cannot be
+        // matched, and the Medical ID card view already decrypts this. `null`
+        // when the profile cannot be read, so a client shows "name unavailable"
+        // rather than a name that is not the patient's.
         "name": {
-            "value": "Patient", // Name is encrypted
+            "value": lockscreen_profile.as_ref().map(|p| p.full_name.clone()),
             "font_size": "24px"
         },
 
-        // LINE 5: Emergency Contact Button — verified guardian when one exists.
-        "emergency_contact": guardian_contact,
+        // LINE 5: Emergency Contact Button — the patient's own recorded contacts,
+        // falling back to a verified guardian. This was the guardian alone, so a
+        // patient who had named next of kin at registration but had no guardian
+        // relationship on file showed a lock screen with nobody to call.
+        "emergency_contact": lockscreen_contact,
 
         // QR Code (small, bottom corner)
         "qr_url": format!("/api/medical-id/{}/qr", patient_id),

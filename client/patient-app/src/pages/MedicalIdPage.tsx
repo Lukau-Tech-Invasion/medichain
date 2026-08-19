@@ -62,8 +62,18 @@ function resolveDnr(dnr: boolean | DnrStatusObject | null | undefined): Resolved
 
 interface MedicalIdData {
   patient_id: string;
-  name: string;
-  date_of_birth: string;
+  /** Null when the encrypted profile could not be decrypted. */
+  name: string | null;
+  /** Null when the encrypted profile could not be decrypted. */
+  date_of_birth: string | null;
+  /**
+   * True when the profile could not be read. The criticals below are empty in
+   * that case for the same reason they would be empty for a patient with none
+   * recorded, so this flag is the only thing that tells the two apart — and on
+   * an emergency card that difference decides whether a responder trusts the
+   * blanks.
+   */
+  profile_unavailable?: boolean;
   blood_type: string | { value?: string; display_color?: string };
   allergies: Array<{
     name: string;
@@ -396,14 +406,34 @@ export function MedicalIdPage() {
               <User className="w-8 h-8" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold">{data.name}</h2>
+              <h2 className="text-2xl font-bold">
+                {data.name ?? t('medicalId.nameUnavailable')}
+              </h2>
               <div className="flex items-center gap-2 text-red-100">
                 <Calendar className="w-4 h-4" />
-                <span>{formatDate(data.date_of_birth, locale)}</span>
+                <span>
+                  {data.date_of_birth
+                    ? formatDate(data.date_of_birth, locale)
+                    : t('medicalId.dobUnavailable')}
+                </span>
               </div>
             </div>
           </div>
         </div>
+
+        {/* A card whose profile could not be decrypted shows empty allergy,
+            medication and condition lists that are indistinguishable from a
+            patient who genuinely has none. Say so explicitly rather than
+            letting a responder read the blanks as reassurance. */}
+        {data.profile_unavailable && (
+          <div
+            role="alert"
+            className="bg-amber-50 border-y border-amber-300 px-4 py-3 text-sm text-amber-900"
+          >
+            <p className="font-semibold">{t('medicalId.profileUnavailableTitle')}</p>
+            <p>{t('medicalId.profileUnavailableBody')}</p>
+          </div>
+        )}
 
         {/* Blood Type & Organ Donor */}
         <div className="grid grid-cols-2 divide-x divide-neutral-100">

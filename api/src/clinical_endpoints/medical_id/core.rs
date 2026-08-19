@@ -347,13 +347,31 @@ pub async fn get_medical_id_qr(
         .await
         .unwrap_or_default();
 
-    // QR code contains minimal critical data for offline access
+    // QR code contains minimal critical data for offline access.
+    //
+    // This is the offline path — the one MediChain exists for, read by a
+    // responder with no connectivity — and it carried the literals "Patient",
+    // "Redacted" and a null contact. Offline is exactly when the responder
+    // cannot fall back to the API to learn who this is or whom to call, so the
+    // three fields that were placeholders are the three the code most needs to
+    // carry. All come from the same decrypted profile the card view uses; the
+    // QR is generated only for the patient themselves or a treating provider,
+    // both of whom are already authorised for these fields above.
+    let qr_profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
+    let qr_emergency_contact = qr_profile
+        .as_ref()
+        .and_then(|p| p.emergency_info.emergency_contacts.first())
+        .map(|c| serde_json::json!({ "name": c.name, "phone": c.phone, "relationship": c.relationship }));
+
     let qr_data = serde_json::json!({
         "type": "medichain_medical_id",
-        "version": "1.0",
+        "version": "1.1",
         "patient_id": patient.id,
-        "name": "Patient", // Name is encrypted
-        "dob": "Redacted", // DOB is encrypted
+        "name": qr_profile.as_ref().map(|p| p.full_name.clone()),
+        "dob": qr_profile.as_ref().map(|p| p.date_of_birth.clone()),
+        "language": qr_profile
+            .as_ref()
+            .and_then(|p| p.preferences.display_language.clone()),
         "blood_type": patient.blood_type.clone().unwrap_or_else(|| "Unknown".to_string()),
         "critical_allergies": allergies.iter()
             .filter(|a| a.severity == "Severe" || a.severity == "LifeThreatening")
@@ -367,7 +385,10 @@ pub async fn get_medical_id_qr(
             &patient.dnr_verified_at,
         ),
         "organ_donor": patient.organ_donor,
-        "emergency_contact": serde_json::Value::Null, // TODO: Phase 2 repository
+        "emergency_contact": qr_emergency_contact,
+        // Lets an offline scanner say "could not be read" instead of rendering
+        // a card with blank criticals that looks like a patient with none.
+        "profile_unavailable": qr_profile.is_none(),
         "api_url": format!("/api/medical-id/{}", patient_id),
         "generated_at": chrono::Utc::now().timestamp()
     });
