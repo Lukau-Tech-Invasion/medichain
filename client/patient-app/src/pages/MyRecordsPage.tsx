@@ -145,12 +145,29 @@ export function MyRecordsPage() {
     const allRecords: MedicalRecord[] = [];
     
     try {
-      const [labData, genericData, soapData, prescriptionData, triageData] = await Promise.all([
+      const [
+        labData,
+        genericData,
+        soapData,
+        prescriptionData,
+        triageData,
+        hpData,
+        progressData,
+        woundData,
+        vitalsData,
+      ] = await Promise.all([
         fetchJson(`/api/lab/patient/${patientId}`, headers),
         fetchJson(`/api/records/${patientId}`, headers),
         fetchJson(`/api/clinical/patient/${patientId}/soap`, headers),
         fetchJson(`/api/e-prescriptions/patient/${patientId}`, headers),
         fetchJson(`/api/clinical/patient/${patientId}/triage`, headers),
+        // A History & Physical, a progress note, a wound assessment and a
+        // vitals reading are all written about the patient, and none of them
+        // were reachable from this page before.
+        fetchJson(`/api/clinical/patient/${patientId}/history-physicals`, headers),
+        fetchJson(`/api/clinical/patient/${patientId}/progress-notes`, headers),
+        fetchJson(`/api/clinical/patient/${patientId}/wounds`, headers),
+        fetchJson(`/api/clinical/patient/${patientId}/vitals`, headers),
       ]);
 
       const labRecords = ((labData.submissions as LabResultSubmission[] | undefined) || []).map(sub => ({
@@ -224,6 +241,68 @@ export function MyRecordsPage() {
         verified: true,
       }));
       allRecords.push(...triageRecords);
+
+      const hpRecords = (((hpData as { history_physicals?: Array<Record<string, unknown>> })
+        .history_physicals) || []).map(hp => ({
+        id: String(hp.id),
+        type: 'consultation' as const,
+        title: `History & Physical${hp.exam_type ? ` (${hp.exam_type})` : ''}`,
+        description: String(hp.chief_complaint || 'Comprehensive evaluation'),
+        provider: String(hp.performed_by || 'MediChain provider'),
+        date: timestampDate(hp.performed_at as string | number | undefined),
+        contentHash: `hp-${hp.id}`,
+        metadataHash: String(hp.id),
+        verified: true,
+      }));
+      allRecords.push(...hpRecords);
+
+      const progressRecords = (((progressData as { progress_notes?: Array<Record<string, unknown>> })
+        .progress_notes) || []).map(note => ({
+        id: String(note.id),
+        type: 'consultation' as const,
+        title: `Progress note${note.note_type ? ` (${note.note_type})` : ''}`,
+        description: String(note.assessment || 'Clinical progress note'),
+        provider: String(note.created_by || 'MediChain provider'),
+        date: timestampDate(note.created_at as string | number | undefined),
+        contentHash: `progress-${note.id}`,
+        metadataHash: String(note.id),
+        verified: true,
+      }));
+      allRecords.push(...progressRecords);
+
+      const woundRecords = (((woundData as { wounds?: Array<Record<string, unknown>> })
+        .wounds) || []).map(wound => ({
+        id: String(wound.id),
+        type: 'consultation' as const,
+        title: `Wound assessment - ${wound.wound_location || 'site not recorded'}`,
+        description: String(wound.wound_type || 'Wound assessment'),
+        provider: String(wound.assessed_by || 'MediChain provider'),
+        date: timestampDate(wound.assessed_at as string | number | undefined),
+        contentHash: `wound-${wound.id}`,
+        metadataHash: String(wound.id),
+        verified: true,
+      }));
+      allRecords.push(...woundRecords);
+
+      const vitalsRecords = (((vitalsData as { vital_signs?: Array<Record<string, unknown>>; vitals?: Array<Record<string, unknown>> })
+        .vital_signs || (vitalsData as { vitals?: Array<Record<string, unknown>> }).vitals) || []).map(v => ({
+        id: String(v.id),
+        type: 'lab_result' as const,
+        title: 'Vital signs',
+        description: [
+          v.heart_rate ? `HR ${v.heart_rate}` : null,
+          v.blood_pressure_systolic && v.blood_pressure_diastolic
+            ? `BP ${v.blood_pressure_systolic}/${v.blood_pressure_diastolic}`
+            : null,
+          v.temperature ? `${Number(v.temperature).toFixed(1)} C` : null,
+        ].filter(Boolean).join(' · ') || 'Recorded observations',
+        provider: String(v.recorded_by || 'MediChain provider'),
+        date: timestampDate(v.recorded_at as string | number | undefined),
+        contentHash: `vitals-${v.id}`,
+        metadataHash: String(v.id),
+        verified: true,
+      }));
+      allRecords.push(...vitalsRecords);
     } catch (error) {
       console.error('Failed to fetch records:', error);
     }

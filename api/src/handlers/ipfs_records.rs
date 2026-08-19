@@ -433,6 +433,209 @@ fn timestamp_text(object: &serde_json::Value, key: &str) -> String {
         .unwrap_or_else(|| "-".to_string())
 }
 
+/// A History & Physical as a readable document.
+async fn download_history_physical(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    hp_id: &str,
+) -> HttpResponse {
+    let hp = match data.repositories.history_physicals.get_by_id(hp_id).await {
+        Ok(hp) => hp,
+        Err(e) => {
+            log::error!("history and physical {hp_id} lookup failed: {e}");
+            return not_found("History and physical");
+        }
+    };
+    if !may_read_patient(data, caller, caller_id, &hp.patient_id) {
+        return access_denied();
+    }
+    let some = |value: &Option<String>| value.clone().unwrap_or_else(|| "-".to_string());
+    let json_lines = |value: &Option<serde_json::Value>| match value {
+        Some(serde_json::Value::Object(map)) if !map.is_empty() => map
+            .iter()
+            .map(|(k, v)| {
+                let detail = v
+                    .get("findings")
+                    .and_then(|f| f.as_str())
+                    .filter(|f| !f.is_empty())
+                    .map(|f| format!(" - {f}"))
+                    .unwrap_or_default();
+                let status = v
+                    .get("status")
+                    .and_then(|st| st.as_str())
+                    .unwrap_or_else(|| v.as_str().unwrap_or("recorded"));
+                format!("  {k:<18}{status}{detail}")
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => "  (none recorded)".to_string(),
+    };
+
+    let mut body = format!("History and physical {hp_id}\n\n");
+    body.push_str(&format!("Patient:      {}\n", hp.patient_id));
+    body.push_str(&format!("Exam type:    {}\n", some(&hp.exam_type)));
+    body.push_str(&format!("Performed by: {}\n", hp.performed_by));
+    body.push_str(&format!(
+        "Performed:    {}\n\n",
+        hp.performed_at.format("%Y-%m-%d %H:%M UTC")
+    ));
+    body.push_str(&format!("Chief complaint:\n  {}\n\n", hp.chief_complaint));
+    body.push_str(&format!(
+        "History of present illness:\n  {}\n\n",
+        hp.history_present_illness
+    ));
+    body.push_str(&format!(
+        "Past medical history:\n  {}\n\n",
+        some(&hp.past_medical_history)
+    ));
+    body.push_str(&format!("Medications:\n  {}\n\n", some(&hp.medications)));
+    body.push_str(&format!("Allergies:\n  {}\n\n", some(&hp.allergies)));
+    body.push_str(&format!(
+        "Family history:\n  {}\n\n",
+        some(&hp.family_history)
+    ));
+    body.push_str("Review of systems\n");
+    body.push_str(&json_lines(&hp.review_of_systems));
+    body.push_str("\n\nPhysical examination\n");
+    body.push_str(&json_lines(&Some(hp.physical_exam.clone())));
+    body.push_str(&format!("\n\nAssessment:\n  {}\n\n", hp.assessment));
+    body.push_str(&format!("Plan:\n  {}\n", hp.plan_content));
+    text_document(hp_id, body)
+}
+
+/// A progress note as a readable document.
+async fn download_progress_note(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    note_id: &str,
+) -> HttpResponse {
+    let note = match data.repositories.progress_notes.get_by_id(note_id).await {
+        Ok(note) => note,
+        Err(e) => {
+            log::error!("progress note {note_id} lookup failed: {e}");
+            return not_found("Progress note");
+        }
+    };
+    if !may_read_patient(data, caller, caller_id, &note.patient_id) {
+        return access_denied();
+    }
+    let mut body = format!("Progress note {note_id}\n\n");
+    body.push_str(&format!("Patient:    {}\n", note.patient_id));
+    body.push_str(&format!("Type:       {}\n", note.note_type));
+    body.push_str(&format!("Status:     {}\n", note.status));
+    body.push_str(&format!("Author:     {}\n", note.created_by));
+    body.push_str(&format!(
+        "Recorded:   {}\n\n",
+        note.created_at.format("%Y-%m-%d %H:%M UTC")
+    ));
+    let section = |value: &Option<String>| value.clone().unwrap_or_else(|| "-".to_string());
+    body.push_str(&format!("SUBJECTIVE\n  {}\n\n", section(&note.subjective)));
+    body.push_str(&format!("OBJECTIVE\n  {}\n\n", section(&note.objective)));
+    body.push_str(&format!("ASSESSMENT\n  {}\n\n", section(&note.assessment)));
+    body.push_str(&format!("PLAN\n  {}\n", section(&note.plan_content)));
+    text_document(note_id, body)
+}
+
+/// A wound assessment as a readable document.
+async fn download_wound(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    wound_id: &str,
+) -> HttpResponse {
+    let wound = match data.repositories.wound_assessments.get_by_id(wound_id).await {
+        Ok(wound) => wound,
+        Err(e) => {
+            log::error!("wound assessment {wound_id} lookup failed: {e}");
+            return not_found("Wound assessment");
+        }
+    };
+    if !may_read_patient(data, caller, caller_id, &wound.patient_id) {
+        return access_denied();
+    }
+    let cm = |v: &Option<rust_decimal::Decimal>| {
+        v.map(|d| format!("{d} cm")).unwrap_or_else(|| "-".to_string())
+    };
+    let some = |v: &Option<String>| v.clone().unwrap_or_else(|| "-".to_string());
+    let mut body = format!("Wound assessment {wound_id}\n\n");
+    body.push_str(&format!("Patient:      {}\n", wound.patient_id));
+    body.push_str(&format!("Assessed by:  {}\n", wound.assessed_by));
+    body.push_str(&format!(
+        "Assessed:     {}\n\n",
+        wound.assessed_at.format("%Y-%m-%d %H:%M UTC")
+    ));
+    body.push_str(&format!("Wound type:   {}\n", wound.wound_type));
+    body.push_str(&format!("Location:     {}\n\n", wound.wound_location));
+    body.push_str("MEASUREMENTS\n");
+    body.push_str(&format!("  Length:     {}\n", cm(&wound.length_cm)));
+    body.push_str(&format!("  Width:      {}\n", cm(&wound.width_cm)));
+    body.push_str(&format!("  Depth:      {}\n\n", cm(&wound.depth_cm)));
+    body.push_str(&format!("Tissue type:  {}\n", some(&wound.tissue_type)));
+    body.push_str(&format!("Exudate:      {}\n", some(&wound.drainage_amount)));
+    body.push_str(&format!(
+        "Pain level:   {}\n\n",
+        wound
+            .pain_level
+            .map(|p| format!("{p}/10"))
+            .unwrap_or_else(|| "-".to_string())
+    ));
+    body.push_str(&format!("Notes:\n  {}\n", some(&wound.notes)));
+    text_document(wound_id, body)
+}
+
+/// A vital-signs reading as a readable document.
+async fn download_vitals(
+    data: &web::Data<AppState>,
+    caller: &crate::types::User,
+    caller_id: &str,
+    vitals_id: &str,
+) -> HttpResponse {
+    let v = match data.repositories.vital_signs.get_by_id(vitals_id).await {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("vital signs {vitals_id} lookup failed: {e}");
+            return not_found("Vital signs");
+        }
+    };
+    if !may_read_patient(data, caller, caller_id, &v.patient_id) {
+        return access_denied();
+    }
+    let num = |value: Option<i32>| {
+        value.map(|n| n.to_string()).unwrap_or_else(|| "-".to_string())
+    };
+    let dec = |value: Option<f64>| {
+        value.map(|n| format!("{n:.1}")).unwrap_or_else(|| "-".to_string())
+    };
+    let bp = match (v.blood_pressure_systolic, v.blood_pressure_diastolic) {
+        (Some(s), Some(d)) => format!("{s}/{d}"),
+        _ => "-".to_string(),
+    };
+    let mut body = format!("Vital signs {vitals_id}\n\n");
+    body.push_str(&format!("Patient:          {}\n", v.patient_id));
+    body.push_str(&format!("Recorded by:      {}\n", v.recorded_by));
+    body.push_str(&format!(
+        "Recorded:         {}\n",
+        v.recorded_at.format("%Y-%m-%d %H:%M UTC")
+    ));
+    body.push_str(&format!(
+        "Critical:         {}\n\n",
+        if v.is_critical { "YES" } else { "no" }
+    ));
+    body.push_str(&format!("  Heart rate:     {}\n", num(v.heart_rate)));
+    body.push_str(&format!("  Respiratory:    {}\n", num(v.respiratory_rate)));
+    body.push_str(&format!("  Blood pressure: {bp}\n"));
+    body.push_str(&format!("  Temperature:    {} C\n", dec(v.temperature)));
+    body.push_str(&format!("  O2 saturation:  {}\n", num(v.oxygen_saturation)));
+    body.push_str(&format!("  Pain scale:     {}\n", num(v.pain_scale)));
+    body.push_str(&format!("  GCS score:      {}\n", num(v.gcs_score)));
+    body.push_str(&format!("  Blood glucose:  {}\n", num(v.blood_glucose)));
+    body.push_str(&format!("  Weight:         {} kg\n", dec(v.weight_kg)));
+    body.push_str(&format!("  Height:         {} cm\n", dec(v.height_cm)));
+    text_document(vitals_id, body)
+}
+
 /// Wrap a rendered report in the download response every record kind shares.
 fn text_document(filename: &str, body: String) -> HttpResponse {
     HttpResponse::Ok()
@@ -830,6 +1033,18 @@ pub async fn download_medical_record_by_hash(
     }
     if let Some(prescription_id) = content_hash.strip_prefix("rx-") {
         return download_prescription(&data, &current_user, &current_user_id, prescription_id).await;
+    }
+    if let Some(hp_id) = content_hash.strip_prefix("hp-") {
+        return download_history_physical(&data, &current_user, &current_user_id, hp_id).await;
+    }
+    if let Some(note_id) = content_hash.strip_prefix("progress-") {
+        return download_progress_note(&data, &current_user, &current_user_id, note_id).await;
+    }
+    if let Some(wound_id) = content_hash.strip_prefix("wound-") {
+        return download_wound(&data, &current_user, &current_user_id, wound_id).await;
+    }
+    if let Some(vitals_id) = content_hash.strip_prefix("vitals-") {
+        return download_vitals(&data, &current_user, &current_user_id, vitals_id).await;
     }
     if let Some(assessment_id) = content_hash.strip_prefix("triage-") {
         return download_triage(&data, &current_user, &current_user_id, assessment_id).await;
