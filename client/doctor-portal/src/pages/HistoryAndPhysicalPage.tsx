@@ -111,30 +111,34 @@ const HistoryAndPhysicalPage: React.FC = () => {
     examType: 'admission' as HistoryAndPhysical['examType'],
     chiefComplaint: '',
     hpi: '',
-    pmh: [] as string[],
-    psh: [] as string[],
-    medications: [] as string[],
-    allergies: [] as string[],
+    // Free text in the form, split into one entry per line on submit.
+    pmh: '',
+    psh: '',
+    medications: '',
+    allergies: '',
     socialHistory: {
       smoking: 'never',
-      alcohol: 'occasional',
+      alcohol: 'none',
       drugs: 'none',
       occupation: '',
       exercise: 'moderate'
     },
-    familyHistory: [] as string[],
+    familyHistory: '',
+    // Metric throughout, matching triage and the vitals flowsheet. This form
+    // previously asked for Fahrenheit and pounds, which in the same record as
+    // kilogram-based vitals is a dosing hazard rather than a cosmetic quirk.
     vitalSigns: {
       bloodPressure: '',
-      heartRate: 0,
-      respiratoryRate: 0,
-      temperature: 98.6,
-      oxygenSaturation: 0,
-      height: '',
-      weight: '',
-      bmi: 0
+      heartRate: '',
+      respiratoryRate: '',
+      temperature: '',
+      oxygenSaturation: '',
+      heightCm: '',
+      weightKg: '',
+      bmi: ''
     },
-    reviewOfSystems: '',
-    physicalExam: '',
+    reviewOfSystems: {} as Record<string, string>,
+    physicalExam: {} as Record<string, { status: string; findings: string }>,
     assessment: '',
     plan: ''
   });
@@ -179,6 +183,20 @@ const HistoryAndPhysicalPage: React.FC = () => {
     loadData();
   }, [user]);
 
+  /** One history entry per line; blank lines are dropped. */
+  const toLines = (text: string) =>
+    text.split('\n').map(line => line.trim()).filter(Boolean);
+
+  /** Update one vital and keep the derived BMI in step with height and weight. */
+  const updateVital = (field: string, value: string) => {
+    const vitalSigns = { ...formData.vitalSigns, [field]: value };
+    const heightM = parseFloat(vitalSigns.heightCm) / 100;
+    const weightKg = parseFloat(vitalSigns.weightKg);
+    vitalSigns.bmi =
+      heightM > 0 && weightKg > 0 ? (weightKg / (heightM * heightM)).toFixed(1) : '';
+    setFormData({ ...formData, vitalSigns });
+  };
+
   const handleSaveHp = async (status: 'in-progress' | 'signed') => {
     if (!formData.patientId || !formData.chiefComplaint) {
       showError(t('docHistoryPhysical.warningRequiredFields'));
@@ -196,12 +214,12 @@ const HistoryAndPhysicalPage: React.FC = () => {
         exam_type: formData.examType,
         chief_complaint: formData.chiefComplaint,
         history_of_present_illness: formData.hpi,
-        past_medical_history: formData.pmh,
-        past_surgical_history: formData.psh,
-        medications: formData.medications,
-        allergies: formData.allergies,
+        past_medical_history: toLines(formData.pmh),
+        past_surgical_history: toLines(formData.psh),
+        medications: toLines(formData.medications),
+        allergies: toLines(formData.allergies),
         social_history: formData.socialHistory,
-        family_history: formData.familyHistory,
+        family_history: toLines(formData.familyHistory),
         vital_signs: formData.vitalSigns,
         review_of_systems: formData.reviewOfSystems,
         physical_exam: formData.physicalExam,
@@ -446,7 +464,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     <div className="flex items-center gap-1">
                       <Thermometer className="w-4 h-4 text-orange-500" />
                       <span className="text-gray-600">{t('docHistoryPhysical.tempAbbrev')}</span>
-                      <span className="font-medium">{record.vitalSigns.temperature}°F</span>
+                      <span className="font-medium">{record.vitalSigns.temperature}°C</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Scale className="w-4 h-4 text-green-500" />
@@ -660,6 +678,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       <label htmlFor="hp-pmh" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.pmhLabel')}</label>
                       <textarea
                         id="hp-pmh"
+                        value={formData.pmh}
+                        onChange={(e) => setFormData({ ...formData, pmh: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-24"
                         placeholder={t('docHistoryPhysical.pmhPh')}
                       />
@@ -668,6 +688,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       <label htmlFor="hp-psh" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.pshLabel')}</label>
                       <textarea
                         id="hp-psh"
+                        value={formData.psh}
+                        onChange={(e) => setFormData({ ...formData, psh: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-20"
                         placeholder={t('docHistoryPhysical.pshPh')}
                       />
@@ -680,6 +702,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         </label>
                         <textarea
                           id="hp-medications"
+                        value={formData.medications}
+                        onChange={(e) => setFormData({ ...formData, medications: e.target.value })}
                           className="w-full border rounded-lg px-3 py-2 h-24"
                           placeholder={t('docHistoryPhysical.medicationsPh')}
                         />
@@ -691,6 +715,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         </label>
                         <textarea
                           id="hp-allergies"
+                        value={formData.allergies}
+                        onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
                           className="w-full border rounded-lg px-3 py-2 h-24"
                           placeholder={t('docHistoryPhysical.allergiesPh')}
                         />
@@ -701,7 +727,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="group" aria-labelledby="hp-social-history-heading">
                         <div>
                           <label htmlFor="hp-tobacco" className="block text-xs text-gray-500 mb-1">{t('docHistoryPhysical.tobaccoUseLabel')}</label>
-                          <select id="hp-tobacco" className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <select id="hp-tobacco" className="w-full border rounded-lg px-3 py-2 text-sm"
+                            value={formData.socialHistory.smoking}
+                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, smoking: e.target.value } })}>
                             <option value="never">{t('docHistoryPhysical.smoking_never')}</option>
                             <option value="former">{t('docHistoryPhysical.smoking_former')}</option>
                             <option value="current">{t('docHistoryPhysical.smoking_current')}</option>
@@ -709,7 +737,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         </div>
                         <div>
                           <label htmlFor="hp-alcohol" className="block text-xs text-gray-500 mb-1">{t('docHistoryPhysical.alcoholUseLabel')}</label>
-                          <select id="hp-alcohol" className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <select id="hp-alcohol" className="w-full border rounded-lg px-3 py-2 text-sm"
+                            value={formData.socialHistory.alcohol}
+                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, alcohol: e.target.value } })}>
                             <option value="none">{t('docHistoryPhysical.alcohol_none')}</option>
                             <option value="social">{t('docHistoryPhysical.alcohol_social')}</option>
                             <option value="moderate">{t('docHistoryPhysical.alcohol_moderate')}</option>
@@ -718,7 +748,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         </div>
                         <div>
                           <label htmlFor="hp-drugs" className="block text-xs text-gray-500 mb-1">{t('docHistoryPhysical.illicitDrugsLabel')}</label>
-                          <select id="hp-drugs" className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <select id="hp-drugs" className="w-full border rounded-lg px-3 py-2 text-sm"
+                            value={formData.socialHistory.drugs}
+                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, drugs: e.target.value } })}>
                             <option value="none">{t('docHistoryPhysical.drugs_none')}</option>
                             <option value="former">{t('docHistoryPhysical.drugs_former')}</option>
                             <option value="current">{t('docHistoryPhysical.drugs_current')}</option>
@@ -730,6 +762,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       <label htmlFor="hp-family-history" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.familyHistoryLabel')}</label>
                       <textarea
                         id="hp-family-history"
+                        value={formData.familyHistory}
+                        onChange={(e) => setFormData({ ...formData, familyHistory: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-20"
                         placeholder={t('docHistoryPhysical.familyHistoryPh')}
                       />
@@ -758,35 +792,50 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <label htmlFor="hp-blood-pressure" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.bloodPressureLabel')}</label>
-                      <input id="hp-blood-pressure" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="120/80" />
+                      <input id="hp-blood-pressure" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="120/80"
+                        value={formData.vitalSigns.bloodPressure}
+                        onChange={(e) => updateVital('bloodPressure', e.target.value)} />
                     </div>
                     <div>
                       <label htmlFor="hp-heart-rate" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.heartRateLabel')}</label>
-                      <input id="hp-heart-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="72" />
+                      <input id="hp-heart-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="72"
+                        value={formData.vitalSigns.heartRate}
+                        onChange={(e) => updateVital('heartRate', e.target.value)} />
                     </div>
                     <div>
                       <label htmlFor="hp-respiratory-rate" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.respiratoryRateLabel')}</label>
-                      <input id="hp-respiratory-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="16" />
+                      <input id="hp-respiratory-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="16"
+                        value={formData.vitalSigns.respiratoryRate}
+                        onChange={(e) => updateVital('respiratoryRate', e.target.value)} />
                     </div>
                     <div>
                       <label htmlFor="hp-temperature" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.temperatureLabel')}</label>
-                      <input id="hp-temperature" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="98.6" />
+                      <input id="hp-temperature" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="36.8"
+                        value={formData.vitalSigns.temperature}
+                        onChange={(e) => updateVital('temperature', e.target.value)} />
                     </div>
                     <div>
                       <label htmlFor="hp-spo2" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.spo2Label')}</label>
-                      <input id="hp-spo2" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="98" />
+                      <input id="hp-spo2" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="98"
+                        value={formData.vitalSigns.oxygenSaturation}
+                        onChange={(e) => updateVital('oxygenSaturation', e.target.value)} />
                     </div>
                     <div>
                       <label htmlFor="hp-height" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.heightLabel')}</label>
-                      <input id="hp-height" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="5'10&quot;" />
+                      <input id="hp-height" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="170"
+                        value={formData.vitalSigns.heightCm}
+                        onChange={(e) => updateVital('heightCm', e.target.value)} />
                     </div>
                     <div>
                       <label htmlFor="hp-weight" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.weightLabel')}</label>
-                      <input id="hp-weight" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="175" />
+                      <input id="hp-weight" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="70"
+                        value={formData.vitalSigns.weightKg}
+                        onChange={(e) => updateVital('weightKg', e.target.value)} />
                     </div>
                     <div>
                       <label htmlFor="hp-bmi" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.bmiCalcLabel')}</label>
-                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly placeholder="24.5" />
+                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly placeholder="24.5"
+                        value={formData.vitalSigns.bmi} />
                     </div>
                   </div>
                 )}
@@ -816,7 +865,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         <div className="flex gap-2" role="radiogroup" aria-labelledby={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`}>
                           {['normal', 'abnormal'].map(status => (
                             <label key={status} htmlFor={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} className="flex items-center gap-1 cursor-pointer">
-                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-indigo-600" />
+                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-indigo-600"
+                                checked={formData.reviewOfSystems[system] === status}
+                                onChange={() => setFormData({ ...formData, reviewOfSystems: { ...formData.reviewOfSystems, [system]: status } })} />
                               <span className="text-xs">{status === 'normal' ? t('docHistoryPhysical.negLabel') : t('docHistoryPhysical.posLabel')}</span>
                             </label>
                           ))}
@@ -852,7 +903,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           <div className="flex gap-3" role="radiogroup" aria-labelledby={`hp-pe-${system.toLowerCase()}-label`}>
                             {['normal', 'abnormal'].map(status => (
                               <label key={status} htmlFor={`hp-pe-${system.toLowerCase()}-${status}`} className="flex items-center gap-1 cursor-pointer">
-                                <input id={`hp-pe-${system.toLowerCase()}-${status}`} type="radio" name={`pe-${system}`} className="text-indigo-600" />
+                                <input id={`hp-pe-${system.toLowerCase()}-${status}`} type="radio" name={`pe-${system}`} className="text-indigo-600"
+                                  checked={formData.physicalExam[system]?.status === status}
+                                  onChange={() => setFormData({ ...formData, physicalExam: { ...formData.physicalExam, [system]: { status, findings: formData.physicalExam[system]?.findings || '' } } })} />
                                 <span className="text-sm">{status === 'normal' ? t('docHistoryPhysical.normalLabel') : t('docHistoryPhysical.abnormalLabel')}</span>
                               </label>
                             ))}
@@ -864,6 +917,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           className="w-full border rounded px-3 py-2 text-sm"
                           placeholder={t('docHistoryPhysical.findingsPh')}
                           rows={2}
+                          value={formData.physicalExam[system]?.findings || ''}
+                          onChange={(e) => setFormData({ ...formData, physicalExam: { ...formData.physicalExam, [system]: { status: formData.physicalExam[system]?.status || '', findings: e.target.value } } })}
                         />
                       </div>
                     ))}

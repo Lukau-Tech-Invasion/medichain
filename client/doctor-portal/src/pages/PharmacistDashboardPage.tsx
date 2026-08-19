@@ -55,7 +55,8 @@ interface AllergyAlert {
   patient_id: string;
   patient_name?: string;
   allergen: string;
-  medication_ordered: string;
+  /** The reaction recorded on the patient's allergy list, when known. */
+  reaction?: string | null;
   severity: string;
 }
 
@@ -115,7 +116,9 @@ export default function PharmacistDashboardPage() {
       id: a.id,
       type: 'allergy',
       title: t('docPharmDashboard.allergyAlertTitle', { allergen: a.allergen }),
-      description: t('docPharmDashboard.orderedMedication', { medication: a.medication_ordered }),
+      description: a.reaction
+        ? t('docPharmDashboard.allergyReaction', { reaction: a.reaction, severity: a.severity })
+        : t('docPharmDashboard.allergyOnRecord', { severity: a.severity }),
       patient_name: a.patient_name || t('docPharmDashboard.unknown'),
       timestamp: new Date().toISOString(),
       severity: 'high',
@@ -334,7 +337,9 @@ export default function PharmacistDashboardPage() {
                         <AlertTriangle size={14} aria-hidden="true" /> {t('docPharmDashboard.allergicTo')} <strong>{alert.allergen}</strong>
                       </p>
                       <p className="text-sm text-gray-600">
-                        {t('docPharmDashboard.orderedLabel', { medication: alert.medication_ordered })}
+                        {alert.reaction
+                          ? t('docPharmDashboard.allergyReaction', { reaction: alert.reaction, severity: alert.severity })
+                          : t('docPharmDashboard.allergyOnRecord', { severity: alert.severity })}
                       </p>
                     </div>
                     <div className="flex gap-2">

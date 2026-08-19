@@ -1,12 +1,24 @@
 import React, { useState } from 'react';
-import { createEPrescription, exportDocumentToPdf, useTranslation } from '@medichain/shared';
+import {
+  createEPrescription,
+  signEPrescription,
+  transmitEPrescription,
+  exportDocumentToPdf,
+  useTranslation,
+} from '@medichain/shared';
 import { FileText, Send, AlertCircle, Download } from 'lucide-react';
 import { useToastActions } from '../components/Toast';
 import PatientSelect from '../components/PatientSelect';
+import { useAuthStore } from '../store/authStore';
 
 export default function EPrescribePage() {
   const { t } = useTranslation();
   const { showError } = useToastActions();
+  const { user } = useAuthStore();
+  // The API restricts prescribing to physicians (`Only physicians can create
+  // prescriptions`). Without this, a nurse could open the page, fill in every
+  // field and only discover the restriction as a generic failure on submit.
+  const mayPrescribe = user?.role === 'Doctor';
   const [formData, setFormData] = useState({
     patient_id: '',
     medication_name: '',
@@ -31,7 +43,19 @@ export default function EPrescribePage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await createEPrescription(formData);
+      // "Send Prescription" has to actually send it. Creating alone leaves the
+      // prescription in Draft, which is why every prescription in the system sat
+      // unsigned and untransmitted and no pharmacy would ever have received one.
+      const created = await createEPrescription(formData);
+      const prescriptionId = created?.prescription_id;
+      if (prescriptionId) {
+        await signEPrescription(prescriptionId, {
+          signature_method: 'wallet',
+          attestation:
+            'I certify that this prescription is issued for a legitimate medical purpose in the usual course of my professional practice.',
+        });
+        await transmitEPrescription(prescriptionId);
+      }
       setSuccess(true);
       setLastPrescription(formData);
       setTimeout(() => setSuccess(false), 3000);
@@ -94,9 +118,14 @@ export default function EPrescribePage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
+    const numericFields = new Set(['quantity', 'days_supply', 'refills_allowed']);
     setFormData(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+      [name]: type === 'checkbox'
+        ? (e.target as HTMLInputElement).checked
+        : numericFields.has(name)
+          ? Number(value)
+          : value
     }));
   };
 
@@ -130,6 +159,22 @@ export default function EPrescribePage() {
         </div>
       )}
 
+      {!mayPrescribe && (
+        <div
+          role="status"
+          className="mb-6 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950"
+        >
+          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="font-medium text-amber-900 dark:text-amber-100">
+              {t('docEPrescribe.physiciansOnlyTitle')}
+            </p>
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              {t('docEPrescribe.physiciansOnlyBody')}
+            </p>
+          </div>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Patient & Pharmacy */}
         <div className="bg-white dark:bg-slate-800 shadow rounded-lg p-6">
@@ -172,7 +217,7 @@ export default function EPrescribePage() {
                 value={formData.medication_name} 
                 onChange={handleChange} 
                 className="mt-1 w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-                placeholder="Amoxicillin"
+                placeholder={t('docEPrescribe.medicationNamePh')}
                 required 
               />
             </div>
@@ -184,7 +229,7 @@ export default function EPrescribePage() {
                 value={formData.strength} 
                 onChange={handleChange} 
                 className="mt-1 w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
-                placeholder="500mg"
+                placeholder={t('docEPrescribe.strengthPh')}
                 required 
               />
             </div>
@@ -297,7 +342,7 @@ export default function EPrescribePage() {
         <div className="flex justify-end">
           <button 
             type="submit" 
-            disabled={isSubmitting}
+            disabled={isSubmitting || !mayPrescribe}
             className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             <Send className="h-5 w-5 mr-2" />

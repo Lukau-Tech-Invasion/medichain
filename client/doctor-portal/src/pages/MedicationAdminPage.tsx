@@ -416,6 +416,18 @@ const MedicationAdminPage: React.FC = () => {
                         </button>
                       ) : (
                         <div className="flex space-x-2">
+                          {(med.scheduledTimes ?? []).length === 0 && (
+                            // An e-prescription carries free-text directions, not a
+                            // dosing schedule, so there are no time slots to click.
+                            // Without this the row is a dead end and the drug can
+                            // never be administered.
+                            <button
+                              onClick={() => handleAdministerMed(med, '')}
+                              className="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm hover:bg-blue-200"
+                            >
+                              {t('docMedicationAdmin.administerNowButton')}
+                            </button>
+                          )}
                           {(med.scheduledTimes ?? []).map((time, tIdx) => {
                             const status = getMedicationStatus(med, time);
                             return (
