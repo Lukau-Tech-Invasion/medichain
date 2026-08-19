@@ -71,20 +71,82 @@ pub async fn get_mar(
 }
 
 /// List all MAR entries
+/// The medications a nurse is due to give, one row per prescribed drug.
+///
+/// This is the link between prescribing and administration, and it was missing:
+/// the endpoint returned raw MAR records whose `scheduled_medications` arrays
+/// were empty, and the page mapped each *record* as if it were a single
+/// medication — so the eMAR grid showed rows with blank drug names and nothing
+/// could ever be administered. Rows are now derived from transmitted
+/// prescriptions for active patients.
+///
+/// `scheduled_times` is deliberately left empty rather than invented: an
+/// e-prescription carries free-text directions, not a dosing schedule, and
+/// fabricating administration times on a medication record would be worse than
+/// showing none. Administering without one is recorded as PRN.
 #[get("/api/emergency/mar/list")]
 pub async fn list_mar(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
     if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
         return resp;
     }
-    match data
+
+    let patients = data
         .repositories
-        .medication_records
-        .list_all(Pagination::new(0, 50))
+        .patients
+        .list(Pagination::new(0, 50))
         .await
-    {
-        Ok(result) => HttpResponse::Ok().json(result.items),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        .map(|r| r.items)
+        .unwrap_or_default();
+
+    let mut rows: Vec<serde_json::Value> = Vec::new();
+    for entity in &patients {
+        let name = patient_entity_to_profile(entity, &data.encryption_keyring)
+            .map(|p| p.full_name)
+            .unwrap_or_else(|| entity.id.clone());
+
+        let prescriptions = data
+            .repositories
+            .e_prescriptions_v2
+            .list_all()
+            .await
+            .unwrap_or_default();
+
+        for record in prescriptions {
+            let v = &record.data;
+            if v.get("patient_id").and_then(|x| x.as_str()) != Some(entity.id.as_str()) {
+                continue;
+            }
+            // Only medication a pharmacy would actually be dispensing.
+            let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
+            if !matches!(status, "Transmitted" | "Signed" | "Filled") {
+                continue;
+            }
+            let med = v.get("medication").cloned().unwrap_or(serde_json::Value::Null);
+            let text = |object: &serde_json::Value, key: &str| {
+                object
+                    .get(key)
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            rows.push(serde_json::json!({
+                "med_id": record.id,
+                "patient_id": entity.id,
+                "patient_name": name,
+                "medication_name": text(&med, "name"),
+                "dose": text(&med, "strength"),
+                "route": if text(&med, "form").eq_ignore_ascii_case("injection") { "IV" } else { "PO" },
+                "frequency": text(&med, "directions"),
+                "scheduled_times": [],
+                "start_date": text(v, "created_at"),
+                "indication": text(v, "patient_instructions"),
+                "prescriber": text(v, "prescriber_name"),
+                "priority": "routine",
+            }));
+        }
     }
+
+    HttpResponse::Ok().json(rows)
 }
 
 /// Administer medication — appends the dose to the patient's MAR for today.
@@ -147,22 +209,112 @@ pub async fn administer_medication(
 }
 
 /// Create I/O record
+/// What the intake/output entry form submits.
+///
+/// The clinical `IntakeOutputRecord` is a whole shift's record with running
+/// totals; the bedside form records one fluid event. Requiring the former is why
+/// the entry form could not save. Amounts arrive in the unit the nurse chose and
+/// are normalised to millilitres here, because the stored totals are in ml and a
+/// mixed-unit column would make fluid balance meaningless.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateIoEntryRequest {
+    #[serde(rename = "patientId", alias = "patient_id")]
+    pub patient_id: String,
+    #[serde(rename = "type")]
+    pub direction: String,
+    pub category: String,
+    pub amount: f64,
+    #[serde(default)]
+    pub unit: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub shift: Option<String>,
+}
+
 #[post("/api/emergency/io")]
 pub async fn create_io(
     data: web::Data<AppState>,
-    req: web::Json<crate::clinical::IntakeOutputRecord>,
+    req: web::Json<CreateIoEntryRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+
+    let entry = req.into_inner();
+    if entry.patient_id.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patientId is required".to_string(),
+            code: "MISSING_PATIENT_ID".to_string(),
+        });
+    }
+    // NaN must be rejected too, so this tests the valid range rather than
+    // negating a comparison.
+    if !entry.amount.is_finite() || entry.amount <= 0.0 {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "amount must be greater than zero".to_string(),
+            code: "INVALID_AMOUNT".to_string(),
+        });
+    }
+    if data
+        .repositories
+        .patients
+        .get_by_id(&entry.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", entry.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
     }
 
-    let record = req.into_inner();
-    let id = format!("IO-{}-{}", record.patient_id, record.date);
-    let entity = io_record_entity(id.clone(), &record, json_value(&record));
-    match data.repositories.io_records.create(entity).await {
-        Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    let amount_ml = match entry.unit.to_ascii_lowercase().as_str() {
+        // A US fluid ounce is 29.5735 ml; ml and cc are equivalent.
+        "oz" => (entry.amount * 29.5735).round() as i32,
+        _ => entry.amount.round() as i32,
+    };
+
+    // The helper keys the record by shift, and recomputes the running totals and
+    // net balance so fluid balance stays consistent with the events.
+    let shift = entry.shift.clone().unwrap_or_else(|| {
+        let hour = chrono::Timelike::hour(&Utc::now());
+        if (7..19).contains(&hour) { "day".to_string() } else { "night".to_string() }
+    });
+    // Categories are stored prefixed by direction so intake and output cannot be
+    // confused when the totals are recomputed.
+    let category = format!("{}:{}", entry.direction, entry.category);
+
+    match crate::clinical_endpoints::append_io_event(
+        &data,
+        &entry.patient_id,
+        &shift,
+        &caller.wallet_address,
+        &category,
+        amount_ml,
+    )
+    .await
+    {
+        Ok(id) => HttpResponse::Created().json(serde_json::json!({
+            "id": id,
+            "success": true,
+            "amount_ml": amount_ml
+        })),
+        Err(e) => {
+            log::error!("intake/output persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to record the fluid entry".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -284,22 +436,91 @@ pub async fn record_fluid(
 }
 
 /// Create nursing care plan
+/// What the nursing care-plan form submits.
+///
+/// The clinical `NursingCarePlan` type models goals, outcomes and interventions
+/// as structures the create form does not collect; it captures a patient, a
+/// nursing diagnosis and a priority. Requiring the full structure is why the
+/// form was never wired up to anything.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateCarePlanRequest {
+    pub patient_id: String,
+    pub diagnosis: String,
+    #[serde(default)]
+    pub priority: String,
+    #[serde(default)]
+    pub goals: Vec<String>,
+    #[serde(default)]
+    pub interventions: Vec<String>,
+}
+
 #[post("/api/emergency/care-plan")]
 pub async fn create_care_plan(
     data: web::Data<AppState>,
-    req: web::Json<crate::clinical::NursingCarePlan>,
+    req: web::Json<CreateCarePlanRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
 
     let plan = req.into_inner();
-    let id = plan.care_plan_id.clone();
-    let entity = nursing_care_plan_entity(&plan, json_value(&plan));
+    if plan.patient_id.trim().is_empty() || plan.diagnosis.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id and diagnosis are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if data
+        .repositories
+        .patients
+        .get_by_id(&plan.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", plan.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
+    }
+
+    let now = Utc::now();
+    let id = format!("NCP-{}", uuid::Uuid::new_v4().simple());
+    let entity = crate::repositories::traits::NursingCarePlanEntity {
+        id: id.clone(),
+        patient_id: plan.patient_id.clone(),
+        plan_name: plan.diagnosis.trim().to_string(),
+        care_level: Some(plan.priority.clone()).filter(|p| !p.is_empty()),
+        nursing_diagnoses: serde_json::json!([plan.diagnosis.trim()]),
+        goals: serde_json::json!(plan.goals),
+        interventions: serde_json::json!(plan.interventions),
+        evaluation_notes: None,
+        status: Some("active".to_string()),
+        start_date: now.date_naive(),
+        target_end_date: None,
+        actual_end_date: None,
+        created_by: caller.wallet_address.clone(),
+        updated_by: None,
+        created_at: now,
+        updated_at: now,
+        facility_id: None,
+        is_active: true,
+        data: serde_json::to_value(&plan).unwrap_or_default(),
+    };
+
     match data.repositories.nursing_care_plans.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("nursing care plan persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to save the care plan".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -341,22 +562,122 @@ pub async fn list_care_plans(data: web::Data<AppState>, http_req: HttpRequest) -
 }
 
 /// Create wound assessment
+/// What the wound-care form actually submits.
+///
+/// The clinical `WoundAssessment` models location, type, wound bed, drainage and
+/// treatment as nested structures and enums; a bedside wound form captures a flat
+/// set of measurements and one free-text note. Requiring the full structure meant
+/// the form could not produce a valid body at all. This DTO is the boundary
+/// between the two, and unlike the structured mapper it actually keeps the
+/// measurements — those were being dropped on the floor.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateWoundRequest {
+    pub patient_id: String,
+    pub wound_type: String,
+    pub location: String,
+    #[serde(default)]
+    pub length_cm: Option<f64>,
+    #[serde(default)]
+    pub width_cm: Option<f64>,
+    #[serde(default)]
+    pub depth_cm: Option<f64>,
+    #[serde(default)]
+    pub exudate: Option<String>,
+    #[serde(default)]
+    pub pain_level: Option<i32>,
+    #[serde(default)]
+    pub tissue_types: Vec<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
 #[post("/api/emergency/wound")]
 pub async fn create_wound(
     data: web::Data<AppState>,
-    req: web::Json<crate::clinical::WoundAssessment>,
+    req: web::Json<CreateWoundRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
 
     let assessment = req.into_inner();
-    let id = assessment.assessment_id.clone();
-    let entity = wound_assessment_entity(&assessment, json_value(&assessment));
+    if assessment.patient_id.trim().is_empty() || assessment.location.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id and location are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if let Some(pain) = assessment.pain_level {
+        if !(0..=10).contains(&pain) {
+            return HttpResponse::BadRequest().json(ErrorResponse {
+                success: false,
+                error: "pain_level must be between 0 and 10".to_string(),
+                code: "VALIDATION_ERROR".to_string(),
+            });
+        }
+    }
+    if data
+        .repositories
+        .patients
+        .get_by_id(&assessment.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", assessment.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
+    }
+
+    let now = Utc::now();
+    let id = format!("WND-{}", uuid::Uuid::new_v4().simple());
+    let cm = |v: Option<f64>| {
+        v.and_then(|n| rust_decimal::Decimal::from_f64_retain(n).map(|d| d.round_dp(1)))
+    };
+    let entity = WoundAssessmentEntity {
+        id: id.clone(),
+        patient_id: assessment.patient_id.clone(),
+        wound_id: id.clone(),
+        wound_location: assessment.location.clone(),
+        wound_type: assessment.wound_type.clone(),
+        length_cm: cm(assessment.length_cm),
+        width_cm: cm(assessment.width_cm),
+        depth_cm: cm(assessment.depth_cm),
+        tissue_type: if assessment.tissue_types.is_empty() {
+            None
+        } else {
+            Some(assessment.tissue_types.join(", "))
+        },
+        drainage_amount: assessment.exudate.clone(),
+        drainage_type: None,
+        periwound_condition: None,
+        pain_level: assessment.pain_level,
+        treatment_applied: None,
+        dressing_type: None,
+        notes: assessment.notes.clone(),
+        photo_taken: Some(false),
+        assessed_by: caller.wallet_address.clone(),
+        assessed_at: now,
+        created_at: now,
+        updated_at: now,
+        facility_id: None,
+        data: serde_json::to_value(&assessment).unwrap_or_default(),
+    };
+
     match data.repositories.wound_assessments.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("wound assessment persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to save the wound assessment".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -535,22 +856,136 @@ pub async fn list_provider_handoffs(
 }
 
 /// Create incident report
+/// What the incident-report wizard actually submits.
+///
+/// The clinical `IncidentReport` type models contributing factors, preventive
+/// measures and outcomes as structures the three-step form never collects, and
+/// the previous mapper hardcoded `severity: "reported"` — discarding the
+/// severity a reporter had chosen, on a patient-safety record. This DTO matches
+/// the wizard and keeps what it captures.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateIncidentRequest {
+    #[serde(rename = "type")]
+    pub incident_type: String,
+    pub severity: String,
+    #[serde(rename = "dateTime")]
+    pub date_time: String,
+    pub location: String,
+    #[serde(default)]
+    pub department: String,
+    pub description: String,
+    #[serde(rename = "patientInvolved", default)]
+    pub patient_involved: bool,
+    #[serde(rename = "patientId", default)]
+    pub patient_id: String,
+    #[serde(rename = "staffInvolved", default)]
+    pub staff_involved: Vec<String>,
+    #[serde(default)]
+    pub witnesses: Vec<String>,
+    #[serde(rename = "immediateActions", default)]
+    pub immediate_actions: String,
+}
+
 #[post("/api/emergency/incident")]
 pub async fn create_incident(
     data: web::Data<AppState>,
-    req: web::Json<crate::clinical::IncidentReport>,
+    req: web::Json<CreateIncidentRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
-        return resp;
-    }
+    let caller = match crate::support::require_clinical_staff(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
 
     let report = req.into_inner();
-    let id = report.report_id.clone();
-    let entity = incident_report_entity(&report, json_value(&report));
+    if report.description.trim().is_empty() || report.location.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "description and location are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+
+    let now = Utc::now();
+    let incident_at = chrono::DateTime::parse_from_rfc3339(&report.date_time)
+        .map(|d| d.with_timezone(&Utc))
+        .unwrap_or(now);
+
+    // Only attach a patient when one was named AND exists, so a safety report is
+    // never silently filed against a patient id that does not resolve.
+    let patient_id = if report.patient_involved && !report.patient_id.trim().is_empty() {
+        if data
+            .repositories
+            .patients
+            .get_by_id(&report.patient_id)
+            .await
+            .is_err()
+        {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: format!("Patient '{}' not found", report.patient_id),
+                code: "PATIENT_NOT_FOUND".to_string(),
+            });
+        }
+        Some(report.patient_id.clone())
+    } else {
+        None
+    };
+
+    let id = format!("INC-{}", uuid::Uuid::new_v4().simple());
+    let entity = IncidentReportEntity {
+        id: id.clone(),
+        patient_id,
+        reporter_id: caller.wallet_address.clone(),
+        incident_datetime: incident_at,
+        discovery_datetime: now,
+        incident_type: report.incident_type.clone(),
+        severity: report.severity.clone(),
+        location: report.location.trim().to_string(),
+        department: Some(report.department.clone()).filter(|d| !d.is_empty()),
+        description: report.description.trim().to_string(),
+        immediate_actions_taken: Some(report.immediate_actions.clone())
+            .filter(|a| !a.trim().is_empty()),
+        patient_outcome: None,
+        patient_notified: false,
+        patient_notified_by: None,
+        family_notified: false,
+        attending_notified: false,
+        supervisor_notified: false,
+        risk_management_notified: false,
+        witnesses: Some(serde_json::json!(report.witnesses)),
+        contributing_factors: None,
+        root_cause: None,
+        preventable: None,
+        similar_incidents_prior: false,
+        corrective_actions: Some(serde_json::json!(report.staff_involved)),
+        follow_up_required: false,
+        follow_up_assigned_to: None,
+        follow_up_due_date: None,
+        follow_up_completed: false,
+        follow_up_completed_at: None,
+        investigation_status: Some("open".to_string()),
+        reviewed_by: None,
+        reviewed_at: None,
+        review_comments: None,
+        regulatory_reportable: false,
+        reported_to_agencies: None,
+        confidential: true,
+        created_at: now,
+        updated_at: now,
+        data: serde_json::to_value(&report).unwrap_or_default(),
+    };
+
     match data.repositories.incident_reports.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+        Err(e) => {
+            log::error!("incident report persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to save the incident report".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 
@@ -631,6 +1066,7 @@ mod cds_wiring_tests {
             date_of_birth: "1980-01-01".to_string(),
             time_of_birth: None,
             national_id: format!("NID-{id}"),
+            gender: None,
             phone: "+27000000000".to_string(),
             emergency_info: crate::EmergencyInfo {
                 patient_id: id.to_string(),

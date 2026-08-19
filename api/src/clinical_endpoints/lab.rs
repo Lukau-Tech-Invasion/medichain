@@ -10,10 +10,35 @@ use super::*;
 // ============================================================================
 
 /// Create specimen collection
+/// What the specimen collection form actually submits.
+///
+/// The clinical `SpecimenCollection` type is a much larger structure than a
+/// bedside collection screen fills in, and the handler previously populated only
+/// the `data` blob via `..Default::default()` — leaving `specimen_type`,
+/// `collector_id`, `submission_id` and `collected_at` empty even though all four
+/// are NOT NULL. This DTO carries exactly what the form has and the handler fills
+/// the typed columns from it.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct CreateSpecimenRequest {
+    pub patient_id: String,
+    pub specimen_type: String,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub tests_ordered: Option<String>,
+    #[serde(default)]
+    pub collection_site: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Pre-collection safety checks the collector confirmed.
+    #[serde(default)]
+    pub checklist: Vec<String>,
+}
+
 #[post("/api/clinical/specimen")]
 pub async fn create_specimen(
     data: web::Data<AppState>,
-    req: web::Json<clinical::SpecimenCollection>,
+    req: web::Json<CreateSpecimenRequest>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -36,32 +61,117 @@ pub async fn create_specimen(
     }
 
     let record = req.into_inner();
-    let collection_id = record.collection_id.clone();
+    if record.patient_id.trim().is_empty() || record.specimen_type.trim().is_empty() {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: "patient_id and specimen_type are required".to_string(),
+            code: "VALIDATION_ERROR".to_string(),
+        });
+    }
+    if data
+        .repositories
+        .patients
+        .get_by_id(&record.patient_id)
+        .await
+        .is_err()
+    {
+        return HttpResponse::NotFound().json(ErrorResponse {
+            success: false,
+            error: format!("Patient '{}' not found", record.patient_id),
+            code: "PATIENT_NOT_FOUND".to_string(),
+        });
+    }
+
     let now = Utc::now();
+    let collection_id = format!("SPC-{}", uuid::Uuid::new_v4().simple());
+
+    // `specimen_collections.submission_id` is a NOT NULL foreign key into
+    // `lab_submissions`, so a collection cannot stand alone. Raise the submission
+    // the collection implies, from the tests the collector listed — that keeps the
+    // chain of custody intact and the specimen traceable to an order, rather than
+    // weakening the constraint to let orphaned specimens exist.
+    let submission_id = format!("LAB-{}", uuid::Uuid::new_v4().simple());
+    let tests: Vec<String> = record
+        .tests_ordered
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let submission = LabSubmissionEntity {
+        id: submission_id.clone(),
+        patient_id: record.patient_id.clone(),
+        ordering_provider_id: current_user.wallet_address.clone(),
+        order_date: now,
+        priority: record.priority.clone().unwrap_or_else(|| "routine".to_string()),
+        status: "collected".to_string(),
+        tests_ordered: serde_json::json!(tests),
+        clinical_notes: record.notes.clone(),
+        diagnosis_codes: None,
+        fasting_required: false,
+        collection_instructions: record.collection_site.clone(),
+        expected_completion: None,
+        created_at: now,
+        updated_at: now,
+    };
+    if let Err(e) = data.repositories.lab_submissions.create(submission).await {
+        log::error!("lab submission for specimen collection failed: {e}");
+        return HttpResponse::InternalServerError().json(ErrorResponse {
+            success: false,
+            error: "Failed to raise the lab order for this collection".to_string(),
+            code: "REPO_ERROR".to_string(),
+        });
+    }
+
     let entity = SpecimenCollectionEntity {
         id: collection_id.clone(),
         patient_id: record.patient_id.clone(),
-        data: serde_json::to_value(&record).unwrap_or_default(),
+        submission_id: submission_id.clone(),
+        specimen_type: record.specimen_type.clone(),
+        collection_site: record.collection_site.clone(),
+        collection_method: None,
+        collector_id: current_user.wallet_address.clone(),
+        collected_at: now,
+        received_at: None,
+        received_by: None,
+        container_type: None,
+        volume_ml: None,
+        temperature_c: None,
+        condition: None,
+        barcode: None,
+        storage_location: None,
+        chain_of_custody: Some(serde_json::json!([{
+            "action": "collected",
+            "by": current_user.wallet_address,
+            "at": now.to_rfc3339(),
+            "checklist": record.checklist,
+        }])),
+        notes: record.notes.clone(),
         created_at: now,
         updated_at: now,
-        ..Default::default()
+        data: serde_json::to_value(&record).unwrap_or_default(),
     };
 
     match data.repositories.specimen_collections.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({
             "success": true,
-            "collection_id": collection_id
+            "collection_id": collection_id,
+            "submission_id": submission_id
         })),
         Err(RepositoryError::Duplicate(msg)) => HttpResponse::Conflict().json(ErrorResponse {
             success: false,
             error: msg,
             code: "DUPLICATE".to_string(),
         }),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
-            success: false,
-            error: e.to_string(),
-            code: "INTERNAL_ERROR".to_string(),
-        }),
+        Err(e) => {
+            log::error!("specimen collection persistence failed: {e}");
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Failed to save the specimen collection".to_string(),
+                code: "REPO_ERROR".to_string(),
+            })
+        }
     }
 }
 

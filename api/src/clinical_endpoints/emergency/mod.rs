@@ -288,10 +288,6 @@ fn timestamp_to_date(value: i64) -> NaiveDate {
     timestamp_to_datetime(value).date_naive()
 }
 
-fn u32_to_i32(value: u32) -> i32 {
-    i32::try_from(value).unwrap_or(i32::MAX)
-}
-
 fn access_log_entity(
     accessor_id: String,
     accessor_role: &str,
@@ -491,96 +487,6 @@ fn medication_record_entity(
     }
 }
 
-fn io_record_entity(id: String, record: &IntakeOutputRecord, data: Value) -> IORecordEntity {
-    let now = Utc::now();
-    IORecordEntity {
-        id,
-        patient_id: record.patient_id.clone(),
-        record_date: parse_date_or_today(&record.date),
-        shift: record.shift.clone(),
-        oral_intake: Some(u32_to_i32(record.totals.oral_intake_ml)),
-        iv_intake: Some(u32_to_i32(record.totals.iv_intake_ml)),
-        tube_feeding: None,
-        other_intake: None,
-        total_intake: u32_to_i32(record.totals.total_intake_ml),
-        urine_output: Some(u32_to_i32(record.totals.urine_output_ml)),
-        emesis: None,
-        drainage: None,
-        stool: None,
-        other_output: Some(u32_to_i32(record.totals.other_output_ml)),
-        total_output: u32_to_i32(record.totals.total_output_ml),
-        net_balance: record.totals.net_balance_ml,
-        intake_items: Some(json_value(&record.intake)),
-        output_items: Some(json_value(&record.output)),
-        notes: None,
-        recorded_by: record.documented_by.clone(),
-        verified_by: None,
-        created_at: now,
-        updated_at: now,
-        facility_id: None,
-        data,
-    }
-}
-
-fn nursing_care_plan_entity(plan: &NursingCarePlan, data: Value) -> NursingCarePlanEntity {
-    NursingCarePlanEntity {
-        id: plan.care_plan_id.clone(),
-        patient_id: plan.patient_id.clone(),
-        plan_name: plan.care_plan_id.clone(),
-        care_level: None,
-        nursing_diagnoses: json_value(&plan.nursing_diagnoses),
-        goals: json_value(&plan.goals),
-        interventions: json_value(&plan.interventions),
-        evaluation_notes: None,
-        status: Some("active".to_string()),
-        start_date: parse_date_or_today(&plan.admission_date),
-        target_end_date: None,
-        actual_end_date: None,
-        created_by: plan.created_by.clone(),
-        updated_by: Some(plan.updated_by.clone()),
-        created_at: timestamp_to_datetime(plan.created_at),
-        updated_at: timestamp_to_datetime(plan.updated_at),
-        facility_id: None,
-        is_active: true,
-        data,
-    }
-}
-
-fn wound_assessment_entity(assessment: &WoundAssessment, data: Value) -> WoundAssessmentEntity {
-    let now = Utc::now();
-    WoundAssessmentEntity {
-        id: assessment.assessment_id.clone(),
-        patient_id: assessment.patient_id.clone(),
-        wound_id: assessment.wound_id.clone(),
-        wound_location: assessment.location.body_part.clone(),
-        wound_type: json_label(&assessment.wound_type),
-        length_cm: None,
-        width_cm: None,
-        depth_cm: None,
-        tissue_type: Some(assessment.wound_bed.description.clone()),
-        drainage_amount: Some(json_label(&assessment.drainage.amount)),
-        drainage_type: Some(json_label(&assessment.drainage.drainage_type)),
-        periwound_condition: Some(assessment.periwound.clone()),
-        pain_level: assessment.pain_level.map(i32::from),
-        treatment_applied: Some(assessment.treatment.primary_dressing.clone()),
-        dressing_type: Some(
-            assessment
-                .treatment
-                .secondary_dressing
-                .clone()
-                .unwrap_or_default(),
-        ),
-        notes: assessment.treatment.instructions.clone(),
-        photo_taken: Some(assessment.photo_documented),
-        assessed_by: assessment.assessed_by.clone(),
-        assessed_at: timestamp_to_datetime(assessment.assessed_at),
-        created_at: now,
-        updated_at: now,
-        facility_id: None,
-        data,
-    }
-}
-
 fn iv_assessment_entity(assessment: &IVSiteAssessment, data: Value) -> IVAssessmentEntity {
     let now = Utc::now();
     IVAssessmentEntity {
@@ -645,51 +551,6 @@ fn shift_handoff_entity(handoff: &ShiftHandoff, data: Value) -> ShiftHandoffEnti
         acknowledged_by_incoming: handoff.acknowledged,
         acknowledged_at: handoff.acknowledged.then_some(now),
         handoff_tool_used: Some("SBAR".to_string()),
-        created_at: now,
-        updated_at: now,
-        data,
-    }
-}
-
-fn incident_report_entity(report: &IncidentReport, data: Value) -> IncidentReportEntity {
-    let now = Utc::now();
-    IncidentReportEntity {
-        id: report.report_id.clone(),
-        patient_id: report.patient_id.clone(),
-        reporter_id: report.reported_by.clone(),
-        incident_datetime: timestamp_to_datetime(report.incident_time),
-        discovery_datetime: timestamp_to_datetime(report.reported_at),
-        incident_type: json_label(&report.incident_type),
-        severity: "reported".to_string(),
-        location: report.location.clone(),
-        department: None,
-        description: report.description.clone(),
-        immediate_actions_taken: Some(json_value(&report.immediate_actions).to_string()),
-        patient_outcome: Some(report.outcome.clone()),
-        patient_notified: false,
-        patient_notified_by: None,
-        family_notified: report.family_notified,
-        attending_notified: report.physician_notified,
-        supervisor_notified: report.supervisor_reviewed,
-        risk_management_notified: false,
-        witnesses: Some(json_value(&report.witnesses)),
-        contributing_factors: Some(json_value(&report.contributing_factors)),
-        root_cause: None,
-        preventable: None,
-        similar_incidents_prior: false,
-        corrective_actions: Some(json_value(&report.preventive_measures)),
-        follow_up_required: false,
-        follow_up_assigned_to: None,
-        follow_up_due_date: None,
-        follow_up_completed: false,
-        follow_up_completed_at: None,
-        investigation_status: Some("open".to_string()),
-        reviewed_by: report.supervisor_name.clone(),
-        reviewed_at: report.review_time.map(timestamp_to_datetime),
-        review_comments: None,
-        regulatory_reportable: false,
-        reported_to_agencies: None,
-        confidential: true,
         created_at: now,
         updated_at: now,
         data,
