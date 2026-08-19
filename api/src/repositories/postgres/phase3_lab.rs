@@ -368,6 +368,22 @@ impl PgLabQcRecordRepository {
 
 #[async_trait]
 impl LabQcRecordRepository for PgLabQcRecordRepository {
+    /// Without this the trait's default body ran, so the QC registry and the
+    /// lab dashboard both returned `list_all not implemented` on PostgreSQL
+    /// while working perfectly in memory mode — a failure only production saw.
+    ///
+    /// Bounded: these registries are deployment-wide reads and must not be
+    /// able to pull an unbounded result set into memory. Ordered on the
+    /// indexed column (`idx_lab_qc_performed`).
+    async fn list_all(&self) -> RepositoryResult<Vec<LabQcRecordEntity>> {
+        let rows = sqlx::query_as::<_, LabQcRecordEntity>(
+            "SELECT * FROM lab_qc_records ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, record: LabQcRecordEntity) -> RepositoryResult<LabQcRecordEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO lab_qc_records (
@@ -688,6 +704,17 @@ impl PgSpecimenCollectionRepository {
 
 #[async_trait]
 impl SpecimenCollectionRepository for PgSpecimenCollectionRepository {
+    /// Bounded deployment-wide read, ordered on `idx_specimen_collected`.
+    /// Previously fell through to the trait default and failed on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenCollectionEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenCollectionEntity>(
+            "SELECT * FROM specimen_collections ORDER BY collected_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         specimen: SpecimenCollectionEntity,
@@ -822,6 +849,18 @@ impl PgSpecimenRejectionRepository {
 
 #[async_trait]
 impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
+    /// Bounded deployment-wide read, ordered on `idx_rejection_date`.
+    /// Previously fell through to the trait default and failed on PostgreSQL,
+    /// so the lab dashboard silently lost its rejection panel in production.
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenRejectionEntity>(
+            "SELECT * FROM specimen_rejections ORDER BY rejected_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         rejection: SpecimenRejectionEntity,

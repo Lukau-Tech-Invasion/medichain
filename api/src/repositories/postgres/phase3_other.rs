@@ -207,6 +207,18 @@ impl PgRadiologyReportRepository {
 
 #[async_trait]
 impl RadiologyReportRepository for PgRadiologyReportRepository {
+    /// Bounded deployment-wide read. Backs the radiology reports registry,
+    /// which had no endpoint at all — the reading worklist showed orders but
+    /// never the reports written against them.
+    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyReportEntity>> {
+        let rows = sqlx::query_as::<_, RadiologyReportEntity>(
+            "SELECT * FROM radiology_reports ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         report: RadiologyReportEntity,
@@ -567,6 +579,18 @@ impl PgBloodTypeScreenRepository {
 
 #[async_trait]
 impl BloodTypeScreenRepository for PgBloodTypeScreenRepository {
+    /// Bounded deployment-wide read, ordered on `idx_blood_type_performed`.
+    /// Previously fell through to the trait default, so the blood-bank registry
+    /// returned `list_all not implemented` on PostgreSQL only.
+    async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>> {
+        let rows = sqlx::query_as::<_, BloodTypeScreenEntity>(
+            "SELECT * FROM blood_type_screens ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         screen: BloodTypeScreenEntity,

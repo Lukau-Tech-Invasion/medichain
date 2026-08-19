@@ -226,6 +226,25 @@ impl PatientRepository for MemoryPatientRepository {
         let count = storage.values().filter(|p| p.is_active).count() as u64;
         Ok(count)
     }
+
+    async fn count_by_gender(&self) -> RepositoryResult<HashMap<String, u64>> {
+        let storage = self.storage.read().map_err(Self::lock_error)?;
+        let mut counts: HashMap<String, u64> = HashMap::new();
+        for patient in storage.values().filter(|p| p.is_active) {
+            // Normalised so "Female"/"female" are one bucket rather than two,
+            // matching the `LOWER(...)` grouping the Postgres implementation
+            // uses. An absent value is its own bucket, never dropped.
+            let bucket = patient
+                .gender
+                .as_deref()
+                .map(str::trim)
+                .filter(|g| !g.is_empty())
+                .map(|g| g.to_lowercase())
+                .unwrap_or_else(|| "not_recorded".to_string());
+            *counts.entry(bucket).or_insert(0) += 1;
+        }
+        Ok(counts)
+    }
 }
 
 #[cfg(test)]

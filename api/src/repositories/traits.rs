@@ -415,6 +415,18 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
 
     /// Count total patients
     async fn count(&self) -> RepositoryResult<u64>;
+
+    /// Count active patients grouped by administrative gender.
+    ///
+    /// Aggregated in the query rather than by listing every patient and
+    /// counting in Rust: the population analytics endpoint needs the shape of
+    /// the cohort, not its rows, and loading a national register into memory to
+    /// produce four integers does not scale past a demo.
+    ///
+    /// Patients who did not supply a gender are counted under `"not_recorded"`
+    /// so the buckets always sum to the population — a distribution that
+    /// silently drops them misstates every proportion derived from it.
+    async fn count_by_gender(&self) -> RepositoryResult<std::collections::HashMap<String, u64>>;
 }
 
 /// Allergy repository trait
@@ -647,6 +659,18 @@ pub trait AccessLogRepository: Send + Sync + fmt::Debug {
         query: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>>;
+
+    /// `(total_entries, entries_carrying_a_blockchain_anchor)`.
+    ///
+    /// This is the measurement behind the compliance dashboard's audit-coverage
+    /// figure, which used to be the string literal `"100%"`. In a system whose
+    /// central claim is a tamper-evident access trail, the share of access
+    /// records actually anchored on-chain is the property an auditor is asking
+    /// about, and asserting it without counting is the assertion most likely to
+    /// be taken at face value.
+    ///
+    /// Both counts come from one call so they cannot disagree.
+    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)>;
 }
 
 // =============================================================================
