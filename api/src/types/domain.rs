@@ -412,6 +412,12 @@ pub struct PatientProfile {
     #[serde(default)]
     pub time_of_birth: Option<String>,
     pub national_id: String,
+    /// Administrative gender, when the patient supplied one.
+    ///
+    /// Optional on purpose: it is not clinically required to register, and a
+    /// blank value must render as "not recorded" rather than being invented.
+    #[serde(default)]
+    pub gender: Option<String>,
     pub phone: String,
     pub emergency_info: EmergencyInfo,
     /// Patient's address (optional, FHIR compatible)
@@ -487,7 +493,7 @@ pub(crate) fn patient_profile_to_entity(
         first_name_encrypted: enc_patient_field(key, &first),
         last_name_encrypted: enc_patient_field(key, &last),
         date_of_birth_encrypted: enc_patient_field(key, &profile.date_of_birth),
-        gender: None,
+        gender: profile.gender.clone(),
         blood_type: Some(profile.emergency_info.blood_type.to_string()),
         phone_encrypted: enc_patient_field(key, &profile.phone),
         email_encrypted: None,
