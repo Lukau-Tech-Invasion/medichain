@@ -33,6 +33,17 @@ pub struct WalletRegisterResponse {
     pub success: bool,
     pub wallet_address: String,
     pub role: String,
+    /// Account status the user was created with.
+    ///
+    /// Registration deliberately creates a `pending` account: `support::get_user`
+    /// resolves only `active` users, so a newly registered clinician cannot sign
+    /// in or be looked up until an Admin activates them via
+    /// `PUT /api/users/{wallet_address}`. Reporting it here stops the caller
+    /// reading "registered successfully" as "ready to use" — the account is
+    /// otherwise indistinguishable from one that was never created.
+    pub status: String,
+    /// Whether an Admin must activate the account before it can be used.
+    pub activation_required: bool,
     pub message: String,
 }
 

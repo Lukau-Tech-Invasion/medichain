@@ -154,6 +154,7 @@ async fn main() -> std::io::Result<()> {
     // non-demo mode — that country would silently run on the deterministic stub
     // verifier (Horizon HZ-004).
     warn_missing_national_id_keys();
+    warn_if_clinic_offset_unset();
 
     // Try to connect to PostgreSQL if DATABASE_URL is set
     let db_pool = match std::env::var("DATABASE_URL") {

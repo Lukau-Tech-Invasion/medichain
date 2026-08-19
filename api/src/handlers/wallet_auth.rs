@@ -4,6 +4,12 @@ use super::*;
 // Wallet Authentication Endpoints
 // ============================================================================
 
+/// Status a newly registered (not yet approved) account is created with.
+///
+/// Must stay one of `state::USER_STATUSES`, and must NOT be `"active"` —
+/// registration is an Admin-approved flow, not self-service activation.
+const REGISTERED_USER_STATUS: &str = "pending";
+
 /// Bootstrap request - for creating first admin
 #[derive(Debug, Deserialize)]
 pub struct BootstrapAdminRequest {
@@ -246,7 +252,10 @@ pub async fn wallet_register(
         department: body.department.clone(),
         specialty: body.specialty.clone(),
         license_number: body.license_number.clone(),
-        status: "pending".to_string(),
+        // Deliberate approval gate: `get_user` resolves only `active` users, so
+        // this account stays unusable until an Admin activates it. The response
+        // below says so explicitly.
+        status: REGISTERED_USER_STATUS.to_string(),
         last_login: None,
     };
 
@@ -271,6 +280,9 @@ pub async fn wallet_register(
         success: true,
         wallet_address: body.wallet_address.clone(),
         role: role.to_string(),
-        message: "User registered successfully".to_string(),
+        status: REGISTERED_USER_STATUS.to_string(),
+        activation_required: true,
+        message: "User registered. An Admin must set status to \"active\" via PUT /api/users/{wallet_address} before the account can sign in."
+            .to_string(),
     })
 }

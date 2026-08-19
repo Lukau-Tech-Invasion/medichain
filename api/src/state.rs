@@ -839,6 +839,9 @@ impl AppState {
             let full_name: Option<String> = row.get("full_name");
             let date_of_birth: Option<chrono::NaiveDate> = row.get("date_of_birth");
             let national_id: Option<String> = row.get("national_id");
+            // `p.gender` is already in the SELECT above; it was previously
+            // dropped on the floor here, so a stored gender never reached the UI.
+            let gender: Option<String> = row.get("gender");
             let blood_type_str: Option<String> = row.get("blood_type");
             let organ_donor: bool = row.get("organ_donor");
             let dnr_status: bool = row.get("dnr_status");
@@ -912,6 +915,7 @@ impl AppState {
                 date_of_birth: date_of_birth.map(|d| d.to_string()).unwrap_or_default(),
                 time_of_birth: None,
                 national_id: national_id.unwrap_or_default(),
+                gender,
                 phone: String::new(),
                 emergency_info,
                 address: None,

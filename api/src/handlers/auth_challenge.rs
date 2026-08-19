@@ -214,7 +214,9 @@ pub async fn get_all_staff(
 }
 
 /// Get list of healthcare providers (doctors, nurses, etc.) for selection
-/// Requires: Any authenticated healthcare worker
+/// Requires: Any authenticated user. Patients need this directory to start a
+/// secure conversation, while the response deliberately exposes only public
+/// provider identity fields.
 /// Query params: ?role=Doctor (optional filter by role)
 #[get("/api/providers")]
 pub async fn get_providers(
@@ -234,9 +236,9 @@ pub async fn get_providers(
         }
     };
 
-    // Check if current user is a healthcare worker
-    let current_user = match get_user(&data, &current_user_id) {
-        Some(u) => u,
+    // A registered caller may select a provider to message.
+    match get_user(&data, &current_user_id) {
+        Some(_) => {}
         None => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 success: false,
@@ -245,15 +247,6 @@ pub async fn get_providers(
             });
         }
     };
-
-    // Any healthcare worker can view providers list
-    if !current_user.role.is_healthcare_provider() && !current_user.role.is_admin() {
-        return HttpResponse::Forbidden().json(ErrorResponse {
-            success: false,
-            error: "Only healthcare workers can view provider list".to_string(),
-            code: "INSUFFICIENT_ROLE".to_string(),
-        });
-    }
 
     let users = data.users.read().unwrap();
     let role_filter = query.get("role").map(|s| s.as_str());

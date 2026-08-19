@@ -88,6 +88,13 @@ pub struct RegisterPatientRequest {
     #[serde(default)]
     pub time_of_birth: Option<String>,
     pub national_id: String,
+    /// Administrative gender, optional. Absent stays absent — the patient list
+    /// omits the field rather than displaying a guess.
+    #[serde(default)]
+    pub gender: Option<String>,
+    /// Patient phone is optional in the doctor registration form; emergency
+    /// contact details remain separately required.
+    #[serde(default)]
     pub phone: String,
     pub blood_type: String,
     /// Allergies - can be simple strings (converted to Mild severity) for backward compatibility

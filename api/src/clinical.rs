@@ -324,18 +324,24 @@ pub struct SubjectiveSection {
     /// History of present illness (HPI)
     pub history_of_present_illness: String,
     /// Review of systems
+    #[serde(default)]
     pub review_of_systems: Option<String>,
     /// Patient-reported symptoms
     pub symptoms: Vec<String>,
     /// Duration of symptoms
+    #[serde(default)]
     pub symptom_duration: Option<String>,
     /// What makes it better/worse
+    #[serde(default)]
     pub modifying_factors: Option<String>,
     /// Previous treatments tried
+    #[serde(default)]
     pub previous_treatments: Option<String>,
     /// Social history notes (relevant)
+    #[serde(default)]
     pub social_history: Option<String>,
     /// Family history (relevant)
+    #[serde(default)]
     pub family_history: Option<String>,
 }
 
@@ -343,16 +349,21 @@ pub struct SubjectiveSection {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ObjectiveSection {
     /// Vital signs
+    #[serde(default)]
     pub vital_signs: Option<TriageVitalSigns>,
     /// General appearance
+    #[serde(default)]
     pub general_appearance: Option<String>,
     /// Physical examination findings by system
     pub physical_exam: Vec<PhysicalExamFinding>,
     /// Lab results (references)
+    #[serde(default)]
     pub lab_results: Vec<String>,
     /// Imaging results (references)
+    #[serde(default)]
     pub imaging_results: Vec<String>,
     /// Other diagnostic tests
+    #[serde(default)]
     pub diagnostic_tests: Vec<String>,
 }
 
@@ -371,14 +382,18 @@ pub struct PhysicalExamFinding {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AssessmentSection {
     /// Primary diagnosis/impression
+    #[serde(default)]
     pub primary_diagnosis: Option<DiagnosisEntry>,
     /// Secondary/differential diagnoses
+    #[serde(default)]
     pub secondary_diagnoses: Vec<DiagnosisEntry>,
     /// Clinical reasoning/summary
     pub clinical_summary: String,
     /// Severity/acuity assessment
+    #[serde(default)]
     pub severity: Option<String>,
     /// Prognosis if relevant
+    #[serde(default)]
     pub prognosis: Option<String>,
 }
 
@@ -6712,7 +6727,11 @@ pub struct PathologyAddendum {
 /// Immunization record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImmunizationRecord {
-    /// Record ID
+    /// Record ID. Server-assigned: the creating handler generates one whenever
+    /// the client omits it or sends a blank, because this value becomes the
+    /// row's primary key. Trusting a client-supplied id meant two records sent
+    /// with `""` collided on the primary key and surfaced as a 500.
+    #[serde(default)]
     pub record_id: String,
     /// Patient ID
     pub patient_id: String,
@@ -7326,6 +7345,10 @@ pub struct AppointmentLocation {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AppointmentStatus {
     Scheduled,
+    /// The party who did not book refused the proposed time. Terminal, and
+    /// deliberately distinct from `Cancelled`: a decline means "I never agreed
+    /// to this slot", which is a different fact from calling off an agreed one.
+    Declined,
     Confirmed,
     CheckedIn,
     InProgress,

@@ -297,3 +297,19 @@ mod runtime_posture_tests {
         assert!(validate_runtime_posture("development", true, false).is_ok());
     }
 }
+
+/// Warn when the facility timezone offset is unset.
+///
+/// Appointment dates and times are stored as facility wall-clock. Without an
+/// offset they are interpreted as UTC, which shifts every scheduled instant —
+/// and therefore the telehealth join window and appointment reminders — by the
+/// facility's real offset.
+pub fn warn_if_clinic_offset_unset() {
+    if std::env::var("CLINIC_UTC_OFFSET_MINUTES").is_err() {
+        log::warn!(
+            "CLINIC_UTC_OFFSET_MINUTES is not set - appointment times are being treated as UTC. \
+             Set it to the facility's offset in minutes (e.g. 120 for SAST) or telehealth join \
+             windows and reminders will be wrong by that offset."
+        );
+    }
+}
