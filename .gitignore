@@ -115,3 +115,12 @@ __pycache__/
 .node-bin/
 # All local chain databases and node logs. Nothing under data/ is tracked.
 /data/
+
+# Playwright run output and the screenshots captured during browser-driven
+# testing. These are per-run artifacts, not source: committing them churns the
+# diff on every test pass and the images are regenerated on demand.
+client/test-results/
+client/playwright-report/
+client/**/*.png
+*.png
+fix-results.tsv
