@@ -118,13 +118,29 @@ pub async fn nursing_administer_medication(
         Ok(p) => p,
         Err(resp) => return resp,
     };
+    // Keep everything the eMAR form captures. The five-rights verification, the
+    // witnessing nurse and whether the dose was actually given (versus held or
+    // refused) are the clinically and legally meaningful parts of a medication
+    // record; the previous version recorded only drug/dose/route and discarded
+    // the rest, so a held dose was indistinguishable from a given one.
+    let text = |key: &str| body.get(key).and_then(|v| v.as_str());
+    let flag = |key: &str| body.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
     let administration = serde_json::json!({
         "administration_id": format!("ADM-{}", Uuid::new_v4()),
-        "medication_id": body.get("medication_id").and_then(|v| v.as_str()),
+        "medication_id": text("medication_id"),
         "medication_name": body.get("medication_name").or_else(|| body.get("medication")).and_then(|v| v.as_str()),
-        "dose": body.get("dose").and_then(|v| v.as_str()),
-        "route": body.get("route").and_then(|v| v.as_str()),
-        "notes": body.get("notes").and_then(|v| v.as_str()),
+        "dose": text("dose"),
+        "route": text("route"),
+        "notes": text("notes"),
+        "status": text("status").unwrap_or("given"),
+        "scheduled_time": text("scheduled_time"),
+        "actual_time": text("actual_time"),
+        "reason_not_given": text("reason_not_given"),
+        "site": text("site"),
+        "witnessed_by": text("witnessed_by"),
+        "patient_response": text("patient_response"),
+        "barcode_scanned": flag("barcode_scanned"),
+        "five_rights_verified": flag("five_rights_verified"),
         "administered_by": current_user_id,
         "administered_at": Utc::now().to_rfc3339(),
     });
