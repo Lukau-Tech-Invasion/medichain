@@ -12,7 +12,7 @@ use super::*;
 #[post("/api/clinical/ama")]
 pub async fn create_ama(
     data: web::Data<AppState>,
-    req: web::Json<clinical::AMADischarge>,
+    req: web::Json<serde_json::Value>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -34,16 +34,45 @@ pub async fn create_ama(
         });
     }
 
-    let record = req.into_inner();
-    let ama_id = record.ama_id.clone();
-    let now = Utc::now();
+    let body = req.into_inner();
+    let now = chrono::Utc::now();
+    // Server-generated: a client-supplied id lets one submission overwrite another.
+    let ama_id = format!("AMA-{}", uuid::Uuid::new_v4().simple());
     let entity = AmaDischargeEntity {
         id: ama_id.clone(),
-        patient_id: record.patient_id.clone(),
-        data: serde_json::to_value(&record).unwrap_or_default(),
+        patient_id: body.get("patient_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        encounter_id: body.get("encounter_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        discharge_datetime: body.get("discharge_datetime").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or(now),
+        attending_physician_id: body.get("attending_physician_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        reason_for_leaving: body.get("reason_for_leaving").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        risks_explained: body.get("risks_explained").cloned().unwrap_or_else(|| serde_json::json!({})),
+        specific_risks_discussed: body.get("specific_risks_discussed").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        patient_verbalized_understanding: body.get("patient_verbalized_understanding").and_then(|v| v.as_bool()).unwrap_or(false),
+        decision_making_capacity: body.get("decision_making_capacity").and_then(|v| v.as_bool()).unwrap_or(false),
+        capacity_assessment: body.get("capacity_assessment").and_then(|v| v.as_str()).map(str::to_string),
+        alternatives_offered: body.get("alternatives_offered").cloned(),
+        patient_refused_alternatives: body.get("patient_refused_alternatives").and_then(|v| v.as_bool()).unwrap_or(false),
+        ama_form_signed: body.get("ama_form_signed").and_then(|v| v.as_bool()).unwrap_or(false),
+        ama_form_refused_reason: body.get("ama_form_refused_reason").and_then(|v| v.as_str()).map(str::to_string),
+        witness_present: body.get("witness_present").and_then(|v| v.as_bool()).unwrap_or(false),
+        witness_name: body.get("witness_name").and_then(|v| v.as_str()).map(str::to_string),
+        witness_signature: body.get("witness_signature").and_then(|v| v.as_str()).map(str::to_string),
+        patient_given_prescriptions: body.get("patient_given_prescriptions").and_then(|v| v.as_bool()).unwrap_or(false),
+        prescriptions_given: body.get("prescriptions_given").cloned(),
+        follow_up_offered: body.get("follow_up_offered").and_then(|v| v.as_bool()).unwrap_or(false),
+        follow_up_instructions: body.get("follow_up_instructions").and_then(|v| v.as_str()).map(str::to_string),
+        patient_contact_info_verified: body.get("patient_contact_info_verified").and_then(|v| v.as_bool()).unwrap_or(false),
+        emergency_contact_notified: body.get("emergency_contact_notified").and_then(|v| v.as_bool()).unwrap_or(false),
+        belongings_returned: body.get("belongings_returned").and_then(|v| v.as_bool()).unwrap_or(false),
+        security_escort: body.get("security_escort").and_then(|v| v.as_bool()).unwrap_or(false),
+        police_notified: body.get("police_notified").and_then(|v| v.as_bool()).unwrap_or(false),
+        social_work_notified: body.get("social_work_notified").and_then(|v| v.as_bool()).unwrap_or(false),
+        documentation_complete: body.get("documentation_complete").and_then(|v| v.as_bool()).unwrap_or(false),
+        physician_narrative: body.get("physician_narrative").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        nurse_notes: body.get("nurse_notes").and_then(|v| v.as_str()).map(str::to_string),
         created_at: now,
         updated_at: now,
-        ..Default::default()
+        data: body.clone(),
     };
 
     match data.repositories.ama_discharges.create(entity).await {
@@ -372,7 +401,7 @@ pub async fn list_hps(data: web::Data<AppState>, http_req: HttpRequest) -> impl 
 #[post("/api/clinical/consult")]
 pub async fn create_consult(
     data: web::Data<AppState>,
-    req: web::Json<clinical::ConsultationNote>,
+    req: web::Json<serde_json::Value>,
     http_req: HttpRequest,
 ) -> impl Responder {
     let current_user = match get_current_user(&data, &http_req) {
@@ -394,16 +423,31 @@ pub async fn create_consult(
         });
     }
 
-    let consult = req.into_inner();
-    let consult_id = consult.consult_id.clone();
+    let body = req.into_inner();
     let now = chrono::Utc::now();
+    // Server-generated: a client-supplied id lets one submission overwrite another.
+    let consult_id = format!("CON-{}", uuid::Uuid::new_v4().simple());
     let entity = ConsultationNoteEntity {
         id: consult_id.clone(),
-        patient_id: consult.patient_id.clone(),
-        data: serde_json::to_value(&consult).unwrap_or_default(),
+        patient_id: body.get("patient_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        consultation_type: body.get("consultation_type").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        requesting_provider: body.get("requesting_provider").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        consulting_provider: body.get("consulting_provider").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        reason_for_consultation: body.get("reason_for_consultation").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        clinical_question: body.get("clinical_question").and_then(|v| v.as_str()).map(str::to_string),
+        pertinent_history: body.get("pertinent_history").and_then(|v| v.as_str()).map(str::to_string),
+        examination_findings: body.get("examination_findings").and_then(|v| v.as_str()).map(str::to_string),
+        recommendations: body.get("recommendations").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        follow_up_plan: body.get("follow_up_plan").and_then(|v| v.as_str()).map(str::to_string),
+        urgency: body.get("urgency").and_then(|v| v.as_str()).map(str::to_string),
+        status: body.get("status").and_then(|v| v.as_str()).map(str::to_string),
+        requested_at: body.get("requested_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or(now),
+        completed_at: body.get("completed_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
         created_at: now,
         updated_at: now,
-        ..Default::default()
+        facility_id: body.get("facility_id").and_then(|v| v.as_str()).map(str::to_string),
+        is_active: true,
+        data: body.clone(),
     };
 
     match data.repositories.consultation_notes.create(entity).await {
