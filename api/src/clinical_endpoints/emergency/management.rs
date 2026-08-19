@@ -1024,6 +1024,19 @@ pub async fn create_fall_risk(
     let now = chrono::Utc::now();
     // Server-generated: a client-supplied id lets one submission overwrite another.
     let id = format!("FRA-{}", uuid::Uuid::new_v4().simple());
+
+    // Sum of the six Morse Fall Scale items. Absent items score 0, which is the
+    // scale's own "not present" value, so a partial submission is scored as
+    // filled in rather than rejected — but the total always reflects what was
+    // actually recorded rather than what the client asserted.
+    let morse_item = |key: &str| body.get(key).and_then(|v| v.as_i64()).unwrap_or(0);
+    let morse_total = (morse_item("history_of_falling")
+        + morse_item("secondary_diagnosis")
+        + morse_item("ambulatory_aid")
+        + morse_item("iv_therapy")
+        + morse_item("gait_status")
+        + morse_item("mental_status")) as i32;
+
     let entity = FallRiskAssessmentEntity {
         id: id.clone(),
         patient_id: body.get("patient_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
@@ -1047,21 +1060,17 @@ pub async fn create_fall_risk(
         // The Morse Fall Scale total drives the risk band, so derive the band
         // from the score rather than trusting a separate field that can
         // disagree with it.
-        total_score: body
-            .get("total_score")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32,
-        risk_level: {
-            let score = body.get("total_score").and_then(|v| v.as_i64()).unwrap_or(0);
-            if score >= 45 {
-                "high"
-            } else if score >= 25 {
-                "moderate"
-            } else {
-                "low"
-            }
-            .to_string()
-        },
+        //
+        // The score itself is derived too. It was read straight off the body
+        // with `unwrap_or(0)`, so a submission carrying the six item scores but
+        // no `total_score` — or a client that computed it wrongly — filed a
+        // patient at 0, which bands as "low". A high-risk patient recorded as
+        // low risk does not get the bed alarm, the hourly rounding or the
+        // signage, and the assessment exists precisely to trigger those. The
+        // Morse total *is* the sum of its six items, so any supplied total that
+        // disagrees with them is wrong by definition.
+        total_score: morse_total,
+        risk_level: morse_risk_band(morse_total).to_string(),
     };
     match data.repositories.fall_risk_assessments.create(entity).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({ "id": id, "success": true })),
