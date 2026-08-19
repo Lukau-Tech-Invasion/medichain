@@ -1211,6 +1211,11 @@ const en_US: TranslationRecord = {
 
   medicalId: {
     title: 'Medical ID',
+    nameUnavailable: 'Name unavailable',
+    dobUnavailable: 'Date of birth unavailable',
+    profileUnavailableTitle: 'This record could not be fully read',
+    profileUnavailableBody:
+      'Allergies, medications and conditions may be missing from this card. Do not treat the empty sections as confirmation that there are none — verify with the patient or their clinician before acting.',
     lockScreenPreviewTooltip: 'Lock screen preview',
     shareTooltip: 'Share',
     view_full: 'Full ID',
@@ -2038,7 +2043,13 @@ const en_US: TranslationRecord = {
     savePreliminary: 'Save Preliminary',
     finalizeReport: 'Finalize Report',
     selectStudy: 'Select a study from the worklist to begin reading',
-    searchComingSoon: 'Advanced search and prior studies lookup coming soon...',
+    searchPriorsLabel: 'Search prior reports',
+    searchPriorsPlaceholder: 'Patient ID, accession, body part, findings or impression',
+    searchPriorsNoMatch: 'No prior report matches that search.',
+    searchPriorsEmpty: 'No prior reports have been filed yet.',
+    criticalBadge: 'Critical',
+    failSaveReport: 'The report could not be saved. It has not been filed — do not navigate away.',
+    saving: 'Saving...',
   },
 
   docProgressNote: {
