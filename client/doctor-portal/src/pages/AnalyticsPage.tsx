@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { apiUrl, useTranslation, RestrictedSection } from '@medichain/shared';
 import { BarChart3, TrendingUp, Users, Activity, Clock, AlertCircle, CheckCircle, XCircle, Calendar, Loader2 } from 'lucide-react';
 
 type MetricPeriod = 'today' | 'week' | 'month' | 'year';
@@ -36,6 +36,21 @@ interface PatientFlowData {
  * Page for hospital operations analytics and dashboards.
  */
 const AnalyticsPage: React.FC = () => {
+  // This section is administrator-only server-side; without this the page
+  // received a correct 403 and then rendered nothing, which reads as a fault
+  // rather than a permissions boundary.
+  const { user: restrictedCheckUser } = useAuthStore();
+  const isAdministrator = restrictedCheckUser?.role === 'Admin';
+  if (!isAdministrator) {
+    return (
+      <RestrictedSection
+        title="Analytics"
+        audience="administrators"
+        currentRole={restrictedCheckUser?.role}
+      />
+    );
+  }
+
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const [selectedPeriod, setSelectedPeriod] = useState<MetricPeriod>('today');
@@ -256,7 +271,7 @@ const AnalyticsPage: React.FC = () => {
   };
 
   if (loading) {
-    return (
+  return (
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-purple-600" />

@@ -32,7 +32,8 @@ import {
   HardDrive,
   RefreshCw,
 } from 'lucide-react';
-import { getAdminDashboard, detailedHealthCheck, useTranslation, type ServiceHealth } from '@medichain/shared';
+import { getAdminDashboard, detailedHealthCheck, useTranslation, type ServiceHealth, RestrictedSection } from '@medichain/shared';
+import { useAuthStore } from '../store/authStore';
 import {
   StatCard,
   QuickActionsPanel,
@@ -100,6 +101,21 @@ interface SystemStatus {
 }
 
 export default function AdminDashboardPage() {
+  // This section is administrator-only server-side; without this the page
+  // received a correct 403 and then rendered nothing, which reads as a fault
+  // rather than a permissions boundary.
+  const { user: restrictedCheckUser } = useAuthStore();
+  const isAdministrator = restrictedCheckUser?.role === 'Admin';
+  if (!isAdministrator) {
+    return (
+      <RestrictedSection
+        title="System administration"
+        audience="administrators"
+        currentRole={restrictedCheckUser?.role}
+      />
+    );
+  }
+
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<AdminDashboardData | null>(null);
@@ -199,7 +215,7 @@ export default function AdminDashboardPage() {
   };
 
   if (loading) {
-    return (
+  return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader2 className="mx-auto animate-spin text-purple-600" size={48} />

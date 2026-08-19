@@ -70,5 +70,6 @@ export * from './components/PatientCard';
 export * from './components/QRCodeDisplay';
 export * from './components/EmergencyBanner';
 export * from './components/ErrorBoundary';
+export * from './components/RestrictedSection';
 export * from './components/JitsiMeetComponent';
 

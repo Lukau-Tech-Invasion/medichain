@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, Plus, Search, Edit, Trash2, Shield, Key, Lock, Unlock, CheckCircle, XCircle, Mail, Phone, Calendar, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
-import { assignRole, getUsers, revokeRole, updateUserProfile, walletRegister, useTranslation } from '@medichain/shared';
+import { assignRole, getUsers, revokeRole, updateUserProfile, walletRegister, useTranslation, RestrictedSection } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 
 type UserRole = 'admin' | 'doctor' | 'nurse' | 'lab-technician' | 'pharmacist' | 'patient';
@@ -49,6 +49,21 @@ function normalizeUserRole(role?: string): UserRole {
 }
 
 const UserManagementPage: React.FC = () => {
+  // This section is administrator-only server-side; without this the page
+  // received a correct 403 and then rendered nothing, which reads as a fault
+  // rather than a permissions boundary.
+  const { user: restrictedCheckUser } = useAuthStore();
+  const isAdministrator = restrictedCheckUser?.role === 'Admin';
+  if (!isAdministrator) {
+    return (
+      <RestrictedSection
+        title="User management"
+        audience="administrators"
+        currentRole={restrictedCheckUser?.role}
+      />
+    );
+  }
+
   const { t } = useTranslation();
   const { user: _user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
