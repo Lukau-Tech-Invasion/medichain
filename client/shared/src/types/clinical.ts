@@ -1547,9 +1547,10 @@ export interface PatientEmergencyRecords {
 }
 
 /**
- * A nurse task. `monitoring_tasks` (type `'vital_signs' | 'wound_care'`) is
- * currently a hardcoded 2-item placeholder in the backend, not real data —
- * only `medication_admin` tasks come from a real query.
+ * A nurse task. Medication tasks come from active medication reminders;
+ * monitoring tasks come from outstanding `nursing` physician orders, classified
+ * by what the order actually says. An order that is neither an observation nor
+ * a dressing stays `nursing_care` rather than being forced into one of the two.
  */
 export type NurseTask =
   | {
@@ -1563,11 +1564,13 @@ export type NurseTask =
     }
   | {
       id: string;
-      type: 'vital_signs' | 'wound_care';
+      type: 'vital_signs' | 'wound_care' | 'nursing_care';
       patient_id: string;
       frequency: string;
+      /** Last recorded execution, falling back to when the order was due. */
       last_done: number;
       priority: 'low' | 'medium' | 'high';
+      instructions: string | null;
     };
 
 export interface NurseTasksResponse {
@@ -1580,6 +1583,27 @@ export interface EndTelehealthSessionResponse {
   session_id: string;
   duration_minutes: number;
   message: string;
+}
+
+/**
+ * A policy's real financial terms, read off the stored insurance record and
+ * shared by the eligibility and verification endpoints so the two surfaces
+ * cannot quote different numbers for the same policy.
+ *
+ * A null amount means "not recorded on the policy", which is not the same as
+ * zero — do not coalesce it to 0 for display.
+ */
+export interface PolicyFinancials {
+  /** ISO 4217. Defaults to ZAR; amounts are not US dollars. */
+  currency: string;
+  copay: number | null;
+  deductible: number | null;
+  deductible_met: number;
+  deductible_remaining: number | null;
+  coinsurance_percent: number | null;
+  out_of_pocket_max: number | null;
+  out_of_pocket_met: number;
+  out_of_pocket_remaining: number | null;
 }
 
 /**
@@ -1619,17 +1643,7 @@ export type CheckEligibilityResponse =
       group_number: string | null;
       effective_date: string;
       termination_date: string | null;
-      benefits: {
-        currency: string;
-        copay: number | null;
-        deductible: number | null;
-        deductible_met: number;
-        deductible_remaining: number | null;
-        coinsurance_percent: number | null;
-        out_of_pocket_max: number | null;
-        out_of_pocket_met: number;
-        out_of_pocket_remaining: number | null;
-      };
+      benefits: PolicyFinancials;
       service_coverage: {
         service_type: string;
         covered: boolean;
@@ -1644,16 +1658,30 @@ export interface DashboardMetricsResponse {
     total_patients: number;
     total_medical_records: number;
     total_system_accesses: number;
-    /** Hardcoded mock value in the backend today, not real telemetry. */
-    avg_latency_ms: number;
-    /** Hardcoded mock value in the backend today, not real telemetry. */
-    system_uptime: number;
+    /**
+     * Mean request latency measured from the same Prometheus histogram the
+     * scrape endpoint serves. Null until the first request is observed.
+     */
+    avg_latency_ms: number | null;
+    /**
+     * Share of responses that were not 5xx, as a percentage. Null over an
+     * empty sample — 100% from zero requests is a claim, not a measurement.
+     */
+    system_uptime: number | null;
+    /** Seconds since the API process started. */
+    uptime_seconds: number | null;
+    total_requests: number;
+    server_errors: number;
     blockchain_status: string;
   };
 }
 
 export interface PatientAnalyticsResponse {
-  /** Always `{}` today — never populated by the backend. */
+  /**
+   * Active patients per administrative gender, aggregated in the query.
+   * Patients who supplied none are counted under `not_recorded`, so the
+   * buckets always sum to `total_population`.
+   */
   gender_distribution: Record<string, number>;
   total_population: number;
 }
@@ -1666,12 +1694,22 @@ export interface AppointmentAnalyticsResponse {
 
 export interface QualityMetricsResponse {
   clinical_alerts_total: number;
-  /** Hardcoded 0 in the backend today. */
   critical_alerts: number;
-  /** Hardcoded 98.5 in the backend today. */
-  compliance_score: number;
-  /** Hardcoded "100%" in the backend today. */
-  audit_logs_coverage: string;
+  /**
+   * Percentage of access-log entries carrying a blockchain anchor. Null while
+   * there are no entries to measure.
+   */
+  audit_logs_coverage: number | null;
+  audit_entries_total: number;
+  audit_entries_anchored: number;
+  /**
+   * Always null. A compliance score is a reviewed assessment against a control
+   * framework, not something this endpoint derives; publishing a computed
+   * number under that name invites an auditor to rely on it. Render the
+   * measured indicators above instead.
+   */
+  compliance_score: null;
+  compliance_score_basis: 'requires_reviewed_assessment';
 }
 
 export interface LockscreenMedicalId {
@@ -1689,19 +1727,33 @@ export interface LockscreenMedicalId {
     color: string;
     background: string;
   } | null;
-  name: { value: string; font_size: string };
-  /** Always null today — TODO in the backend. */
-  emergency_contact: null;
+  /** `value` is null when the encrypted profile could not be read. */
+  name: { value: string | null; font_size: string };
+  /**
+   * Verified guardian when one exists, otherwise the patient's own first
+   * recorded contact; null when neither is on file. `verified` distinguishes
+   * the two — never present an unverified number as system-confirmed.
+   */
+  emergency_contact: EmergencyContactRef | null;
   qr_url: string;
+}
+
+/** A contact a responder can call. */
+export interface EmergencyContactRef {
+  name: string | null;
+  phone: string | null;
+  relationship: string | null;
+  /** True only for a system-verified guardian relationship. */
+  verified?: boolean;
 }
 
 export interface MedicalIdCard {
   patient_id: string;
   national_health_id: string;
-  /** Always "Patient" — the real name is encrypted and not decrypted for this view. */
-  name: string;
-  /** Always "Redacted". */
-  date_of_birth: string;
+  /** Decrypted from the profile; null when it could not be read. */
+  name: string | null;
+  /** Decrypted from the profile; null when it could not be read. */
+  date_of_birth: string | null;
   photo: string | null;
   blood_type: { value: string; display_color: string };
   critical_allergies: Array<{ name: string; severity: string; reaction: string; display_color: string }>;
@@ -1716,17 +1768,19 @@ export interface MedicalIdCard {
     display_color: string;
     warning: string | null;
   };
-  /** Always [] today — TODO in the backend. */
   chronic_conditions: string[];
-  /** Always [] today — TODO in the backend. */
   medications: string[];
-  /** Always [] today — TODO in the backend. */
-  emergency_contacts: unknown[];
-  primary_doctor: { name: string; phone: string } | null;
-  /** Always null today. */
-  community_health_worker: null;
+  emergency_contacts: EmergencyContactRef[];
+  primary_doctor: { name: string; phone: string | null } | null;
+  community_health_worker: { name: string; phone: string | null } | null;
   languages: string[];
-  primary_language: string;
+  primary_language: string | null;
+  /**
+   * True when the encrypted profile could not be decrypted. Distinguishes
+   * "nothing recorded" from "we could not read it" — the arrays above are
+   * empty in both cases, and only this flag tells them apart.
+   */
+  profile_unavailable: boolean;
   /** Always null today. */
   insurance: null;
   /** Always null today. */
@@ -1753,13 +1807,11 @@ export interface EmergencyMedicalId {
     verify_directive?: boolean;
   };
   organ_donor: boolean;
-  /** Always [] today — TODO in the backend. */
   medications: string[];
-  /** Always [] today — TODO in the backend. */
   conditions: string[];
-  /** Always null today — TODO in the backend. */
-  emergency_contact: null;
-  primary_language: string;
+  emergency_contact: EmergencyContactRef | null;
+  /** The patient's recorded language preference; null when they set none. */
+  primary_language: string | null;
   access_logged: true;
   access_timestamp: string;
 }
@@ -1778,20 +1830,19 @@ export interface VerifyInsuranceResponse {
         coverage_type: string | null;
         valid_from: string;
         valid_to: string | null;
-        /** All hardcoded `true` in the backend today, not derived from the policy. */
-        benefits: {
-          emergency_services: true;
-          inpatient: true;
-          outpatient: true;
-          laboratory: true;
-          radiology: true;
-          pharmacy: true;
-          mental_health: true;
-        };
-        /** Hardcoded placeholder amounts in the backend today. */
-        copay: { emergency: string; specialist: string; primary_care: string; pharmacy: string };
-        /** Hardcoded placeholder amounts in the backend today. */
-        deductible: { annual: string; met: string; remaining: string };
+        /**
+         * The payer's own benefit schedule, or null when the payer supplied
+         * none. Null means "not confirmed", never "not covered" — do not
+         * render an absent schedule as a denial.
+         */
+        benefits: Record<string, unknown> | null;
+        benefits_source: 'payer_schedule' | 'not_supplied_by_payer';
+        /** The policy's real stored amounts. Nulls mean "not recorded". */
+        financials: PolicyFinancials;
+        prior_auth_required: boolean | null;
+        prior_auth_phone: string | null;
+        last_verified_date: string | null;
+        verification_status: string | null;
       }
     | { verified: true; verified_at: string; coverage_active: false; message: string };
 }
