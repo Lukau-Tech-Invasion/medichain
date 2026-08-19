@@ -21,6 +21,10 @@ unset GHANA_CARD_API_KEY
 # Synthetic bootstrap key — this value exists only in this throwaway local run.
 export MEDICHAIN_BOOTSTRAP_KEY=synthetic-test-bootstrap-key-2026
 
+# Appointment times are facility wall-clock; without this they are read as
+# UTC and the telehealth join window is wrong by the real offset.
+export CLINIC_UTC_OFFSET_MINUTES=${CLINIC_UTC_OFFSET_MINUTES:-120}
+
 export RUST_LOG=info
 
 # 8090 is the API's default (see api/src/main.rs): 8080 belongs to the IPFS

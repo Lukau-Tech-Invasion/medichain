@@ -780,8 +780,16 @@ print(json.dumps({"patient_id": sys.argv[4], "provider_id": sys.argv[1],
                   "appointment_type": "brain-transplant", "preferred_date": sys.argv[2],
                   "preferred_time": sys.argv[3], "reason": "x"}))' "$DOCTOR" "$APPT_DATE" "$T2" "$APPT_PATIENT")" "$DOCTOR")"
 
-st() { code POST "/api/appointments/$APT_ID/status" "{\"status\":\"$1\"}" "$DOCTOR"; }
-check "confirm"                      200 "$(st confirmed)"
+st()  { code POST "/api/appointments/$APT_ID/status" "{\"status\":\"$1\"}" "$DOCTOR"; }
+stp() { code POST "/api/appointments/$APT_ID/status" "{\"status\":\"$1\"}" "$WALLET_ADULT"; }
+
+# Two-sided agreement: whoever books proposes, the other party accepts. The
+# doctor booked this one, so only the patient can confirm it, and the visit
+# cannot proceed to check-in while it is still just a proposal.
+check "  it awaits the patient's confirmation" "patient"   "$(code GET "/api/appointments/$APT_ID" '' "$DOCTOR" >/dev/null; jget awaiting_confirmation_from)"
+check "the booking doctor cannot confirm their own proposal" 403 "$(st confirmed)"
+check "an unconfirmed appointment cannot be checked in"      409 "$(st checked_in)"
+check "the patient confirms"         200 "$(stp confirmed)"
 check "cannot skip straight to completed" 409 "$(st completed)"
 check "check in"                     200 "$(st checked_in)"
 check "start the consultation"       200 "$(st in_progress)"
