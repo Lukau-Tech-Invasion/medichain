@@ -271,9 +271,10 @@ export function MedicalIdPage() {
 
   const handleShare = async () => {
     if (!data) return;
+    const displayName = data.name ?? t('medicalId.nameUnavailable');
 
     const text = t('medicalId.shareText', {
-      name: data.name,
+      name: displayName,
       bloodType: asText(data.blood_type),
       allergies: (data.allergies ?? []).map(a => `${a.name} (${a.severity})`).join(', '),
       conditions: (data.conditions ?? []).join(', '),
@@ -293,7 +294,7 @@ export function MedicalIdPage() {
 
     try {
       await navigator.share({
-        title: t('medicalId.shareTitle', { name: data.name }),
+        title: t('medicalId.shareTitle', { name: displayName }),
         text,
       });
     } catch (err) {
