@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { ErrorBoundary } from './ErrorBoundary';
 import {
   LayoutDashboard,
   FileText,
@@ -376,9 +377,17 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
         )}
       </nav>
 
-      {/* Main Content */}
+      {/* Main Content
+          The boundary sits inside the layout, not around it, so a page that
+          throws leaves the navigation usable instead of blanking the whole app
+          — which is what happened when a single malformed record crashed the
+          patient portal and took the emergency medical ID down with it.
+          Keying it on the path resets the boundary when the user navigates
+          away; without that, one crash would latch for the rest of the session. */}
       <main className="max-w-7xl mx-auto">
-        <Outlet />
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

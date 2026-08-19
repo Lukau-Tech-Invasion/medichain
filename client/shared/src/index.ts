@@ -69,5 +69,6 @@ export * from './components/Loading';
 export * from './components/PatientCard';
 export * from './components/QRCodeDisplay';
 export * from './components/EmergencyBanner';
+export * from './components/ErrorBoundary';
 export * from './components/JitsiMeetComponent';
 
