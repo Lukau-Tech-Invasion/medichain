@@ -418,8 +418,22 @@ function Layout() {
   // Calculate total unread count for mobile header badge
   const totalUnread = badges.unreadNotifications + badges.unreadMessages;
 
-  // Sidebar content (reused for both desktop and mobile)
-  const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => (
+  /**
+   * Sidebar markup, shared by the desktop rail and the mobile drawer.
+   *
+   * A plain function that is *called*, not a component that is *rendered*.
+   * Declaring a component inside another component creates a new component
+   * type on every render, so React unmounts and remounts the whole subtree
+   * each time. `Layout` re-renders on every SSE event, toast, badge update and
+   * connectivity change, so the sidebar was being torn down and rebuilt
+   * constantly - restarting its `transition-transform` / `animate-slide-in`
+   * animations mid-flight, which is what made the drawer appear to ghost or
+   * duplicate while resizing, and threw away focus inside it.
+   *
+   * Calling it inlines the JSX into Layout's own element tree, so React
+   * reconciles the existing DOM instead of replacing it.
+   */
+  const renderSidebar = (isMobile = false) => (
     <>
       {/* Skip link for keyboard users */}
       {!isMobile && (
@@ -598,7 +612,7 @@ function Layout() {
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
-        <SidebarContent isMobile />
+        {renderSidebar(true)}
       </aside>
 
       {/* Desktop Sidebar */}
@@ -609,7 +623,7 @@ function Layout() {
           ${isCollapsed ? 'w-16' : 'w-64'}
         `}
       >
-        <SidebarContent />
+        {renderSidebar()}
       </aside>
 
       {/* Main content */}

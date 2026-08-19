@@ -7,6 +7,8 @@ import type { TranslationRecord } from '../index';
 
 const fr_FR: TranslationRecord = {
   common: {
+    // France: 15 SAMU, 112 Europe-wide.
+    emergencyNumber: '15',
     save: 'Enregistrer',
     cancel: 'Annuler',
     delete: 'Supprimer',

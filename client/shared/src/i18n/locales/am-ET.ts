@@ -7,6 +7,8 @@ import type { TranslationRecord } from '../index';
 
 const am_ET: TranslationRecord = {
   common: {
+    // Ethiopia: 907 ambulance.
+    emergencyNumber: '907',
     save: 'አስቀምጥ',
     cancel: 'ሰርዝ',
     delete: 'አጥፋ',
