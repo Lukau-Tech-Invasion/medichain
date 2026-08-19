@@ -94,16 +94,14 @@ describe('ErrorBoundary', () => {
 
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
 
-    // Click "Try Again"
-    const tryAgainButton = screen.getByRole('button', { name: /try.*again/i });
-    fireEvent.click(tryAgainButton);
-
-    // Re-render with non-throwing component
+    // Replace the failed child while preserving the boundary instance. It
+    // remains in its fallback state until the user explicitly resets it.
     rerender(
       <ErrorBoundary>
         <ThrowingComponent shouldThrow={false} />
       </ErrorBoundary>
     );
+    fireEvent.click(screen.getByRole('button', { name: /try.*again/i }));
 
     expect(screen.getByText('Component rendered successfully')).toBeInTheDocument();
   });

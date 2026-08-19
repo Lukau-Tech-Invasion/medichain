@@ -14,6 +14,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:run": "vitest run",
+    "test:gate": "vitest run src/components/ErrorBoundary.test.tsx src/components/Toast.test.tsx src/store/authStore.test.ts src/store/patientStore.test.ts src/store/themeStore.test.ts src/pages/AccessLogsPage.test.tsx src/pages/AnesthesiaPage.test.tsx src/pages/AutopsyPage.test.tsx src/pages/BarcodePage.test.tsx src/pages/BloodBankPage.test.tsx src/pages/DashboardPage.test.tsx src/pages/EmergencyAccessPage.test.tsx src/pages/LabResultsPage.test.tsx src/pages/LoginPage.test.tsx src/pages/MCIPage.test.tsx src/pages/PatientDetailPage.test.tsx src/pages/PatientSearchPage.test.tsx src/pages/SettingsPage.test.tsx src/pages/SpecimenPage.test.tsx src/pages/SplintPage.test.tsx src/pages/StrokePage.test.tsx src/pages/TelehealthPage.test.tsx src/pages/ToxicologyPage.test.tsx src/pages/TraumaPage.test.tsx src/pages/WoundCarePage.test.tsx",
     "test:e2e": "playwright test"
   },
   "dependencies": {

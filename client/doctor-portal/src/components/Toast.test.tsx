@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ToastProvider, useToast, useToastActions } from '../components/Toast';
 
 // Test component that uses toast hooks
@@ -46,7 +46,7 @@ describe('Toast Component', () => {
     expect(screen.getByText('Test content')).toBeInTheDocument();
   });
 
-  it('shows success toast when triggered', async () => {
+  it('shows success toast when triggered', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -55,12 +55,10 @@ describe('Toast Component', () => {
 
     fireEvent.click(screen.getByText('Show Success'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Success message')).toBeInTheDocument();
-    });
+    expect(screen.getByText('Success message')).toBeInTheDocument();
   });
 
-  it('shows error toast when triggered', async () => {
+  it('shows error toast when triggered', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -69,12 +67,10 @@ describe('Toast Component', () => {
 
     fireEvent.click(screen.getByText('Show Error'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Error message')).toBeInTheDocument();
-    });
+    expect(screen.getByText('Error message')).toBeInTheDocument();
   });
 
-  it('shows warning toast when triggered', async () => {
+  it('shows warning toast when triggered', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -83,12 +79,10 @@ describe('Toast Component', () => {
 
     fireEvent.click(screen.getByText('Show Warning'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Warning message')).toBeInTheDocument();
-    });
+    expect(screen.getByText('Warning message')).toBeInTheDocument();
   });
 
-  it('shows info toast when triggered', async () => {
+  it('shows info toast when triggered', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -97,12 +91,10 @@ describe('Toast Component', () => {
 
     fireEvent.click(screen.getByText('Show Info'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Info message')).toBeInTheDocument();
-    });
+    expect(screen.getByText('Info message')).toBeInTheDocument();
   });
 
-  it('auto-dismisses toast after timeout', async () => {
+  it('auto-dismisses toast after timeout', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -111,21 +103,17 @@ describe('Toast Component', () => {
 
     fireEvent.click(screen.getByText('Show Success'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Success message')).toBeInTheDocument();
-    });
+    expect(screen.getByText('Success message')).toBeInTheDocument();
 
     // Fast-forward past auto-dismiss timeout (5 seconds)
     act(() => {
       vi.advanceTimersByTime(6000);
     });
 
-    await waitFor(() => {
-      expect(screen.queryByText('Success message')).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText('Success message')).not.toBeInTheDocument();
   });
 
-  it('dismisses toast when close button is clicked', async () => {
+  it('dismisses toast when close button is clicked', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -134,20 +122,16 @@ describe('Toast Component', () => {
 
     fireEvent.click(screen.getByText('Show Success'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Success message')).toBeInTheDocument();
-    });
+    expect(screen.getByText('Success message')).toBeInTheDocument();
 
     // Find and click dismiss button
     const dismissButton = screen.getByRole('button', { name: /dismiss/i });
     fireEvent.click(dismissButton);
 
-    await waitFor(() => {
-      expect(screen.queryByText('Success message')).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText('Success message')).not.toBeInTheDocument();
   });
 
-  it('can show multiple toasts simultaneously', async () => {
+  it('can show multiple toasts simultaneously', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -157,13 +141,11 @@ describe('Toast Component', () => {
     fireEvent.click(screen.getByText('Show Success'));
     fireEvent.click(screen.getByText('Show Error'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Success message')).toBeInTheDocument();
-      expect(screen.getByText('Error message')).toBeInTheDocument();
-    });
+    expect(screen.getByText('Success message')).toBeInTheDocument();
+    expect(screen.getByText('Error message')).toBeInTheDocument();
   });
 
-  it('has proper accessibility attributes', async () => {
+  it('has proper accessibility attributes', () => {
     render(
       <TestWrapper>
         <ToastTestComponent />
@@ -172,11 +154,9 @@ describe('Toast Component', () => {
 
     fireEvent.click(screen.getByText('Show Success'));
 
-    await waitFor(() => {
-      const toastContainer = screen.getByRole('status');
-      expect(toastContainer).toBeInTheDocument();
-      expect(toastContainer).toHaveAttribute('aria-live', 'polite');
-    });
+    const toast = screen.getByRole('alert');
+    expect(toast).toBeInTheDocument();
+    expect(toast).toHaveAttribute('aria-live', 'polite');
   });
 });
 

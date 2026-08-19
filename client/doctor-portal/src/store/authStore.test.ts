@@ -7,6 +7,7 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   apiUrl: (path: string) => `http://localhost:3000${path}`,
   setProviderAuth: vi.fn(),
+  clearProviderAuth: vi.fn(),
   clearAuth: vi.fn(),
   getProviderAuth: vi.fn(),
   debugLog: vi.fn(),
@@ -89,7 +90,26 @@ describe('authStore', () => {
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(false);
     expect(state.user).toBeNull();
-    expect(shared.clearAuth).toHaveBeenCalled();
+    expect(shared.clearProviderAuth).toHaveBeenCalled();
+  });
+
+  it('does not restore a session after logout wins an in-flight validation race', async () => {
+    let resolveValidation!: (value: unknown) => void;
+    (shared.getProviderAuth as any).mockReturnValue({
+      address: '5RaceWallet', role: 'Doctor', name: 'Dr. Race',
+    });
+    (global.fetch as any).mockReturnValue(new Promise(resolve => {
+      resolveValidation = resolve;
+    }));
+
+    const restoring = useAuthStore.getState().restoreSession();
+    (shared.getProviderAuth as any).mockReturnValue(null);
+    useAuthStore.getState().logout();
+    resolveValidation({ ok: true });
+
+    expect(await restoring).toBe(false);
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().user).toBeNull();
   });
 
   it('should login with demo wallet in development', async () => {
