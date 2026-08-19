@@ -331,6 +331,7 @@ pub fn appt_parse_type(s: &str) -> crate::clinical::AppointmentType {
 pub fn appt_parse_status(s: &str) -> crate::clinical::AppointmentStatus {
     match s.to_lowercase().as_str() {
         "scheduled" => crate::clinical::AppointmentStatus::Scheduled,
+        "declined" => crate::clinical::AppointmentStatus::Declined,
         "confirmed" => crate::clinical::AppointmentStatus::Confirmed,
         "checkedin" | "checked_in" => crate::clinical::AppointmentStatus::CheckedIn,
         "inprogress" | "in_progress" => crate::clinical::AppointmentStatus::InProgress,
@@ -360,6 +361,7 @@ pub fn appt_parse_status_strict(s: &str) -> Option<crate::clinical::AppointmentS
         .collect();
     Some(match key.as_str() {
         "scheduled" => S::Scheduled,
+        "declined" => S::Declined,
         "confirmed" => S::Confirmed,
         "checkedin" => S::CheckedIn,
         "inprogress" => S::InProgress,
@@ -390,6 +392,7 @@ pub fn appt_status_storage_str(status: &crate::clinical::AppointmentStatus) -> &
     use crate::clinical::AppointmentStatus as S;
     match status {
         S::Scheduled => "scheduled",
+        S::Declined => "declined",
         S::Confirmed => "confirmed",
         S::CheckedIn => "checked_in",
         S::InProgress => "in_progress",
@@ -410,9 +413,40 @@ pub fn appt_to_datetime(date: &str, time: &str) -> DateTime<Utc> {
                 .ok()
                 .or_else(|| chrono::NaiveTime::parse_from_str(time, "%H:%M:%S").ok())
                 .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-            DateTime::<Utc>::from_naive_utc_and_offset(d.and_time(t), Utc)
+            // `scheduled_date` + `start_time` are **facility wall-clock**: what
+            // the clinician or patient actually typed. Treating that naive value
+            // as UTC (which `from_naive_utc_and_offset(.., Utc)` does) shifts
+            // every appointment by the facility's offset — in SAST (UTC+2) a
+            // 09:00 consultation became an 11:00 instant. That silently broke
+            // the telehealth join window, which is enforced against the instant:
+            // a patient at their real appointment time was told "this
+            // consultation is not open to join yet" for two more hours.
+            //
+            // Displayed times were unaffected (the UI renders the `start_time`
+            // string), which is exactly why this stayed hidden.
+            let naive = d.and_time(t) - chrono::Duration::minutes(clinic_utc_offset_minutes());
+            DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
         });
     parsed.unwrap_or_else(Utc::now)
+}
+
+/// The facility's fixed offset from UTC, in minutes, from
+/// `CLINIC_UTC_OFFSET_MINUTES` (e.g. `120` for SAST, `-300` for EST).
+///
+/// A fixed offset rather than an IANA zone because the deployment targets
+/// (South Africa, Nigeria, Kenya, Ghana, Ethiopia) do not observe DST, and a
+/// fixed offset needs no timezone database. Defaults to `0`, which preserves
+/// the previous UTC-as-wall-clock behaviour; `startup` warns when it is unset so
+/// a non-UTC deployment does not inherit the bug silently.
+///
+/// Values beyond ±14h are ignored as nonsense rather than applied.
+pub fn clinic_utc_offset_minutes() -> i64 {
+    const MAX_OFFSET_MINUTES: i64 = 14 * 60;
+    std::env::var("CLINIC_UTC_OFFSET_MINUTES")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<i64>().ok())
+        .filter(|minutes| minutes.abs() <= MAX_OFFSET_MINUTES)
+        .unwrap_or(0)
 }
 
 impl From<crate::clinical::Appointment> for crate::repositories::traits::AppointmentEntity {

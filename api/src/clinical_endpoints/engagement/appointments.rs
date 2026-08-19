@@ -10,7 +10,8 @@ pub struct BookAppointmentRequest {
     pub patient_id: String,
     /// A *request* for which provider, not an assertion. Validated against the
     /// caller by `resolve_attributed_provider`; see the handler.
-    pub provider_id: String,
+    #[serde(default)]
+    pub provider_id: Option<String>,
     // `provider_name` was removed here rather than left unread. It let a client
     // label an appointment with any name it liked, independent of
     // `provider_id`, and the name is now taken from the resolved provider
@@ -92,7 +93,7 @@ pub async fn book_appointment(
     let attribution = match crate::support::resolve_attributed_provider(
         &data,
         &http_req,
-        Some(req.provider_id.as_str()),
+        req.provider_id.as_deref(),
     ) {
         Ok(a) => a,
         Err(resp) => return resp,
@@ -102,7 +103,11 @@ pub async fn book_appointment(
     // User must be booking for themselves or be a healthcare provider/authorized relative.
     // Resolve the caller from the server-side account registry instead of trusting a
     // legacy ID prefix: production wallet addresses do not encode a user's role.
-    if current_user_id != req.patient_id {
+    // `current_user_id` is an SS58 wallet and `patient_id` is a `PAT-…` record
+    // ID, so the direct comparison this used to make was never true for a real
+    // patient account: booking for yourself fell through to the provider and
+    // family-access checks and returned 403. Patients could not book at all.
+    if !crate::support::caller_owns_patient_record(&data, &current_user_id, &req.patient_id) {
         let is_provider = crate::get_user(&data, &current_user_id)
             .is_some_and(|user| user.role.is_healthcare_provider());
         if !is_provider {
@@ -348,7 +353,10 @@ pub async fn get_patient_appointments(
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
-        "appointments": patient_appointments,
+        "appointments": patient_appointments
+            .iter()
+            .map(|a| appointment_json(&data, a))
+            .collect::<Vec<_>>(),
         "count": patient_appointments.len()
     }))
 }
@@ -389,7 +397,10 @@ pub async fn get_provider_appointments(
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
-        "appointments": provider_appointments,
+        "appointments": provider_appointments
+            .iter()
+            .map(|a| appointment_json(&data, a))
+            .collect::<Vec<_>>(),
         "count": provider_appointments.len()
     }))
 }
@@ -523,7 +534,7 @@ pub async fn get_appointment(
         });
     }
 
-    HttpResponse::Ok().json(appointment)
+    HttpResponse::Ok().json(appointment_json(&data, &appointment))
 }
 
 /// Check in a patient for their appointment
@@ -627,6 +638,71 @@ pub async fn check_in_appointment(
 /// `Completed`, `Cancelled`, `NoShow` and `Rescheduled` are terminal.
 /// Rescheduling produces a *new* appointment that supersedes this one rather
 /// than mutating it, so the original stays in the record.
+/// Which side still has to agree to a proposed appointment.
+///
+/// A booking is a proposal, not an agreement: whoever made it has already
+/// stated their availability, so the *other* party is the one whose answer is
+/// outstanding. An appointment booked by front-desk staff waits on the patient
+/// — the provider is represented by their own facility, whereas the patient's
+/// agreement to the time is exactly what nobody else can give on their behalf.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ConfirmingParty {
+    Patient,
+    Provider,
+}
+
+fn confirming_party(
+    data: &web::Data<crate::AppState>,
+    appointment: &crate::clinical::Appointment,
+) -> ConfirmingParty {
+    let booked_by = appointment
+        .booked_by
+        .as_deref()
+        .unwrap_or(&appointment.created_by);
+    if crate::support::caller_owns_patient_record(data, booked_by, &appointment.patient_id) {
+        ConfirmingParty::Provider
+    } else {
+        ConfirmingParty::Patient
+    }
+}
+
+/// The value reported to clients as `awaiting_confirmation_from`.
+///
+/// `None` once the appointment has moved past the proposal stage, so a UI can
+/// show a "needs your confirmation" prompt without re-deriving the rule.
+pub fn awaiting_confirmation_from(
+    data: &web::Data<crate::AppState>,
+    appointment: &crate::clinical::Appointment,
+) -> Option<&'static str> {
+    if appointment.status != crate::clinical::AppointmentStatus::Scheduled {
+        return None;
+    }
+    Some(match confirming_party(data, appointment) {
+        ConfirmingParty::Patient => "patient",
+        ConfirmingParty::Provider => "provider",
+    })
+}
+
+/// Serialize an appointment with the derived `awaiting_confirmation_from`
+/// field, so clients can render "needs your confirmation" without re-deriving
+/// the two-sided rule (and drifting from it).
+fn appointment_json(
+    data: &web::Data<crate::AppState>,
+    appointment: &crate::clinical::Appointment,
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(appointment).unwrap_or(serde_json::Value::Null);
+    if let Some(object) = value.as_object_mut() {
+        object.insert(
+            "awaiting_confirmation_from".to_string(),
+            match awaiting_confirmation_from(data, appointment) {
+                Some(party) => serde_json::Value::String(party.to_string()),
+                None => serde_json::Value::Null,
+            },
+        );
+    }
+    value
+}
+
 fn is_valid_transition(
     from: &crate::clinical::AppointmentStatus,
     to: &crate::clinical::AppointmentStatus,
@@ -635,9 +711,15 @@ fn is_valid_transition(
     matches!(
         (from, to),
         (S::Waitlisted, S::Scheduled | S::Cancelled)
+            // `Scheduled` deliberately does NOT reach `CheckedIn`. A booking is a
+            // proposal until the party who did not make it agrees, so the only
+            // ways out are agreement (`Confirmed`), refusal (`Declined`), or
+            // calling it off. Allowing check-in straight from `Scheduled` would
+            // make confirmation decorative — the appointment could run its whole
+            // course without either party ever agreeing to the time.
             | (
                 S::Scheduled,
-                S::Confirmed | S::CheckedIn | S::Cancelled | S::NoShow | S::Rescheduled
+                S::Confirmed | S::Declined | S::Cancelled | S::NoShow | S::Rescheduled
             )
             | (
                 S::Confirmed,
@@ -710,7 +792,13 @@ pub async fn transition_appointment(
     };
 
     let is_provider_of_record = caller.wallet_address == appointment.provider_id;
-    let is_patient = caller.wallet_address == appointment.patient_id;
+    // `patient_id` is a record ID (`PAT-…`) and `wallet_address` is an SS58
+    // account — comparing them directly can never be true, so the patient arm
+    // below was unreachable and every patient got "you are not a party to this
+    // appointment" on their own booking. `caller_owns_patient_record` is the
+    // function that actually bridges the two namespaces.
+    let is_patient =
+        crate::support::caller_owns_patient_record(&data, &caller.wallet_address, &appointment.patient_id);
     let is_admin = caller.role.is_admin();
     if !is_provider_of_record && !is_patient && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -722,14 +810,15 @@ pub async fn transition_appointment(
     if is_patient
         && !is_admin
         && !is_provider_of_record
-        && !matches!(target, S::Confirmed | S::Cancelled)
+        && !matches!(target, S::Confirmed | S::Declined | S::Cancelled)
     {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "A patient may only confirm or cancel their appointment".to_string(),
+            error: "A patient may only confirm, decline or cancel their appointment".to_string(),
             code: "FORBIDDEN_TRANSITION".to_string(),
         });
     }
+
 
     if appointment.status == target {
         // Idempotent: re-sending the current status is a no-op rather than an
@@ -751,6 +840,29 @@ pub async fn transition_appointment(
             ),
             code: "INVALID_TRANSITION".to_string(),
         });
+    }
+    // Two-sided agreement: a booking is only a proposal, so the side that made
+    // it cannot also accept it. Whoever booked, the *other* party answers.
+    if matches!(target, S::Confirmed | S::Declined) {
+        match confirming_party(&data, &appointment) {
+            ConfirmingParty::Patient if !is_patient => {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    success: false,
+                    error: "This appointment is awaiting the patient's confirmation; the party who booked it cannot confirm it themselves"
+                        .to_string(),
+                    code: "AWAITING_PATIENT_CONFIRMATION".to_string(),
+                });
+            }
+            ConfirmingParty::Provider if !is_provider_of_record => {
+                return HttpResponse::Forbidden().json(ErrorResponse {
+                    success: false,
+                    error: "This appointment is awaiting the provider's confirmation; the party who booked it cannot confirm it themselves"
+                        .to_string(),
+                    code: "AWAITING_PROVIDER_CONFIRMATION".to_string(),
+                });
+            }
+            _ => {}
+        }
     }
 
     // Cancellation goes through the repository's own path so the reason and
@@ -1237,5 +1349,35 @@ mod appointment_reminder_tests {
             .into();
         assert!(a3.reminders_sent.is_empty());
         assert!(a4.reminders_sent.is_empty());
+    }
+    /// A booking is a proposal, so it must pass through agreement or refusal.
+    ///
+    /// Guards the rule directly rather than only through the live e2e harness:
+    /// re-adding `Scheduled -> CheckedIn` would make confirmation decorative,
+    /// and that is a one-token change someone could make while "tidying" the
+    /// table.
+    #[test]
+    fn a_proposed_appointment_cannot_skip_confirmation() {
+        use crate::clinical::AppointmentStatus as S;
+
+        // The only ways out of a proposal.
+        assert!(is_valid_transition(&S::Scheduled, &S::Confirmed));
+        assert!(is_valid_transition(&S::Scheduled, &S::Declined));
+        assert!(is_valid_transition(&S::Scheduled, &S::Cancelled));
+
+        // Check-in is reachable only once the other party has agreed.
+        assert!(
+            !is_valid_transition(&S::Scheduled, &S::CheckedIn),
+            "an unconfirmed appointment must not be checkable-in"
+        );
+        assert!(is_valid_transition(&S::Confirmed, &S::CheckedIn));
+
+        // A refusal is terminal: it cannot be talked back into a live booking.
+        for target in [S::Confirmed, S::CheckedIn, S::InProgress, S::Completed] {
+            assert!(
+                !is_valid_transition(&S::Declined, &target),
+                "declined must be terminal, but reached {target:?}"
+            );
+        }
     }
 }
