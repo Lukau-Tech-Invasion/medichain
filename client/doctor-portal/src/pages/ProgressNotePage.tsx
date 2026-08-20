@@ -137,12 +137,12 @@ const ProgressNotePage: React.FC = () => {
 
   const getNoteTypeColor = (type: NoteType): string => {
     const colors: Record<NoteType, string> = {
-      'daily': 'bg-blue-100 text-blue-700',
-      'admission': 'bg-green-100 text-green-700',
+      'daily': 'bg-notice-subtle text-notice-subtle-fg',
+      'admission': 'bg-ok-subtle text-ok-subtle-fg',
       'discharge': 'bg-purple-100 text-purple-700',
       'procedure': 'bg-orange-100 text-orange-700',
       'consultation': 'bg-cyan-100 text-cyan-700',
-      'transfer': 'bg-yellow-100 text-yellow-700'
+      'transfer': 'bg-caution-subtle text-caution-subtle-fg'
     };
     return colors[type];
   };
@@ -160,9 +160,9 @@ const ProgressNotePage: React.FC = () => {
 
   const getStatusBadge = (status: NoteStatus) => {
     const styles: Record<NoteStatus, { bg: string; text: string }> = {
-      'draft': { bg: 'bg-yellow-100', text: 'text-yellow-700' },
-      'signed': { bg: 'bg-green-100', text: 'text-green-700' },
-      'cosigned': { bg: 'bg-blue-100', text: 'text-blue-700' },
+      'draft': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg' },
+      'signed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg' },
+      'cosigned': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg' },
       'addendum': { bg: 'bg-purple-100', text: 'text-purple-700' }
     };
     const labels: Record<NoteStatus, string> = {
@@ -262,7 +262,7 @@ const ProgressNotePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-600 to-violet-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -276,16 +276,16 @@ const ProgressNotePage: React.FC = () => {
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docProgressNote.loading')}</p>
+          <p className="text-content-muted">{t('docProgressNote.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docProgressNote.apiHint')}</p>
           </div>
         </div>
@@ -296,29 +296,29 @@ const ProgressNotePage: React.FC = () => {
         <>
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-gray-800">{notes.length}</p>
-              <p className="text-xs text-gray-500">{t('docProgressNote.totalNotes')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-content-secondary">{notes.length}</p>
+              <p className="text-xs text-content-muted">{t('docProgressNote.totalNotes')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-yellow-600">{notes.filter(n => n.status === 'draft').length}</p>
-              <p className="text-xs text-gray-500">{t('docProgressNote.drafts')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-caution-subtle-fg">{notes.filter(n => n.status === 'draft').length}</p>
+              <p className="text-xs text-content-muted">{t('docProgressNote.drafts')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{notes.filter(n => n.status === 'signed' || n.status === 'cosigned').length}</p>
-              <p className="text-xs text-gray-500">{t('docProgressNote.signed')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-ok-subtle-fg">{notes.filter(n => n.status === 'signed' || n.status === 'cosigned').length}</p>
+              <p className="text-xs text-content-muted">{t('docProgressNote.signed')}</p>
             </div>
           </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {(['notes', 'new', 'timeline'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-4 text-sm font-medium ${
-                activeTab === tab ? 'text-indigo-700 border-b-2 border-indigo-700' : 'text-gray-500'
+                activeTab === tab ? 'text-indigo-700 border-b-2 border-indigo-700' : 'text-content-muted'
               }`}
             >
               {tab === 'notes' ? t('docProgressNote.tabNotes') : tab === 'new' ? t('docProgressNote.tabNew') : t('docProgressNote.tabTimeline')}
@@ -332,7 +332,7 @@ const ProgressNotePage: React.FC = () => {
         <div className="p-4">
           <div className="flex gap-2 mb-4">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
               <input
                 type="text"
                 value={searchQuery}
@@ -360,7 +360,7 @@ const ProgressNotePage: React.FC = () => {
               <div
                 key={note.id}
                 onClick={() => setSelectedNote(note)}
-                className={`bg-white rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
+                className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                   note.status === 'draft' ? 'border-l-4 border-l-yellow-500' : ''
                 }`}
               >
@@ -372,14 +372,14 @@ const ProgressNotePage: React.FC = () => {
                         {noteTypeLabel(note.noteType)}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500">{t('docProgressNote.mrn', { mrn: note.mrn })}</p>
+                    <p className="text-sm text-content-muted">{t('docProgressNote.mrn', { mrn: note.mrn })}</p>
                   </div>
                   {getStatusBadge(note.status)}
                 </div>
 
-                <p className="text-sm text-gray-600 line-clamp-2 mb-3">{note.assessment}</p>
+                <p className="text-sm text-content-muted line-clamp-2 mb-3">{note.assessment}</p>
 
-                <div className="flex items-center justify-between text-xs text-gray-500">
+                <div className="flex items-center justify-between text-xs text-content-muted">
                   <div className="flex items-center gap-1">
                     <User className="w-3 h-3" />
                     <span>{note.author}</span>
@@ -398,7 +398,7 @@ const ProgressNotePage: React.FC = () => {
       {/* New Note Tab */}
       {activeTab === 'new' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docProgressNote.newNote')}</h2>
 
             <div className="space-y-4">
@@ -472,7 +472,7 @@ const ProgressNotePage: React.FC = () => {
 
               <div className="flex gap-2">
                 <button type="button" disabled={saving} onClick={() => saveNote('draft')}
-                  className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium disabled:opacity-50">
+                  className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg font-medium disabled:opacity-50">
                   {t('docProgressNote.saveDraft')}
                 </button>
                 <button type="button" disabled={saving} onClick={() => saveNote('signed')}
@@ -488,24 +488,24 @@ const ProgressNotePage: React.FC = () => {
       {/* Timeline Tab */}
       {activeTab === 'timeline' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docProgressNote.timelineTitle')}</h2>
             <div className="relative">
-              <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+              <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-surface-sunken"></div>
               <div className="space-y-6">
                 {notes.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).map(note => (
                   <div key={note.id} className="relative pl-10">
                     <div className="absolute left-2.5 w-3 h-3 rounded-full bg-indigo-500 border-2 border-white"></div>
-                    <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="bg-surface-sunken rounded-lg p-4">
                       <div className="flex items-center justify-between mb-2">
                         <span className={`px-2 py-0.5 rounded text-xs ${getNoteTypeColor(note.noteType)}`}>
                           {noteTypeLabel(note.noteType)}
                         </span>
-                        <span className="text-xs text-gray-500">{note.createdAt.toLocaleString()}</span>
+                        <span className="text-xs text-content-muted">{note.createdAt.toLocaleString()}</span>
                       </div>
                       <h4 className="font-medium">{note.patientName}</h4>
-                      <p className="text-sm text-gray-600 mt-1">{note.assessment.split('\n')[0]}</p>
-                      <p className="text-xs text-gray-500 mt-2">{t('docProgressNote.by', { author: note.author })}</p>
+                      <p className="text-sm text-content-muted mt-1">{note.assessment.split('\n')[0]}</p>
+                      <p className="text-xs text-content-muted mt-2">{t('docProgressNote.by', { author: note.author })}</p>
                     </div>
                   </div>
                 ))}
@@ -520,50 +520,50 @@ const ProgressNotePage: React.FC = () => {
       {/* Note Detail Modal */}
       {selectedNote && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-semibold">{selectedNote.patientName}</h2>
                   {getStatusBadge(selectedNote.status)}
                 </div>
-                <p className="text-sm text-gray-500">{t('docProgressNote.noteSuffix', { type: noteTypeLabel(selectedNote.noteType), date: selectedNote.createdAt.toLocaleString() })}</p>
+                <p className="text-sm text-content-muted">{t('docProgressNote.noteSuffix', { type: noteTypeLabel(selectedNote.noteType), date: selectedNote.createdAt.toLocaleString() })}</p>
               </div>
-              <button onClick={() => setSelectedNote(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+              <button onClick={() => setSelectedNote(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secSubjective')}</h3>
-                <p className="text-gray-700">{selectedNote.subjective}</p>
+                <h3 className="text-sm font-semibold text-content-muted mb-1">{t('docProgressNote.secSubjective')}</h3>
+                <p className="text-content-secondary">{selectedNote.subjective}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secObjective')}</h3>
-                <p className="text-gray-700">{selectedNote.objective}</p>
+                <h3 className="text-sm font-semibold text-content-muted mb-1">{t('docProgressNote.secObjective')}</h3>
+                <p className="text-content-secondary">{selectedNote.objective}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secAssessment')}</h3>
-                <p className="text-gray-700 whitespace-pre-line">{selectedNote.assessment}</p>
+                <h3 className="text-sm font-semibold text-content-muted mb-1">{t('docProgressNote.secAssessment')}</h3>
+                <p className="text-content-secondary whitespace-pre-line">{selectedNote.assessment}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-gray-500 mb-1">{t('docProgressNote.secPlan')}</h3>
-                <p className="text-gray-700 whitespace-pre-line">{selectedNote.plan}</p>
+                <h3 className="text-sm font-semibold text-content-muted mb-1">{t('docProgressNote.secPlan')}</h3>
+                <p className="text-content-secondary whitespace-pre-line">{selectedNote.plan}</p>
               </div>
 
               <div className="pt-4 border-t">
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-content-muted">
                   <strong>{t('docProgressNote.authorLabel')}</strong> {selectedNote.author} ({selectedNote.authorRole})
                 </p>
                 {selectedNote.signedAt && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-content-muted">
                     <strong>{t('docProgressNote.signedLabel')}</strong> {selectedNote.signedAt.toLocaleString()}
                   </p>
                 )}
                 {selectedNote.cosigner && (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-content-muted">
                     <strong>{t('docProgressNote.cosignedLabel')}</strong> {selectedNote.cosigner}
                   </p>
                 )}

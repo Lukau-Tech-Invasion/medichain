@@ -271,39 +271,39 @@ function NursingPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'given': return 'bg-green-100 text-green-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
+      case 'given': return 'bg-ok-subtle text-ok-subtle-fg';
+      case 'pending': return 'bg-caution-subtle text-caution-subtle-fg';
       case 'held': return 'bg-orange-100 text-orange-800';
-      case 'refused': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'refused': return 'bg-critical-subtle text-critical-subtle-fg';
+      default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   const getBalanceIcon = (balance: number) => {
     if (balance > 500) return <TrendingUp className="text-green-500" size={20} />;
     if (balance < -500) return <TrendingDown className="text-red-500" size={20} />;
-    return <Minus className="text-gray-500" size={20} />;
+    return <Minus className="text-content-muted" size={20} />;
   };
 
   return (
     <div className="p-8">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{t('docNursing.title')}</h1>
-        <p className="text-gray-500">{t('docNursing.subtitle')}</p>
+        <h1 className="text-2xl font-bold text-content">{t('docNursing.title')}</h1>
+        <p className="text-content-muted">{t('docNursing.subtitle')}</p>
       </div>
 
       {/* Alerts */}
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+        <div className="mb-4 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-2">
           <AlertCircle className="text-red-500" size={20} />
-          <span className="text-red-700">{error}</span>
+          <span className="text-critical-subtle-fg">{error}</span>
         </div>
       )}
       {success && (
-        <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+        <div className="mb-4 p-4 bg-ok-subtle border border-ok rounded-lg flex items-center gap-2">
           <CheckCircle className="text-green-500" size={20} />
-          <span className="text-green-700">{success}</span>
+          <span className="text-ok-subtle-fg">{success}</span>
         </div>
       )}
 
@@ -314,7 +314,7 @@ function NursingPage() {
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
             activeTab === 'mar' 
               ? 'bg-primary-600 text-white' 
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
           }`}
         >
           <Pill size={20} />
@@ -325,7 +325,7 @@ function NursingPage() {
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
             activeTab === 'io'
               ? 'bg-primary-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
           }`}
         >
           <Droplets size={20} />
@@ -336,7 +336,7 @@ function NursingPage() {
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
             activeTab === 'careplan'
               ? 'bg-primary-600 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
           }`}
         >
           <ClipboardList size={20} />
@@ -354,27 +354,27 @@ function NursingPage() {
           {activeTab === 'mar' && (
             <div className="space-y-6">
               {marRecords.length === 0 ? (
-                <div className="bg-white rounded-xl shadow p-8 text-center">
+                <div className="bg-surface rounded-xl shadow p-8 text-center">
                   <Pill className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p className="text-gray-500">{t('docNursing.noMedicationRecords')}</p>
-                  <p className="text-sm text-gray-400">{t('docNursing.noMedicationRecordsHint')}</p>
+                  <p className="text-content-muted">{t('docNursing.noMedicationRecords')}</p>
+                  <p className="text-sm text-content-muted">{t('docNursing.noMedicationRecordsHint')}</p>
                 </div>
               ) : (
                 marRecords.map((mar) => (
-                  <div key={mar.mar_id} className="bg-white rounded-xl shadow overflow-hidden">
-                    <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                  <div key={mar.mar_id} className="bg-surface rounded-xl shadow overflow-hidden">
+                    <div className="p-4 bg-surface-sunken border-b flex justify-between items-center">
                       <div>
-                        <h3 className="font-semibold text-gray-900">{mar.patient_name}</h3>
-                        <p className="text-sm text-gray-500">
+                        <h3 className="font-semibold text-content">{mar.patient_name}</h3>
+                        <p className="text-sm text-content-muted">
                           <Calendar className="inline mr-1" size={14} />
                           {mar.date}
                         </p>
                       </div>
-                      <span className="text-sm text-gray-400">{t('docNursing.marIdLine', { id: mar.mar_id })}</span>
+                      <span className="text-sm text-content-muted">{t('docNursing.marIdLine', { id: mar.mar_id })}</span>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full">
-                        <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                        <thead className="bg-surface-sunken text-xs uppercase text-content-muted">
                           <tr>
                             <th className="px-4 py-3 text-left">{t('docNursing.tableMedication')}</th>
                             <th className="px-4 py-3 text-left">{t('docNursing.tableDose')}</th>
@@ -385,10 +385,10 @@ function NursingPage() {
                             <th className="px-4 py-3 text-center">{t('docNursing.tableAction')}</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
+                        <tbody className="divide-y divide-border">
                           {(mar.medications ?? []).flatMap((med, medIdx) => (
                             (med.doses ?? []).map((dose, doseIdx) => (
-                              <tr key={`${medIdx}-${doseIdx}`} className="hover:bg-gray-50">
+                              <tr key={`${medIdx}-${doseIdx}`} className="hover:bg-surface-sunken">
                                 {doseIdx === 0 && (
                                   <>
                                     <td className="px-4 py-3 font-medium" rowSpan={med.doses.length}>
@@ -419,7 +419,7 @@ function NursingPage() {
                                     </button>
                                   )}
                                   {dose.status === 'given' && dose.administered_by && (
-                                    <span className="text-xs text-gray-500">
+                                    <span className="text-xs text-content-muted">
                                       <User className="inline mr-1" size={12} />
                                       {dose.administered_by}
                                     </span>
@@ -441,8 +441,8 @@ function NursingPage() {
           {activeTab === 'io' && (
             <div className="space-y-6">
               {/* Quick Entry Form */}
-              <div className="bg-white rounded-xl shadow p-6">
-                <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <div className="bg-surface rounded-xl shadow p-6">
+                <h3 className="font-semibold text-content mb-4 flex items-center gap-2">
                   <Plus size={20} />
                   {t('docNursing.quickEntryHeading')}
                 </h3>
@@ -453,7 +453,7 @@ function NursingPage() {
                       id="nursing-patient-select"
                       value={selectedPatient}
                       onChange={(e) => setSelectedPatient(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                      className="w-full px-3 py-2 border border-border rounded-lg"
                     >
                       <option value="">{t('docNursing.selectPatientLabel')}</option>
                     {patients.map((p) => (
@@ -467,7 +467,7 @@ function NursingPage() {
                       id="nursing-entry-type"
                       value={newFluidEntry.type}
                       onChange={(e) => setNewFluidEntry({ ...newFluidEntry, type: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                      className="w-full px-3 py-2 border border-border rounded-lg"
                     >
                       <option value="intake">{t('docNursing.intakeOption')}</option>
                       <option value="output">{t('docNursing.outputOption')}</option>
@@ -479,7 +479,7 @@ function NursingPage() {
                       id="nursing-fluid-type"
                       value={newFluidEntry.fluidType}
                       onChange={(e) => setNewFluidEntry({ ...newFluidEntry, fluidType: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                      className="w-full px-3 py-2 border border-border rounded-lg"
                     >
                       {newFluidEntry.type === 'intake' ? (
                       <>
@@ -507,7 +507,7 @@ function NursingPage() {
                       value={newFluidEntry.amount}
                       onChange={(e) => setNewFluidEntry({ ...newFluidEntry, amount: parseInt(e.target.value) || 0 })}
                       placeholder={t('docNursing.amountMlPh')}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                      className="w-full px-3 py-2 border border-border rounded-lg"
                       aria-label={t('docNursing.amountMlAriaLabel')}
                     />
                   </div>
@@ -524,28 +524,28 @@ function NursingPage() {
 
               {/* I/O Records */}
               {ioRecords.length === 0 ? (
-                <div className="bg-white rounded-xl shadow p-8 text-center">
+                <div className="bg-surface rounded-xl shadow p-8 text-center">
                   <Droplets className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p className="text-gray-500">{t('docNursing.noIoRecords')}</p>
+                  <p className="text-content-muted">{t('docNursing.noIoRecords')}</p>
                 </div>
               ) : (
                 ioRecords.map((record) => (
-                  <div key={record.io_id} className="bg-white rounded-xl shadow overflow-hidden">
-                    <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                  <div key={record.io_id} className="bg-surface rounded-xl shadow overflow-hidden">
+                    <div className="p-4 bg-surface-sunken border-b flex justify-between items-center">
                       <div>
-                        <h3 className="font-semibold text-gray-900">{record.patient_name}</h3>
-                        <p className="text-sm text-gray-500">
+                        <h3 className="font-semibold text-content">{record.patient_name}</h3>
+                        <p className="text-sm text-content-muted">
                           {t('docNursing.dateShiftLine', { date: record.date, shift: t(`docNursing.shift_${record.shift}`) })}
                         </p>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <p className="text-sm text-gray-500">{t('docNursing.balanceLabel')}</p>
+                          <p className="text-sm text-content-muted">{t('docNursing.balanceLabel')}</p>
                           <div className="flex items-center gap-1">
                             {getBalanceIcon(record.fluid_balance)}
                             <span className={`font-bold ${
-                              record.fluid_balance > 0 ? 'text-green-600' : 
-                              record.fluid_balance < 0 ? 'text-red-600' : 'text-gray-600'
+                              record.fluid_balance > 0 ? 'text-ok-subtle-fg' : 
+                              record.fluid_balance < 0 ? 'text-critical-subtle-fg' : 'text-content-muted'
                             }`}>
                               {record.fluid_balance > 0 ? '+' : ''}{record.fluid_balance} mL
                             </span>
@@ -556,7 +556,7 @@ function NursingPage() {
                     <div className="grid grid-cols-2 divide-x">
                       {/* Intake */}
                       <div className="p-4">
-                        <h4 className="font-medium text-green-700 mb-3 flex items-center gap-2">
+                        <h4 className="font-medium text-ok-subtle-fg mb-3 flex items-center gap-2">
                           <TrendingUp size={16} />
                           {t('docNursing.intakeTotalLine', { total: record.total_intake })}
                         </h4>
@@ -571,7 +571,7 @@ function NursingPage() {
                       </div>
                       {/* Output */}
                       <div className="p-4">
-                        <h4 className="font-medium text-red-700 mb-3 flex items-center gap-2">
+                        <h4 className="font-medium text-critical-subtle-fg mb-3 flex items-center gap-2">
                           <TrendingDown size={16} />
                           {t('docNursing.outputTotalLine', { total: record.total_output })}
                         </h4>
@@ -595,26 +595,26 @@ function NursingPage() {
           {activeTab === 'careplan' && (
             <div className="space-y-6">
               {carePlans.length === 0 ? (
-                <div className="bg-white rounded-xl shadow p-8 text-center">
+                <div className="bg-surface rounded-xl shadow p-8 text-center">
                   <ClipboardList className="mx-auto mb-4 text-gray-300" size={48} />
-                  <p className="text-gray-500">{t('docNursing.noCarePlans')}</p>
+                  <p className="text-content-muted">{t('docNursing.noCarePlans')}</p>
                 </div>
               ) : (
                 carePlans.map((plan) => (
-                  <div key={plan.plan_id} className="bg-white rounded-xl shadow overflow-hidden">
-                    <div className="p-4 bg-gray-50 border-b">
-                      <h3 className="font-semibold text-gray-900">{plan.patient_name}</h3>
-                      <p className="text-sm text-gray-500">{t('docNursing.lastUpdatedLine', { date: plan.last_updated })}</p>
+                  <div key={plan.plan_id} className="bg-surface rounded-xl shadow overflow-hidden">
+                    <div className="p-4 bg-surface-sunken border-b">
+                      <h3 className="font-semibold text-content">{plan.patient_name}</h3>
+                      <p className="text-sm text-content-muted">{t('docNursing.lastUpdatedLine', { date: plan.last_updated })}</p>
                     </div>
                     <div className="p-4 space-y-4">
                       {/* Diagnoses */}
                       <div>
-                        <h4 className="font-medium text-gray-700 mb-2">{t('docNursing.nursingDiagnosesHeading')}</h4>
+                        <h4 className="font-medium text-content-secondary mb-2">{t('docNursing.nursingDiagnosesHeading')}</h4>
                         {plan.diagnoses.map((dx, idx) => (
-                          <div key={idx} className="ml-4 p-3 bg-blue-50 rounded-lg mb-2">
-                            <p className="font-medium text-blue-900">{dx.diagnosis}</p>
-                            <p className="text-sm text-blue-700">{t('docNursing.relatedToLine', { text: dx.related_to })}</p>
-                            <p className="text-sm text-blue-600">
+                          <div key={idx} className="ml-4 p-3 bg-notice-subtle rounded-lg mb-2">
+                            <p className="font-medium text-notice-subtle-fg">{dx.diagnosis}</p>
+                            <p className="text-sm text-notice-subtle-fg">{t('docNursing.relatedToLine', { text: dx.related_to })}</p>
+                            <p className="text-sm text-notice-subtle-fg">
                               {t('docNursing.aebLine', { list: dx.evidenced_by.join(', ') })}
                             </p>
                           </div>
@@ -622,18 +622,18 @@ function NursingPage() {
                       </div>
                       {/* Interventions */}
                       <div>
-                        <h4 className="font-medium text-gray-700 mb-2">{t('docNursing.interventionsHeading')}</h4>
+                        <h4 className="font-medium text-content-secondary mb-2">{t('docNursing.interventionsHeading')}</h4>
                         <div className="ml-4 space-y-2">
                           {plan.interventions.map((int, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <div key={idx} className="flex items-center justify-between p-2 bg-surface-sunken rounded">
                               <div>
                                 <p className="text-sm">{int.intervention}</p>
-                                <p className="text-xs text-gray-500">{int.frequency}</p>
+                                <p className="text-xs text-content-muted">{int.frequency}</p>
                               </div>
                               <span className={`px-2 py-1 rounded text-xs ${
-                                int.status === 'active' ? 'bg-green-100 text-green-700' :
-                                int.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-700'
+                                int.status === 'active' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                int.status === 'completed' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                                'bg-surface-sunken text-content-secondary'
                               }`}>
                                 {t(`docNursing.interventionStatus_${int.status}`)}
                               </span>
@@ -643,21 +643,21 @@ function NursingPage() {
                       </div>
                       {/* Outcomes */}
                       <div>
-                        <h4 className="font-medium text-gray-700 mb-2">{t('docNursing.expectedOutcomesHeading')}</h4>
+                        <h4 className="font-medium text-content-secondary mb-2">{t('docNursing.expectedOutcomesHeading')}</h4>
                         <div className="ml-4 space-y-2">
                           {plan.outcomes.map((out, idx) => (
-                            <div key={idx} className="p-2 bg-gray-50 rounded">
+                            <div key={idx} className="p-2 bg-surface-sunken rounded">
                               <div className="flex justify-between items-start">
                                 <p className="text-sm">{out.outcome}</p>
                                 <span className={`px-2 py-1 rounded text-xs ${
-                                  out.status === 'met' ? 'bg-green-100 text-green-700' :
-                                  out.status === 'partially_met' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-red-100 text-red-700'
+                                  out.status === 'met' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                  out.status === 'partially_met' ? 'bg-caution-subtle text-caution-subtle-fg' :
+                                  'bg-critical-subtle text-critical-subtle-fg'
                                 }`}>
                                   {t(`docNursing.outcomeStatus_${out.status}`)}
                                 </span>
                               </div>
-                              <p className="text-xs text-gray-500">{t('docNursing.targetLine', { date: out.target_date })}</p>
+                              <p className="text-xs text-content-muted">{t('docNursing.targetLine', { date: out.target_date })}</p>
                             </div>
                           ))}
                         </div>

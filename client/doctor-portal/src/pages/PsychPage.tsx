@@ -62,11 +62,11 @@ interface PsychAssessment {
 }
 
 const riskLevelColors: Record<RiskLevel, string> = {
-  none: 'bg-gray-100 text-gray-700',
-  low: 'bg-green-100 text-green-700',
-  moderate: 'bg-yellow-100 text-yellow-700',
+  none: 'bg-surface-sunken text-content-secondary',
+  low: 'bg-ok-subtle text-ok-subtle-fg',
+  moderate: 'bg-caution-subtle text-caution-subtle-fg',
   high: 'bg-orange-100 text-orange-700',
-  imminent: 'bg-red-100 text-red-700'
+  imminent: 'bg-critical-subtle text-critical-subtle-fg'
 };
 
 /** Coerce a stored risk level onto the union the badge colours are keyed by. */
@@ -389,7 +389,7 @@ const PsychPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6">
         <div className="flex items-center gap-3">
@@ -413,7 +413,7 @@ const PsychPage: React.FC = () => {
         )}
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {['assessment', 'history'].map(tab => (
             <button
@@ -421,7 +421,7 @@ const PsychPage: React.FC = () => {
               onClick={() => setActiveTab(tab as 'assessment' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
                 ? 'text-purple-600 border-b-2 border-purple-600'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'assessment' ? t('docPsych.tabAssessment') : t('docPsych.tabHistory')}
             </button>
@@ -433,7 +433,7 @@ const PsychPage: React.FC = () => {
         {activeTab === 'assessment' ? (
           <div className="space-y-6">
             {/* Patient Selection */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <label htmlFor="psych-patient" className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docPsych.patient')}
               </label>
@@ -451,7 +451,7 @@ const PsychPage: React.FC = () => {
             </div>
 
             {/* Chief Complaint & HPI */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <label htmlFor="psych-chief-complaint" className="font-semibold mb-3 block">{t('docPsych.chiefComplaint')}</label>
               <input
                 id="psych-chief-complaint"
@@ -474,7 +474,7 @@ const PsychPage: React.FC = () => {
             {/* Risk Assessment */}
             <div className="grid md:grid-cols-2 gap-6">
               {/* Suicide Risk */}
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-surface rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-semibold flex items-center gap-2">
                     <Shield className="w-5 h-5" /> {t('docPsych.suicideRiskTitle')}
@@ -515,7 +515,7 @@ const PsychPage: React.FC = () => {
               </div>
 
               {/* Homicide Risk */}
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-surface rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-semibold flex items-center gap-2">
                     <AlertTriangle className="w-5 h-5" /> {t('docPsych.homicideRiskTitle')}
@@ -545,7 +545,7 @@ const PsychPage: React.FC = () => {
             </div>
 
             {/* Mental Status Exam */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docPsych.mseTitle')}</h2>
               <div className="grid md:grid-cols-2 gap-4">
                 {[
@@ -560,7 +560,7 @@ const PsychPage: React.FC = () => {
                   { key: 'judgment', label: t('docPsych.mse_judgment') }
                 ].map(field => (
                   <div key={field.key}>
-                    <label htmlFor={`psych-mse-${field.key}`} className="text-sm text-gray-600">{field.label}</label>
+                    <label htmlFor={`psych-mse-${field.key}`} className="text-sm text-content-muted">{field.label}</label>
                     <input
                       id={`psych-mse-${field.key}`}
                       type="text"
@@ -571,10 +571,10 @@ const PsychPage: React.FC = () => {
                   </div>
                 ))}
                 <div className="md:col-span-2">
-                  <label id="psych-thought-content-label" className="text-sm text-gray-600">{t('docPsych.thoughtContent')}</label>
+                  <label id="psych-thought-content-label" className="text-sm text-content-muted">{t('docPsych.thoughtContent')}</label>
                   <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-thought-content-label">
                     {['SI', 'HI', 'Paranoia', 'Delusions', 'Obsessions', 'Phobias'].map(item => (
-                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.thoughtContent.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
+                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.thoughtContent.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-surface-sunken'}`}>
                         <input
                           type="checkbox"
                           checked={mse.thoughtContent.includes(item)}
@@ -593,10 +593,10 @@ const PsychPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="md:col-span-2">
-                  <label id="psych-perceptions-label" className="text-sm text-gray-600">{t('docPsych.perceptions')}</label>
+                  <label id="psych-perceptions-label" className="text-sm text-content-muted">{t('docPsych.perceptions')}</label>
                   <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-perceptions-label">
                     {['AVH', 'VH', 'AH', 'Illusions', 'Derealization', 'Depersonalization'].map(item => (
-                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.perceptions.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
+                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.perceptions.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-surface-sunken'}`}>
                         <input
                           type="checkbox"
                           checked={mse.perceptions.includes(item)}
@@ -618,7 +618,7 @@ const PsychPage: React.FC = () => {
             </div>
 
             {/* Substance Use */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="font-semibold">{t('docPsych.substanceTitle')}</h2>
                 <button onClick={addSubstance} className="text-purple-600 hover:text-purple-700 flex items-center gap-1">
@@ -665,11 +665,11 @@ const PsychPage: React.FC = () => {
             </div>
 
             {/* Diagnoses */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docPsych.diagnosesTitle')}</h2>
               <div className="flex flex-wrap gap-2">
                 {psychiatricDiagnoses.map(dx => (
-                  <label key={dx} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedDiagnoses.includes(dx) ? 'bg-purple-100 border-purple-300' : 'bg-gray-50'}`}>
+                  <label key={dx} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedDiagnoses.includes(dx) ? 'bg-purple-100 border-purple-300' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={selectedDiagnoses.includes(dx)}
@@ -690,7 +690,7 @@ const PsychPage: React.FC = () => {
 
             {/* Legal Status & Disposition */}
             <div className="grid md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-surface rounded-lg shadow p-4">
                 <label htmlFor="psych-legal-status" className="font-semibold mb-3 block">{t('docPsych.legalStatus')}</label>
                 <select
                   id="psych-legal-status"
@@ -705,7 +705,7 @@ const PsychPage: React.FC = () => {
                   <option value="conservatorship">{t('docPsych.legal_conservatorship')}</option>
                 </select>
               </div>
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-surface rounded-lg shadow p-4">
                 <label htmlFor="psych-disposition" className="font-semibold mb-3 block">{t('docPsych.disposition')}</label>
                 <select
                   id="psych-disposition"
@@ -725,7 +725,7 @@ const PsychPage: React.FC = () => {
             </div>
 
             {/* Safety Plan */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docPsych.safetyPlanTitle')}</h2>
               <div className="space-y-2">
                 {['Remove access to lethal means', 'Crisis hotline: 988', 'Emergency contact notified',
@@ -749,7 +749,7 @@ const PsychPage: React.FC = () => {
             </div>
 
             {/* Notes */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <label htmlFor="psych-notes" className="font-semibold mb-3 block">{t('docPsych.notesTitle')}</label>
               <textarea
                 id="psych-notes"
@@ -771,14 +771,14 @@ const PsychPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {assessments.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docPsych.noAssessments')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docPsych.noAssessments')}</div>
             ) : (
               assessments.map(a => (
-                <div key={a.id} className="bg-white rounded-lg shadow p-4">
+                <div key={a.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{a.patientName}</h3>
-                      <p className="text-sm text-gray-500">{new Date(a.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{new Date(a.assessedAt).toLocaleString()}</p>
                     </div>
                     <div className="flex gap-2">
                       <span className={`px-2 py-1 text-xs rounded ${riskLevelColors[a.suicideRisk.riskLevel]}`}>

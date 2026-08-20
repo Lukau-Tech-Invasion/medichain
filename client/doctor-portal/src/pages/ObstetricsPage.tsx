@@ -42,9 +42,9 @@ interface ObAssessment {
 }
 
 const fhrCategories: Record<FetalHeartCategory, { desc: string; color: string }> = {
-  'I': { desc: 'Normal - Continue routine monitoring', color: 'bg-green-100 text-green-700' },
-  'II': { desc: 'Indeterminate - Evaluate and continue monitoring', color: 'bg-yellow-100 text-yellow-700' },
-  'III': { desc: 'Abnormal - Requires immediate evaluation', color: 'bg-red-100 text-red-700' }
+  'I': { desc: 'Normal - Continue routine monitoring', color: 'bg-ok-subtle text-ok-subtle-fg' },
+  'II': { desc: 'Indeterminate - Evaluate and continue monitoring', color: 'bg-caution-subtle text-caution-subtle-fg' },
+  'III': { desc: 'Abnormal - Requires immediate evaluation', color: 'bg-critical-subtle text-critical-subtle-fg' }
 };
 
 const obComplications = [
@@ -154,7 +154,7 @@ const ObstetricsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-pink-600 to-rose-500 text-white p-6">
         <div className="flex items-center gap-3">
@@ -175,7 +175,7 @@ const ObstetricsPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {['assessment', 'history'].map(tab => (
             <button
@@ -183,7 +183,7 @@ const ObstetricsPage: React.FC = () => {
               onClick={() => setActiveTab(tab as 'assessment' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
                 ? 'text-pink-600 border-b-2 border-pink-600'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'assessment' ? t('docObstetrics.tabAssessment') : t('docObstetrics.tabHistory')}
             </button>
@@ -195,13 +195,13 @@ const ObstetricsPage: React.FC = () => {
         {activeTab === 'assessment' ? (
           <div className="space-y-6">
             {/* Patient & OB History */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docObstetrics.patientObHistory')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="ob-patient" className="text-sm text-gray-600">{t('docObstetrics.patient')}</label>
+                  <label htmlFor="ob-patient" className="text-sm text-content-muted">{t('docObstetrics.patient')}</label>
                   <select
                     id="ob-patient"
                     value={selectedPatient}
@@ -215,7 +215,7 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="ob-gravida" className="text-sm text-gray-600">{t('docObstetrics.gravida')}</label>
+                  <label htmlFor="ob-gravida" className="text-sm text-content-muted">{t('docObstetrics.gravida')}</label>
                   <input
                     id="ob-gravida"
                     type="number"
@@ -226,7 +226,7 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ob-para" className="text-sm text-gray-600">{t('docObstetrics.para')}</label>
+                  <label htmlFor="ob-para" className="text-sm text-content-muted">{t('docObstetrics.para')}</label>
                   <input
                     id="ob-para"
                     type="number"
@@ -237,7 +237,7 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ob-gestational-age" className="text-sm text-gray-600">{t('docObstetrics.gaWeeks')}</label>
+                  <label htmlFor="ob-gestational-age" className="text-sm text-content-muted">{t('docObstetrics.gaWeeks')}</label>
                   <input
                     id="ob-gestational-age"
                     type="number"
@@ -248,7 +248,7 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ob-edd" className="text-sm text-gray-600">{t('docObstetrics.edd')}</label>
+                  <label htmlFor="ob-edd" className="text-sm text-content-muted">{t('docObstetrics.edd')}</label>
                   <input
                     id="ob-edd"
                     type="date"
@@ -269,7 +269,7 @@ const ObstetricsPage: React.FC = () => {
                   </label>
                 </div>
                 <div className="md:col-span-2">
-                  <label htmlFor="ob-chief-complaint" className="text-sm text-gray-600">{t('docObstetrics.chiefComplaint')}</label>
+                  <label htmlFor="ob-chief-complaint" className="text-sm text-content-muted">{t('docObstetrics.chiefComplaint')}</label>
                   <input
                     id="ob-chief-complaint"
                     type="text"
@@ -283,7 +283,7 @@ const ObstetricsPage: React.FC = () => {
             </div>
 
             {/* Labor Assessment */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Clock className="w-5 h-5" /> {t('docObstetrics.laborAssessment')}
               </h2>
@@ -322,7 +322,7 @@ const ObstetricsPage: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label htmlFor="ob-membrane-status" className="text-sm text-gray-600">{t('docObstetrics.membraneStatus')}</label>
+                  <label htmlFor="ob-membrane-status" className="text-sm text-content-muted">{t('docObstetrics.membraneStatus')}</label>
                   <select
                     id="ob-membrane-status"
                     value={membraneStatus}
@@ -359,7 +359,7 @@ const ObstetricsPage: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label htmlFor="ob-presentation" className="text-sm text-gray-600">{t('docObstetrics.presentation')}</label>
+                  <label htmlFor="ob-presentation" className="text-sm text-content-muted">{t('docObstetrics.presentation')}</label>
                   <select
                     id="ob-presentation"
                     value={presentation}
@@ -373,7 +373,7 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="ob-labor-stage" className="text-sm text-gray-600">{t('docObstetrics.laborStage')}</label>
+                  <label htmlFor="ob-labor-stage" className="text-sm text-content-muted">{t('docObstetrics.laborStage')}</label>
                   <select
                     id="ob-labor-stage"
                     value={laborStage}
@@ -390,7 +390,7 @@ const ObstetricsPage: React.FC = () => {
               </div>
               <div className="grid md:grid-cols-3 gap-4 mt-4">
                 <div>
-                  <label htmlFor="ob-dilation" className="text-sm text-gray-600">{t('docObstetrics.dilation')}</label>
+                  <label htmlFor="ob-dilation" className="text-sm text-content-muted">{t('docObstetrics.dilation')}</label>
                   <input
                     id="ob-dilation"
                     type="number"
@@ -401,7 +401,7 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ob-effacement" className="text-sm text-gray-600">{t('docObstetrics.effacement')}</label>
+                  <label htmlFor="ob-effacement" className="text-sm text-content-muted">{t('docObstetrics.effacement')}</label>
                   <input
                     id="ob-effacement"
                     type="number"
@@ -412,7 +412,7 @@ const ObstetricsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="ob-station" className="text-sm text-gray-600">{t('docObstetrics.station')}</label>
+                  <label htmlFor="ob-station" className="text-sm text-content-muted">{t('docObstetrics.station')}</label>
                   <select
                     id="ob-station"
                     value={cervicalExam.station}
@@ -428,7 +428,7 @@ const ObstetricsPage: React.FC = () => {
             </div>
 
             {/* Fetal Heart Rate Monitoring */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-semibold flex items-center gap-2">
                   <Heart className="w-5 h-5" /> {t('docObstetrics.fhrMonitoring')}
@@ -437,21 +437,21 @@ const ObstetricsPage: React.FC = () => {
                   {t('docObstetrics.categoryBadge', { cat: fhr.category })}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 mb-4">{fhrDesc(fhr.category)}</p>
+              <p className="text-sm text-content-muted mb-4">{fhrDesc(fhr.category)}</p>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="ob-fhr-baseline" className="text-sm text-gray-600">{t('docObstetrics.baseline')}</label>
+                  <label htmlFor="ob-fhr-baseline" className="text-sm text-content-muted">{t('docObstetrics.baseline')}</label>
                   <input
                     id="ob-fhr-baseline"
                     type="number"
                     value={fhr.baseline}
                     onChange={e => setFhr({ ...fhr, baseline: Number(e.target.value) })}
-                    className={`w-full border rounded p-2 ${fhr.baseline < 110 || fhr.baseline > 160 ? 'border-red-500 bg-red-50' : ''}`}
+                    className={`w-full border rounded p-2 ${fhr.baseline < 110 || fhr.baseline > 160 ? 'border-red-500 bg-critical-subtle' : ''}`}
                   />
-                  <p className="text-xs text-gray-400">{t('docObstetrics.baselineNormal')}</p>
+                  <p className="text-xs text-content-muted">{t('docObstetrics.baselineNormal')}</p>
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-variability" className="text-sm text-gray-600">{t('docObstetrics.variability')}</label>
+                  <label htmlFor="ob-fhr-variability" className="text-sm text-content-muted">{t('docObstetrics.variability')}</label>
                   <select
                     id="ob-fhr-variability"
                     value={fhr.variability}
@@ -465,7 +465,7 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-accelerations" className="text-sm text-gray-600">{t('docObstetrics.accelerations')}</label>
+                  <label htmlFor="ob-fhr-accelerations" className="text-sm text-content-muted">{t('docObstetrics.accelerations')}</label>
                   <select
                     id="ob-fhr-accelerations"
                     value={fhr.accelerations ? 'yes' : 'no'}
@@ -477,7 +477,7 @@ const ObstetricsPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="ob-fhr-decelerations" className="text-sm text-gray-600">{t('docObstetrics.decelerations')}</label>
+                  <label htmlFor="ob-fhr-decelerations" className="text-sm text-content-muted">{t('docObstetrics.decelerations')}</label>
                   <select
                     id="ob-fhr-decelerations"
                     value={fhr.decelerations}
@@ -495,13 +495,13 @@ const ObstetricsPage: React.FC = () => {
             </div>
 
             {/* Complications */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" /> {t('docObstetrics.complications')}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {obComplications.map(c => (
-                  <label key={c} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedComplications.includes(c) ? 'bg-red-100 border-red-300' : 'bg-gray-50'}`}>
+                  <label key={c} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedComplications.includes(c) ? 'bg-critical-subtle border-critical' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={selectedComplications.includes(c)}
@@ -518,13 +518,13 @@ const ObstetricsPage: React.FC = () => {
             </div>
 
             {/* Interventions */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Activity className="w-5 h-5" /> {t('docObstetrics.interventions')}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {obInterventions.map(i => (
-                  <label key={i} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedInterventions.includes(i) ? 'bg-green-100 border-green-300' : 'bg-gray-50'}`}>
+                  <label key={i} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedInterventions.includes(i) ? 'bg-ok-subtle border-ok' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={selectedInterventions.includes(i)}
@@ -541,7 +541,7 @@ const ObstetricsPage: React.FC = () => {
             </div>
 
             {/* Notes */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <label htmlFor="ob-notes" className="font-semibold mb-3 block">{t('docObstetrics.notes')}</label>
               <textarea
                 id="ob-notes"
@@ -563,14 +563,14 @@ const ObstetricsPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {assessments.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docObstetrics.noAssessments')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docObstetrics.noAssessments')}</div>
             ) : (
               assessments.map(a => (
-                <div key={a.id} className="bg-white rounded-lg shadow p-4">
+                <div key={a.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{a.patientName}</h3>
-                      <p className="text-sm text-gray-500">{new Date(a.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{new Date(a.assessedAt).toLocaleString()}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${fhrCategories[a.fetalMonitoring.category].color}`}>
                       {t('docObstetrics.fhrCat', { cat: a.fetalMonitoring.category })}
@@ -583,7 +583,7 @@ const ObstetricsPage: React.FC = () => {
                     <div>{t('docObstetrics.stationValue', { station: a.cervicalExam.station })}</div>
                   </div>
                   {a.complications.length > 0 && (
-                    <p className="text-sm text-red-600 mt-2">{t('docObstetrics.complicationsList', { list: a.complications.join(', ') })}</p>
+                    <p className="text-sm text-critical-subtle-fg mt-2">{t('docObstetrics.complicationsList', { list: a.complications.join(', ') })}</p>
                   )}
                 </div>
               ))

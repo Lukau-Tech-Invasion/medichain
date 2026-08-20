@@ -151,11 +151,11 @@ function EmergencyProtocolsPage() {
   };
 
   const tabs = [
-    { id: 'code_blue' as EmergencyType, label: t('docEmergProto.tabCodeBlue'), icon: Siren, color: 'text-blue-600' },
+    { id: 'code_blue' as EmergencyType, label: t('docEmergProto.tabCodeBlue'), icon: Siren, color: 'text-notice-subtle-fg' },
     { id: 'trauma' as EmergencyType, label: t('docEmergProto.tabTrauma'), icon: AlertCircle, color: 'text-orange-600' },
     { id: 'stroke' as EmergencyType, label: t('docEmergProto.tabStroke'), icon: Brain, color: 'text-purple-600' },
-    { id: 'cardiac' as EmergencyType, label: t('docEmergProto.tabCardiac'), icon: Heart, color: 'text-red-600' },
-    { id: 'sepsis' as EmergencyType, label: t('docEmergProto.tabSepsis'), icon: Flame, color: 'text-yellow-600' },
+    { id: 'cardiac' as EmergencyType, label: t('docEmergProto.tabCardiac'), icon: Heart, color: 'text-critical-subtle-fg' },
+    { id: 'sepsis' as EmergencyType, label: t('docEmergProto.tabSepsis'), icon: Flame, color: 'text-caution-subtle-fg' },
   ];
 
   return (
@@ -163,12 +163,12 @@ function EmergencyProtocolsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <Link to={`/patients/${patientId}`} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <Link to={`/patients/${patientId}`} className="p-2 hover:bg-surface-sunken rounded-lg transition-colors">
             <ChevronLeft size={24} />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('docEmergProto.title')}</h1>
-            <p className="text-gray-500 mt-1">{t('docEmergProto.patientId', { id: patientId ?? '' })}</p>
+            <h1 className="text-2xl font-bold text-content">{t('docEmergProto.title')}</h1>
+            <p className="text-content-muted mt-1">{t('docEmergProto.patientId', { id: patientId ?? '' })}</p>
           </div>
         </div>
         <button
@@ -181,8 +181,8 @@ function EmergencyProtocolsPage() {
       </div>
 
       {/* Emergency Type Tabs */}
-      <div className="bg-white rounded-xl shadow mb-6">
-        <div className="flex border-b border-gray-200 overflow-x-auto">
+      <div className="bg-surface rounded-xl shadow mb-6">
+        <div className="flex border-b border-border overflow-x-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -192,7 +192,7 @@ function EmergencyProtocolsPage() {
                 className={`flex items-center gap-2 px-6 py-4 font-medium whitespace-nowrap transition-colors ${
                   activeTab === tab.id
                     ? 'border-b-2 border-emergency-600 text-emergency-600'
-                    : 'text-gray-500 hover:text-gray-700'
+                    : 'text-content-muted hover:text-content-secondary'
                 }`}
               >
                 <Icon size={20} className={activeTab === tab.id ? tab.color : ''} />
@@ -207,23 +207,23 @@ function EmergencyProtocolsPage() {
       {activeTab === 'code_blue' && (
         <div className="space-y-4">
           {codeBlueRecords.map((record) => (
-            <div key={record.code_blue_id} className="bg-white rounded-xl shadow p-6">
+            <div key={record.code_blue_id} className="bg-surface rounded-xl shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-blue-100 rounded-lg">
-                    <Siren className="text-blue-600" size={24} />
+                  <div className="p-3 bg-notice-subtle rounded-lg">
+                    <Siren className="text-notice-subtle-fg" size={24} />
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg">{t('docEmergProto.codeBlue')}</h3>
-                    <p className="text-sm text-gray-500">{t('docEmergProto.idLabel', { id: record.code_blue_id })}</p>
+                    <p className="text-sm text-content-muted">{t('docEmergProto.idLabel', { id: record.code_blue_id })}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-content-muted">
                     <Clock size={16} />
                     {formatTimestamp(record.initiated_at)}
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
                     <User size={16} />
                     {record.initiated_by}
                   </div>
@@ -232,20 +232,20 @@ function EmergencyProtocolsPage() {
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.location')}</span>
-                  <p className="text-gray-900">{record.location}</p>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.location')}</span>
+                  <p className="text-content">{record.location}</p>
                 </div>
                 {record.initial_rhythm && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.initialRhythm')}</span>
-                    <p className="text-gray-900">{record.initial_rhythm}</p>
+                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.initialRhythm')}</span>
+                    <p className="text-content">{record.initial_rhythm}</p>
                   </div>
                 )}
                 {record.outcome && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.outcome')}</span>
+                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.outcome')}</span>
                     <p className={`font-semibold ${
-                      record.outcome.toLowerCase().includes('rosc') ? 'text-green-600' : 'text-red-600'
+                      record.outcome.toLowerCase().includes('rosc') ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg'
                     }`}>
                       {record.outcome}
                     </p>
@@ -255,10 +255,10 @@ function EmergencyProtocolsPage() {
 
               {record.interventions && record.interventions.length > 0 && (
                 <div className="mb-4">
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.interventions')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.interventions')}</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {record.interventions.map((intervention, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
+                      <span key={idx} className="px-3 py-1 bg-notice-subtle text-notice-subtle-fg rounded-full text-sm">
                         {intervention}
                       </span>
                     ))}
@@ -267,17 +267,17 @@ function EmergencyProtocolsPage() {
               )}
 
               {record.notes && (
-                <div className="border-t border-gray-200 pt-4 mt-4">
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.notes')}</span>
-                  <p className="text-gray-700 mt-2">{record.notes}</p>
+                <div className="border-t border-border pt-4 mt-4">
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.notes')}</span>
+                  <p className="text-content-secondary mt-2">{record.notes}</p>
                 </div>
               )}
             </div>
           ))}
           {codeBlueRecords.length === 0 && !loading && (
-            <div className="bg-white rounded-xl shadow p-12 text-center">
+            <div className="bg-surface rounded-xl shadow p-12 text-center">
               <Siren className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">{t('docEmergProto.noCodeBlue')}</p>
+              <p className="text-content-muted">{t('docEmergProto.noCodeBlue')}</p>
             </div>
           )}
         </div>
@@ -287,7 +287,7 @@ function EmergencyProtocolsPage() {
       {activeTab === 'trauma' && (
         <div className="space-y-4">
           {traumaRecords.map((record) => (
-            <div key={record.trauma_id} className="bg-white rounded-xl shadow p-6">
+            <div key={record.trauma_id} className="bg-surface rounded-xl shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-orange-100 rounded-lg">
@@ -295,15 +295,15 @@ function EmergencyProtocolsPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg">{t('docEmergProto.traumaAssessment')}</h3>
-                    <p className="text-sm text-gray-500">{t('docEmergProto.level', { level: record.trauma_level })}</p>
+                    <p className="text-sm text-content-muted">{t('docEmergProto.level', { level: record.trauma_level })}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-content-muted">
                     <Clock size={16} />
                     {formatTimestamp(record.assessed_at)}
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
                     <User size={16} />
                     {record.assessed_by}
                   </div>
@@ -311,16 +311,16 @@ function EmergencyProtocolsPage() {
               </div>
               
               <div className="mb-4">
-                <span className="text-sm font-medium text-gray-700">{t('docEmergProto.mechanism')}</span>
-                <p className="text-gray-900 mt-1">{record.mechanism_of_injury}</p>
+                <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.mechanism')}</span>
+                <p className="text-content mt-1">{record.mechanism_of_injury}</p>
               </div>
 
               {record.injuries && record.injuries.length > 0 && (
                 <div className="mb-4">
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.injuries')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.injuries')}</span>
                   <ul className="list-disc list-inside mt-2 space-y-1">
                     {record.injuries.map((injury, idx) => (
-                      <li key={idx} className="text-gray-700">{injury}</li>
+                      <li key={idx} className="text-content-secondary">{injury}</li>
                     ))}
                   </ul>
                 </div>
@@ -328,7 +328,7 @@ function EmergencyProtocolsPage() {
 
               {record.interventions && record.interventions.length > 0 && (
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.interventions')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.interventions')}</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {record.interventions.map((intervention, idx) => (
                       <span key={idx} className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm">
@@ -341,9 +341,9 @@ function EmergencyProtocolsPage() {
             </div>
           ))}
           {traumaRecords.length === 0 && !loading && (
-            <div className="bg-white rounded-xl shadow p-12 text-center">
+            <div className="bg-surface rounded-xl shadow p-12 text-center">
               <AlertCircle className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">{t('docEmergProto.noTrauma')}</p>
+              <p className="text-content-muted">{t('docEmergProto.noTrauma')}</p>
             </div>
           )}
         </div>
@@ -353,7 +353,7 @@ function EmergencyProtocolsPage() {
       {activeTab === 'stroke' && (
         <div className="space-y-4">
           {strokeRecords.map((record) => (
-            <div key={record.stroke_id} className="bg-white rounded-xl shadow p-6">
+            <div key={record.stroke_id} className="bg-surface rounded-xl shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-purple-100 rounded-lg">
@@ -362,16 +362,16 @@ function EmergencyProtocolsPage() {
                   <div>
                     <h3 className="font-semibold text-lg">{t('docEmergProto.strokeAssessment')}</h3>
                     {record.nihss_score !== undefined && (
-                      <p className="text-sm text-gray-500">{t('docEmergProto.nihss', { score: record.nihss_score })}</p>
+                      <p className="text-sm text-content-muted">{t('docEmergProto.nihss', { score: record.nihss_score })}</p>
                     )}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-content-muted">
                     <Clock size={16} />
                     {formatTimestamp(record.assessed_at)}
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
                     <User size={16} />
                     {record.assessed_by}
                   </div>
@@ -380,19 +380,19 @@ function EmergencyProtocolsPage() {
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.lastKnownNormal')}</span>
-                  <p className="text-gray-900">{formatTimestamp(record.last_known_normal)}</p>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.lastKnownNormal')}</span>
+                  <p className="text-content">{formatTimestamp(record.last_known_normal)}</p>
                 </div>
                 {record.stroke_type && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.strokeType')}</span>
-                    <p className="text-gray-900">{record.stroke_type}</p>
+                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.strokeType')}</span>
+                    <p className="text-content">{record.stroke_type}</p>
                   </div>
                 )}
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.tpaGiven')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.tpaGiven')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${
-                    record.tpa_given ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                    record.tpa_given ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-surface-sunken text-content-secondary'
                   }`}>
                     {record.tpa_given ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
@@ -401,9 +401,9 @@ function EmergencyProtocolsPage() {
             </div>
           ))}
           {strokeRecords.length === 0 && !loading && (
-            <div className="bg-white rounded-xl shadow p-12 text-center">
+            <div className="bg-surface rounded-xl shadow p-12 text-center">
               <Brain className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">{t('docEmergProto.noStroke')}</p>
+              <p className="text-content-muted">{t('docEmergProto.noStroke')}</p>
             </div>
           )}
         </div>
@@ -413,19 +413,19 @@ function EmergencyProtocolsPage() {
       {activeTab === 'cardiac' && (
         <div className="space-y-4">
           {cardiacRecords.map((record) => (
-            <div key={record.protocol_id} className="bg-white rounded-xl shadow p-6">
+            <div key={record.protocol_id} className="bg-surface rounded-xl shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-red-100 rounded-lg">
-                    <Heart className="text-red-600" size={24} />
+                  <div className="p-3 bg-critical-subtle rounded-lg">
+                    <Heart className="text-critical-subtle-fg" size={24} />
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg">{t('docEmergProto.cardiacProtocol')}</h3>
-                    <p className="text-sm text-gray-500">{t('docEmergProto.idLabel', { id: record.protocol_id })}</p>
+                    <p className="text-sm text-content-muted">{t('docEmergProto.idLabel', { id: record.protocol_id })}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-content-muted">
                     <Clock size={16} />
                     {formatTimestamp(record.started_at)}
                   </div>
@@ -434,21 +434,21 @@ function EmergencyProtocolsPage() {
               
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.cprStarted')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.cprStarted')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.cpr_started ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                    record.cpr_started ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-surface-sunken text-content-secondary'
                   }`}>
                     {record.cpr_started ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.defibShocks')}</span>
-                  <p className="text-gray-900 font-semibold">{record.defib_shocks}</p>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.defibShocks')}</span>
+                  <p className="text-content font-semibold">{record.defib_shocks}</p>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.roscAchieved')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.roscAchieved')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.rosc_achieved ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    record.rosc_achieved ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
                   }`}>
                     {record.rosc_achieved ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
@@ -457,10 +457,10 @@ function EmergencyProtocolsPage() {
 
               {record.medications_given && record.medications_given.length > 0 && (
                 <div className="mt-4">
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.medicationsGiven')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.medicationsGiven')}</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {record.medications_given.map((med, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm">
+                      <span key={idx} className="px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm">
                         {med}
                       </span>
                     ))}
@@ -470,9 +470,9 @@ function EmergencyProtocolsPage() {
             </div>
           ))}
           {cardiacRecords.length === 0 && !loading && (
-            <div className="bg-white rounded-xl shadow p-12 text-center">
+            <div className="bg-surface rounded-xl shadow p-12 text-center">
               <Heart className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">{t('docEmergProto.noCardiac')}</p>
+              <p className="text-content-muted">{t('docEmergProto.noCardiac')}</p>
             </div>
           )}
         </div>
@@ -482,23 +482,23 @@ function EmergencyProtocolsPage() {
       {activeTab === 'sepsis' && (
         <div className="space-y-4">
           {sepsisRecords.map((record) => (
-            <div key={record.sepsis_id} className="bg-white rounded-xl shadow p-6">
+            <div key={record.sepsis_id} className="bg-surface rounded-xl shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-yellow-100 rounded-lg">
-                    <Flame className="text-yellow-600" size={24} />
+                  <div className="p-3 bg-caution-subtle rounded-lg">
+                    <Flame className="text-caution-subtle-fg" size={24} />
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg">{t('docEmergProto.sepsisAssessment')}</h3>
-                    <p className="text-sm text-gray-500">{t('docEmergProto.qsofa', { score: record.qsofa_score })}</p>
+                    <p className="text-sm text-content-muted">{t('docEmergProto.qsofa', { score: record.qsofa_score })}</p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-content-muted">
                     <Clock size={16} />
                     {formatTimestamp(record.assessed_at)}
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                  <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
                     <User size={16} />
                     {record.assessed_by}
                   </div>
@@ -508,24 +508,24 @@ function EmergencyProtocolsPage() {
               <div className="grid grid-cols-3 gap-4">
                 {record.lactate_level !== undefined && (
                   <div>
-                    <span className="text-sm font-medium text-gray-700">{t('docEmergProto.lactateLevel')}</span>
-                    <p className={`font-semibold ${record.lactate_level > 2 ? 'text-red-600' : 'text-green-600'}`}>
+                    <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.lactateLevel')}</span>
+                    <p className={`font-semibold ${record.lactate_level > 2 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
                       {t('docEmergProto.lactateValue', { value: record.lactate_level })}
                     </p>
                   </div>
                 )}
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.antibioticsGiven')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.antibioticsGiven')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.antibiotics_given ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    record.antibiotics_given ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
                   }`}>
                     {record.antibiotics_given ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
                 </div>
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{t('docEmergProto.fluidResuscitation')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.fluidResuscitation')}</span>
                   <span className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ml-2 ${
-                    record.fluid_resuscitation ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    record.fluid_resuscitation ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
                   }`}>
                     {record.fluid_resuscitation ? t('docEmergProto.yes') : t('docEmergProto.no')}
                   </span>
@@ -534,18 +534,18 @@ function EmergencyProtocolsPage() {
             </div>
           ))}
           {sepsisRecords.length === 0 && !loading && (
-            <div className="bg-white rounded-xl shadow p-12 text-center">
+            <div className="bg-surface rounded-xl shadow p-12 text-center">
               <Flame className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">{t('docEmergProto.noSepsis')}</p>
+              <p className="text-content-muted">{t('docEmergProto.noSepsis')}</p>
             </div>
           )}
         </div>
       )}
 
       {loading && (
-        <div className="bg-white rounded-xl shadow p-12 text-center">
+        <div className="bg-surface rounded-xl shadow p-12 text-center">
           <Activity className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-          <p className="text-gray-500">{t('docEmergProto.loading')}</p>
+          <p className="text-content-muted">{t('docEmergProto.loading')}</p>
         </div>
       )}
     </div>

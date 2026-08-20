@@ -2750,6 +2750,7 @@ const en_US: TranslationRecord = {
   },
 
   docBarcode: {
+    cameraViewfinderLabel: 'Barcode scanner camera view',
     title: 'Barcode Scanner',
     room: 'Room {{room}}',
     modePatient: 'Patient',

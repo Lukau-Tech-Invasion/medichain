@@ -424,9 +424,9 @@ export function MyProfilePage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-6 animate-pulse">
-        <div className="h-8 bg-neutral-200 rounded w-48" />
-        <div className="h-32 bg-neutral-200 rounded-xl" />
-        <div className="h-48 bg-neutral-200 rounded-xl" />
+        <div className="h-8 bg-surface-sunken rounded w-48" />
+        <div className="h-32 bg-surface-sunken rounded-xl" />
+        <div className="h-48 bg-surface-sunken rounded-xl" />
       </div>
     );
   }
@@ -435,7 +435,7 @@ export function MyProfilePage() {
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-neutral-900">{t('profile.title')}</h1>
+        <h1 className="text-2xl font-bold text-content">{t('profile.title')}</h1>
       </div>
 
       {/* Read-only notice */}
@@ -478,27 +478,27 @@ export function MyProfilePage() {
             <User className="w-6 h-6 text-primary-600" />
           </div>
           <div>
-            <h2 className="font-semibold text-lg text-neutral-900">{t('profile.personalInfo')}</h2>
-            <p className="text-sm text-neutral-500">{t('profile.personalInfoSub')}</p>
+            <h2 className="font-semibold text-lg text-content">{t('profile.personalInfo')}</h2>
+            <p className="text-sm text-content-muted">{t('profile.personalInfoSub')}</p>
           </div>
         </div>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.fullName')}</label>
-              <p className="font-medium text-neutral-900">{profile?.fullName}</p>
+              <label className="text-sm text-content-muted">{t('profile.fullName')}</label>
+              <p className="font-medium text-content">{profile?.fullName}</p>
             </div>
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.dateOfBirth')}</label>
-              <p className="font-medium text-neutral-900">
+              <label className="text-sm text-content-muted">{t('profile.dateOfBirth')}</label>
+              <p className="font-medium text-content">
                 {profile && formatDate(profile.dateOfBirth)} ({profile && calculateAge(profile.dateOfBirth)} {t('profile.years')})
               </p>
             </div>
           </div>
 
           <div className="border-t pt-4">
-            <label className="text-sm text-neutral-500 flex items-center gap-2">
+            <label className="text-sm text-content-muted flex items-center gap-2">
               <Shield className="w-4 h-4" />
               {t('profile.nationalHealthId')}
             </label>
@@ -516,8 +516,8 @@ export function MyProfilePage() {
             <Heart className="w-6 h-6 text-emergency-500" />
           </div>
           <div>
-            <h2 className="font-semibold text-lg text-neutral-900">{t('profile.medicalInfo')}</h2>
-            <p className="text-sm text-neutral-500">{t('profile.medicalInfoSub')}</p>
+            <h2 className="font-semibold text-lg text-content">{t('profile.medicalInfo')}</h2>
+            <p className="text-sm text-content-muted">{t('profile.medicalInfoSub')}</p>
           </div>
         </div>
 
@@ -526,7 +526,7 @@ export function MyProfilePage() {
           <div className="flex items-center justify-between p-4 bg-emergency-50 rounded-xl">
             <div className="flex items-center gap-3">
               <Droplets className="w-6 h-6 text-emergency-500" />
-              <span className="font-medium text-neutral-900">{t('profile.bloodType')}</span>
+              <span className="font-medium text-content">{t('profile.bloodType')}</span>
             </div>
             <span className="text-2xl font-bold text-emergency-600">{profile?.bloodType}</span>
           </div>
@@ -535,7 +535,7 @@ export function MyProfilePage() {
           <div>
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="w-5 h-5 text-emergency-500" />
-              <span className="font-medium text-neutral-900">{t('profile.allergies')}</span>
+              <span className="font-medium text-content">{t('profile.allergies')}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {profile?.allergies.map((allergy, idx) => (
@@ -547,7 +547,7 @@ export function MyProfilePage() {
                 </span>
               ))}
               {profile?.allergies.length === 0 && (
-                <span className="text-neutral-500">{t('profile.noAllergies')}</span>
+                <span className="text-content-muted">{t('profile.noAllergies')}</span>
               )}
             </div>
           </div>
@@ -556,7 +556,7 @@ export function MyProfilePage() {
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Pill className="w-5 h-5 text-info" />
-              <span className="font-medium text-neutral-900">{t('profile.currentMedications')}</span>
+              <span className="font-medium text-content">{t('profile.currentMedications')}</span>
             </div>
             <div className="space-y-2">
               {profile?.currentMedications.map((med, idx) => (
@@ -569,7 +569,7 @@ export function MyProfilePage() {
                 </div>
               ))}
               {profile?.currentMedications.length === 0 && (
-                <span className="text-neutral-500">{t('profile.noMedications')}</span>
+                <span className="text-content-muted">{t('profile.noMedications')}</span>
               )}
             </div>
           </div>
@@ -578,7 +578,7 @@ export function MyProfilePage() {
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Activity className="w-5 h-5 text-warning-500" />
-              <span className="font-medium text-neutral-900">{t('profile.chronicConditions')}</span>
+              <span className="font-medium text-content">{t('profile.chronicConditions')}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {profile?.chronicConditions.map((condition, idx) => (
@@ -590,25 +590,25 @@ export function MyProfilePage() {
                 </span>
               ))}
               {profile?.chronicConditions.length === 0 && (
-                <span className="text-neutral-500">{t('profile.noConditions')}</span>
+                <span className="text-content-muted">{t('profile.noConditions')}</span>
               )}
             </div>
           </div>
 
           {/* Organ Donor / DNR */}
           <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-            <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-xl">
-              <span className="text-sm font-medium text-neutral-700">{t('profile.organDonor')}</span>
+            <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-xl">
+              <span className="text-sm font-medium text-content-secondary">{t('profile.organDonor')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                profile?.organDonor ? 'bg-success-100 text-success-700' : 'bg-neutral-200 text-neutral-600'
+                profile?.organDonor ? 'bg-success-100 text-success-700' : 'bg-surface-sunken text-content-muted'
               }`}>
                 {profile?.organDonor ? t('common.yes') : t('common.no')}
               </span>
             </div>
-            <div className="flex items-center justify-between p-3 bg-neutral-50 rounded-xl">
-              <span className="text-sm font-medium text-neutral-700">{t('profile.dnrStatus')}</span>
+            <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-xl">
+              <span className="text-sm font-medium text-content-secondary">{t('profile.dnrStatus')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                profile?.dnrStatus ? 'bg-emergency-100 text-emergency-700' : 'bg-neutral-200 text-neutral-600'
+                profile?.dnrStatus ? 'bg-emergency-100 text-emergency-700' : 'bg-surface-sunken text-content-muted'
               }`}>
                 {profile?.dnrStatus ? t('common.yes') : t('common.no')}
               </span>
@@ -625,8 +625,8 @@ export function MyProfilePage() {
               <Phone className="w-6 h-6 text-primary-600" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-semibold text-lg text-neutral-900">{t('profile.contactDetails')}</h2>
-              <p className="text-sm text-neutral-500">{t('profile.contactDetailsSub')}</p>
+              <h2 className="font-semibold text-lg text-content">{t('profile.contactDetails')}</h2>
+              <p className="text-sm text-content-muted">{t('profile.contactDetailsSub')}</p>
             </div>
           </div>
           {!editingDetails && (
@@ -643,7 +643,7 @@ export function MyProfilePage() {
         {editingDetails ? (
           <div className="space-y-4">
               <div>
-                <label htmlFor="profile-phone" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="profile-phone" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.phoneNumber')}
                 </label>
                 <input
@@ -651,19 +651,19 @@ export function MyProfilePage() {
                   id="profile-phone"
                   value={detailsDraft.phone}
                   onChange={(e) => setDetailsDraft({ ...detailsDraft, phone: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder={t('profile.phonePlaceholder')}
                 />
               </div>
               <div>
-                <label htmlFor="profile-gender" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="profile-gender" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.gender')}
                 </label>
                 <select
                   id="profile-gender"
                   value={detailsDraft.gender}
                   onChange={(e) => setDetailsDraft({ ...detailsDraft, gender: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
                   <option value="">{t('profile.genderUnspecified')}</option>
                   <option value="female">{t('profile.genderFemale')}</option>
@@ -672,7 +672,7 @@ export function MyProfilePage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="profile-languages" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="profile-languages" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.spokenLanguages')}
                 </label>
                 <input
@@ -680,14 +680,14 @@ export function MyProfilePage() {
                   id="profile-languages"
                   value={detailsDraft.languages}
                   onChange={(e) => setDetailsDraft({ ...detailsDraft, languages: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder={t('profile.spokenLanguagesHint')}
                 />
               </div>
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setEditingDetails(false)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 <X className="w-4 h-4" />
                 {t('common.cancel')}
@@ -705,23 +705,23 @@ export function MyProfilePage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.phoneNumber')}</label>
-              <p className="font-medium text-neutral-900">
+              <label className="text-sm text-content-muted">{t('profile.phoneNumber')}</label>
+              <p className="font-medium text-content">
                 {profile?.phone || t('profile.notRecorded')}
               </p>
             </div>
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.gender')}</label>
-              <p className="font-medium text-neutral-900 capitalize">
+              <label className="text-sm text-content-muted">{t('profile.gender')}</label>
+              <p className="font-medium text-content capitalize">
                 {profile?.gender || t('profile.notRecorded')}
               </p>
             </div>
             <div className="sm:col-span-2">
-              <label className="text-sm text-neutral-500 flex items-center gap-2">
+              <label className="text-sm text-content-muted flex items-center gap-2">
                 <Globe className="w-4 h-4" />
                 {t('profile.spokenLanguages')}
               </label>
-              <p className="font-medium text-neutral-900">
+              <p className="font-medium text-content">
                 {profile && profile.languages.length > 0
                   ? profile.languages.join(', ')
                   : t('profile.notRecorded')}
@@ -739,8 +739,8 @@ export function MyProfilePage() {
               <MapPin className="w-6 h-6 text-primary-600" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-semibold text-lg text-neutral-900">{t('profile.addressTitle')}</h2>
-              <p className="text-sm text-neutral-500">{t('profile.addressSub')}</p>
+              <h2 className="font-semibold text-lg text-content">{t('profile.addressTitle')}</h2>
+              <p className="text-sm text-content-muted">{t('profile.addressSub')}</p>
             </div>
           </div>
           {!editingAddress && (
@@ -757,7 +757,7 @@ export function MyProfilePage() {
         {editingAddress ? (
           <div className="space-y-4">
               <div>
-                <label htmlFor="address-street" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="address-street" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.addressStreet')}
                 </label>
                 <input
@@ -765,12 +765,12 @@ export function MyProfilePage() {
                   id="address-street"
                   value={addressDraft.street}
                   onChange={(e) => setAddressDraft({ ...addressDraft, street: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="address-city" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="address-city" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.addressCity')}
                 </label>
                 <input
@@ -778,11 +778,11 @@ export function MyProfilePage() {
                   id="address-city"
                   value={addressDraft.city}
                   onChange={(e) => setAddressDraft({ ...addressDraft, city: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label htmlFor="address-state" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="address-state" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.addressState')}
                 </label>
                 <input
@@ -790,11 +790,11 @@ export function MyProfilePage() {
                   id="address-state"
                   value={addressDraft.state}
                   onChange={(e) => setAddressDraft({ ...addressDraft, state: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label htmlFor="address-country" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="address-country" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.addressCountry')}
                 </label>
                 <input
@@ -802,12 +802,12 @@ export function MyProfilePage() {
                   id="address-country"
                   value={addressDraft.country}
                   onChange={(e) => setAddressDraft({ ...addressDraft, country: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   placeholder="ZA"
                 />
               </div>
               <div>
-                <label htmlFor="address-postal" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="address-postal" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.addressPostalCode')}
                 </label>
                 <input
@@ -815,14 +815,14 @@ export function MyProfilePage() {
                   id="address-postal"
                   value={addressDraft.postalCode}
                   onChange={(e) => setAddressDraft({ ...addressDraft, postalCode: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               </div>
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setEditingAddress(false)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 <X className="w-4 h-4" />
                 {t('common.cancel')}
@@ -838,7 +838,7 @@ export function MyProfilePage() {
             </div>
           </div>
         ) : profile?.address ? (
-          <div className="text-neutral-900 space-y-1">
+          <div className="text-content space-y-1">
             {profile.address.street && <p className="font-medium">{profile.address.street}</p>}
             <p className="font-medium">
               {[profile.address.city, profile.address.state, profile.address.postalCode]
@@ -848,7 +848,7 @@ export function MyProfilePage() {
             <p className="font-medium">{profile.address.country}</p>
           </div>
         ) : (
-          <p className="text-neutral-500">{t('profile.noAddress')}</p>
+          <p className="text-content-muted">{t('profile.noAddress')}</p>
         )}
       </div>
 
@@ -860,8 +860,8 @@ export function MyProfilePage() {
               <CreditCard className="w-6 h-6 text-primary-600" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-semibold text-lg text-neutral-900">{t('profile.insuranceTitle')}</h2>
-              <p className="text-sm text-neutral-500">{t('profile.insuranceSub')}</p>
+              <h2 className="font-semibold text-lg text-content">{t('profile.insuranceTitle')}</h2>
+              <p className="text-sm text-content-muted">{t('profile.insuranceSub')}</p>
             </div>
           </div>
           {!editingInsurance && (
@@ -879,7 +879,7 @@ export function MyProfilePage() {
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="insurance-provider" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="insurance-provider" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.insuranceProvider')}
                 </label>
                 <input
@@ -887,11 +887,11 @@ export function MyProfilePage() {
                   id="insurance-provider"
                   value={insuranceDraft.provider}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, provider: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label htmlFor="insurance-policy" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="insurance-policy" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.insurancePolicyNumber')}
                 </label>
                 <input
@@ -899,11 +899,11 @@ export function MyProfilePage() {
                   id="insurance-policy"
                   value={insuranceDraft.policyNumber}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, policyNumber: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label htmlFor="insurance-group" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="insurance-group" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.insuranceGroupNumber')}
                 </label>
                 <input
@@ -911,11 +911,11 @@ export function MyProfilePage() {
                   id="insurance-group"
                   value={insuranceDraft.groupNumber}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, groupNumber: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label htmlFor="insurance-type" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.insuranceCoverageType')}
                 </label>
                 <select
@@ -927,7 +927,7 @@ export function MyProfilePage() {
                       coverageType: e.target.value as PatientInsurance['coverageType'],
                     })
                   }
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 >
                   <option value="Public">{t('profile.coveragePublic')}</option>
                   <option value="Private">{t('profile.coveragePrivate')}</option>
@@ -938,7 +938,7 @@ export function MyProfilePage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="insurance-from" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="insurance-from" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.insuranceValidFrom')}
                 </label>
                 <input
@@ -946,11 +946,11 @@ export function MyProfilePage() {
                   id="insurance-from"
                   value={insuranceDraft.validFrom}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validFrom: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label htmlFor="insurance-to" className="block text-sm font-medium text-neutral-700 mb-1">
+                <label htmlFor="insurance-to" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('profile.insuranceValidTo')}
                 </label>
                 <input
@@ -958,23 +958,23 @@ export function MyProfilePage() {
                   id="insurance-to"
                   value={insuranceDraft.validTo}
                   onChange={(e) => setInsuranceDraft({ ...insuranceDraft, validTo: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
               </div>
             </div>
-            <label className="flex items-center gap-3 text-sm text-neutral-700">
+            <label className="flex items-center gap-3 text-sm text-content-secondary">
               <input
                 type="checkbox"
                 checked={insuranceDraft.isActive}
                 onChange={(e) => setInsuranceDraft({ ...insuranceDraft, isActive: e.target.checked })}
-                className="w-4 h-4 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                className="w-4 h-4 rounded border-border-strong text-primary-600 focus:ring-primary-500"
               />
               {t('profile.insuranceActive')}
             </label>
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setEditingInsurance(false)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 <X className="w-4 h-4" />
                 {t('common.cancel')}
@@ -992,24 +992,24 @@ export function MyProfilePage() {
         ) : profile?.insurance ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.insuranceProviderLabel')}</label>
-              <p className="font-medium text-neutral-900">{profile.insurance.provider}</p>
+              <label className="text-sm text-content-muted">{t('profile.insuranceProviderLabel')}</label>
+              <p className="font-medium text-content">{profile.insurance.provider}</p>
             </div>
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.insurancePolicyLabel')}</label>
-              <p className="font-medium text-neutral-900 font-mono">{profile.insurance.policyNumber}</p>
+              <label className="text-sm text-content-muted">{t('profile.insurancePolicyLabel')}</label>
+              <p className="font-medium text-content font-mono">{profile.insurance.policyNumber}</p>
             </div>
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.insuranceCoverageType')}</label>
-              <p className="font-medium text-neutral-900">{profile.insurance.coverageType}</p>
+              <label className="text-sm text-content-muted">{t('profile.insuranceCoverageType')}</label>
+              <p className="font-medium text-content">{profile.insurance.coverageType}</p>
             </div>
             <div>
-              <label className="text-sm text-neutral-500">{t('profile.insuranceValidTo')}</label>
-              <p className="font-medium text-neutral-900">{profile.insurance.validTo || '-'}</p>
+              <label className="text-sm text-content-muted">{t('profile.insuranceValidTo')}</label>
+              <p className="font-medium text-content">{profile.insurance.validTo || '-'}</p>
             </div>
           </div>
         ) : (
-          <p className="text-neutral-500">{t('profile.noInsurance')}</p>
+          <p className="text-content-muted">{t('profile.noInsurance')}</p>
         )}
       </div>
 
@@ -1021,8 +1021,8 @@ export function MyProfilePage() {
               <Phone className="w-6 h-6 text-success-500" />
             </div>
             <div>
-              <h2 className="font-semibold text-lg text-neutral-900">{t('profile.emergencyContacts')}</h2>
-              <p className="text-sm text-neutral-500">{t('profile.emergencyContactsSub')}</p>
+              <h2 className="font-semibold text-lg text-content">{t('profile.emergencyContacts')}</h2>
+              <p className="text-sm text-content-muted">{t('profile.emergencyContactsSub')}</p>
             </div>
           </div>
           {!isAddingContact && profile !== null && profile.emergencyContacts.length < MAX_EMERGENCY_CONTACTS && (
@@ -1039,37 +1039,37 @@ export function MyProfilePage() {
         {/* Add New Contact Form */}
         {isAddingContact && (
           <div className="mb-6 p-4 bg-success-50 rounded-xl border border-success-200">
-            <h3 className="font-medium text-neutral-900 mb-4">{t('profile.addEmergencyContact')}</h3>
+            <h3 className="font-medium text-content mb-4">{t('profile.addEmergencyContact')}</h3>
             <div className="space-y-4">
               <div>
-                <label htmlFor="emergency-contact-name" className="block text-sm font-medium text-neutral-700 mb-1">{t('profile.fullNameRequired')}</label>
+                <label htmlFor="emergency-contact-name" className="block text-sm font-medium text-content-secondary mb-1">{t('profile.fullNameRequired')}</label>
                 <input
                   type="text"
                   id="emergency-contact-name"
                   value={newContact.name}
                   onChange={(e) => setNewContact({ ...newContact, name: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
                   placeholder={t('profile.namePlaceholder')}
                 />
               </div>
               <div>
-                <label htmlFor="emergency-contact-phone" className="block text-sm font-medium text-neutral-700 mb-1">{t('profile.phoneRequired')}</label>
+                <label htmlFor="emergency-contact-phone" className="block text-sm font-medium text-content-secondary mb-1">{t('profile.phoneRequired')}</label>
                 <input
                   type="tel"
                   id="emergency-contact-phone"
                   value={newContact.phone}
                   onChange={(e) => setNewContact({ ...newContact, phone: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
                   placeholder={t('profile.phonePlaceholder')}
                 />
               </div>
               <div>
-                <label htmlFor="emergency-contact-relationship" className="block text-sm font-medium text-neutral-700 mb-1">{t('profile.relationshipRequired')}</label>
+                <label htmlFor="emergency-contact-relationship" className="block text-sm font-medium text-content-secondary mb-1">{t('profile.relationshipRequired')}</label>
                 <select
                   id="emergency-contact-relationship"
                   value={newContact.relationship}
                   onChange={(e) => setNewContact({ ...newContact, relationship: e.target.value })}
-                  className="w-full p-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
+                  className="w-full p-3 border border-border rounded-xl focus:ring-2 focus:ring-success-500 focus:border-transparent"
                 >
                   <option value="">{t('profile.selectRelationship')}</option>
                   <option value="Spouse">{t('profile.relSpouse')}</option>
@@ -1080,21 +1080,21 @@ export function MyProfilePage() {
                   <option value="Other">{t('profile.relOther')}</option>
                 </select>
               </div>
-              <label className="flex items-center gap-3 text-sm text-neutral-700">
+              <label className="flex items-center gap-3 text-sm text-content-secondary">
                 <input
                   type="checkbox"
                   checked={newContact.canMakeMedicalDecisions ?? false}
                   onChange={(e) =>
                     setNewContact({ ...newContact, canMakeMedicalDecisions: e.target.checked })
                   }
-                  className="w-4 h-4 rounded border-neutral-300 text-success-600 focus:ring-success-500"
+                  className="w-4 h-4 rounded border-border-strong text-success-600 focus:ring-success-500"
                 />
                 {t('profile.canMakeDecisions')}
               </label>
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={cancelAddContact}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-content-muted bg-surface border border-border rounded-xl hover:bg-surface-sunken transition-colors"
                 >
                   <X className="w-4 h-4" />
                   {t('common.cancel')}
@@ -1120,14 +1120,14 @@ export function MyProfilePage() {
           {profile?.emergencyContacts.map((contact, idx) => (
             <div
               key={idx}
-              className="flex items-center justify-between p-4 bg-neutral-50 rounded-xl"
+              className="flex items-center justify-between p-4 bg-surface-sunken rounded-xl"
             >
               <div className="min-w-0">
-                <p className="font-medium text-neutral-900 truncate">
-                  <span className="text-neutral-400 mr-2">{idx + 1}.</span>
+                <p className="font-medium text-content truncate">
+                  <span className="text-content-muted mr-2">{idx + 1}.</span>
                   {contact.name}
                 </p>
-                <p className="text-sm text-neutral-500 truncate">
+                <p className="text-sm text-content-muted truncate">
                   {contact.relationship} · {contact.phone}
                 </p>
                 {contact.canMakeMedicalDecisions && (
@@ -1154,7 +1154,7 @@ export function MyProfilePage() {
             </div>
           ))}
           {profile?.emergencyContacts.length === 0 && (
-            <p className="text-center text-neutral-500 py-4">
+            <p className="text-center text-content-muted py-4">
               {t('profile.noContacts')}
             </p>
           )}
@@ -1162,7 +1162,7 @@ export function MyProfilePage() {
       </div>
 
       {/* Last Updated */}
-      <div className="text-center text-sm text-neutral-500 flex items-center justify-center gap-2">
+      <div className="text-center text-sm text-content-muted flex items-center justify-center gap-2">
         <Calendar className="w-4 h-4" />
         {t('profile.lastUpdatedLabel')} {profile && formatDate(profile.lastUpdated)}
       </div>

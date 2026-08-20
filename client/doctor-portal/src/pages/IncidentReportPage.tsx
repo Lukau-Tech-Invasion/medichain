@@ -225,12 +225,12 @@ const IncidentReportPage: React.FC = () => {
   const getTypeBadge = (type: IncidentType) => {
     const config: Record<IncidentType, { bg: string; icon: React.ReactNode }> = {
       'fall': { bg: 'bg-orange-100 text-orange-700', icon: <User className="w-3 h-3" /> },
-      'medication-error': { bg: 'bg-red-100 text-red-700', icon: <AlertTriangle className="w-3 h-3" /> },
-      'equipment-failure': { bg: 'bg-blue-100 text-blue-700', icon: <AlertOctagon className="w-3 h-3" /> },
+      'medication-error': { bg: 'bg-critical-subtle text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> },
+      'equipment-failure': { bg: 'bg-notice-subtle text-notice-subtle-fg', icon: <AlertOctagon className="w-3 h-3" /> },
       'security': { bg: 'bg-purple-100 text-purple-700', icon: <Shield className="w-3 h-3" /> },
-      'behavioral': { bg: 'bg-yellow-100 text-yellow-700', icon: <Users className="w-3 h-3" /> },
+      'behavioral': { bg: 'bg-caution-subtle text-caution-subtle-fg', icon: <Users className="w-3 h-3" /> },
       'exposure': { bg: 'bg-pink-100 text-pink-700', icon: <AlertTriangle className="w-3 h-3" /> },
-      'other': { bg: 'bg-gray-100 text-gray-700', icon: <FileText className="w-3 h-3" /> }
+      'other': { bg: 'bg-surface-sunken text-content-secondary', icon: <FileText className="w-3 h-3" /> }
     };
     const { bg, icon } = config[type];
     return (
@@ -243,10 +243,10 @@ const IncidentReportPage: React.FC = () => {
 
   const getSeverityBadge = (severity: IncidentSeverity) => {
     const styles: Record<IncidentSeverity, string> = {
-      'near-miss': 'bg-green-100 text-green-700',
-      'minor': 'bg-yellow-100 text-yellow-700',
+      'near-miss': 'bg-ok-subtle text-ok-subtle-fg',
+      'minor': 'bg-caution-subtle text-caution-subtle-fg',
       'moderate': 'bg-orange-100 text-orange-700',
-      'major': 'bg-red-100 text-red-700',
+      'major': 'bg-critical-subtle text-critical-subtle-fg',
       'sentinel': 'bg-red-600 text-white'
     };
     return (
@@ -258,11 +258,11 @@ const IncidentReportPage: React.FC = () => {
 
   const getStatusBadge = (status: IncidentStatus) => {
     const config: Record<IncidentStatus, { bg: string; icon: React.ReactNode }> = {
-      'open': { bg: 'bg-blue-100 text-blue-700', icon: <Clock className="w-3 h-3" /> },
-      'under-investigation': { bg: 'bg-yellow-100 text-yellow-700', icon: <Search className="w-3 h-3" /> },
+      'open': { bg: 'bg-notice-subtle text-notice-subtle-fg', icon: <Clock className="w-3 h-3" /> },
+      'under-investigation': { bg: 'bg-caution-subtle text-caution-subtle-fg', icon: <Search className="w-3 h-3" /> },
       'pending-review': { bg: 'bg-purple-100 text-purple-700', icon: <Eye className="w-3 h-3" /> },
-      'closed': { bg: 'bg-green-100 text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-      'escalated': { bg: 'bg-red-100 text-red-700', icon: <AlertTriangle className="w-3 h-3" /> }
+      'closed': { bg: 'bg-ok-subtle text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
+      'escalated': { bg: 'bg-critical-subtle text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
     const { bg, icon } = config[status];
     return (
@@ -290,7 +290,7 @@ const IncidentReportPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-rose-700 to-red-600 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -303,17 +303,17 @@ const IncidentReportPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-rose-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docIncidentReport.loading')}</p>
+          <Loader2 className="w-8 h-8 text-critical-subtle-fg animate-spin mb-2" />
+          <p className="text-content-muted">{t('docIncidentReport.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docIncidentReport.apiCheckMessage')}</p>
           </div>
         </div>
@@ -323,36 +323,36 @@ const IncidentReportPage: React.FC = () => {
       {!loading && !error && (
         <>
           {/* Stats Bar */}
-          <div className="bg-white border-b px-6 py-4">
+          <div className="bg-surface border-b px-6 py-4">
             <div className="grid grid-cols-4 gap-4">
               <div className="text-center">
-                <p className="text-2xl font-bold text-blue-600">{stats.open}</p>
-                <p className="text-xs text-gray-500">{t('docIncidentReport.statOpen')}</p>
+                <p className="text-2xl font-bold text-notice-subtle-fg">{stats.open}</p>
+                <p className="text-xs text-content-muted">{t('docIncidentReport.statOpen')}</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-yellow-600">{stats.investigating}</p>
-                <p className="text-xs text-gray-500">{t('docIncidentReport.statInvestigating')}</p>
+                <p className="text-2xl font-bold text-caution-subtle-fg">{stats.investigating}</p>
+                <p className="text-xs text-content-muted">{t('docIncidentReport.statInvestigating')}</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-gray-600">{stats.thisWeek}</p>
-                <p className="text-xs text-gray-500">{t('docIncidentReport.statThisWeek')}</p>
+                <p className="text-2xl font-bold text-content-muted">{stats.thisWeek}</p>
+                <p className="text-xs text-content-muted">{t('docIncidentReport.statThisWeek')}</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-red-600">{stats.sentinel}</p>
-                <p className="text-xs text-gray-500">{t('docIncidentReport.statSentinel')}</p>
+                <p className="text-2xl font-bold text-critical-subtle-fg">{stats.sentinel}</p>
+                <p className="text-xs text-content-muted">{t('docIncidentReport.statSentinel')}</p>
               </div>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="bg-white border-b">
+          <div className="bg-surface border-b">
             <div className="flex">
               {(['list', 'new', 'dashboard'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize ${
-                    activeTab === tab ? 'text-rose-700 border-b-2 border-rose-700' : 'text-gray-500'
+                    activeTab === tab ? 'text-critical-subtle-fg border-b-2 border-rose-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'new' ? t('docIncidentReport.tabReport') : tab === 'list' ? t('docIncidentReport.tabAll') : t('docIncidentReport.tabDashboard')}
@@ -366,7 +366,7 @@ const IncidentReportPage: React.FC = () => {
             <div className="p-6">
               <div className="flex flex-col sm:flex-row gap-4 mb-6">
                 <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
               <input
                 type="text"
                 value={searchQuery}
@@ -403,16 +403,16 @@ const IncidentReportPage: React.FC = () => {
 
           <div className="space-y-4">
             {filteredIncidents.map(incident => (
-              <div key={incident.id} className="bg-white rounded-lg shadow border p-6">
+              <div key={incident.id} className="bg-surface rounded-lg shadow border p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-900">{incident.id}</span>
+                      <span className="font-semibold text-content">{incident.id}</span>
                       {getTypeBadge(incident.type)}
                       {getSeverityBadge(incident.severity)}
                       {getStatusBadge(incident.status)}
                     </div>
-                    <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
+                    <p className="text-sm text-content-muted mt-1 flex items-center gap-2">
                       <Calendar className="w-4 h-4" />
                       {incident.dateTime.toLocaleString()}
                       <MapPin className="w-4 h-4 ml-2" />
@@ -420,33 +420,33 @@ const IncidentReportPage: React.FC = () => {
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-gray-100 rounded-lg" aria-label="View incident details">
-                      <Eye className="w-5 h-5 text-gray-600" />
+                    <button onClick={() => setSelectedIncident(incident)} className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="View incident details">
+                      <Eye className="w-5 h-5 text-content-muted" />
                     </button>
-                    <button className="p-2 hover:bg-gray-100 rounded-lg" aria-label="Print incident report">
-                      <Printer className="w-5 h-5 text-gray-600" />
+                    <button className="p-2 hover:bg-surface-sunken rounded-lg" aria-label="Print incident report">
+                      <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>
                 </div>
 
-                <p className="text-gray-700 mb-4 line-clamp-2">{incident.description}</p>
+                <p className="text-content-secondary mb-4 line-clamp-2">{incident.description}</p>
 
                 {incident.patientInvolved && (
-                  <div className="bg-blue-50 rounded-lg p-3 mb-4 flex items-center gap-2">
-                    <User className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm text-blue-700">{t('docIncidentReport.patientLine', { name: incident.patientName || '', id: incident.patientId || '' })}</span>
+                  <div className="bg-notice-subtle rounded-lg p-3 mb-4 flex items-center gap-2">
+                    <User className="w-4 h-4 text-notice-subtle-fg" />
+                    <span className="text-sm text-notice-subtle-fg">{t('docIncidentReport.patientLine', { name: incident.patientName || '', id: incident.patientId || '' })}</span>
                   </div>
                 )}
 
                 {incident.followUpActions.length > 0 && (
                   <div className="border-t pt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">{t('docIncidentReport.followUpActionsLabel')}</p>
+                    <p className="text-sm font-medium text-content-secondary mb-2">{t('docIncidentReport.followUpActionsLabel')}</p>
                     <div className="flex gap-2 flex-wrap">
                       {incident.followUpActions.map((action, idx) => (
                         <span
                           key={idx}
                           className={`px-2 py-1 rounded text-xs ${
-                            action.completed ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                            action.completed ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
                           }`}
                         >
                           {action.completed ? <CheckCircle className="w-3 h-3 inline mr-1" /> : <Clock className="w-3 h-3 inline mr-1" />}
@@ -465,7 +465,7 @@ const IncidentReportPage: React.FC = () => {
       {/* New Incident Tab */}
       {activeTab === 'new' && (
         <div className="p-6">
-          <div className="bg-white rounded-lg shadow p-6 max-w-3xl mx-auto">
+          <div className="bg-surface rounded-lg shadow p-6 max-w-3xl mx-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold">{t('docIncidentReport.reportNewIncidentHeading')}</h2>
               <div className="flex items-center gap-2">
@@ -473,7 +473,7 @@ const IncidentReportPage: React.FC = () => {
                   <div
                     key={step}
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      formStep === step ? 'bg-rose-600 text-white' : formStep > step ? 'bg-green-500 text-white' : 'bg-gray-200'
+                      formStep === step ? 'bg-rose-600 text-white' : formStep > step ? 'bg-green-500 text-white' : 'bg-surface-sunken'
                     }`}
                   >
                     {formStep > step ? <CheckCircle className="w-4 h-4" /> : step}
@@ -484,7 +484,7 @@ const IncidentReportPage: React.FC = () => {
 
             {formStep === 1 && (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">{t('docIncidentReport.step1Heading')}</h3>
+                <h3 className="font-medium text-content">{t('docIncidentReport.step1Heading')}</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="inc-incident-type" className="block text-sm font-medium mb-1">{t('docIncidentReport.incidentTypeRequired')} *</label>
@@ -550,14 +550,14 @@ const IncidentReportPage: React.FC = () => {
 
             {formStep === 2 && (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">{t('docIncidentReport.step2Heading')}</h3>
+                <h3 className="font-medium text-content">{t('docIncidentReport.step2Heading')}</h3>
                 <div>
                   <label htmlFor="inc-description" className="block text-sm font-medium mb-1">{t('docIncidentReport.descriptionRequired')} *</label>
                   <textarea id="inc-description" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.descriptionPh')}
                     value={formData.description}
                     onChange={(e) => setFormData(f => ({ ...f, description: e.target.value }))} />
                 </div>
-                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3 p-3 bg-surface-sunken rounded-lg">
                   <input
                     id="inc-patient-involved"
                     type="checkbox"
@@ -593,17 +593,17 @@ const IncidentReportPage: React.FC = () => {
 
             {formStep === 3 && (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-900">{t('docIncidentReport.step3Heading')}</h3>
+                <h3 className="font-medium text-content">{t('docIncidentReport.step3Heading')}</h3>
                 <div>
                   <label htmlFor="inc-immediate-actions" className="block text-sm font-medium mb-1">{t('docIncidentReport.immediateActionsRequired')} *</label>
                   <textarea id="inc-immediate-actions" className="w-full border rounded-lg px-3 py-2 h-32" placeholder={t('docIncidentReport.immediateActionsPh')}
                     value={formData.immediateActions}
                     onChange={(e) => setFormData(f => ({ ...f, immediateActions: e.target.value }))} />
                 </div>
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="bg-caution-subtle border border-caution rounded-lg p-4">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-yellow-800">
+                    <AlertTriangle className="w-5 h-5 text-caution-subtle-fg flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-caution-subtle-fg">
                       <p className="font-medium">{t('docIncidentReport.reportingDeclarationHeading')}</p>
                       <p>{t('docIncidentReport.reportingDeclarationText')}</p>
                     </div>
@@ -642,13 +642,13 @@ const IncidentReportPage: React.FC = () => {
       {activeTab === 'dashboard' && (
         <div className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-surface rounded-lg shadow p-6">
               <h3 className="font-semibold mb-4">{t('docIncidentReport.incidentsByTypeHeading')}</h3>
               <div className="space-y-3">
                 {['fall', 'medication-error', 'equipment-failure', 'security'].map(type => (
                   <div key={type} className="flex items-center gap-3">
                     <div className="w-24 text-sm">{t(`docIncidentReport.type_${type}`)}</div>
-                    <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="flex-1 h-4 bg-surface-sunken rounded-full overflow-hidden">
                       <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.random() * 80 + 20}%` }} />
                     </div>
                     <div className="w-8 text-sm text-right">{Math.floor(Math.random() * 10 + 1)}</div>
@@ -656,13 +656,13 @@ const IncidentReportPage: React.FC = () => {
                 ))}
               </div>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-surface rounded-lg shadow p-6">
               <h3 className="font-semibold mb-4">{t('docIncidentReport.severityDistributionHeading')}</h3>
               <div className="flex justify-around">
                 {['near-miss', 'minor', 'moderate', 'major'].map(sev => (
                   <div key={sev} className="text-center">
-                    <div className="text-2xl font-bold text-gray-700">{Math.floor(Math.random() * 10 + 1)}</div>
-                    <div className="text-xs text-gray-500">{t(`docIncidentReport.severity_${sev}`)}</div>
+                    <div className="text-2xl font-bold text-content-secondary">{Math.floor(Math.random() * 10 + 1)}</div>
+                    <div className="text-xs text-content-muted">{t(`docIncidentReport.severity_${sev}`)}</div>
                   </div>
                 ))}
               </div>
@@ -675,10 +675,10 @@ const IncidentReportPage: React.FC = () => {
       {/* Detail Modal */}
       {selectedIncident && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold">{selectedIncident.id}</h2>
-              <button onClick={() => setSelectedIncident(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+              <button onClick={() => setSelectedIncident(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
             <div className="p-6 space-y-4">
               <div className="flex gap-2 flex-wrap">
@@ -686,18 +686,18 @@ const IncidentReportPage: React.FC = () => {
                 {getSeverityBadge(selectedIncident.severity)}
                 {getStatusBadge(selectedIncident.status)}
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h4 className="font-medium mb-2">{t('docIncidentReport.descriptionHeading')}</h4>
-                <p className="text-gray-700">{selectedIncident.description}</p>
+                <p className="text-content-secondary">{selectedIncident.description}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h4 className="font-medium mb-2">{t('docIncidentReport.immediateActionsHeading')}</h4>
-                <p className="text-gray-700">{selectedIncident.immediateActions}</p>
+                <p className="text-content-secondary">{selectedIncident.immediateActions}</p>
               </div>
               {selectedIncident.rootCause && (
-                <div className="bg-gray-50 rounded-lg p-4">
+                <div className="bg-surface-sunken rounded-lg p-4">
                   <h4 className="font-medium mb-2">{t('docIncidentReport.rootCauseHeading')}</h4>
-                  <p className="text-gray-700">{selectedIncident.rootCause}</p>
+                  <p className="text-content-secondary">{selectedIncident.rootCause}</p>
                 </div>
               )}
             </div>

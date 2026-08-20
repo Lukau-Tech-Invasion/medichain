@@ -235,10 +235,10 @@ export function MedicalIdPage() {
 
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
-      case 'severe': return 'bg-red-100 text-red-800 border-red-200';
+      case 'severe': return 'bg-critical-subtle text-critical-subtle-fg border-critical';
       case 'moderate': return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'mild': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'mild': return 'bg-caution-subtle text-caution-subtle-fg border-caution';
+      default: return 'bg-surface-sunken text-content-secondary border-border';
     }
   };
 
@@ -307,9 +307,9 @@ export function MedicalIdPage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-4 animate-pulse">
-        <div className="h-10 bg-neutral-200 rounded w-48 mx-auto" />
-        <div className="h-64 bg-neutral-200 rounded-3xl" />
-        <div className="h-32 bg-neutral-200 rounded-xl" />
+        <div className="h-10 bg-surface-sunken rounded w-48 mx-auto" />
+        <div className="h-64 bg-surface-sunken rounded-3xl" />
+        <div className="h-32 bg-surface-sunken rounded-xl" />
       </div>
     );
   }
@@ -340,18 +340,18 @@ export function MedicalIdPage() {
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header with settings */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-neutral-900">{t('medicalId.title')}</h1>
+        <h1 className="text-2xl font-bold text-content">{t('medicalId.title')}</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowLockScreenPreview(!showLockScreenPreview)}
-            className="p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors"
+            className="p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
             title={t('medicalId.lockScreenPreviewTooltip')}
           >
             <Lock className="w-5 h-5" />
           </button>
           <button
             onClick={handleShare}
-            className="p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors"
+            className="p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
             title={t('medicalId.shareTooltip')}
           >
             <Share2 className="w-5 h-5" />
@@ -360,15 +360,15 @@ export function MedicalIdPage() {
       </div>
 
       {/* View Selector */}
-      <div className="flex gap-1 bg-neutral-100 p-1 rounded-xl">
+      <div className="flex gap-1 bg-surface-sunken p-1 rounded-xl">
         {(['full', 'emergency', 'lockscreen'] as const).map(view => (
           <button
             key={view}
             onClick={() => setActiveView(view)}
             className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-colors ${
               activeView === view
-                ? 'bg-white text-neutral-900 shadow-sm'
-                : 'text-neutral-500 hover:text-neutral-700'
+                ? 'bg-surface text-content shadow-sm'
+                : 'text-content-muted hover:text-content-secondary'
             }`}
           >
             {view === 'full' ? t('medicalId.view_full') : view === 'emergency' ? t('medicalId.view_emergency') : t('medicalId.view_lockscreen')}
@@ -377,13 +377,13 @@ export function MedicalIdPage() {
       </div>
 
       {/* Lock Screen Setting */}
-      <div className={`p-4 rounded-xl border-2 ${data.preferences.show_when_locked ? 'bg-green-50 border-green-200' : 'bg-neutral-50 border-neutral-200'}`}>
+      <div className={`p-4 rounded-xl border-2 ${data.preferences.show_when_locked ? 'bg-ok-subtle border-ok' : 'bg-surface-sunken border-border'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Lock className={data.preferences.show_when_locked ? 'text-green-600' : 'text-neutral-400'} />
+            <Lock className={data.preferences.show_when_locked ? 'text-ok-subtle-fg' : 'text-content-muted'} />
             <div>
               <p className="font-medium">{t('medicalId.showWhenLocked')}</p>
-              <p className="text-sm text-neutral-600">{t('medicalId.showWhenLockedDesc')}</p>
+              <p className="text-sm text-content-muted">{t('medicalId.showWhenLockedDesc')}</p>
             </div>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -393,17 +393,17 @@ export function MedicalIdPage() {
               onChange={() => {}}
               className="sr-only peer"
             />
-            <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+            <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
           </label>
         </div>
       </div>
 
       {/* Main Medical ID Card */}
-      <div className="bg-white rounded-3xl shadow-lg overflow-hidden">
+      <div className="bg-surface rounded-3xl shadow-lg overflow-hidden">
         {/* Red Emergency Header */}
         <div className="bg-gradient-to-r from-red-500 to-red-600 text-white p-6">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center">
+            <div className="w-16 h-16 bg-surface/20 rounded-full flex items-center justify-center">
               <User className="w-8 h-8" />
             </div>
             <div>
@@ -429,7 +429,7 @@ export function MedicalIdPage() {
         {data.profile_unavailable && (
           <div
             role="alert"
-            className="bg-amber-50 border-y border-amber-300 px-4 py-3 text-sm text-amber-900"
+            className="bg-caution-subtle border-y border-caution px-4 py-3 text-sm text-caution-subtle-fg"
           >
             <p className="font-semibold">{t('medicalId.profileUnavailableTitle')}</p>
             <p>{t('medicalId.profileUnavailableBody')}</p>
@@ -437,46 +437,46 @@ export function MedicalIdPage() {
         )}
 
         {/* Blood Type & Organ Donor */}
-        <div className="grid grid-cols-2 divide-x divide-neutral-100">
+        <div className="grid grid-cols-2 divide-x divide-border">
           <div className="p-4 text-center">
             <Droplet className="w-8 h-8 text-red-500 mx-auto mb-2" />
-            <p className="text-3xl font-bold text-neutral-900">{asText(data.blood_type)}</p>
-            <p className="text-sm text-neutral-600">{t('medicalId.bloodTypeLabel')}</p>
+            <p className="text-3xl font-bold text-content">{asText(data.blood_type)}</p>
+            <p className="text-sm text-content-muted">{t('medicalId.bloodTypeLabel')}</p>
           </div>
           <div className="p-4 text-center">
             <Heart className={`w-8 h-8 mx-auto mb-2 ${data.organ_donor ? 'text-green-500' : 'text-neutral-300'}`} />
-            <p className="text-lg font-bold text-neutral-900">
+            <p className="text-lg font-bold text-content">
               {data.organ_donor ? t('medicalId.organDonorYes') : t('medicalId.organDonorNo')}
             </p>
-            <p className="text-sm text-neutral-600">{t('medicalId.organDonorLabel')}</p>
+            <p className="text-sm text-content-muted">{t('medicalId.organDonorLabel')}</p>
           </div>
         </div>
 
         {/* DNR Status — only authoritative when verified (verifier + timestamp). */}
         {dnr.onFile && dnr.verified && (
-          <div className="bg-red-50 border-t border-b border-red-200 p-4 flex items-center gap-3">
-            <AlertTriangle className="w-6 h-6 text-red-600" />
+          <div className="bg-critical-subtle border-t border-b border-critical p-4 flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6 text-critical-subtle-fg" />
             <div>
-              <p className="font-bold text-red-800">{t('medicalId.dnrTitle')}</p>
-              <p className="text-sm text-red-700">{t('medicalId.dnrVerifiedDesc')}</p>
+              <p className="font-bold text-critical-subtle-fg">{t('medicalId.dnrTitle')}</p>
+              <p className="text-sm text-critical-subtle-fg">{t('medicalId.dnrVerifiedDesc')}</p>
             </div>
           </div>
         )}
         {dnr.onFile && !dnr.verified && (
-          <div className="bg-amber-50 border-t border-b border-amber-200 p-4 flex items-center gap-3">
-            <AlertTriangle className="w-6 h-6 text-amber-600" />
+          <div className="bg-caution-subtle border-t border-b border-caution p-4 flex items-center gap-3">
+            <AlertTriangle className="w-6 h-6 text-caution-subtle-fg" />
             <div>
-              <p className="font-bold text-amber-800">{t('medicalId.dnrUnverifiedTitle')}</p>
-              <p className="text-sm text-amber-700">{t('medicalId.dnrUnverifiedDesc')}</p>
+              <p className="font-bold text-caution-subtle-fg">{t('medicalId.dnrUnverifiedTitle')}</p>
+              <p className="text-sm text-caution-subtle-fg">{t('medicalId.dnrUnverifiedDesc')}</p>
             </div>
           </div>
         )}
 
         {/* Allergies */}
-        <div className="p-4 border-t border-neutral-100">
+        <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-5 h-5 text-red-500" />
-            <h3 className="font-bold text-neutral-900">{t('medicalId.allergiesTitle')}</h3>
+            <h3 className="font-bold text-content">{t('medicalId.allergiesTitle')}</h3>
           </div>
           {(data.allergies ?? []).length > 0 ? (
             <div className="space-y-2">
@@ -498,15 +498,15 @@ export function MedicalIdPage() {
         </div>
 
         {/* Medical Conditions */}
-        <div className="p-4 border-t border-neutral-100">
+        <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
             <Stethoscope className="w-5 h-5 text-blue-500" />
-            <h3 className="font-bold text-neutral-900">{t('medicalId.conditionsTitle')}</h3>
+            <h3 className="font-bold text-content">{t('medicalId.conditionsTitle')}</h3>
           </div>
           {(data.conditions ?? []).length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {(data.conditions ?? []).map((condition, i) => (
-                <span key={i} className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
+                <span key={i} className="px-3 py-1.5 bg-notice-subtle text-notice-subtle-fg rounded-lg text-sm font-medium">
                   {asText(condition)}
                 </span>
               ))}
@@ -517,15 +517,15 @@ export function MedicalIdPage() {
         </div>
 
         {/* Medications */}
-        <div className="p-4 border-t border-neutral-100">
+        <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
             <Pill className="w-5 h-5 text-purple-500" />
-            <h3 className="font-bold text-neutral-900">{t('medicalId.medicationsTitle')}</h3>
+            <h3 className="font-bold text-content">{t('medicalId.medicationsTitle')}</h3>
           </div>
           {(data.medications ?? []).length > 0 ? (
             <ul className="space-y-2">
               {(data.medications ?? []).map((med, i) => (
-                <li key={i} className="flex items-center gap-2 text-neutral-700">
+                <li key={i} className="flex items-center gap-2 text-content-secondary">
                   <span className="w-2 h-2 bg-purple-400 rounded-full"></span>
                   {asText(med)}
                 </li>
@@ -537,19 +537,19 @@ export function MedicalIdPage() {
         </div>
 
         {/* Emergency Contacts */}
-        <div className="p-4 border-t border-neutral-100 bg-neutral-50">
+        <div className="p-4 border-t border-border bg-surface-sunken">
           <div className="flex items-center gap-2 mb-3">
             <Phone className="w-5 h-5 text-green-500" />
-            <h3 className="font-bold text-neutral-900">{t('medicalId.emergencyContactsTitle')}</h3>
+            <h3 className="font-bold text-content">{t('medicalId.emergencyContactsTitle')}</h3>
           </div>
           {data.emergency_contacts.map((contact, i) => {
             const normalized = normalizePhone(contact.phone);
             return (
-              <div key={i} className="bg-white p-3 rounded-lg border border-neutral-200 mb-2">
+              <div key={i} className="bg-surface p-3 rounded-lg border border-border mb-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium text-neutral-900">{contact.name}</p>
-                    <p className="text-sm text-neutral-600">{contact.relationship}</p>
+                    <p className="font-medium text-content">{contact.name}</p>
+                    <p className="text-sm text-content-muted">{contact.relationship}</p>
                   </div>
                   {normalized ? (
                     <a
@@ -560,12 +560,12 @@ export function MedicalIdPage() {
                       {t('medicalId.callButton')}
                     </a>
                   ) : (
-                    <span className="text-xs text-amber-700">{t('medicalId.unverifiedNumber')}</span>
+                    <span className="text-xs text-caution-subtle-fg">{t('medicalId.unverifiedNumber')}</span>
                   )}
                 </div>
-                <p className="text-sm text-neutral-600 mt-2">{contact.phone}</p>
+                <p className="text-sm text-content-muted mt-2">{contact.phone}</p>
                 {contact.can_make_medical_decisions && (
-                  <div className="flex items-center gap-1 mt-2 text-green-600 text-sm">
+                  <div className="flex items-center gap-1 mt-2 text-ok-subtle-fg text-sm">
                     <CheckCircle className="w-4 h-4" />
                     {t('medicalId.legalAuthorityText')}
                   </div>
@@ -577,15 +577,15 @@ export function MedicalIdPage() {
 
         {/* Primary Doctor */}
         {data.primary_doctor && (
-          <div className="p-4 border-t border-neutral-100">
+          <div className="p-4 border-t border-border">
             <div className="flex items-center gap-2 mb-3">
               <Stethoscope className="w-5 h-5 text-blue-500" />
-              <h3 className="font-bold text-neutral-900">{t('medicalId.primaryCareProviderTitle')}</h3>
+              <h3 className="font-bold text-content">{t('medicalId.primaryCareProviderTitle')}</h3>
             </div>
-            <div className="bg-blue-50 p-3 rounded-lg">
-              <p className="font-medium text-neutral-900">{data.primary_doctor.name}</p>
+            <div className="bg-notice-subtle p-3 rounded-lg">
+              <p className="font-medium text-content">{data.primary_doctor.name}</p>
               {data.primary_doctor.facility && (
-                <p className="text-sm text-neutral-600 flex items-center gap-1">
+                <p className="text-sm text-content-muted flex items-center gap-1">
                   <MapPin className="w-4 h-4" />
                   {data.primary_doctor.facility}
                 </p>
@@ -595,14 +595,14 @@ export function MedicalIdPage() {
                 return docPhone ? (
                   <a
                     href={`tel:${docPhone}`}
-                    className="text-blue-600 text-sm mt-1 inline-block"
+                    className="text-notice-subtle-fg text-sm mt-1 inline-block"
                   >
                     {data.primary_doctor.phone}
                   </a>
                 ) : (
-                  <p className="text-sm mt-1 text-neutral-600">
+                  <p className="text-sm mt-1 text-content-muted">
                     {data.primary_doctor.phone}{' '}
-                    <span className="text-amber-700">{t('medicalId.unverifiedNumberParen')}</span>
+                    <span className="text-caution-subtle-fg">{t('medicalId.unverifiedNumberParen')}</span>
                   </p>
                 );
               })()}
@@ -612,27 +612,27 @@ export function MedicalIdPage() {
 
         {/* Insurance */}
         {data.insurance && (
-          <div className="p-4 border-t border-neutral-100">
+          <div className="p-4 border-t border-border">
             <div className="flex items-center gap-2 mb-3">
               <Shield className="w-5 h-5 text-indigo-500" />
-              <h3 className="font-bold text-neutral-900">{t('medicalId.insuranceTitle')}</h3>
+              <h3 className="font-bold text-content">{t('medicalId.insuranceTitle')}</h3>
             </div>
             <div className="bg-indigo-50 p-3 rounded-lg">
-              <p className="font-medium text-neutral-900">{data.insurance.provider}</p>
-              <p className="text-sm text-neutral-600">{t('medicalId.policyPrefix', { number: data.insurance.policy_number })}</p>
+              <p className="font-medium text-content">{data.insurance.provider}</p>
+              <p className="text-sm text-content-muted">{t('medicalId.policyPrefix', { number: data.insurance.policy_number })}</p>
             </div>
           </div>
         )}
 
         {/* Languages */}
-        <div className="p-4 border-t border-neutral-100">
+        <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2 mb-3">
-            <FileText className="w-5 h-5 text-neutral-500" />
-            <h3 className="font-bold text-neutral-900">{t('medicalId.languagesTitle')}</h3>
+            <FileText className="w-5 h-5 text-content-muted" />
+            <h3 className="font-bold text-content">{t('medicalId.languagesTitle')}</h3>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.languages.map((lang, i) => (
-              <span key={i} className="px-3 py-1 bg-neutral-100 text-neutral-700 rounded-full text-sm">
+              <span key={i} className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm">
                 {lang}
               </span>
             ))}
@@ -643,10 +643,10 @@ export function MedicalIdPage() {
       {/* QR Code Section */}
       <div className="patient-card text-center">
         <div className="flex items-center justify-center gap-2 mb-3">
-          <Download className="w-5 h-5 text-neutral-500" />
-          <h3 className="font-bold text-neutral-900">{t('medicalId.qrCodeTitle')}</h3>
+          <Download className="w-5 h-5 text-content-muted" />
+          <h3 className="font-bold text-content">{t('medicalId.qrCodeTitle')}</h3>
         </div>
-        <p className="text-sm text-neutral-500 mb-3">
+        <p className="text-sm text-content-muted mb-3">
           {t('medicalId.qrCodeDesc')}
         </p>
         <a
@@ -661,18 +661,18 @@ export function MedicalIdPage() {
       </div>
 
       {/* Emergency Numbers */}
-      <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-        <h3 className="flex items-center gap-2 font-bold text-red-800 mb-3">
+      <div className="bg-critical-subtle border border-critical rounded-xl p-4">
+        <h3 className="flex items-center gap-2 font-bold text-critical-subtle-fg mb-3">
           <AlertTriangle className="w-5 h-5" aria-hidden="true" /> {t('medicalId.emergencyServicesTitle')}
         </h3>
         <div className="grid grid-cols-2 gap-3">
-          <a href="tel:10177" className="bg-white p-3 rounded-lg text-center shadow-sm">
-            <p className="text-2xl font-bold text-red-600">10177</p>
-            <p className="text-sm text-neutral-600">{t('medicalId.ambulanceLabel')}</p>
+          <a href="tel:10177" className="bg-surface p-3 rounded-lg text-center shadow-sm">
+            <p className="text-2xl font-bold text-critical-subtle-fg">10177</p>
+            <p className="text-sm text-content-muted">{t('medicalId.ambulanceLabel')}</p>
           </a>
-          <a href="tel:10111" className="bg-white p-3 rounded-lg text-center shadow-sm">
-            <p className="text-2xl font-bold text-red-600">10111</p>
-            <p className="text-sm text-neutral-600">{t('medicalId.policeLabel')}</p>
+          <a href="tel:10111" className="bg-surface p-3 rounded-lg text-center shadow-sm">
+            <p className="text-2xl font-bold text-critical-subtle-fg">10111</p>
+            <p className="text-sm text-content-muted">{t('medicalId.policeLabel')}</p>
           </a>
         </div>
       </div>

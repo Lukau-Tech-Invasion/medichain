@@ -146,19 +146,19 @@ export default function StaffSelect({
   // Role color mapping
   const getRoleColor = (role: string) => {
     switch (role) {
-      case 'Doctor': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300';
-      case 'Nurse': return 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300';
-      case 'LabTechnician': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300';
+      case 'Doctor': return 'bg-notice-subtle text-notice-subtle-fg dark:bg-blue-900/50 dark:text-blue-300';
+      case 'Nurse': return 'bg-ok-subtle text-ok-subtle-fg dark:bg-green-900/50 dark:text-green-300';
+      case 'LabTechnician': return 'bg-caution-subtle text-caution-subtle-fg dark:bg-amber-900/50 dark:text-amber-300';
       case 'Pharmacist': return 'bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300';
       case 'Admin': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300';
-      default: return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+      default: return 'bg-surface-sunken text-content-secondary dark:bg-gray-800 dark:text-gray-300';
     }
   };
 
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
       {label && (
-        <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+        <label htmlFor={id} className="block text-sm font-medium text-content-secondary dark:text-gray-200 mb-2">
           {label} {required && <span className="text-red-500">*</span>}
         </label>
       )}
@@ -169,19 +169,19 @@ export default function StaffSelect({
           <div 
             className={`
               w-full flex items-center justify-between px-4 py-2.5 
-              border border-gray-300 dark:border-slate-600 rounded-lg 
-              bg-white dark:bg-slate-800 
+              border border-border-strong dark:border-slate-600 rounded-lg 
+              bg-surface dark:bg-slate-800 
               ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-primary-400'}
             `}
             onClick={() => !disabled && setIsOpen(true)}
           >
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-                <UserCircle size={16} className="text-blue-600 dark:text-blue-400" />
+              <div className="w-8 h-8 bg-notice-subtle dark:bg-blue-900 rounded-full flex items-center justify-center">
+                <UserCircle size={16} className="text-notice-subtle-fg dark:text-blue-400" />
               </div>
               <div>
-                <p className="font-medium text-gray-900 dark:text-white">{selectedStaff.name}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="font-medium text-content dark:text-white">{selectedStaff.name}</p>
+                <p className="text-xs text-content-muted dark:text-gray-400">
                   <span className={`inline-block px-1.5 py-0.5 rounded text-xs ${getRoleColor(selectedStaff.role)}`}>
                     {selectedStaff.role}
                   </span>
@@ -194,17 +194,17 @@ export default function StaffSelect({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); handleClear(); }}
-                  className="p-1 hover:bg-gray-100 dark:hover:bg-slate-700 rounded"
+                  className="p-1 hover:bg-surface-sunken dark:hover:bg-slate-700 rounded"
                 >
-                  <X size={16} className="text-gray-400" />
+                  <X size={16} className="text-content-muted" />
                 </button>
               )}
-              <ChevronDown size={18} className="text-gray-400" />
+              <ChevronDown size={18} className="text-content-muted" />
             </div>
           </div>
         ) : (
           <div className="relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
             <input
               ref={inputRef}
               id={id}
@@ -217,20 +217,20 @@ export default function StaffSelect({
               disabled={disabled}
               className={`
                 w-full pl-10 pr-10 py-2.5 
-                border border-gray-300 dark:border-slate-600 rounded-lg 
-                bg-white dark:bg-slate-800 
-                text-gray-900 dark:text-white
+                border border-border-strong dark:border-slate-600 rounded-lg 
+                bg-surface dark:bg-slate-800 
+                text-content dark:text-white
                 placeholder-gray-400 dark:placeholder-gray-500
                 focus:ring-2 focus:ring-primary-500 focus:border-primary-500
                 disabled:opacity-50 disabled:cursor-not-allowed
               `}
             />
             {loading ? (
-              <Loader2 size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />
+              <Loader2 size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-content-muted animate-spin" />
             ) : (
               <ChevronDown 
                 size={18} 
-                className={`absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} 
+                className={`absolute right-3 top-1/2 -translate-y-1/2 text-content-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} 
               />
             )}
           </div>
@@ -238,16 +238,16 @@ export default function StaffSelect({
 
         {/* Dropdown */}
         {isOpen && (
-          <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          <div className="absolute z-50 w-full mt-1 bg-surface dark:bg-slate-800 border border-border dark:border-slate-600 rounded-lg shadow-lg max-h-64 overflow-y-auto">
             {loading ? (
-              <div className="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400">
+              <div className="flex items-center justify-center py-6 text-content-muted dark:text-gray-400">
                 <Loader2 size={20} className="animate-spin mr-2" />
                 Loading staff...
               </div>
             ) : error ? (
               <div className="py-4 px-3 text-center text-red-500">{error}</div>
             ) : filteredStaff.length === 0 ? (
-              <div className="py-4 px-3 text-center text-gray-500 dark:text-gray-400">
+              <div className="py-4 px-3 text-center text-content-muted dark:text-gray-400">
                 {searchTerm ? 'No staff found matching your search' : 'No staff available'}
               </div>
             ) : (
@@ -258,20 +258,20 @@ export default function StaffSelect({
                   onClick={() => handleSelect(member)}
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 text-left
-                    hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors
+                    hover:bg-surface-sunken dark:hover:bg-slate-700 transition-colors
                     ${value === member.wallet_address || value === member.name ? 'bg-primary-50 dark:bg-primary-900/30' : ''}
                   `}
                 >
-                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                  <div className="w-8 h-8 bg-notice-subtle dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-medium text-notice-subtle-fg dark:text-blue-400">
                       {member.name.charAt(0)}
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 dark:text-white truncate">
+                    <p className="font-medium text-content dark:text-white truncate">
                       {member.name}
                     </p>
-                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center gap-2 text-xs text-content-muted dark:text-gray-400">
                       <span className={`inline-block px-1.5 py-0.5 rounded ${getRoleColor(member.role)}`}>
                         {member.role}
                       </span>

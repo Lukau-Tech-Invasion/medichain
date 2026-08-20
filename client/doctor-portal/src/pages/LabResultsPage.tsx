@@ -195,21 +195,21 @@ function LabResultsPage() {
     switch (status) {
       case 'pending':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-caution-subtle text-caution-subtle-fg">
             <Clock size={12} />
             {t('docLabResults.pendingReview')}
           </span>
         );
       case 'approved':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-ok-subtle text-ok-subtle-fg">
             <CheckCircle size={12} />
             {t('docLabResults.approved')}
           </span>
         );
       case 'rejected':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-critical-subtle text-critical-subtle-fg">
             <XCircle size={12} />
             {t('docLabResults.rejected')}
           </span>
@@ -238,69 +238,69 @@ function LabResultsPage() {
             <FlaskConical className="text-purple-600" size={24} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('docLabResults.title')}</h1>
-            <p className="text-gray-500">{t('docLabResults.subtitle')}</p>
+            <h1 className="text-2xl font-bold text-content">{t('docLabResults.title')}</h1>
+            <p className="text-content-muted">{t('docLabResults.subtitle')}</p>
           </div>
         </div>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+        <div className="bg-caution-subtle border border-caution rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <Clock className="text-yellow-600" size={24} />
+            <Clock className="text-caution-subtle-fg" size={24} />
             <div>
-              <p className="text-sm text-yellow-600 font-medium">{t('docLabResults.pendingReview')}</p>
-              <p className="text-2xl font-bold text-yellow-800">{pendingCount}</p>
+              <p className="text-sm text-caution-subtle-fg font-medium">{t('docLabResults.pendingReview')}</p>
+              <p className="text-2xl font-bold text-caution-subtle-fg">{pendingCount}</p>
             </div>
           </div>
         </div>
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+        <div className="bg-ok-subtle border border-ok rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <CheckCircle className="text-green-600" size={24} />
+            <CheckCircle className="text-ok-subtle-fg" size={24} />
             <div>
-              <p className="text-sm text-green-600 font-medium">{t('docLabResults.approvedToday')}</p>
-              <p className="text-2xl font-bold text-green-800">0</p>
+              <p className="text-sm text-ok-subtle-fg font-medium">{t('docLabResults.approvedToday')}</p>
+              <p className="text-2xl font-bold text-ok-subtle-fg">0</p>
             </div>
           </div>
         </div>
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+        <div className="bg-critical-subtle border border-critical rounded-xl p-4">
           <div className="flex items-center gap-3">
-            <XCircle className="text-red-600" size={24} />
+            <XCircle className="text-critical-subtle-fg" size={24} />
             <div>
-              <p className="text-sm text-red-600 font-medium">{t('docLabResults.rejectedToday')}</p>
-              <p className="text-2xl font-bold text-red-800">0</p>
+              <p className="text-sm text-critical-subtle-fg font-medium">{t('docLabResults.rejectedToday')}</p>
+              <p className="text-2xl font-bold text-critical-subtle-fg">0</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+      <div className="bg-surface rounded-xl shadow-sm border border-border p-4 mb-6">
         <div className="flex flex-col md:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
             <label htmlFor="labresults-search" className="sr-only">{t('docLabResults.searchAria')}</label>
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" size={20} />
             <input
               id="labresults-search"
               type="text"
               placeholder={t('docLabResults.searchPh')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             />
           </div>
           
           {/* Status Filter */}
           <div className="flex items-center gap-2">
             <label htmlFor="labresults-status-filter" className="sr-only">{t('docLabResults.filterAria')}</label>
-            <Filter size={20} className="text-gray-400" aria-hidden="true" />
+            <Filter size={20} className="text-content-muted" aria-hidden="true" />
             <select
               id="labresults-status-filter"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
             >
               <option value="pending">{t('docLabResults.optPending')}</option>
               <option value="approved">{t('docLabResults.approved')}</option>
@@ -314,18 +314,18 @@ function LabResultsPage() {
       {/* Submissions List */}
       <div className="space-y-4">
         {isLoading ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12">
+          <div className="bg-surface rounded-xl shadow-sm border border-border p-12">
             <div className="flex flex-col items-center justify-center">
               <Loader2 className="animate-spin text-purple-600 mb-4" size={40} />
-              <p className="text-gray-500">{t('docLabResults.loading')}</p>
+              <p className="text-content-muted">{t('docLabResults.loading')}</p>
             </div>
           </div>
         ) : filteredSubmissions.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12">
+          <div className="bg-surface rounded-xl shadow-sm border border-border p-12">
             <div className="flex flex-col items-center justify-center">
               <FlaskConical className="text-gray-300 mb-4" size={48} />
-              <p className="text-gray-500 text-lg font-medium">{t('docLabResults.noSubmissions')}</p>
-              <p className="text-gray-400 text-sm">
+              <p className="text-content-muted text-lg font-medium">{t('docLabResults.noSubmissions')}</p>
+              <p className="text-content-muted text-sm">
                 {filterStatus === 'pending' ? t('docLabResults.allReviewed') : t('docLabResults.adjustFilters')}
               </p>
             </div>
@@ -338,11 +338,11 @@ function LabResultsPage() {
             return (
               <div
                 key={submission.id}
-                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
+                className="bg-surface rounded-xl shadow-sm border border-border overflow-hidden"
               >
                 {/* Header */}
                 <div
-                  className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                  className="p-4 cursor-pointer hover:bg-surface-sunken transition-colors"
                   onClick={() => setExpandedId(isExpanded ? null : submission.id)}
                 >
                   <div className="flex items-start justify-between">
@@ -351,14 +351,14 @@ function LabResultsPage() {
                         <FlaskConical className="text-purple-600" size={24} />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-gray-900">{submission.test_name}</h3>
-                        <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+                        <h3 className="font-semibold text-content">{submission.test_name}</h3>
+                        <div className="flex items-center gap-2 text-sm text-content-muted mt-1">
                           <User size={14} />
                           <span>{submission.patient_name}</span>
                           <span className="text-gray-300">•</span>
                           <span>{submission.patient_id}</span>
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                        <div className="flex items-center gap-2 text-xs text-content-muted mt-1">
                           <Clock size={12} />
                           <span>{t('docLabResults.submittedAt', { date, time })}</span>
                           <span className="text-gray-300">•</span>
@@ -368,13 +368,13 @@ function LabResultsPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       {getStatusBadge(submission.status)}
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-surface-sunken text-content-secondary">
                         {submission.test_category}
                       </span>
                       {isExpanded ? (
-                        <ChevronUp className="text-gray-400" size={20} />
+                        <ChevronUp className="text-content-muted" size={20} />
                       ) : (
-                        <ChevronDown className="text-gray-400" size={20} />
+                        <ChevronDown className="text-content-muted" size={20} />
                       )}
                     </div>
                   </div>
@@ -382,11 +382,11 @@ function LabResultsPage() {
 
                 {/* Expanded Content */}
                 {isExpanded && (
-                  <div className="border-t border-gray-200">
+                  <div className="border-t border-border">
                     {/* Results Table */}
                     <div className="p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                        <h4 className="font-medium text-content flex items-center gap-2">
                           <FileText size={16} />
                           {t('docLabResults.testResults')}
                         </h4>
@@ -396,7 +396,7 @@ function LabResultsPage() {
                             handleExportPdf(submission);
                           }}
                           disabled={exportingId === submission.id}
-                          className="no-print px-3 py-1.5 text-sm border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 flex items-center gap-2"
+                          className="no-print px-3 py-1.5 text-sm border border-border text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
                           {exportingId === submission.id ? (
                             <Loader2 className="animate-spin" size={14} />
@@ -409,27 +409,27 @@ function LabResultsPage() {
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
-                            <tr className="border-b border-gray-200">
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colParameter')}</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colValue')}</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colUnit')}</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colReference')}</th>
-                              <th className="text-left py-2 px-3 font-medium text-gray-600">{t('docLabResults.colFlag')}</th>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2 px-3 font-medium text-content-muted">{t('docLabResults.colParameter')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-content-muted">{t('docLabResults.colValue')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-content-muted">{t('docLabResults.colUnit')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-content-muted">{t('docLabResults.colReference')}</th>
+                              <th className="text-left py-2 px-3 font-medium text-content-muted">{t('docLabResults.colFlag')}</th>
                             </tr>
                           </thead>
                           <tbody>
                             {submission.results.map((result, idx) => (
-                              <tr key={idx} className="border-b border-gray-100 last:border-0">
-                                <td className="py-2 px-3 text-gray-900">{result.parameter}</td>
-                                <td className="py-2 px-3 font-medium text-gray-900">{result.value}</td>
-                                <td className="py-2 px-3 text-gray-500">{result.unit}</td>
-                                <td className="py-2 px-3 text-gray-500">{result.reference_range}</td>
+                              <tr key={idx} className="border-b border-border last:border-0">
+                                <td className="py-2 px-3 text-content">{result.parameter}</td>
+                                <td className="py-2 px-3 font-medium text-content">{result.value}</td>
+                                <td className="py-2 px-3 text-content-muted">{result.unit}</td>
+                                <td className="py-2 px-3 text-content-muted">{result.reference_range}</td>
                                 <td className="py-2 px-3">
                                   {result.flag && (
                                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
-                                      result.flag === 'HIGH' ? 'bg-red-100 text-red-700' :
-                                      result.flag === 'LOW' ? 'bg-blue-100 text-blue-700' :
-                                      'bg-yellow-100 text-yellow-700'
+                                      result.flag === 'HIGH' ? 'bg-critical-subtle text-critical-subtle-fg' :
+                                      result.flag === 'LOW' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                                      'bg-caution-subtle text-caution-subtle-fg'
                                     }`}>
                                       <AlertTriangle size={10} />
                                       {result.flag}
@@ -446,19 +446,19 @@ function LabResultsPage() {
                     {/* Notes */}
                     {submission.notes && (
                       <div className="px-4 pb-4">
-                        <h4 className="font-medium text-gray-900 mb-2">{t('docLabResults.techNotes')}</h4>
-                        <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">{submission.notes}</p>
+                        <h4 className="font-medium text-content mb-2">{t('docLabResults.techNotes')}</h4>
+                        <p className="text-sm text-content-muted bg-surface-sunken p-3 rounded-lg">{submission.notes}</p>
                       </div>
                     )}
 
                     {/* Rejection Reason (if rejected) */}
                     {submission.status === 'rejected' && submission.rejection_reason && (
                       <div className="px-4 pb-4">
-                        <h4 className="font-medium text-red-700 mb-2 flex items-center gap-2">
+                        <h4 className="font-medium text-critical-subtle-fg mb-2 flex items-center gap-2">
                           <XCircle size={16} />
                           {t('docLabResults.rejectionReason')}
                         </h4>
-                        <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{submission.rejection_reason}</p>
+                        <p className="text-sm text-critical-subtle-fg bg-critical-subtle p-3 rounded-lg">{submission.rejection_reason}</p>
                       </div>
                     )}
 
@@ -471,7 +471,7 @@ function LabResultsPage() {
                             setShowRejectModal(submission.id);
                           }}
                           disabled={isReviewing === submission.id}
-                          className="px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center gap-2"
+                          className="px-4 py-2 border border-critical text-critical-subtle-fg rounded-lg hover:bg-critical-subtle transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
                           <XCircle size={18} />
                           {t('docLabResults.reject')}
@@ -504,12 +504,12 @@ function LabResultsPage() {
       {/* Reject Modal */}
       {showRejectModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <div className="bg-surface rounded-xl shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
               <XCircle className="text-red-500" size={24} />
               {t('docLabResults.rejectTitle')}
             </h3>
-            <label htmlFor="labresults-rejection-reason" className="text-sm text-gray-600 mb-4 block">
+            <label htmlFor="labresults-rejection-reason" className="text-sm text-content-muted mb-4 block">
               {t('docLabResults.rejectPrompt')}
             </label>
             <textarea
@@ -517,7 +517,7 @@ function LabResultsPage() {
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
               placeholder={t('docLabResults.rejectPh')}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none"
               rows={4}
             />
             <div className="flex justify-end gap-3 mt-4">
@@ -526,7 +526,7 @@ function LabResultsPage() {
                   setShowRejectModal(null);
                   setRejectionReason('');
                 }}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                className="px-4 py-2 text-content-muted hover:bg-surface-sunken rounded-lg transition-colors"
               >
                 {t('docLabResults.cancel')}
               </button>

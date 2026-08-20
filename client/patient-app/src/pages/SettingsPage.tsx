@@ -190,7 +190,7 @@ export function SettingsPage() {
       } disabled:cursor-not-allowed disabled:opacity-50`}
     >
       <div
-        className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+        className={`absolute top-1 w-5 h-5 bg-surface rounded-full shadow transition-transform ${
           enabled ? 'left-6' : 'left-1'
         }`}
       />
@@ -212,17 +212,17 @@ export function SettingsPage() {
   }) => {
     const content = <>
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-neutral-100 rounded-xl flex items-center justify-center">
-          <Icon className="w-5 h-5 text-neutral-600" />
+        <div className="w-10 h-10 bg-surface-sunken rounded-xl flex items-center justify-center">
+          <Icon className="w-5 h-5 text-content-muted" />
         </div>
         <div>
-          <div className="font-medium text-neutral-900">{label}</div>
+          <div className="font-medium text-content">{label}</div>
           {description && (
-            <div className="text-sm text-neutral-500">{description}</div>
+            <div className="text-sm text-content-muted">{description}</div>
           )}
         </div>
       </div>
-      {children || (onClick && <ChevronRight className="w-5 h-5 text-neutral-400" />)}
+      {children || (onClick && <ChevronRight className="w-5 h-5 text-content-muted" />)}
     </>;
     return onClick ? (
       <button type="button" className="flex w-full items-center justify-between py-4 text-left" onClick={onClick}>
@@ -238,8 +238,8 @@ export function SettingsPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('settings.title')}</h1>
-          <p className="text-neutral-600">{t('settings.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('settings.title')}</h1>
+          <p className="text-content-muted">{t('settings.subtitle')}</p>
         </div>
         <button
           type="button"
@@ -257,12 +257,12 @@ export function SettingsPage() {
 
       {/* Account Section */}
       <div className="patient-card">
-        <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
           <User className="w-5 h-5 text-primary-600" />
           {t('settings.account')}
         </h2>
 
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-border">
           <SettingRow
             icon={User}
             label={t('settings.personalInfo')}
@@ -299,12 +299,12 @@ export function SettingsPage() {
 
       {/* Notifications Section */}
       <div className="patient-card">
-        <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
           <Bell className="w-5 h-5 text-primary-600" />
           {t('settings.notifications')}
         </h2>
 
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-border">
           <SettingRow
             icon={Mail}
             label={t('settings.emailNotif')}
@@ -381,12 +381,12 @@ export function SettingsPage() {
 
       {/* Privacy Section */}
       <div className="patient-card">
-        <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
           <Shield className="w-5 h-5 text-primary-600" />
           {t('settings.privacy')}
         </h2>
 
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-border">
           <SettingRow
             icon={Shield}
             label={t('settings.emergencyAccess')}
@@ -450,12 +450,12 @@ export function SettingsPage() {
 
       {/* App Preferences */}
       <div className="patient-card">
-        <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
           <Settings className="w-5 h-5 text-primary-600" />
           {t('settings.appPreferences')}
         </h2>
 
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-border">
           <SettingRow
             icon={Moon}
             label={t('settings.darkMode')}
@@ -470,18 +470,18 @@ export function SettingsPage() {
 
           <div className="py-4">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-neutral-100 rounded-xl flex items-center justify-center">
-                <Globe className="w-5 h-5 text-neutral-600" />
+              <div className="w-10 h-10 bg-surface-sunken rounded-xl flex items-center justify-center">
+                <Globe className="w-5 h-5 text-content-muted" />
               </div>
               <div>
-                <div className="font-medium text-neutral-900">{t('settings.language')}</div>
-                <div className="text-sm text-neutral-500">{t('settings.languageDesc')}</div>
+                <div className="font-medium text-content">{t('settings.language')}</div>
+                <div className="text-sm text-content-muted">{t('settings.languageDesc')}</div>
               </div>
             </div>
             <select
               value={appSettings.language}
               onChange={(e) => setAppSettings(s => ({ ...s, language: e.target.value }))}
-              className="w-full px-4 py-3 border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full px-4 py-3 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               {languages.map(lang => (
                 <option key={lang.code} value={lang.code}>
@@ -493,12 +493,12 @@ export function SettingsPage() {
 
           <div className="py-4">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-neutral-100 rounded-xl flex items-center justify-center">
-                <span className="text-neutral-600 font-bold">Aa</span>
+              <div className="w-10 h-10 bg-surface-sunken rounded-xl flex items-center justify-center">
+                <span className="text-content-muted font-bold">Aa</span>
               </div>
               <div>
-                <div className="font-medium text-neutral-900">{t('settings.fontSize')}</div>
-                <div className="text-sm text-neutral-500">{t('settings.fontSizeDesc')}</div>
+                <div className="font-medium text-content">{t('settings.fontSize')}</div>
+                <div className="text-sm text-content-muted">{t('settings.fontSizeDesc')}</div>
               </div>
             </div>
             <div className="flex gap-2">
@@ -509,7 +509,7 @@ export function SettingsPage() {
                   className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
                     appSettings.fontSize === size
                       ? 'bg-primary-500 text-white'
-                      : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                      : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
                   }`}
                 >
                   {t(`settings.size${size.charAt(0).toUpperCase() + size.slice(1)}`)}
@@ -522,12 +522,12 @@ export function SettingsPage() {
 
       {/* Support Section */}
       <div className="patient-card">
-        <h2 className="text-lg font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
           <HelpCircle className="w-5 h-5 text-primary-600" />
           {t('settings.support')}
         </h2>
 
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-border">
           <SettingRow
             icon={HelpCircle}
             label={t('settings.helpCenter')}
@@ -566,7 +566,7 @@ export function SettingsPage() {
       </button>
 
       {/* App Version */}
-      <div className="text-center text-xs text-neutral-400 space-y-1">
+      <div className="text-center text-xs text-content-muted space-y-1">
         <p>MediChain Patient App v1.0.0</p>
         <p>© 2025 Lukau Invasion (Pty) Ltd. All rights reserved.</p>
       </div>
@@ -574,15 +574,15 @@ export function SettingsPage() {
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6">
+          <div className="bg-surface rounded-2xl w-full max-w-sm p-6">
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-emergency-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <LogOut className="w-8 h-8 text-emergency-600" />
               </div>
-              <h3 className="text-xl font-semibold text-neutral-900 mb-2">
+              <h3 className="text-xl font-semibold text-content mb-2">
                 {t('settings.signOutConfirm')}
               </h3>
-              <p className="text-neutral-600">
+              <p className="text-content-muted">
                 {t('settings.signOutConfirmBody')}
               </p>
             </div>
@@ -590,7 +590,7 @@ export function SettingsPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowLogoutConfirm(false)}
-                className="flex-1 py-3 border border-neutral-200 rounded-xl font-medium text-neutral-700 hover:bg-neutral-50 transition-colors"
+                className="flex-1 py-3 border border-border rounded-xl font-medium text-content-secondary hover:bg-surface-sunken transition-colors"
               >
                 {t('common.cancel')}
               </button>

@@ -260,11 +260,11 @@ const InsurancePage: React.FC = () => {
 
   const _getTypeBadge = (type: InsuranceType) => {
     const colors: Record<InsuranceType, string> = {
-      medical: 'bg-blue-100 text-blue-800',
-      dental: 'bg-green-100 text-green-800',
+      medical: 'bg-notice-subtle text-notice-subtle-fg',
+      dental: 'bg-ok-subtle text-ok-subtle-fg',
       vision: 'bg-purple-100 text-purple-800',
       pharmacy: 'bg-orange-100 text-orange-800',
-      supplemental: 'bg-gray-100 text-gray-800'
+      supplemental: 'bg-surface-sunken text-content-secondary'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[type]}`}>
@@ -275,10 +275,10 @@ const InsurancePage: React.FC = () => {
 
   const getStatusBadge = (status: CoverageStatus) => {
     const config: Record<CoverageStatus, { color: string; icon: React.ReactNode }> = {
-      active: { color: 'bg-green-100 text-green-800', icon: <CheckCircle className="w-3 h-3" /> },
-      pending: { color: 'bg-yellow-100 text-yellow-800', icon: <Clock className="w-3 h-3" /> },
-      expired: { color: 'bg-red-100 text-red-800', icon: <XCircle className="w-3 h-3" /> },
-      cancelled: { color: 'bg-gray-100 text-gray-800', icon: <XCircle className="w-3 h-3" /> }
+      active: { color: 'bg-ok-subtle text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
+      pending: { color: 'bg-caution-subtle text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
+      expired: { color: 'bg-critical-subtle text-critical-subtle-fg', icon: <XCircle className="w-3 h-3" /> },
+      cancelled: { color: 'bg-surface-sunken text-content-secondary', icon: <XCircle className="w-3 h-3" /> }
     };
     const c = config[status];
     return (
@@ -290,10 +290,10 @@ const InsurancePage: React.FC = () => {
 
   const getClaimStatusBadge = (status: ClaimStatus) => {
     const colors: Record<ClaimStatus, string> = {
-      submitted: 'bg-blue-100 text-blue-800',
-      processing: 'bg-yellow-100 text-yellow-800',
-      approved: 'bg-green-100 text-green-800',
-      denied: 'bg-red-100 text-red-800',
+      submitted: 'bg-notice-subtle text-notice-subtle-fg',
+      processing: 'bg-caution-subtle text-caution-subtle-fg',
+      approved: 'bg-ok-subtle text-ok-subtle-fg',
+      denied: 'bg-critical-subtle text-critical-subtle-fg',
       appealed: 'bg-orange-100 text-orange-800'
     };
     return (
@@ -436,13 +436,13 @@ const InsurancePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Loading State */}
       {loading && (
-        <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
-            <span className="text-gray-600">{t('insurance.loadingInsurance')}</span>
+            <span className="text-content-muted">{t('insurance.loadingInsurance')}</span>
           </div>
         </div>
       )}
@@ -459,24 +459,24 @@ const InsurancePage: React.FC = () => {
       {/* Summary Cards */}
       <div className="p-4 -mt-4">
         <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-lg shadow p-4 text-center">
+          <div className="bg-surface rounded-lg shadow p-4 text-center">
             <div className="text-2xl font-bold text-teal-600">{insuranceCards.filter(c => c.status === 'active').length}</div>
-            <div className="text-xs text-gray-500">{t('insurance.activePlans')}</div>
+            <div className="text-xs text-content-muted">{t('insurance.activePlans')}</div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-green-600">{claims.filter(c => c.status === 'approved').length}</div>
-            <div className="text-xs text-gray-500">{t('insurance.approvedClaims')}</div>
+          <div className="bg-surface rounded-lg shadow p-4 text-center">
+            <div className="text-2xl font-bold text-ok-subtle-fg">{claims.filter(c => c.status === 'approved').length}</div>
+            <div className="text-xs text-content-muted">{t('insurance.approvedClaims')}</div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-yellow-600">{claims.filter(c => c.status === 'processing').length}</div>
-            <div className="text-xs text-gray-500">{t('insurance.pendingClaims')}</div>
+          <div className="bg-surface rounded-lg shadow p-4 text-center">
+            <div className="text-2xl font-bold text-caution-subtle-fg">{claims.filter(c => c.status === 'processing').length}</div>
+            <div className="text-xs text-content-muted">{t('insurance.pendingClaims')}</div>
           </div>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="px-4">
-        <div className="flex border-b border-gray-200">
+        <div className="flex border-b border-border">
           {[
             { key: 'cards', label: t('insurance.tabMyCards'), icon: <CreditCard className="w-4 h-4" /> },
             { key: 'claims', label: t('insurance.tabClaims'), icon: <FileText className="w-4 h-4" /> },
@@ -488,7 +488,7 @@ const InsurancePage: React.FC = () => {
               className={`flex items-center gap-2 px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
                 activeTab === tab.key
                   ? 'border-teal-500 text-teal-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-content-muted hover:text-content-secondary'
               }`}
             >
               {tab.icon} {tab.label}
@@ -503,9 +503,9 @@ const InsurancePage: React.FC = () => {
         {activeTab === 'cards' && (
           <div className="space-y-4">
             {insuranceCards.length === 0 ? (
-              <div className="text-center py-8 bg-white rounded-lg shadow">
+              <div className="text-center py-8 bg-surface rounded-lg shadow">
                 <CreditCard className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                <p className="text-gray-500">{t('insurance.noCardsYet')}</p>
+                <p className="text-content-muted">{t('insurance.noCardsYet')}</p>
                 <button
                   onClick={() => setActiveTab('add')}
                   className="mt-3 text-teal-600 font-medium"
@@ -515,7 +515,7 @@ const InsurancePage: React.FC = () => {
               </div>
             ) : (
               insuranceCards.map(card => (
-                <div key={card.id} className="bg-white rounded-lg shadow overflow-hidden">
+                <div key={card.id} className="bg-surface rounded-lg shadow overflow-hidden">
                   {/* Card Header */}
                   <div className="bg-gradient-to-r from-gray-800 to-gray-700 text-white p-4">
                     <div className="flex justify-between items-start mb-2">
@@ -525,7 +525,7 @@ const InsurancePage: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-2">
                         {card.isPrimary && (
-                          <span className="px-2 py-0.5 bg-yellow-500 text-yellow-900 text-xs rounded-full font-medium">
+                          <span className="px-2 py-0.5 bg-yellow-500 text-caution-subtle-fg text-xs rounded-full font-medium">
                             {t('insurance.primaryBadge')}
                           </span>
                         )}
@@ -539,43 +539,43 @@ const InsurancePage: React.FC = () => {
                   <div className="p-4">
                     <div className="grid grid-cols-2 gap-3 text-sm mb-4">
                       <div>
-                        <span className="text-gray-500">{t('insurance.memberIdLabel')}</span>
+                        <span className="text-content-muted">{t('insurance.memberIdLabel')}</span>
                         <p className="font-mono font-medium">{card.memberId}</p>
                       </div>
                       <div>
-                        <span className="text-gray-500">{t('insurance.groupNumberLabel')}</span>
+                        <span className="text-content-muted">{t('insurance.groupNumberLabel')}</span>
                         <p className="font-mono font-medium">{card.groupNumber}</p>
                       </div>
                       <div>
-                        <span className="text-gray-500">{t('insurance.subscriberLabel')}</span>
+                        <span className="text-content-muted">{t('insurance.subscriberLabel')}</span>
                         <p className="font-medium">{card.subscriberName}</p>
                       </div>
                       <div>
-                        <span className="text-gray-500">{t('insurance.effectiveDateLabel')}</span>
+                        <span className="text-content-muted">{t('insurance.effectiveDateLabel')}</span>
                         <p className="font-medium">{card.effectiveDate}</p>
                       </div>
                     </div>
 
                     {/* Copays */}
                     {card.type === 'medical' && (
-                      <div className="bg-gray-50 rounded-lg p-3 mb-4">
-                        <h4 className="text-xs font-semibold text-gray-600 mb-2">{t('insurance.copaysHeading')}</h4>
+                      <div className="bg-surface-sunken rounded-lg p-3 mb-4">
+                        <h4 className="text-xs font-semibold text-content-muted mb-2">{t('insurance.copaysHeading')}</h4>
                         <div className="grid grid-cols-4 gap-2 text-center text-xs">
                           <div>
                             <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.primaryCare, card.currency, locale)}</div>
-                            <div className="text-gray-500">{t('insurance.copayPrimaryLabel')}</div>
+                            <div className="text-content-muted">{t('insurance.copayPrimaryLabel')}</div>
                           </div>
                           <div>
                             <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.specialist, card.currency, locale)}</div>
-                            <div className="text-gray-500">{t('insurance.copaySpecialistLabel')}</div>
+                            <div className="text-content-muted">{t('insurance.copaySpecialistLabel')}</div>
                           </div>
                           <div>
                             <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.urgentCare, card.currency, locale)}</div>
-                            <div className="text-gray-500">{t('insurance.copayUrgentLabel')}</div>
+                            <div className="text-content-muted">{t('insurance.copayUrgentLabel')}</div>
                           </div>
                           <div>
                             <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.emergency, card.currency, locale)}</div>
-                            <div className="text-gray-500">{t('insurance.copayErLabel')}</div>
+                            <div className="text-content-muted">{t('insurance.copayErLabel')}</div>
                           </div>
                         </div>
                       </div>
@@ -585,10 +585,10 @@ const InsurancePage: React.FC = () => {
                     {card.type === 'medical' && (
                       <div className="mb-4">
                         <div className="flex justify-between text-xs mb-1">
-                          <span className="text-gray-500">{t('insurance.deductibleProgressLabel')}</span>
+                          <span className="text-content-muted">{t('insurance.deductibleProgressLabel')}</span>
                           <span className="font-medium">{formatCurrency(card.deductible.met, card.currency, locale)} / {formatCurrency(card.deductible.individual, card.currency, locale)}</span>
                         </div>
-                        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-2 bg-surface-sunken rounded-full overflow-hidden">
                           <div
                             className="h-full bg-teal-500 transition-all"
                             style={{ width: `${Math.min((card.deductible.met / card.deductible.individual) * 100, 100)}%` }}
@@ -605,7 +605,7 @@ const InsurancePage: React.FC = () => {
                           setUploadSide('front');
                           setShowUploadModal(true);
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-teal-500 hover:text-teal-600 transition-colors"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-border-strong rounded-lg text-sm text-content-muted hover:border-teal-500 hover:text-teal-600 transition-colors"
                       >
                         {card.frontImageUrl ? (
                           <><Eye className="w-4 h-4" /> {t('insurance.viewFront')}</>
@@ -619,7 +619,7 @@ const InsurancePage: React.FC = () => {
                           setUploadSide('back');
                           setShowUploadModal(true);
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-teal-500 hover:text-teal-600 transition-colors"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-border-strong rounded-lg text-sm text-content-muted hover:border-teal-500 hover:text-teal-600 transition-colors"
                       >
                         {card.backImageUrl ? (
                           <><Eye className="w-4 h-4" /> {t('insurance.viewBack')}</>
@@ -644,20 +644,20 @@ const InsurancePage: React.FC = () => {
                       </button>
                       <a
                         href={`tel:${card.customerServicePhone}`}
-                        className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors"
+                        className="flex items-center justify-center gap-2 px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm hover:bg-surface-sunken transition-colors"
                       >
                         <Phone className="w-4 h-4" />
                       </a>
                       <button
                         onClick={() => handleDeleteCard(card.id)}
-                        className="flex items-center justify-center px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        className="flex items-center justify-center px-3 py-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
 
                     {card.lastVerified && (
-                      <p className="text-xs text-gray-400 mt-3 text-center">
+                      <p className="text-xs text-content-muted mt-3 text-center">
                         {t('insurance.lastVerifiedPrefix', { date: card.lastVerified })}
                       </p>
                     )}
@@ -672,30 +672,30 @@ const InsurancePage: React.FC = () => {
         {activeTab === 'claims' && (
           <div className="space-y-3">
             {claims.length === 0 ? (
-              <div className="text-center py-8 bg-white rounded-lg shadow">
+              <div className="text-center py-8 bg-surface rounded-lg shadow">
                 <FileText className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                <p className="text-gray-500">{t('insurance.noClaimsFound')}</p>
+                <p className="text-content-muted">{t('insurance.noClaimsFound')}</p>
               </div>
             ) : (
               claims.map(claim => (
-                <div key={claim.id} className="bg-white rounded-lg shadow p-4">
+                <div key={claim.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
-                      <p className="font-medium text-gray-900">{claim.description}</p>
-                      <p className="text-sm text-gray-500">{claim.provider}</p>
+                      <p className="font-medium text-content">{claim.description}</p>
+                      <p className="text-sm text-content-muted">{claim.provider}</p>
                     </div>
                     {getClaimStatusBadge(claim.status)}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs text-gray-500 mb-3">
+                  <div className="grid grid-cols-2 gap-2 text-xs text-content-muted mb-3">
                     <div>{t('insurance.serviceDatePrefix', { date: claim.serviceDate })}</div>
                     <div>{t('insurance.claimNumberPrefix', { number: claim.claimNumber })}</div>
                   </div>
 
-                  <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                  <div className="flex justify-between items-center pt-3 border-t border-border">
                     <div className="text-sm">
-                      <span className="text-gray-500">{t('insurance.yourCostLabel')}</span>
-                      <span className={`font-bold ${claim.patientResponsibility > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      <span className="text-content-muted">{t('insurance.yourCostLabel')}</span>
+                      <span className={`font-bold ${claim.patientResponsibility > 0 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
                         {formatCurrency(claim.patientResponsibility, claim.currency, locale)}
                       </span>
                     </div>
@@ -712,7 +712,7 @@ const InsurancePage: React.FC = () => {
               <button
                 onClick={handleLoadMoreClaims}
                 disabled={loadingMoreClaims}
-                className="w-full py-3 text-center text-sm font-medium text-teal-600 bg-white rounded-lg shadow hover:bg-teal-50 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-3 text-center text-sm font-medium text-teal-600 bg-surface rounded-lg shadow hover:bg-teal-50 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loadingMoreClaims ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> {t('insurance.loadingMoreClaims')}</>
@@ -726,19 +726,19 @@ const InsurancePage: React.FC = () => {
 
         {/* Add New Tab */}
         {activeTab === 'add' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('insurance.addNewInsuranceTitle')}</h2>
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold text-content mb-4">{t('insurance.addNewInsuranceTitle')}</h2>
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="insurance-type" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-type" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('insurance.insuranceTypeLabel')} <span className="text-red-500">*</span>
                 </label>
                 <select
                   id="insurance-type"
                   value={newInsurance.type}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, type: e.target.value as InsuranceType }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 >
                   <option value="medical">{t('insurance.type_medical')}</option>
                   <option value="dental">{t('insurance.type_dental')}</option>
@@ -749,7 +749,7 @@ const InsurancePage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="insurance-provider" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-provider" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('insurance.insuranceProviderLabel')} <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -758,12 +758,12 @@ const InsurancePage: React.FC = () => {
                   value={newInsurance.providerName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, providerName: e.target.value }))}
                   placeholder={t('insurance.insuranceProviderPlaceholder')}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
-                <label htmlFor="insurance-plan-name" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-plan-name" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('insurance.planNameLabel')}
                 </label>
                 <input
@@ -772,13 +772,13 @@ const InsurancePage: React.FC = () => {
                   value={newInsurance.planName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, planName: e.target.value }))}
                   placeholder={t('insurance.planNamePlaceholder')}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="insurance-member-id" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-member-id" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('insurance.memberIdLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -787,11 +787,11 @@ const InsurancePage: React.FC = () => {
                     value={newInsurance.memberId}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, memberId: e.target.value }))}
                     placeholder={t('insurance.memberIdPlaceholder')}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label htmlFor="insurance-group-number" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-group-number" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('insurance.groupNumberLabel')}
                   </label>
                   <input
@@ -800,13 +800,13 @@ const InsurancePage: React.FC = () => {
                     value={newInsurance.groupNumber}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, groupNumber: e.target.value }))}
                     placeholder={t('insurance.groupNumberPlaceholder')}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="insurance-subscriber-name" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="insurance-subscriber-name" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('insurance.subscriberNameLabel')}
                 </label>
                 <input
@@ -815,13 +815,13 @@ const InsurancePage: React.FC = () => {
                   value={newInsurance.subscriberName}
                   onChange={(e) => setNewInsurance(prev => ({ ...prev, subscriberName: e.target.value }))}
                   placeholder={t('insurance.subscriberNamePlaceholder')}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="insurance-effective-date" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-effective-date" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('insurance.effectiveDateLabel')}
                   </label>
                   <input
@@ -829,11 +829,11 @@ const InsurancePage: React.FC = () => {
                     type="date"
                     value={newInsurance.effectiveDate}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, effectiveDate: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label htmlFor="insurance-customer-service" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="insurance-customer-service" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('insurance.customerServiceLabel')}
                   </label>
                   <input
@@ -842,52 +842,52 @@ const InsurancePage: React.FC = () => {
                     value={newInsurance.customerServicePhone}
                     onChange={(e) => setNewInsurance(prev => ({ ...prev, customerServicePhone: e.target.value }))}
                     placeholder={t('insurance.customerServicePlaceholder')}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   />
                 </div>
               </div>
 
               <div className="border-t pt-4 mt-4">
-                <h3 className="text-sm font-medium text-gray-700 mb-3">{t('insurance.costDetailsHeading')}</h3>
+                <h3 className="text-sm font-medium text-content-secondary mb-3">{t('insurance.costDetailsHeading')}</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="insurance-copay-primary" className="block text-xs text-gray-500 mb-1">{t('insurance.copayPrimaryFieldLabel')}</label>
+                    <label htmlFor="insurance-copay-primary" className="block text-xs text-content-muted mb-1">{t('insurance.copayPrimaryFieldLabel')}</label>
                     <input
                       id="insurance-copay-primary"
                       type="number"
                       value={newInsurance.copayPrimary}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, copayPrimary: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                     />
                   </div>
                   <div>
-                    <label htmlFor="insurance-copay-specialist" className="block text-xs text-gray-500 mb-1">{t('insurance.copaySpecialistFieldLabel')}</label>
+                    <label htmlFor="insurance-copay-specialist" className="block text-xs text-content-muted mb-1">{t('insurance.copaySpecialistFieldLabel')}</label>
                     <input
                       id="insurance-copay-specialist"
                       type="number"
                       value={newInsurance.copaySpecialist}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, copaySpecialist: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                     />
                   </div>
                   <div>
-                    <label htmlFor="insurance-deductible" className="block text-xs text-gray-500 mb-1">{t('insurance.annualDeductibleLabel')}</label>
+                    <label htmlFor="insurance-deductible" className="block text-xs text-content-muted mb-1">{t('insurance.annualDeductibleLabel')}</label>
                     <input
                       id="insurance-deductible"
                       type="number"
                       value={newInsurance.deductible}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, deductible: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                     />
                   </div>
                   <div>
-                    <label htmlFor="insurance-oop-max" className="block text-xs text-gray-500 mb-1">{t('insurance.oopMaxLabel')}</label>
+                    <label htmlFor="insurance-oop-max" className="block text-xs text-content-muted mb-1">{t('insurance.oopMaxLabel')}</label>
                     <input
                       id="insurance-oop-max"
                       type="number"
                       value={newInsurance.outOfPocketMax}
                       onChange={(e) => setNewInsurance(prev => ({ ...prev, outOfPocketMax: e.target.value }))}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                     />
                   </div>
                 </div>
@@ -908,19 +908,19 @@ const InsurancePage: React.FC = () => {
       {/* Upload Modal */}
       {showUploadModal && selectedCard && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md p-6">
+          <div className="bg-surface rounded-xl w-full max-w-md p-6">
             <h3 className="text-lg font-semibold mb-4">
               {t('insurance.uploadCardTitle', { side: uploadSide === 'front' ? t('insurance.sideFront') : t('insurance.sideBack') })}
             </h3>
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4">
+            <div className="border-2 border-dashed border-border-strong rounded-lg p-8 text-center mb-4">
               {uploadingImage ? (
                 <Loader2 className="w-12 h-12 mx-auto text-teal-500 mb-3 animate-spin" />
               ) : (
-                <Upload className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                <Upload className="w-12 h-12 mx-auto text-content-muted mb-3" />
               )}
-              <p className="text-gray-500 mb-2">{t('insurance.dragDropText')}</p>
-              <p className="text-xs text-gray-400">{t('insurance.fileSizeHint')}</p>
+              <p className="text-content-muted mb-2">{t('insurance.dragDropText')}</p>
+              <p className="text-xs text-content-muted">{t('insurance.fileSizeHint')}</p>
               <input
                 type="file"
                 accept="image/*"

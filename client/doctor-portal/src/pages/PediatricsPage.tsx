@@ -200,8 +200,8 @@ const PediatricsPage: React.FC = () => {
     const colors: Record<AgeGroup, string> = {
       'newborn': 'bg-pink-100 text-pink-700',
       'infant': 'bg-purple-100 text-purple-700',
-      'toddler': 'bg-blue-100 text-blue-700',
-      'preschool': 'bg-green-100 text-green-700',
+      'toddler': 'bg-notice-subtle text-notice-subtle-fg',
+      'preschool': 'bg-ok-subtle text-ok-subtle-fg',
       'school-age': 'bg-orange-100 text-orange-700',
       'adolescent': 'bg-cyan-100 text-cyan-700'
     };
@@ -210,9 +210,9 @@ const PediatricsPage: React.FC = () => {
 
   const getDevelopmentBadge = (status: DevelopmentStatus) => {
     const styles: Record<DevelopmentStatus, { bg: string; text: string; icon: React.ReactNode }> = {
-      'on-track': { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-      'monitor': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Activity className="w-3 h-3" /> },
-      'concern': { bg: 'bg-red-100', text: 'text-red-700', icon: <AlertTriangle className="w-3 h-3" /> }
+      'on-track': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
+      'monitor': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Activity className="w-3 h-3" /> },
+      'concern': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
     const s = styles[status];
     return (
@@ -309,7 +309,7 @@ const PediatricsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-sky-500 to-blue-400 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -321,29 +321,29 @@ const PediatricsPage: React.FC = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{patients.length}</p>
-          <p className="text-xs text-gray-500">{t('docPediatrics.statPatients')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-content-secondary">{patients.length}</p>
+          <p className="text-xs text-content-muted">{t('docPediatrics.statPatients')}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-yellow-600">{patients.filter(p => p.alerts.length > 0).length}</p>
-          <p className="text-xs text-gray-500">{t('docPediatrics.statNeedsAttention')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-caution-subtle-fg">{patients.filter(p => p.alerts.length > 0).length}</p>
+          <p className="text-xs text-content-muted">{t('docPediatrics.statNeedsAttention')}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-green-600">{patients.filter(p => p.vaccinesUpToDate).length}</p>
-          <p className="text-xs text-gray-500">{t('docPediatrics.statVaccinesCurrent')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-ok-subtle-fg">{patients.filter(p => p.vaccinesUpToDate).length}</p>
+          <p className="text-xs text-content-muted">{t('docPediatrics.statVaccinesCurrent')}</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {(['patients', 'assessment', 'growth'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-4 text-sm font-medium capitalize ${
-                activeTab === tab ? 'text-sky-700 border-b-2 border-sky-700' : 'text-gray-500'
+                activeTab === tab ? 'text-notice-subtle-fg border-b-2 border-sky-700' : 'text-content-muted'
               }`}
             >
               {tab === 'patients' ? t('docPediatrics.tabAllPatients') : tab === 'assessment' ? t('docPediatrics.tabAssessment') : t('docPediatrics.tabGrowthCharts')}
@@ -356,7 +356,7 @@ const PediatricsPage: React.FC = () => {
       {activeTab === 'patients' && (
         <div className="p-4">
           <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
             <input
               type="text"
               value={searchQuery}
@@ -373,7 +373,7 @@ const PediatricsPage: React.FC = () => {
                 <div
                   key={patient.id}
                   onClick={() => setSelectedPatient(patient)}
-                  className={`bg-white rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
+                  className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                     patient.alerts.length > 0 ? 'border-l-4 border-l-yellow-500' : ''
                   }`}
                 >
@@ -385,7 +385,7 @@ const PediatricsPage: React.FC = () => {
                           {t(`docPediatrics.ageGroup_${patient.ageGroup}`)}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-content-muted">
                         {t('docPediatrics.ageMrnLine', { age: getAgeDisplay(patient.ageMonths), mrn: patient.mrn })}
                       </p>
                     </div>
@@ -393,28 +393,28 @@ const PediatricsPage: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="bg-gray-50 rounded p-2 text-center">
-                      <Scale className="w-4 h-4 mx-auto text-gray-400 mb-1" />
+                    <div className="bg-surface-sunken rounded p-2 text-center">
+                      <Scale className="w-4 h-4 mx-auto text-content-muted mb-1" />
                       <p className="text-sm font-semibold">{latestGrowth?.weight ?? '-'} kg</p>
-                      <p className="text-xs text-gray-500">{latestGrowth?.weightPercentile ?? '-'}%ile</p>
+                      <p className="text-xs text-content-muted">{latestGrowth?.weightPercentile ?? '-'}%ile</p>
                     </div>
-                    <div className="bg-gray-50 rounded p-2 text-center">
-                      <Ruler className="w-4 h-4 mx-auto text-gray-400 mb-1" />
+                    <div className="bg-surface-sunken rounded p-2 text-center">
+                      <Ruler className="w-4 h-4 mx-auto text-content-muted mb-1" />
                       <p className="text-sm font-semibold">{latestGrowth?.height ?? '-'} cm</p>
-                      <p className="text-xs text-gray-500">{latestGrowth?.heightPercentile ?? '-'}%ile</p>
+                      <p className="text-xs text-content-muted">{latestGrowth?.heightPercentile ?? '-'}%ile</p>
                     </div>
-                    <div className="bg-gray-50 rounded p-2 text-center">
-                      <Heart className="w-4 h-4 mx-auto text-gray-400 mb-1" />
+                    <div className="bg-surface-sunken rounded p-2 text-center">
+                      <Heart className="w-4 h-4 mx-auto text-content-muted mb-1" />
                       <p className="text-sm font-semibold">{patient.vaccinesUpToDate ? '✓' : '!'}</p>
-                      <p className="text-xs text-gray-500">{t('docPediatrics.vaccinesLabel')}</p>
+                      <p className="text-xs text-content-muted">{t('docPediatrics.vaccinesLabel')}</p>
                     </div>
                   </div>
 
                   {patient.alerts.length > 0 && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+                    <div className="bg-caution-subtle border border-caution rounded p-2">
                       <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-                        <div className="text-xs text-yellow-700">
+                        <AlertTriangle className="w-4 h-4 text-caution-subtle-fg flex-shrink-0 mt-0.5" />
+                        <div className="text-xs text-caution-subtle-fg">
                           {patient.alerts.map((alert, idx) => (
                             <p key={idx}>{alert}</p>
                           ))}
@@ -432,7 +432,7 @@ const PediatricsPage: React.FC = () => {
       {/* Assessment Tab */}
       {activeTab === 'assessment' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docPediatrics.newAssessmentHeading')}</h2>
 
             <div className="space-y-4">
@@ -519,7 +519,7 @@ const PediatricsPage: React.FC = () => {
                 <h3 className="text-sm font-semibold mb-3">{t('docPediatrics.patHeading')}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">{t('docPediatrics.appearanceLabel')}</label>
+                    <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.appearanceLabel')}</label>
                     <select
                       value={assessmentForm.patAppearance}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patAppearance: e.target.value })}
@@ -530,7 +530,7 @@ const PediatricsPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">{t('docPediatrics.workOfBreathingLabel')}</label>
+                    <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.workOfBreathingLabel')}</label>
                     <select
                       value={assessmentForm.patWorkOfBreathing}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patWorkOfBreathing: e.target.value })}
@@ -541,7 +541,7 @@ const PediatricsPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">{t('docPediatrics.circulationLabel')}</label>
+                    <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.circulationLabel')}</label>
                     <select
                       value={assessmentForm.patCirculation}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patCirculation: e.target.value })}
@@ -587,7 +587,7 @@ const PediatricsPage: React.FC = () => {
               <div className="flex gap-3">
                 <button
                   onClick={() => setActiveTab('patients')}
-                  className="flex-1 py-3 border border-gray-300 rounded-lg font-medium"
+                  className="flex-1 py-3 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docPediatrics.cancelButton')}
                 </button>
@@ -606,7 +606,7 @@ const PediatricsPage: React.FC = () => {
       {/* Growth Charts Tab */}
       {activeTab === 'growth' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docPediatrics.growthChartTrackingHeading')}</h2>
             <div className="space-y-4">
               {patients.map(patient => (
@@ -614,14 +614,14 @@ const PediatricsPage: React.FC = () => {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className="font-semibold">{patient.name}</h3>
-                      <p className="text-sm text-gray-500">{getAgeDisplay(patient.ageMonths)}</p>
+                      <p className="text-sm text-content-muted">{getAgeDisplay(patient.ageMonths)}</p>
                     </div>
                     <TrendingUp className="w-5 h-5 text-green-500" />
                   </div>
-                  <div className="h-24 bg-gradient-to-r from-sky-100 to-blue-100 rounded flex items-center justify-center text-gray-400">
+                  <div className="h-24 bg-gradient-to-r from-sky-100 to-blue-100 rounded flex items-center justify-center text-content-muted">
                     <span className="text-sm">{t('docPediatrics.growthCurveVisualization')}</span>
                   </div>
-                  <div className="mt-2 flex justify-between text-xs text-gray-500">
+                  <div className="mt-2 flex justify-between text-xs text-content-muted">
                     <span>{t('docPediatrics.weightPercentileLine', { pct: latestGrowthOf(patient)?.weightPercentile ?? '-' })}</span>
                     <span>{t('docPediatrics.heightPercentileLine', { pct: latestGrowthOf(patient)?.heightPercentile ?? '-' })}</span>
                   </div>
@@ -635,21 +635,21 @@ const PediatricsPage: React.FC = () => {
       {/* Patient Detail Modal */}
       {selectedPatient && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{selectedPatient.name}</h2>
-                <p className="text-sm text-gray-500">{getAgeDisplay(selectedPatient.ageMonths)} • {selectedPatient.gender}</p>
+                <p className="text-sm text-content-muted">{getAgeDisplay(selectedPatient.ageMonths)} • {selectedPatient.gender}</p>
               </div>
-              <button onClick={() => setSelectedPatient(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+              <button onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-sky-50 rounded-lg p-4 text-center">
-                  <Scale className="w-6 h-6 mx-auto text-sky-600 mb-1" />
+                <div className="bg-notice-subtle rounded-lg p-4 text-center">
+                  <Scale className="w-6 h-6 mx-auto text-notice-subtle-fg mb-1" />
                   <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.weight ?? '-'} kg</p>
-                  <p className="text-sm text-sky-600">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.weightPercentile ?? '-' })}</p>
+                  <p className="text-sm text-notice-subtle-fg">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.weightPercentile ?? '-' })}</p>
                 </div>
                 <div className="bg-purple-50 rounded-lg p-4 text-center">
                   <Ruler className="w-6 h-6 mx-auto text-purple-600 mb-1" />
@@ -662,7 +662,7 @@ const PediatricsPage: React.FC = () => {
                 <h3 className="font-medium mb-2">{t('docPediatrics.growthHistoryHeading')}</h3>
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-surface-sunken">
                       <tr>
                         <th className="p-2 text-left">{t('docPediatrics.tableDate')}</th>
                         <th className="p-2 text-right">{t('docPediatrics.tableWeight')}</th>
@@ -683,7 +683,7 @@ const PediatricsPage: React.FC = () => {
               </div>
 
               <div className="flex gap-2">
-                <span className={`flex-1 text-center py-2 rounded-lg text-sm ${selectedPatient.vaccinesUpToDate ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                <span className={`flex-1 text-center py-2 rounded-lg text-sm ${selectedPatient.vaccinesUpToDate ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
                   {t('docPediatrics.vaccinesStatusLine', { status: selectedPatient.vaccinesUpToDate ? t('docPediatrics.upToDate') : t('docPediatrics.overdue') })}
                 </span>
                 {getDevelopmentBadge(selectedPatient.developmentStatus)}

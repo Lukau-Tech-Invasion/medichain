@@ -115,7 +115,7 @@ function NavItemComponent({
           `flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200 text-sm group relative ${
             isActive
               ? `${theme.activeBg} ${theme.activeText} font-medium border-l-4 border-${baseColor}-500 pl-2`
-              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              : 'text-content-muted hover:bg-surface-sunken hover:text-content'
           } ${isCollapsed ? 'justify-center' : ''}`
         }
       >
@@ -132,7 +132,7 @@ function NavItemComponent({
             ${isCollapsed ? 'absolute -top-1 -right-1' : 'ml-auto'}
             min-w-[20px] h-5 px-1.5 flex items-center justify-center
             text-xs font-medium rounded-full
-            ${item.priority === 'high' ? 'bg-red-500 text-white' : 'bg-gray-200 text-gray-700'}
+            ${item.priority === 'high' ? 'bg-red-500 text-white' : 'bg-surface-sunken text-content-secondary'}
           `}>
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
@@ -196,7 +196,7 @@ function NavSectionComponent({
             `flex items-center justify-center p-3 rounded-lg transition-all duration-200 group relative ${
               isActive
                 ? `${theme.activeBg} ${theme.activeText}`
-                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                : 'text-content-muted hover:bg-surface-sunken hover:text-content'
             }`
           }
         >
@@ -227,7 +227,7 @@ function NavSectionComponent({
       {isCollapsible ? (
         <button
           onClick={onToggle}
-          className="w-full flex items-center justify-between px-3 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors text-sm font-medium"
+          className="w-full flex items-center justify-between px-3 py-2 text-content-muted hover:bg-surface-sunken rounded-lg transition-colors text-sm font-medium"
           aria-expanded={isExpanded}
         >
           <div className="flex items-center gap-2">
@@ -437,14 +437,14 @@ function Layout() {
     <>
       {/* Skip link for keyboard users */}
       {!isMobile && (
-        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-16 focus:left-4 focus:z-50 px-2 py-1 bg-white rounded shadow">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-16 focus:left-4 focus:z-50 px-2 py-1 bg-surface rounded shadow">
           Skip to main content
         </a>
       )}
       {/* Logo with role-based gradient */}
       <div className={`p-4 bg-gradient-to-r ${theme.bgGradient}`}>
         <div className="flex items-center gap-3">
-          <div className={`${isCollapsed && !isMobile ? 'w-8 h-8' : 'w-10 h-10'} bg-white/20 rounded-lg flex items-center justify-center transition-all duration-200`}>
+          <div className={`${isCollapsed && !isMobile ? 'w-8 h-8' : 'w-10 h-10'} bg-surface/20 rounded-lg flex items-center justify-center transition-all duration-200`}>
             <Shield className="text-white" size={isCollapsed && !isMobile ? 20 : 24} />
           </div>
           {(!isCollapsed || isMobile) && (
@@ -457,7 +457,7 @@ function Layout() {
           {isMobile && (
             <button
               onClick={closeMobileMenu}
-              className="p-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+              className="p-1 rounded-lg bg-surface/10 hover:bg-surface/20 transition-colors"
               aria-label="Close menu"
             >
               <X className="text-white" size={20} />
@@ -467,7 +467,7 @@ function Layout() {
       </div>
 
       {/* Role Badge & Collapse Toggle */}
-      <div className={`px-4 py-2 border-b border-gray-100 flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'justify-between'}`}>
+      <div className={`px-4 py-2 border-b border-border flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'justify-between'}`}>
         {(!isCollapsed || isMobile) && (
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${theme.bgLight} ${theme.text}`}>
             {user?.role || 'Unknown Role'}
@@ -477,7 +477,7 @@ function Layout() {
         {!isMobile && (
           <button
             onClick={toggleCollapse}
-            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700"
+            className="p-1.5 rounded-lg hover:bg-surface-sunken transition-colors text-content-muted hover:text-content-secondary"
             aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
@@ -504,16 +504,16 @@ function Layout() {
 
       {/* Quick Actions */}
       {(!isCollapsed || isMobile) && (
-        <div className="px-3 py-3 border-t border-gray-100">
+        <div className="px-3 py-3 border-t border-border">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Quick Actions</span>
+            <span className="text-xs font-medium text-content-muted uppercase tracking-wide">Quick Actions</span>
           </div>
           <div className="flex gap-2 flex-wrap">
             {getQuickActionsForRole(userRole).map(action => (
               <button
                 key={action.id}
                 onClick={() => { navigate(action.to); if (isMobile) closeMobileMenu(); }}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm bg-white border hover:bg-gray-50 ${theme.hoverBg}`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm bg-surface border hover:bg-surface-sunken ${theme.hoverBg}`}
                 aria-label={action.label}
               >
                 <action.icon size={14} />
@@ -525,7 +525,7 @@ function Layout() {
       )}
 
       {/* User info & logout */}
-      <div className="p-3 border-t border-gray-200">
+      <div className="p-3 border-t border-border">
         {(!isCollapsed || isMobile) ? (
           <>
             <div className="flex items-center gap-3 mb-3 px-2">
@@ -533,15 +533,15 @@ function Layout() {
                 <Activity className={theme.textLight} size={20} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm text-gray-900 truncate">
+                <p className="font-medium text-sm text-content truncate">
                   {user?.username || 'User'}
                 </p>
-                <p className="text-xs text-gray-500">{user?.role}</p>
+                <p className="text-xs text-content-muted">{user?.role}</p>
               </div>
             </div>
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
             >
               <LogOut size={18} />
               <span>Logout</span>
@@ -550,7 +550,7 @@ function Layout() {
         ) : (
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center p-3 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors group relative"
+            className="w-full flex items-center justify-center p-3 text-content-muted hover:text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors group relative"
             title="Logout"
           >
             <LogOut size={18} />
@@ -564,29 +564,29 @@ function Layout() {
   );
 
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
+    <div className="flex h-screen bg-surface-sunken dark:bg-gray-900">
       {/* Mobile Header */}
-      <div className="fixed top-0 left-0 right-0 h-14 bg-white dark:bg-gray-800 shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
+      <div className="fixed top-0 left-0 right-0 h-14 bg-surface dark:bg-gray-800 shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
         <button
           onClick={() => setIsMobileOpen(true)}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          className="p-2 rounded-lg hover:bg-surface-sunken dark:hover:bg-gray-700 transition-colors"
           aria-label="Open menu"
         >
-          <Menu size={24} className="text-gray-700 dark:text-gray-200" />
+          <Menu size={24} className="text-content-secondary dark:text-gray-200" />
         </button>
         
         <div className="flex items-center gap-2">
           <Shield className={theme.textLight} size={24} />
-          <span className="font-bold text-gray-900 dark:text-white">MediChain</span>
+          <span className="font-bold text-content dark:text-white">MediChain</span>
         </div>
         
         <button
           onClick={() => navigate('/notifications')}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors relative"
+          className="p-2 rounded-lg hover:bg-surface-sunken dark:hover:bg-gray-700 transition-colors relative"
           aria-label="Notifications"
           title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
         >
-          <Bell size={24} className={isSSEConnected ? 'text-blue-600' : 'text-gray-700'} />
+          <Bell size={24} className={isSSEConnected ? 'text-notice-subtle-fg' : 'text-content-secondary'} />
           {totalUnread > 0 && (
             <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
               {totalUnread > 9 ? '9+' : totalUnread}
@@ -607,7 +607,7 @@ function Layout() {
       {/* Mobile Sidebar */}
       <aside
         className={`
-          fixed inset-y-0 left-0 w-72 bg-white dark:bg-gray-800 shadow-xl z-50 flex flex-col
+          fixed inset-y-0 left-0 w-72 bg-surface dark:bg-gray-800 shadow-xl z-50 flex flex-col
           transform transition-transform duration-300 ease-in-out lg:hidden
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
@@ -618,7 +618,7 @@ function Layout() {
       {/* Desktop Sidebar */}
       <aside
         className={`
-          hidden lg:flex flex-col bg-white dark:bg-gray-800 shadow-lg overflow-hidden
+          hidden lg:flex flex-col bg-surface dark:bg-gray-800 shadow-lg overflow-hidden
           transition-all duration-300 ease-in-out
           ${isCollapsed ? 'w-16' : 'w-64'}
         `}
@@ -627,7 +627,7 @@ function Layout() {
       </aside>
 
       {/* Main content */}
-      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-gray-100 dark:bg-gray-900">
+      <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken dark:bg-gray-900">
         {/* Offline indicator — writes are queued locally and synced on reconnect */}
         {!isOnline && (
           <div className="flex items-center gap-2 bg-amber-500 text-white text-sm px-4 py-2">

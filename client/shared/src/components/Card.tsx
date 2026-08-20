@@ -18,9 +18,9 @@ export function Card({
   ...props
 }: CardProps) {
   const variants = {
-    default: 'bg-white border border-gray-200',
-    outlined: 'bg-transparent border-2 border-gray-300',
-    elevated: 'bg-white shadow-lg',
+    default: 'bg-surface border border-border',
+    outlined: 'bg-transparent border-2 border-border-strong',
+    elevated: 'bg-surface shadow-lg',
   };
 
   const paddings = {
@@ -56,7 +56,7 @@ export interface CardTitleProps extends HTMLAttributes<HTMLHeadingElement> {
 
 export function CardTitle({ children, as: Component = 'h3', className, ...props }: CardTitleProps) {
   return (
-    <Component className={clsx('text-lg font-semibold text-gray-900', className)} {...props}>
+    <Component className={clsx('text-lg font-semibold text-content', className)} {...props}>
       {children}
     </Component>
   );
@@ -66,7 +66,7 @@ export interface CardDescriptionProps extends HTMLAttributes<HTMLParagraphElemen
 
 export function CardDescription({ children, className, ...props }: CardDescriptionProps) {
   return (
-    <p className={clsx('text-sm text-gray-500 mt-1', className)} {...props}>
+    <p className={clsx('text-sm text-content-muted mt-1', className)} {...props}>
       {children}
     </p>
   );
@@ -86,7 +86,7 @@ export interface CardFooterProps extends HTMLAttributes<HTMLDivElement> {}
 
 export function CardFooter({ children, className, ...props }: CardFooterProps) {
   return (
-    <div className={clsx('mt-4 pt-4 border-t border-gray-200', className)} {...props}>
+    <div className={clsx('mt-4 pt-4 border-t border-border', className)} {...props}>
       {children}
     </div>
   );

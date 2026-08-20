@@ -352,27 +352,27 @@ const FamilyHistoryPage: React.FC = () => {
 
   const getCategoryColor = (category: ConditionCategory) => {
     const colors = {
-      cardiovascular: 'bg-red-100 text-red-800',
+      cardiovascular: 'bg-critical-subtle text-critical-subtle-fg',
       cancer: 'bg-orange-100 text-orange-800',
-      diabetes: 'bg-blue-100 text-blue-800',
+      diabetes: 'bg-notice-subtle text-notice-subtle-fg',
       neurological: 'bg-purple-100 text-purple-800',
       psychiatric: 'bg-indigo-100 text-indigo-800',
       respiratory: 'bg-cyan-100 text-cyan-800',
-      autoimmune: 'bg-yellow-100 text-yellow-800',
+      autoimmune: 'bg-caution-subtle text-caution-subtle-fg',
       genetic: 'bg-pink-100 text-pink-800',
-      'blood-disorder': 'bg-red-100 text-red-800',
+      'blood-disorder': 'bg-critical-subtle text-critical-subtle-fg',
       'kidney-disease': 'bg-teal-100 text-teal-800',
-      'liver-disease': 'bg-amber-100 text-amber-800',
-      other: 'bg-gray-100 text-gray-800',
+      'liver-disease': 'bg-caution-subtle text-caution-subtle-fg',
+      other: 'bg-surface-sunken text-content-secondary',
     };
     return colors[category];
   };
 
   const getRiskColor = (risk: 'low' | 'moderate' | 'high') => {
     const colors = {
-      low: 'bg-green-100 text-green-800',
-      moderate: 'bg-yellow-100 text-yellow-800',
-      high: 'bg-red-100 text-red-800',
+      low: 'bg-ok-subtle text-ok-subtle-fg',
+      moderate: 'bg-caution-subtle text-caution-subtle-fg',
+      high: 'bg-critical-subtle text-critical-subtle-fg',
     };
     return colors[risk];
   };
@@ -396,7 +396,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('overview')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'overview' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-gray-600 hover:text-pink-700'
+            activeTab === 'overview' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
           }`}
         >
           {t('docFamilyHistory.tabMembers')}
@@ -404,7 +404,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('add-member')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'add-member' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-gray-600 hover:text-pink-700'
+            activeTab === 'add-member' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
           }`}
         >
           {t('docFamilyHistory.tabAddMember')}
@@ -412,7 +412,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('risk-assessment')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'risk-assessment' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-gray-600 hover:text-pink-700'
+            activeTab === 'risk-assessment' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
           }`}
         >
           {t('docFamilyHistory.tabRiskAssessment')}
@@ -420,7 +420,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('pedigree')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'pedigree' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-gray-600 hover:text-pink-700'
+            activeTab === 'pedigree' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
           }`}
         >
           {t('docFamilyHistory.tabPedigree')}
@@ -429,15 +429,15 @@ const FamilyHistoryPage: React.FC = () => {
 
       {activeTab === 'overview' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label htmlFor="family-patient-filter" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.patientFilterLabel')}</label>
+                <label htmlFor="family-patient-filter" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.patientFilterLabel')}</label>
                 <select
                   id="family-patient-filter"
                   value={selectedPatient}
                   onChange={(e) => setSelectedPatient(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 >
                   <option value="">{t('docFamilyHistory.allPatients')}</option>
                   {patients.map((p) => (
@@ -448,26 +448,26 @@ const FamilyHistoryPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label htmlFor="famhx-search" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.searchLabel')}</label>
+                <label htmlFor="famhx-search" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.searchLabel')}</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted w-5 h-5" />
                   <input
                     id="famhx-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docFamilyHistory.searchPlaceholder')}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="famhx-condition-category" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.conditionCategoryLabel')}</label>
+                <label htmlFor="famhx-condition-category" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.conditionCategoryLabel')}</label>
                 <select
                   id="famhx-condition-category"
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value as ConditionCategory | 'all')}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docFamilyHistory.allCategories')}</option>
                   <option value="cardiovascular">{t('docFamilyHistory.category_cardiovascular')}</option>
@@ -489,16 +489,16 @@ const FamilyHistoryPage: React.FC = () => {
 
           <div className="space-y-4">
             {filteredMembers.map((member) => (
-              <div key={member.memberId} className="border border-gray-300 rounded-lg shadow-sm bg-white p-4">
+              <div key={member.memberId} className="border border-border-strong rounded-lg shadow-sm bg-surface p-4">
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-bold text-gray-900">{member.memberId}</h3>
+                      <h3 className="text-lg font-bold text-content">{member.memberId}</h3>
                       <span className="px-3 py-1 bg-pink-100 text-pink-800 rounded-full text-sm font-semibold">
                         {formatRelationship(member.relationship)}
                       </span>
                       {member.vitalStatus === 'deceased' && (
-                        <span className="px-3 py-1 bg-gray-200 text-gray-700 rounded-full text-sm font-semibold">
+                        <span className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm font-semibold">
                           {t('docFamilyHistory.deceasedBadge')}
                         </span>
                       )}
@@ -508,20 +508,20 @@ const FamilyHistoryPage: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600">{t('docFamilyHistory.recordedOn', { date: formatDate(member.recordedAt) })}</p>
+                    <p className="text-sm text-content-muted">{t('docFamilyHistory.recordedOn', { date: formatDate(member.recordedAt) })}</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 mb-4 bg-pink-50 rounded-lg p-4">
                   <div>
                     <p className="text-sm text-pink-900 font-semibold mb-1">{t('docFamilyHistory.patientLabel')}</p>
-                    <p className="font-semibold text-gray-900">{member.patientName}</p>
-                    <p className="text-sm text-gray-600">{member.patientId}</p>
+                    <p className="font-semibold text-content">{member.patientName}</p>
+                    <p className="text-sm text-content-muted">{member.patientId}</p>
                   </div>
                   <div>
                     <p className="text-sm text-pink-900 font-semibold mb-1">{t('docFamilyHistory.familyMemberLabel')}</p>
-                    <p className="font-semibold text-gray-900">{member.name || t('docFamilyHistory.notSpecified')}</p>
-                    <p className="text-sm text-gray-600">
+                    <p className="font-semibold text-content">{member.name || t('docFamilyHistory.notSpecified')}</p>
+                    <p className="text-sm text-content-muted">
                       {member.vitalStatus === 'alive' && member.currentAge && t('docFamilyHistory.ageLine', { age: member.currentAge })}
                       {member.vitalStatus === 'deceased' && member.ageAtDeath && t('docFamilyHistory.diedAtAge', { age: member.ageAtDeath })}
                       {member.vitalStatus === 'unknown' && t('docFamilyHistory.statusUnknown')}
@@ -529,28 +529,28 @@ const FamilyHistoryPage: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-sm text-pink-900 font-semibold mb-1">{t('docFamilyHistory.recordedByLabel')}</p>
-                    <p className="text-sm text-gray-900">{member.recordedBy}</p>
+                    <p className="text-sm text-content">{member.recordedBy}</p>
                   </div>
                 </div>
 
                 {member.vitalStatus === 'deceased' && member.causeOfDeath && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
-                    <p className="text-sm font-semibold text-gray-700 mb-1">{t('docFamilyHistory.causeOfDeathLabel')}</p>
-                    <p className="text-sm text-gray-900">{member.causeOfDeath}</p>
+                  <div className="bg-surface-sunken border border-border rounded-lg p-3 mb-4">
+                    <p className="text-sm font-semibold text-content-secondary mb-1">{t('docFamilyHistory.causeOfDeathLabel')}</p>
+                    <p className="text-sm text-content">{member.causeOfDeath}</p>
                   </div>
                 )}
 
                 {member.conditions.length > 0 && (
                   <div className="mb-4">
-                    <p className="text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.medicalConditionsCount', { count: member.conditions.length })}</p>
+                    <p className="text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.medicalConditionsCount', { count: member.conditions.length })}</p>
                     <div className="space-y-2">
                       {member.conditions.map((condition, idx) => (
-                        <div key={idx} className="bg-gray-50 border border-gray-200 rounded p-3">
+                        <div key={idx} className="bg-surface-sunken border border-border rounded p-3">
                           <div className="flex items-start justify-between mb-2">
                             <div className="flex-1">
-                              <p className="font-semibold text-gray-900">{condition.conditionName}</p>
+                              <p className="font-semibold text-content">{condition.conditionName}</p>
                               {condition.ageOfOnset !== undefined && (
-                                <p className="text-sm text-gray-600">{t('docFamilyHistory.ageOfOnsetYears', { age: condition.ageOfOnset })}</p>
+                                <p className="text-sm text-content-muted">{t('docFamilyHistory.ageOfOnsetYears', { age: condition.ageOfOnset })}</p>
                               )}
                             </div>
                             <div className="flex items-center gap-2">
@@ -562,10 +562,10 @@ const FamilyHistoryPage: React.FC = () => {
                                 <span
                                   className={`px-2 py-1 rounded text-xs font-semibold ${
                                     condition.severity === 'severe'
-                                      ? 'bg-red-100 text-red-800'
+                                      ? 'bg-critical-subtle text-critical-subtle-fg'
                                       : condition.severity === 'moderate'
-                                      ? 'bg-yellow-100 text-yellow-800'
-                                      : 'bg-green-100 text-green-800'
+                                      ? 'bg-caution-subtle text-caution-subtle-fg'
+                                      : 'bg-ok-subtle text-ok-subtle-fg'
                                   }`}
                                 >
                                   {t(`docFamilyHistory.severity_${condition.severity}`).toUpperCase()}
@@ -573,7 +573,7 @@ const FamilyHistoryPage: React.FC = () => {
                               )}
                             </div>
                           </div>
-                          {condition.notes && <p className="text-sm text-gray-600 italic">{condition.notes}</p>}
+                          {condition.notes && <p className="text-sm text-content-muted italic">{condition.notes}</p>}
                         </div>
                       ))}
                     </div>
@@ -581,18 +581,18 @@ const FamilyHistoryPage: React.FC = () => {
                 )}
 
                 {member.notes && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-blue-900 mb-1">{t('docFamilyHistory.notesLabel')}</p>
-                    <p className="text-sm text-blue-800">{member.notes}</p>
+                  <div className="bg-notice-subtle border border-notice rounded-lg p-3">
+                    <p className="text-sm font-semibold text-notice-subtle-fg mb-1">{t('docFamilyHistory.notesLabel')}</p>
+                    <p className="text-sm text-notice-subtle-fg">{member.notes}</p>
                   </div>
                 )}
               </div>
             ))}
 
             {filteredMembers.length === 0 && (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-                <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-600">{t('docFamilyHistory.noMembersFound')}</p>
+              <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
+                <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
+                <p className="text-content-muted">{t('docFamilyHistory.noMembersFound')}</p>
               </div>
             )}
           </div>
@@ -600,7 +600,7 @@ const FamilyHistoryPage: React.FC = () => {
       )}
 
       {activeTab === 'add-member' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" />
             {t('docFamilyHistory.addFamilyMember')}
@@ -609,14 +609,14 @@ const FamilyHistoryPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="famhx-patient" className="block text-sm font-semibold text-gray-700 mb-2">
-                  {t('docFamilyHistory.patientRequired')} <span className="text-red-600">*</span>
+                <label htmlFor="famhx-patient" className="block text-sm font-semibold text-content-secondary mb-2">
+                  {t('docFamilyHistory.patientRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <select
                   id="famhx-patient"
                   value={newMember.patientId}
                   onChange={(e) => setNewMember({ ...newMember, patientId: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 >
                   <option value="">{t('docFamilyHistory.selectPatientPlaceholder')}</option>
                   {patients.map((p) => (
@@ -628,14 +628,14 @@ const FamilyHistoryPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="famhx-relationship" className="block text-sm font-semibold text-gray-700 mb-2">
-                  {t('docFamilyHistory.relationshipRequired')} <span className="text-red-600">*</span>
+                <label htmlFor="famhx-relationship" className="block text-sm font-semibold text-content-secondary mb-2">
+                  {t('docFamilyHistory.relationshipRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <select
                   id="famhx-relationship"
                   value={newMember.relationship}
                   onChange={(e) => setNewMember({ ...newMember, relationship: e.target.value as RelationshipType })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 >
                   <option value="mother">{t('docFamilyHistory.relationship_mother')}</option>
                   <option value="father">{t('docFamilyHistory.relationship_father')}</option>
@@ -657,26 +657,26 @@ const FamilyHistoryPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="famhx-member-name" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.familyMemberNameLabel')}</label>
+                <label htmlFor="famhx-member-name" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.familyMemberNameLabel')}</label>
                 <input
                   id="famhx-member-name"
                   type="text"
                   value={newMember.name}
                   onChange={(e) => setNewMember({ ...newMember, name: e.target.value })}
                   placeholder={t('docFamilyHistory.familyMemberNamePh')}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 />
               </div>
 
               <div>
-                <label htmlFor="famhx-vital-status" className="block text-sm font-semibold text-gray-700 mb-2">
-                  {t('docFamilyHistory.vitalStatusRequired')} <span className="text-red-600">*</span>
+                <label htmlFor="famhx-vital-status" className="block text-sm font-semibold text-content-secondary mb-2">
+                  {t('docFamilyHistory.vitalStatusRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <select
                   id="famhx-vital-status"
                   value={newMember.vitalStatus}
                   onChange={(e) => setNewMember({ ...newMember, vitalStatus: e.target.value as VitalStatus })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 >
                   <option value="alive">{t('docFamilyHistory.vitalStatus_alive')}</option>
                   <option value="deceased">{t('docFamilyHistory.vitalStatus_deceased')}</option>
@@ -686,7 +686,7 @@ const FamilyHistoryPage: React.FC = () => {
 
               {newMember.vitalStatus === 'alive' && (
                 <div>
-                  <label htmlFor="famhx-current-age" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.currentAgeLabel')}</label>
+                  <label htmlFor="famhx-current-age" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.currentAgeLabel')}</label>
                   <input
                     id="famhx-current-age"
                     type="number"
@@ -695,7 +695,7 @@ const FamilyHistoryPage: React.FC = () => {
                     value={newMember.currentAge || ''}
                     onChange={(e) => setNewMember({ ...newMember, currentAge: e.target.value ? parseInt(e.target.value) : undefined })}
                     placeholder={t('docFamilyHistory.yearsPlaceholder')}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   />
                 </div>
               )}
@@ -703,7 +703,7 @@ const FamilyHistoryPage: React.FC = () => {
               {newMember.vitalStatus === 'deceased' && (
                 <>
                   <div>
-                    <label htmlFor="famhx-age-at-death" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.ageAtDeathLabel')}</label>
+                    <label htmlFor="famhx-age-at-death" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.ageAtDeathLabel')}</label>
                     <input
                       id="famhx-age-at-death"
                       type="number"
@@ -712,18 +712,18 @@ const FamilyHistoryPage: React.FC = () => {
                       value={newMember.ageAtDeath || ''}
                       onChange={(e) => setNewMember({ ...newMember, ageAtDeath: e.target.value ? parseInt(e.target.value) : undefined })}
                       placeholder={t('docFamilyHistory.yearsPlaceholder')}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                     />
                   </div>
                   <div className="col-span-2">
-                    <label htmlFor="famhx-cause-of-death" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.causeOfDeathLabel')}</label>
+                    <label htmlFor="famhx-cause-of-death" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.causeOfDeathLabel')}</label>
                     <input
                       id="famhx-cause-of-death"
                       type="text"
                       value={newMember.causeOfDeath}
                       onChange={(e) => setNewMember({ ...newMember, causeOfDeath: e.target.value })}
                       placeholder={t('docFamilyHistory.causeOfDeathPh')}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                     />
                   </div>
                 </>
@@ -737,17 +737,17 @@ const FamilyHistoryPage: React.FC = () => {
                   onChange={(e) => setNewMember({ ...newMember, consanguineous: e.target.checked })}
                   className="w-5 h-5"
                 />
-                <label htmlFor="famhx-consanguineous" className="text-sm font-semibold text-gray-700">{t('docFamilyHistory.consanguineousCheckbox')}</label>
+                <label htmlFor="famhx-consanguineous" className="text-sm font-semibold text-content-secondary">{t('docFamilyHistory.consanguineousCheckbox')}</label>
               </div>
 
               <div className="col-span-2">
-                <label htmlFor="famhx-general-notes" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.generalNotesLabel')}</label>
+                <label htmlFor="famhx-general-notes" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.generalNotesLabel')}</label>
                 <textarea
                   id="famhx-general-notes"
                   value={newMember.notes}
                   onChange={(e) => setNewMember({ ...newMember, notes: e.target.value })}
                   placeholder={t('docFamilyHistory.generalNotesPh')}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                   rows={2}
                 />
               </div>
@@ -758,24 +758,24 @@ const FamilyHistoryPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div className="col-span-2">
-                  <label htmlFor="famhx-condition-name" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.conditionNameLabel')}</label>
+                  <label htmlFor="famhx-condition-name" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.conditionNameLabel')}</label>
                   <input
                     id="famhx-condition-name"
                     type="text"
                     value={newCondition.conditionName}
                     onChange={(e) => setNewCondition({ ...newCondition, conditionName: e.target.value })}
                     placeholder={t('docFamilyHistory.conditionNamePh')}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="famhx-category" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.categoryLabel')}</label>
+                  <label htmlFor="famhx-category" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.categoryLabel')}</label>
                   <select
                     id="famhx-category"
                     value={newCondition.category}
                     onChange={(e) => setNewCondition({ ...newCondition, category: e.target.value as ConditionCategory })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   >
                     <option value="cardiovascular">{t('docFamilyHistory.category_cardiovascular')}</option>
                     <option value="cancer">{t('docFamilyHistory.category_cancer')}</option>
@@ -793,7 +793,7 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="famhx-age-of-onset" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.ageOfOnsetLabel')}</label>
+                  <label htmlFor="famhx-age-of-onset" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.ageOfOnsetLabel')}</label>
                   <input
                     id="famhx-age-of-onset"
                     type="number"
@@ -802,17 +802,17 @@ const FamilyHistoryPage: React.FC = () => {
                     value={newCondition.ageOfOnset || ''}
                     onChange={(e) => setNewCondition({ ...newCondition, ageOfOnset: e.target.value ? parseInt(e.target.value) : undefined })}
                     placeholder={t('docFamilyHistory.yearsPlaceholder')}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="famhx-severity" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.severityLabel')}</label>
+                  <label htmlFor="famhx-severity" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.severityLabel')}</label>
                   <select
                     id="famhx-severity"
                     value={newCondition.severity}
                     onChange={(e) => setNewCondition({ ...newCondition, severity: e.target.value as 'mild' | 'moderate' | 'severe' })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   >
                     <option value="mild">{t('docFamilyHistory.severity_mild')}</option>
                     <option value="moderate">{t('docFamilyHistory.severity_moderate')}</option>
@@ -821,13 +821,13 @@ const FamilyHistoryPage: React.FC = () => {
                 </div>
 
                 <div className="col-span-2">
-                  <label htmlFor="famhx-condition-notes" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.conditionNotesLabel')}</label>
+                  <label htmlFor="famhx-condition-notes" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.conditionNotesLabel')}</label>
                   <textarea
                     id="famhx-condition-notes"
                     value={newCondition.notes}
                     onChange={(e) => setNewCondition({ ...newCondition, notes: e.target.value })}
                     placeholder={t('docFamilyHistory.conditionNotesPh')}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                     rows={2}
                   />
                 </div>
@@ -843,19 +843,19 @@ const FamilyHistoryPage: React.FC = () => {
 
               {memberConditions.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.addedConditionsCount', { count: memberConditions.length })}</p>
+                  <p className="text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.addedConditionsCount', { count: memberConditions.length })}</p>
                   {memberConditions.map((condition, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded p-3">
+                    <div key={idx} className="flex items-center justify-between bg-surface-sunken border border-border rounded p-3">
                       <div className="flex-1">
-                        <p className="font-semibold text-gray-900">{condition.conditionName}</p>
-                        <p className="text-sm text-gray-600">
+                        <p className="font-semibold text-content">{condition.conditionName}</p>
+                        <p className="text-sm text-content-muted">
                           {t('docFamilyHistory.conditionSummaryLine', { category: t(`docFamilyHistory.category_${condition.category}`), severity: t(`docFamilyHistory.severity_${condition.severity}`) })}
                           {condition.ageOfOnset !== undefined && t('docFamilyHistory.onsetYearsSuffix', { age: condition.ageOfOnset })}
                         </p>
                       </div>
                       <button
                         onClick={() => handleRemoveCondition(idx)}
-                        className="text-red-600 hover:text-red-800 p-2"
+                        className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                       >
                         <XCircle className="w-5 h-5" />
                       </button>
@@ -877,13 +877,13 @@ const FamilyHistoryPage: React.FC = () => {
 
       {activeTab === 'risk-assessment' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <label htmlFor="famhx-risk-patient" className="block text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.selectPatientRiskLabel')}</label>
+          <div className="bg-surface rounded-lg shadow-sm border border-border p-4">
+            <label htmlFor="famhx-risk-patient" className="block text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.selectPatientRiskLabel')}</label>
             <select
               id="famhx-risk-patient"
               value={selectedPatient}
               onChange={(e) => setSelectedPatient(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2"
+              className="w-full border border-border-strong rounded-lg px-3 py-2"
             >
               <option value="">{t('docFamilyHistory.selectPatientPlaceholder')}</option>
               {patients.map((p) => (
@@ -895,23 +895,23 @@ const FamilyHistoryPage: React.FC = () => {
           </div>
 
           {selectedPatient && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
               <h3 className="text-xl font-bold mb-4">{t('docFamilyHistory.familialRiskAssessmentTitle')}</h3>
-              <p className="text-gray-600 mb-6">
+              <p className="text-content-muted mb-6">
                 {t('docFamilyHistory.basedOnHistoryFor', { name: patients.find((p) => p.patient_id === selectedPatient)?.full_name || '' })}
               </p>
 
               <div className="space-y-4">
                 {calculateRiskAssessment(selectedPatient).map((assessment, idx) => (
-                  <div key={idx} className="border border-gray-300 rounded-lg p-4">
+                  <div key={idx} className="border border-border-strong rounded-lg p-4">
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex items-center gap-3">
                         <div className={`p-2 rounded-lg ${getCategoryColor(assessment.category)}`}>
                           {getCategoryIcon(assessment.category)}
                         </div>
                         <div>
-                          <h4 className="font-bold text-gray-900">{t(`docFamilyHistory.category_${assessment.category}`)}</h4>
-                          <p className="text-sm text-gray-600">{t('docFamilyHistory.affectedRelativesCount', { count: assessment.affectedRelatives })}</p>
+                          <h4 className="font-bold text-content">{t(`docFamilyHistory.category_${assessment.category}`)}</h4>
+                          <p className="text-sm text-content-muted">{t('docFamilyHistory.affectedRelativesCount', { count: assessment.affectedRelatives })}</p>
                         </div>
                       </div>
                       <span className={`px-4 py-2 rounded-full text-sm font-bold ${getRiskColor(assessment.riskLevel)}`}>
@@ -919,9 +919,9 @@ const FamilyHistoryPage: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="bg-gray-50 rounded-lg p-3 mb-3">
-                      <p className="text-sm font-semibold text-gray-700 mb-2">{t('docFamilyHistory.conditionsLabel')}</p>
-                      <ul className="text-sm text-gray-900 space-y-1">
+                    <div className="bg-surface-sunken rounded-lg p-3 mb-3">
+                      <p className="text-sm font-semibold text-content-secondary mb-2">{t('docFamilyHistory.conditionsLabel')}</p>
+                      <ul className="text-sm text-content space-y-1">
                         {assessment.conditions.map((condition, cidx) => (
                           <li key={cidx}>• {condition}</li>
                         ))}
@@ -929,23 +929,23 @@ const FamilyHistoryPage: React.FC = () => {
                     </div>
 
                     {assessment.riskLevel === 'high' && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                        <p className="text-sm font-semibold text-red-900 mb-1 flex items-center gap-2">
+                      <div className="bg-critical-subtle border border-critical rounded-lg p-3">
+                        <p className="text-sm font-semibold text-critical-subtle-fg mb-1 flex items-center gap-2">
                           <AlertTriangle className="w-4 h-4" />
                           {t('docFamilyHistory.recommendationsLabel')}
                         </p>
-                        <p className="text-sm text-red-800">
+                        <p className="text-sm text-critical-subtle-fg">
                           {t('docFamilyHistory.highRiskRecommendation')}
                         </p>
                       </div>
                     )}
                     {assessment.riskLevel === 'moderate' && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                        <p className="text-sm font-semibold text-yellow-900 mb-1 flex items-center gap-2">
+                      <div className="bg-caution-subtle border border-caution rounded-lg p-3">
+                        <p className="text-sm font-semibold text-caution-subtle-fg mb-1 flex items-center gap-2">
                           <AlertCircle className="w-4 h-4" />
                           {t('docFamilyHistory.recommendationsLabel')}
                         </p>
-                        <p className="text-sm text-yellow-800">
+                        <p className="text-sm text-caution-subtle-fg">
                           {t('docFamilyHistory.moderateRiskRecommendation')}
                         </p>
                       </div>
@@ -954,9 +954,9 @@ const FamilyHistoryPage: React.FC = () => {
                 ))}
 
                 {calculateRiskAssessment(selectedPatient).length === 0 && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
+                  <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
                     <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                    <p className="text-gray-600">{t('docFamilyHistory.noRiskIdentified')}</p>
+                    <p className="text-content-muted">{t('docFamilyHistory.noRiskIdentified')}</p>
                   </div>
                 )}
               </div>
@@ -964,16 +964,16 @@ const FamilyHistoryPage: React.FC = () => {
           )}
 
           {!selectedPatient && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-              <User className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-600">{t('docFamilyHistory.selectPatientForRisk')}</p>
+            <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
+              <User className="w-12 h-12 text-content-muted mx-auto mb-3" />
+              <p className="text-content-muted">{t('docFamilyHistory.selectPatientForRisk')}</p>
             </div>
           )}
         </div>
       )}
 
       {activeTab === 'pedigree' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
           <h2 className="text-xl font-bold mb-4">{t('docFamilyHistory.pedigreeChartTitle')}</h2>
           {selectedPatient ? (
             <PedigreeChart
@@ -982,9 +982,9 @@ const FamilyHistoryPage: React.FC = () => {
               className="min-h-[500px]"
             />
           ) : (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-              <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-600">{t('docFamilyHistory.selectPatientForPedigree')}</p>
+            <div className="bg-surface-sunken border border-border rounded-lg p-8 text-center">
+              <Users className="w-12 h-12 text-content-muted mx-auto mb-3" />
+              <p className="text-content-muted">{t('docFamilyHistory.selectPatientForPedigree')}</p>
             </div>
           )}
         </div>

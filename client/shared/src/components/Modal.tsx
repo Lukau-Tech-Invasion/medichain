@@ -46,7 +46,7 @@ export function Modal({
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
           className={clsx(
-            'bg-white rounded-xl shadow-xl w-full animate-slide-up',
+            'bg-surface rounded-xl shadow-xl w-full animate-slide-up',
             sizes[size]
           )}
           role="dialog"
@@ -55,19 +55,19 @@ export function Modal({
         >
           {/* Header */}
           {(title || showCloseButton) && (
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between p-4 border-b border-border">
               {title && (
-                <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
+                <h2 id="modal-title" className="text-lg font-semibold text-content">
                   {title}
                 </h2>
               )}
               {showCloseButton && (
                 <button
                   onClick={onClose}
-                  className="p-1 rounded-lg hover:bg-gray-100 transition-colors ml-auto"
+                  className="p-1 rounded-lg hover:bg-surface-sunken transition-colors ml-auto"
                   aria-label="Close modal"
                 >
-                  <X className="w-5 h-5 text-gray-500" />
+                  <X className="w-5 h-5 text-content-muted" />
                 </button>
               )}
             </div>
@@ -132,7 +132,7 @@ export function ConfirmModal({
 }: ConfirmModalProps) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
-      <p className="text-gray-600 mb-6">{message}</p>
+      <p className="text-content-muted mb-6">{message}</p>
       <div className="flex gap-3 justify-end">
         <Button variant="ghost" onClick={onClose} disabled={isLoading}>
           {cancelText}

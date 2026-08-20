@@ -34,17 +34,17 @@ export function PatientCard({
         onClick={onClick}
       >
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-            <User className="w-6 h-6 text-blue-600" />
+          <div className="w-12 h-12 bg-notice-subtle rounded-full flex items-center justify-center">
+            <User className="w-6 h-6 text-notice-subtle-fg" />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-gray-900 truncate">
+            <h3 className="font-semibold text-content truncate">
               {patient.full_name}
             </h3>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-content-muted">
               ID: {patient.patient_id}
             </p>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-content-muted">
               DOB: {patient.date_of_birth}
             </p>
           </div>
@@ -71,13 +71,13 @@ export function PatientCard({
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-              <User className="w-8 h-8 text-blue-600" />
+            <div className="w-16 h-16 bg-notice-subtle rounded-full flex items-center justify-center">
+              <User className="w-8 h-8 text-notice-subtle-fg" />
             </div>
             <div>
               <CardTitle as="h2">{patient.full_name}</CardTitle>
-              <p className="text-gray-500">Patient ID: {patient.patient_id}</p>
-              <p className="text-gray-500">DOB: {patient.date_of_birth}</p>
+              <p className="text-content-muted">Patient ID: {patient.patient_id}</p>
+              <p className="text-content-muted">DOB: {patient.date_of_birth}</p>
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -102,7 +102,7 @@ export function PatientCard({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Allergies */}
           <div>
-            <h4 className="flex items-center gap-2 font-medium text-gray-900 mb-2">
+            <h4 className="flex items-center gap-2 font-medium text-content mb-2">
               <AlertTriangle className="w-4 h-4 text-red-500" />
               Allergies
             </h4>
@@ -113,30 +113,30 @@ export function PatientCard({
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">No known allergies</p>
+              <p className="text-content-muted text-sm">No known allergies</p>
             )}
           </div>
 
           {/* Medications */}
           <div>
-            <h4 className="flex items-center gap-2 font-medium text-gray-900 mb-2">
+            <h4 className="flex items-center gap-2 font-medium text-content mb-2">
               <Pill className="w-4 h-4 text-blue-500" />
               Current Medications
             </h4>
             {patient.emergency_info.current_medications.length > 0 ? (
               <ul className="space-y-1">
                 {patient.emergency_info.current_medications.map((med, idx) => (
-                  <li key={idx} className="text-sm text-gray-600">{med}</li>
+                  <li key={idx} className="text-sm text-content-muted">{med}</li>
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-500 text-sm">No current medications</p>
+              <p className="text-content-muted text-sm">No current medications</p>
             )}
           </div>
 
           {/* Chronic Conditions */}
           <div>
-            <h4 className="flex items-center gap-2 font-medium text-gray-900 mb-2">
+            <h4 className="flex items-center gap-2 font-medium text-content mb-2">
               <Activity className="w-4 h-4 text-orange-500" />
               Chronic Conditions
             </h4>
@@ -147,13 +147,13 @@ export function PatientCard({
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">No chronic conditions</p>
+              <p className="text-content-muted text-sm">No chronic conditions</p>
             )}
           </div>
 
           {/* Emergency Contact */}
           <div>
-            <h4 className="flex items-center gap-2 font-medium text-gray-900 mb-2">
+            <h4 className="flex items-center gap-2 font-medium text-content mb-2">
               <Phone className="w-4 h-4 text-green-500" />
               Emergency Contact
             </h4>
@@ -161,14 +161,14 @@ export function PatientCard({
               <div>
                 {patient.emergency_info.emergency_contacts.map((contact, idx) => (
                   <div key={idx} className="text-sm">
-                    <p className="font-medium text-gray-900">{contact.name}</p>
-                    <p className="text-gray-600">{contact.relationship}</p>
-                    <p className="text-blue-600">{contact.phone}</p>
+                    <p className="font-medium text-content">{contact.name}</p>
+                    <p className="text-content-muted">{contact.relationship}</p>
+                    <p className="text-notice-subtle-fg">{contact.phone}</p>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500 text-sm">No emergency contact</p>
+              <p className="text-content-muted text-sm">No emergency contact</p>
             )}
           </div>
         </div>
@@ -194,41 +194,41 @@ export function EmergencyInfoCard({ info, className }: EmergencyInfoCardProps) {
     >
       <div className="flex items-center gap-2 mb-4">
         <AlertTriangle className="w-6 h-6 text-red-500" />
-        <h3 className="text-lg font-bold text-red-700">Emergency Medical Information</h3>
+        <h3 className="text-lg font-bold text-critical-subtle-fg">Emergency Medical Information</h3>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="text-center p-3 bg-red-50 rounded-lg">
-          <Droplets className="w-8 h-8 text-red-600 mx-auto mb-1" />
-          <p className="text-xs text-gray-600">Blood Type</p>
-          <p className="text-2xl font-bold text-red-700">{info.blood_type}</p>
+        <div className="text-center p-3 bg-critical-subtle rounded-lg">
+          <Droplets className="w-8 h-8 text-critical-subtle-fg mx-auto mb-1" />
+          <p className="text-xs text-content-muted">Blood Type</p>
+          <p className="text-2xl font-bold text-critical-subtle-fg">{info.blood_type}</p>
         </div>
 
         <div className="text-center p-3 bg-orange-50 rounded-lg">
           <AlertTriangle className="w-8 h-8 text-orange-600 mx-auto mb-1" />
-          <p className="text-xs text-gray-600">Allergies</p>
+          <p className="text-xs text-content-muted">Allergies</p>
           <p className="text-2xl font-bold text-orange-700">{info.allergies.length}</p>
         </div>
 
-        <div className="text-center p-3 bg-blue-50 rounded-lg">
-          <Pill className="w-8 h-8 text-blue-600 mx-auto mb-1" />
-          <p className="text-xs text-gray-600">Medications</p>
-          <p className="text-2xl font-bold text-blue-700">{info.current_medications.length}</p>
+        <div className="text-center p-3 bg-notice-subtle rounded-lg">
+          <Pill className="w-8 h-8 text-notice-subtle-fg mx-auto mb-1" />
+          <p className="text-xs text-content-muted">Medications</p>
+          <p className="text-2xl font-bold text-notice-subtle-fg">{info.current_medications.length}</p>
         </div>
 
         <div className="text-center p-3 bg-purple-50 rounded-lg">
           <Activity className="w-8 h-8 text-purple-600 mx-auto mb-1" />
-          <p className="text-xs text-gray-600">Conditions</p>
+          <p className="text-xs text-content-muted">Conditions</p>
           <p className="text-2xl font-bold text-purple-700">{info.chronic_conditions.length}</p>
         </div>
       </div>
 
       {info.allergies.length > 0 && (
-        <div className="mt-4 p-3 bg-red-100 rounded-lg">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-red-800 mb-2">
+        <div className="mt-4 p-3 bg-critical-subtle rounded-lg">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-critical-subtle-fg mb-2">
             <AlertTriangle className="w-4 h-4" aria-hidden="true" /> ALLERGIES:
           </p>
-          <p className="text-red-900 font-bold">{info.allergies.join(' • ')}</p>
+          <p className="text-critical-subtle-fg font-bold">{info.allergies.join(' • ')}</p>
         </div>
       )}
 

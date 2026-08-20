@@ -222,7 +222,7 @@ const WearablesPage: React.FC = () => {
     switch (trend) {
       case 'up': return <TrendingUp className="w-4 h-4 text-green-500" />;
       case 'down': return <TrendingDown className="w-4 h-4 text-red-500" />;
-      case 'stable': return <Minus className="w-4 h-4 text-gray-400" />;
+      case 'stable': return <Minus className="w-4 h-4 text-content-muted" />;
     }
   };
 
@@ -260,13 +260,13 @@ const WearablesPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-surface-sunken pb-20">
       {/* Loading State */}
       {loading && (
-        <div className="fixed inset-0 bg-white/80 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
-            <span className="text-gray-600">{t('wearables.loading')}</span>
+            <span className="text-content-muted">{t('wearables.loading')}</span>
           </div>
         </div>
       )}
@@ -281,7 +281,7 @@ const WearablesPage: React.FC = () => {
           <button
             onClick={handleSync}
             disabled={isSyncing}
-            className="p-2 bg-white/20 rounded-full hover:bg-white/30"
+            className="p-2 bg-surface/20 rounded-full hover:bg-surface/30"
           >
             <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
@@ -290,7 +290,7 @@ const WearablesPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b sticky top-0 z-10">
+      <div className="bg-surface border-b sticky top-0 z-10">
         <div className="flex">
           {(['dashboard', 'devices', 'settings'] as const).map(tab => (
             <button
@@ -299,7 +299,7 @@ const WearablesPage: React.FC = () => {
               className={`flex-1 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab
                   ? 'text-teal-600 border-b-2 border-teal-600'
-                  : 'text-gray-500 hover:text-gray-700'
+                  : 'text-content-muted hover:text-content-secondary'
               }`}
             >
               {tabLabel(tab)}
@@ -313,8 +313,8 @@ const WearablesPage: React.FC = () => {
         {activeTab === 'dashboard' && (
           <div className="space-y-4">
             {/* Activity Rings */}
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold text-gray-900 mb-4">{t('wearables.todaysActivity')}</h3>
+            <div className="bg-surface rounded-lg shadow p-4">
+              <h3 className="font-semibold text-content mb-4">{t('wearables.todaysActivity')}</h3>
               <div className="flex items-center justify-center gap-4">
                 <div className="relative">
                   {activityRings.map((ring, idx) => (
@@ -338,7 +338,7 @@ const WearablesPage: React.FC = () => {
                         className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: ring.color }}
                       />
-                      <span className="text-sm text-gray-600">
+                      <span className="text-sm text-content-muted">
                         {ringLabel(ring.name)}: {ring.current}/{ring.goal}
                         {ring.name === 'Move' ? ` ${t('wearables.unitKcal')}` : ring.name === 'Exercise' ? ` ${t('wearables.unitMin')}` : ` ${t('wearables.unitHrs')}`}
                       </span>
@@ -354,20 +354,20 @@ const WearablesPage: React.FC = () => {
                 <button
                   key={metric.type}
                   onClick={() => setSelectedMetric(metric)}
-                  className="bg-white rounded-lg shadow p-4 text-left hover:shadow-md transition-shadow"
+                  className="bg-surface rounded-lg shadow p-4 text-left hover:shadow-md transition-shadow"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className={metric.color}>{metric.icon}</div>
                     {getTrendIcon(metric.trend)}
                   </div>
-                  <p className="text-2xl font-bold text-gray-900">
+                  <p className="text-2xl font-bold text-content">
                     {metric.type === 'sleep' ? metric.value.toFixed(1) : metric.value.toLocaleString()}
                   </p>
-                  <p className="text-xs text-gray-500">{metricUnit(metric)}</p>
-                  <p className="text-sm text-gray-600 mt-1">{metricName(metric)}</p>
+                  <p className="text-xs text-content-muted">{metricUnit(metric)}</p>
+                  <p className="text-sm text-content-muted mt-1">{metricName(metric)}</p>
                   {metric.goal && (
                     <div className="mt-2">
-                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-surface-sunken rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${
                             metric.value >= metric.goal ? 'bg-green-500' : 'bg-teal-500'
@@ -383,10 +383,10 @@ const WearablesPage: React.FC = () => {
 
             {/* Weekly Trends */}
             {selectedMetric && (
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-surface rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-gray-900">{t('wearables.trend7Day', { name: metricName(selectedMetric) })}</h3>
-                  <button onClick={() => setSelectedMetric(null)} className="text-gray-400">
+                  <h3 className="font-semibold text-content">{t('wearables.trend7Day', { name: metricName(selectedMetric) })}</h3>
+                  <button onClick={() => setSelectedMetric(null)} className="text-content-muted">
                     ×
                   </button>
                 </div>
@@ -400,7 +400,7 @@ const WearablesPage: React.FC = () => {
                           className="w-full bg-teal-500 rounded-t transition-all"
                           style={{ height: `${height}%` }}
                         />
-                        <span className="text-xs text-gray-500 mt-1">{dayLabel(h.date)}</span>
+                        <span className="text-xs text-content-muted mt-1">{dayLabel(h.date)}</span>
                       </div>
                     );
                   })}
@@ -414,27 +414,27 @@ const WearablesPage: React.FC = () => {
         {activeTab === 'devices' && (
           <div className="space-y-4">
             {/* Connected Devices */}
-            <div className="bg-white rounded-lg shadow divide-y">
+            <div className="bg-surface rounded-lg shadow divide-y">
               <div className="p-4">
-                <h3 className="font-semibold text-gray-900">{t('wearables.connectedDevices')}</h3>
+                <h3 className="font-semibold text-content">{t('wearables.connectedDevices')}</h3>
               </div>
               {devices.map(device => (
                 <div key={device.id} className="p-4">
                   <div className="flex items-center gap-4">
                     <div className={`p-3 rounded-full ${
-                      device.status === 'connected' ? 'bg-teal-100 text-teal-600' : 'bg-gray-100 text-gray-400'
+                      device.status === 'connected' ? 'bg-teal-100 text-teal-600' : 'bg-surface-sunken text-content-muted'
                     }`}>
                       {getDeviceIcon(device.type)}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <h4 className="font-medium text-gray-900">{device.name}</h4>
+                        <h4 className="font-medium text-content">{device.name}</h4>
                         {device.status === 'connected' && (
                           <CheckCircle className="w-4 h-4 text-green-500" />
                         )}
                       </div>
-                      <p className="text-sm text-gray-500">{device.model}</p>
-                      <div className="flex items-center gap-4 mt-1 text-xs text-gray-400">
+                      <p className="text-sm text-content-muted">{device.model}</p>
+                      <div className="flex items-center gap-4 mt-1 text-xs text-content-muted">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {formatLastSync(device.lastSync)}
@@ -447,7 +447,7 @@ const WearablesPage: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <button className="p-2 text-gray-400 hover:text-gray-600" aria-label={`View ${device.name} details`}>
+                    <button className="p-2 text-content-muted hover:text-content-muted" aria-label={`View ${device.name} details`}>
                       <ChevronRight className="w-5 h-5" />
                     </button>
                   </div>
@@ -456,16 +456,16 @@ const WearablesPage: React.FC = () => {
             </div>
 
             {/* Add Device */}
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-semibold text-gray-900 mb-4">{t('wearables.addDevice')}</h3>
+            <div className="bg-surface rounded-lg shadow p-4">
+              <h3 className="font-semibold text-content mb-4">{t('wearables.addDevice')}</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { name: 'Apple Health', icon: <Heart className="w-6 h-6" />, color: 'bg-red-100 text-red-600', type: 'apple-watch' },
-                  { name: 'Google Fit', icon: <Activity className="w-6 h-6" />, color: 'bg-blue-100 text-blue-600', type: 'google-fit' },
+                  { name: 'Apple Health', icon: <Heart className="w-6 h-6" />, color: 'bg-critical-subtle text-critical-subtle-fg', type: 'apple-watch' },
+                  { name: 'Google Fit', icon: <Activity className="w-6 h-6" />, color: 'bg-notice-subtle text-notice-subtle-fg', type: 'google-fit' },
                   { name: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-teal-100 text-teal-600', type: 'fitbit' },
                   { name: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-purple-100 text-purple-600', type: 'garmin' },
                   { name: 'Samsung Health', icon: <Heart className="w-6 h-6" />, color: 'bg-indigo-100 text-indigo-600', type: 'samsung' },
-                  { name: 'Oura Ring', icon: <Moon className="w-6 h-6" />, color: 'bg-gray-100 text-gray-600', type: 'oura' }
+                  { name: 'Oura Ring', icon: <Moon className="w-6 h-6" />, color: 'bg-surface-sunken text-content-muted', type: 'oura' }
                 ].map(platform => (
                   <button
                     key={platform.name}
@@ -481,19 +481,19 @@ const WearablesPage: React.FC = () => {
                         console.warn('Failed to register device:', err);
                       }
                     }}
-                    className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-all"
+                    className="flex items-center gap-3 p-3 border border-border rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-all"
                   >
                     <div className={`p-2 rounded-full ${platform.color}`}>
                       {platform.icon}
                     </div>
-                    <span className="text-sm font-medium text-gray-700">{platform.name}</span>
+                    <span className="text-sm font-medium text-content-secondary">{platform.name}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Bluetooth Scan */}
-            <button className="w-full bg-white rounded-lg shadow p-4 flex items-center justify-center gap-2 text-teal-600 font-medium hover:bg-teal-50">
+            <button className="w-full bg-surface rounded-lg shadow p-4 flex items-center justify-center gap-2 text-teal-600 font-medium hover:bg-teal-50">
               <Bluetooth className="w-5 h-5" />
               {t('wearables.scanBluetooth')}
             </button>
@@ -504,9 +504,9 @@ const WearablesPage: React.FC = () => {
         {activeTab === 'settings' && (
           <div className="space-y-4">
             {/* Sync Settings */}
-            <div className="bg-white rounded-lg shadow divide-y">
+            <div className="bg-surface rounded-lg shadow divide-y">
               <div className="p-4">
-                <h3 className="font-semibold text-gray-900">{t('wearables.syncSettings')}</h3>
+                <h3 className="font-semibold text-content">{t('wearables.syncSettings')}</h3>
               </div>
               {[
                 { label: t('wearables.syncAuto'), enabled: true },
@@ -517,14 +517,14 @@ const WearablesPage: React.FC = () => {
                 { label: t('wearables.syncHeartRate'), enabled: true }
               ].map((setting, idx) => (
                 <div key={idx} className="p-4 flex items-center justify-between">
-                  <span className="text-gray-700">{setting.label}</span>
+                  <span className="text-content-secondary">{setting.label}</span>
                   <button
                     className={`w-12 h-6 rounded-full transition-colors ${
                       setting.enabled ? 'bg-teal-500' : 'bg-gray-300'
                     }`}
                   >
                     <div
-                      className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
                         setting.enabled ? 'translate-x-6' : 'translate-x-0.5'
                       }`}
                     />
@@ -534,37 +534,37 @@ const WearablesPage: React.FC = () => {
             </div>
 
             {/* Data Sharing */}
-            <div className="bg-white rounded-lg shadow divide-y">
+            <div className="bg-surface rounded-lg shadow divide-y">
               <div className="p-4">
-                <h3 className="font-semibold text-gray-900">{t('wearables.dataSharing')}</h3>
+                <h3 className="font-semibold text-content">{t('wearables.dataSharing')}</h3>
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-700">{t('wearables.shareProvider')}</span>
+                  <span className="text-content-secondary">{t('wearables.shareProvider')}</span>
                   <button className="w-12 h-6 rounded-full bg-teal-500">
-                    <div className="w-5 h-5 bg-white rounded-full shadow translate-x-6" />
+                    <div className="w-5 h-5 bg-surface rounded-full shadow translate-x-6" />
                   </button>
                 </div>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-content-muted">
                   {t('wearables.shareProviderDesc')}
                 </p>
               </div>
               <div className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-gray-700">{t('wearables.emergencyAccess')}</span>
+                  <span className="text-content-secondary">{t('wearables.emergencyAccess')}</span>
                   <button className="w-12 h-6 rounded-full bg-teal-500">
-                    <div className="w-5 h-5 bg-white rounded-full shadow translate-x-6" />
+                    <div className="w-5 h-5 bg-surface rounded-full shadow translate-x-6" />
                   </button>
                 </div>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-content-muted">
                   {t('wearables.emergencyAccessDesc')}
                 </p>
               </div>
             </div>
 
             {/* Disconnect */}
-            <div className="bg-white rounded-lg shadow p-4">
-              <button className="w-full flex items-center justify-center gap-2 text-red-600 font-medium">
+            <div className="bg-surface rounded-lg shadow p-4">
+              <button className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium">
                 <Unlink className="w-5 h-5" />
                 {t('wearables.disconnectAll')}
               </button>

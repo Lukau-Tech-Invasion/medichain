@@ -187,25 +187,25 @@ const SpecimenPage: React.FC = () => {
     const icons: Record<SpecimenType, React.ReactNode> = {
       'blood': <Droplet className="w-5 h-5 text-red-500" />,
       'urine': <TestTube className="w-5 h-5 text-yellow-500" />,
-      'stool': <TestTube className="w-5 h-5 text-amber-700" />,
+      'stool': <TestTube className="w-5 h-5 text-caution-subtle-fg" />,
       'swab': <TestTube className="w-5 h-5 text-blue-500" />,
       'tissue': <FlaskConical className="w-5 h-5 text-pink-500" />,
       'csf': <Droplet className="w-5 h-5 text-purple-500" />,
       'sputum': <TestTube className="w-5 h-5 text-green-500" />,
-      'other': <TestTube className="w-5 h-5 text-gray-500" />
+      'other': <TestTube className="w-5 h-5 text-content-muted" />
     };
     return icons[type];
   };
 
   const getStatusBadge = (status: CollectionStatus) => {
     const styles: Record<CollectionStatus, { bg: string; text: string; icon: React.ReactNode }> = {
-      'pending': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
-      'collected': { bg: 'bg-blue-100', text: 'text-blue-700', icon: <CheckCircle className="w-3 h-3" /> },
+      'pending': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
+      'collected': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
       'in-transit': { bg: 'bg-purple-100', text: 'text-purple-700', icon: <Truck className="w-3 h-3" /> },
       'received': { bg: 'bg-cyan-100', text: 'text-cyan-700', icon: <FlaskConical className="w-3 h-3" /> },
       'processing': { bg: 'bg-indigo-100', text: 'text-indigo-700', icon: <FlaskConical className="w-3 h-3" /> },
-      'completed': { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-      'rejected': { bg: 'bg-red-100', text: 'text-red-700', icon: <AlertTriangle className="w-3 h-3" /> }
+      'completed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
+      'rejected': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
     const labels: Record<CollectionStatus, string> = {
       'pending': t('docSpecimen.stPending'),
@@ -226,9 +226,9 @@ const SpecimenPage: React.FC = () => {
 
   const getPriorityBadge = (priority: Priority) => {
     const colors: Record<Priority, string> = {
-      'routine': 'bg-gray-100 text-gray-600',
+      'routine': 'bg-surface-sunken text-content-muted',
       'urgent': 'bg-orange-100 text-orange-700',
-      'stat': 'bg-red-100 text-red-700'
+      'stat': 'bg-critical-subtle text-critical-subtle-fg'
     };
     const labels: Record<Priority, string> = {
       'routine': t('docSpecimen.priRoutine'),
@@ -266,7 +266,7 @@ const SpecimenPage: React.FC = () => {
   const statCount = specimens.filter(s => s.priority === 'stat' && s.status !== 'completed').length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-teal-600 to-cyan-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -280,16 +280,16 @@ const SpecimenPage: React.FC = () => {
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docSpecimen.loading')}</p>
+          <p className="text-content-muted">{t('docSpecimen.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docSpecimen.apiHint')}</p>
           </div>
         </div>
@@ -300,29 +300,29 @@ const SpecimenPage: React.FC = () => {
         <>
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-gray-800">{specimens.length}</p>
-              <p className="text-xs text-gray-500">{t('docSpecimen.total')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-content-secondary">{specimens.length}</p>
+              <p className="text-xs text-content-muted">{t('docSpecimen.total')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-              <p className="text-xs text-gray-500">{t('docSpecimen.pending')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-caution-subtle-fg">{pendingCount}</p>
+              <p className="text-xs text-content-muted">{t('docSpecimen.pending')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-red-600">{statCount}</p>
-              <p className="text-xs text-gray-500">{t('docSpecimen.statOrders')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-critical-subtle-fg">{statCount}</p>
+              <p className="text-xs text-content-muted">{t('docSpecimen.statOrders')}</p>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="bg-white border-b">
+          <div className="bg-surface border-b">
             <div className="flex">
               {(['specimens', 'add', 'tracking'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium ${
-                    activeTab === tab ? 'text-teal-700 border-b-2 border-teal-700' : 'text-gray-500'
+                    activeTab === tab ? 'text-teal-700 border-b-2 border-teal-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'specimens' ? t('docSpecimen.tabAll') : tab === 'add' ? t('docSpecimen.tabCollect') : t('docSpecimen.tabTracking')}
@@ -336,7 +336,7 @@ const SpecimenPage: React.FC = () => {
             <div className="p-4">
               <div className="flex gap-2 mb-4">
                 <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
                   <input
                     type="text"
                     value={searchQuery}
@@ -363,7 +363,7 @@ const SpecimenPage: React.FC = () => {
               <div
                 key={specimen.id}
                 onClick={() => setSelectedSpecimen(specimen)}
-                className={`bg-white rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
+                className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                   specimen.priority === 'stat' ? 'border-l-4 border-l-red-500' : ''
                 }`}
               >
@@ -375,18 +375,18 @@ const SpecimenPage: React.FC = () => {
                         <h3 className="font-semibold">{specimen.patientName}</h3>
                         {getPriorityBadge(specimen.priority)}
                       </div>
-                      <p className="text-sm text-gray-500">{t('docSpecimen.mrnId', { mrn: specimen.mrn, id: specimen.id })}</p>
+                      <p className="text-sm text-content-muted">{t('docSpecimen.mrnId', { mrn: specimen.mrn, id: specimen.id })}</p>
                     </div>
                   </div>
                   {getStatusBadge(specimen.status)}
                 </div>
 
-                <div className="bg-gray-50 rounded p-2 mb-2">
+                <div className="bg-surface-sunken rounded p-2 mb-2">
                   <p className="text-sm"><strong>{t('docSpecimen.testLabel')}</strong> {specimen.testOrdered}</p>
                   <p className="text-sm"><strong>{t('docSpecimen.typeLabelInline')}</strong> {typeLabel(specimen.specimenType)}</p>
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-gray-500">
+                <div className="flex items-center justify-between text-xs text-content-muted">
                   <div className="flex items-center gap-1">
                     <User className="w-3 h-3" />
                     <span>{t('docSpecimen.orderedByLine', { by: specimen.orderedBy })}</span>
@@ -405,7 +405,7 @@ const SpecimenPage: React.FC = () => {
       {/* Add Specimen Tab */}
       {activeTab === 'add' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docSpecimen.collectTitle')}</h2>
 
             <div className="space-y-4">
@@ -478,7 +478,7 @@ const SpecimenPage: React.FC = () => {
               </div>
 
               {saveMessage && (
-                <p className="text-sm text-center text-gray-700" role="status">{saveMessage}</p>
+                <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>
               )}
               <button
                 onClick={recordCollection}
@@ -495,7 +495,7 @@ const SpecimenPage: React.FC = () => {
       {/* Tracking Tab */}
       {activeTab === 'tracking' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docSpecimen.trackingTitle')}</h2>
             <div className="space-y-4">
               {specimens.filter(s => s.status !== 'completed').map(specimen => (
@@ -505,14 +505,14 @@ const SpecimenPage: React.FC = () => {
                       {getSpecimenIcon(specimen.specimenType)}
                       <div>
                         <p className="font-medium">{specimen.id}</p>
-                        <p className="text-sm text-gray-500">{specimen.patientName}</p>
+                        <p className="text-sm text-content-muted">{specimen.patientName}</p>
                       </div>
                     </div>
                     {getPriorityBadge(specimen.priority)}
                   </div>
 
                   <div className="relative">
-                    <div className="absolute top-2 left-2 right-2 h-1 bg-gray-200 rounded"></div>
+                    <div className="absolute top-2 left-2 right-2 h-1 bg-surface-sunken rounded"></div>
                     <div className="flex justify-between relative z-10">
                       {(['pending', 'collected', 'in-transit', 'received', 'processing', 'completed'] as CollectionStatus[]).map((step, idx) => {
                         const steps: CollectionStatus[] = ['pending', 'collected', 'in-transit', 'received', 'processing', 'completed'];
@@ -521,7 +521,7 @@ const SpecimenPage: React.FC = () => {
                         return (
                           <div key={step} className="flex flex-col items-center">
                             <div className={`w-4 h-4 rounded-full ${isActive ? 'bg-teal-500' : 'bg-gray-300'}`}></div>
-                            <span className={`text-xs mt-1 ${isActive ? 'text-teal-600' : 'text-gray-400'}`}>
+                            <span className={`text-xs mt-1 ${isActive ? 'text-teal-600' : 'text-content-muted'}`}>
                               {step.split('-').map(w => w[0].toUpperCase()).join('')}
                             </span>
                           </div>
@@ -541,16 +541,16 @@ const SpecimenPage: React.FC = () => {
       {/* Specimen Detail Modal */}
       {selectedSpecimen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {getSpecimenIcon(selectedSpecimen.specimenType)}
                 <div>
                   <h2 className="text-xl font-semibold">{selectedSpecimen.id}</h2>
-                  <p className="text-sm text-gray-500">{t('docSpecimen.specimenSuffix', { type: typeLabel(selectedSpecimen.specimenType) })}</p>
+                  <p className="text-sm text-content-muted">{t('docSpecimen.specimenSuffix', { type: typeLabel(selectedSpecimen.specimenType) })}</p>
                 </div>
               </div>
-              <button onClick={() => setSelectedSpecimen(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+              <button onClick={() => setSelectedSpecimen(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
@@ -559,13 +559,13 @@ const SpecimenPage: React.FC = () => {
                 {getPriorityBadge(selectedSpecimen.priority)}
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docSpecimen.patientInfo')}</h3>
                 <p><strong>{t('docSpecimen.nameLabel')}</strong> {selectedSpecimen.patientName}</p>
                 <p><strong>{t('docSpecimen.mrnLabelBold')}</strong> {selectedSpecimen.mrn}</p>
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docSpecimen.testDetails')}</h3>
                 <p><strong>{t('docSpecimen.testsOrderedLabel')}</strong> {selectedSpecimen.testOrdered}</p>
                 <p><strong>{t('docSpecimen.orderedByLabel')}</strong> {selectedSpecimen.orderedBy}</p>
@@ -573,7 +573,7 @@ const SpecimenPage: React.FC = () => {
               </div>
 
               {selectedSpecimen.collectedBy && (
-                <div className="bg-blue-50 rounded-lg p-4">
+                <div className="bg-notice-subtle rounded-lg p-4">
                   <h3 className="font-medium mb-2">{t('docSpecimen.collectionDetails')}</h3>
                   <p><strong>{t('docSpecimen.collectedByLabel')}</strong> {selectedSpecimen.collectedBy}</p>
                   <p><strong>{t('docSpecimen.collectedAtLabel')}</strong> {selectedSpecimen.collectedAt?.toLocaleString()}</p>

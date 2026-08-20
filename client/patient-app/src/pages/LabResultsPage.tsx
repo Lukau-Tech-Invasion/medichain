@@ -148,7 +148,7 @@ export function LabResultsPage() {
   const getStatusBadge = (r: LabResult) => {
     if (isCritical(r)) {
       return (
-        <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+        <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold bg-critical-subtle text-critical-subtle-fg">
           <AlertTriangle className="w-3 h-3" />
           {t('labResults.statusCritical')}
         </span>
@@ -156,7 +156,7 @@ export function LabResultsPage() {
     }
     if (isAbnormal(r)) {
       return (
-        <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+        <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-caution-subtle text-caution-subtle-fg">
           <AlertTriangle className="w-3 h-3" />
           {t('labResults.statusAbnormal')}
         </span>
@@ -164,14 +164,14 @@ export function LabResultsPage() {
     }
     if (isNormal(r)) {
       return (
-        <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+        <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-ok-subtle text-ok-subtle-fg">
           <CheckCircle className="w-3 h-3" />
           {t('labResults.statusNormal')}
         </span>
       );
     }
     return (
-      <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-neutral-100 text-neutral-600">
+      <span className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-surface-sunken text-content-muted">
         <Clock className="w-3 h-3" />
         {t('labResults.statusPending')}
       </span>
@@ -206,19 +206,19 @@ export function LabResultsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('labResults.title')}</h1>
-          <p className="text-neutral-500">{t('labResults.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('labResults.title')}</h1>
+          <p className="text-content-muted">{t('labResults.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadResults}
-            className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg"
+            className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg"
           >
             <RefreshCw className="w-5 h-5" />
           </button>
@@ -227,11 +227,11 @@ export function LabResultsPage() {
 
       {/* Critical Values Alert */}
       {results.some(isCritical) && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+        <div className="bg-critical-subtle border border-critical rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-critical-subtle-fg mt-0.5 flex-shrink-0" />
           <div>
-            <p className="font-semibold text-red-800">{t('labResults.criticalTitle')}</p>
-            <p className="text-sm text-red-700">
+            <p className="font-semibold text-critical-subtle-fg">{t('labResults.criticalTitle')}</p>
+            <p className="text-sm text-critical-subtle-fg">
               {t('labResults.criticalBody')}
             </p>
           </div>
@@ -242,7 +242,7 @@ export function LabResultsPage() {
       {results.length === 0 ? (
         <div className="text-center py-12">
           <FlaskConical className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-          <p className="text-neutral-500">{t('labResults.noResults')}</p>
+          <p className="text-content-muted">{t('labResults.noResults')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -254,15 +254,15 @@ export function LabResultsPage() {
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                    isCritical(r) ? 'bg-red-100' : isAbnormal(r) ? 'bg-yellow-100' : 'bg-primary-100'
+                    isCritical(r) ? 'bg-critical-subtle' : isAbnormal(r) ? 'bg-caution-subtle' : 'bg-primary-100'
                   }`}>
                     <FlaskConical className={`w-5 h-5 ${
-                      isCritical(r) ? 'text-red-600' : isAbnormal(r) ? 'text-yellow-600' : 'text-primary-600'
+                      isCritical(r) ? 'text-critical-subtle-fg' : isAbnormal(r) ? 'text-caution-subtle-fg' : 'text-primary-600'
                     }`} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-neutral-900">{r.test_name}</h3>
-                    <div className="flex items-center gap-3 text-xs text-neutral-400 mt-0.5">
+                    <h3 className="font-semibold text-content">{r.test_name}</h3>
+                    <div className="flex items-center gap-3 text-xs text-content-muted mt-0.5">
                       {r.ordered_date && (
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
@@ -282,22 +282,22 @@ export function LabResultsPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="bg-neutral-50 rounded-lg p-2">
-                  <p className="text-xs text-neutral-400">{t('labResults.result')}</p>
-                  <p className={`font-semibold ${isCritical(r) ? 'text-red-700' : 'text-neutral-900'}`}>
+                <div className="bg-surface-sunken rounded-lg p-2">
+                  <p className="text-xs text-content-muted">{t('labResults.result')}</p>
+                  <p className={`font-semibold ${isCritical(r) ? 'text-critical-subtle-fg' : 'text-content'}`}>
                     {displayValue(r)}
                   </p>
                 </div>
                 {(r.reference_range || r.normal_range) && (
-                  <div className="bg-neutral-50 rounded-lg p-2">
-                    <p className="text-xs text-neutral-400">{t('labResults.referenceRange')}</p>
-                    <p className="font-medium text-neutral-700">{r.reference_range || r.normal_range}</p>
+                  <div className="bg-surface-sunken rounded-lg p-2">
+                    <p className="text-xs text-content-muted">{t('labResults.referenceRange')}</p>
+                    <p className="font-medium text-content-secondary">{r.reference_range || r.normal_range}</p>
                   </div>
                 )}
               </div>
 
               {r.notes && (
-                <p className="text-xs text-neutral-500 mt-2 italic">{r.notes}</p>
+                <p className="text-xs text-content-muted mt-2 italic">{r.notes}</p>
               )}
             </div>
           ))}

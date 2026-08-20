@@ -180,10 +180,10 @@ const NursingCarePlanPage: React.FC = () => {
 
   const getStatusBadge = (status: PlanStatus) => {
     const styles: Record<PlanStatus, { bg: string; text: string }> = {
-      'active': { bg: 'bg-green-100', text: 'text-green-700' },
-      'on-hold': { bg: 'bg-yellow-100', text: 'text-yellow-700' },
-      'completed': { bg: 'bg-blue-100', text: 'text-blue-700' },
-      'discontinued': { bg: 'bg-gray-100', text: 'text-gray-700' }
+      'active': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg' },
+      'on-hold': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg' },
+      'completed': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg' },
+      'discontinued': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
     const s = styles[status];
     const labels: Record<PlanStatus, string> = {
@@ -205,9 +205,9 @@ const NursingCarePlanPage: React.FC = () => {
 
   const getPriorityBadge = (priority: Priority) => {
     const styles: Record<Priority, { bg: string; text: string }> = {
-      'high': { bg: 'bg-red-100', text: 'text-red-700' },
+      'high': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg' },
       'medium': { bg: 'bg-orange-100', text: 'text-orange-700' },
-      'low': { bg: 'bg-gray-100', text: 'text-gray-700' }
+      'low': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
     const s = styles[priority];
     return <span className={`px-2 py-1 rounded text-xs font-medium ${s.bg} ${s.text}`}>{priorityLabel(priority)}</span>;
@@ -215,9 +215,9 @@ const NursingCarePlanPage: React.FC = () => {
 
   const getGoalStatusBadge = (status: GoalStatus) => {
     const styles: Record<GoalStatus, { bg: string; text: string; icon: React.ReactNode }> = {
-      'not-met': { bg: 'bg-red-100', text: 'text-red-700', icon: <AlertTriangle className="w-3 h-3" /> },
-      'partially-met': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
-      'met': { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> }
+      'not-met': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> },
+      'partially-met': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
+      'met': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> }
     };
     const s = styles[status];
     const labels: Record<GoalStatus, string> = {
@@ -248,7 +248,7 @@ const NursingCarePlanPage: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -262,16 +262,16 @@ const NursingCarePlanPage: React.FC = () => {
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Loader2 className="w-8 h-8 text-purple-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docNursingCarePlan.loading')}</p>
+          <p className="text-content-muted">{t('docNursingCarePlan.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docNursingCarePlan.apiHint')}</p>
           </div>
         </div>
@@ -282,31 +282,31 @@ const NursingCarePlanPage: React.FC = () => {
         <>
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-gray-800">{plans.filter(p => p.status === 'active').length}</p>
-              <p className="text-xs text-gray-500">{t('docNursingCarePlan.activePlans')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-content-secondary">{plans.filter(p => p.status === 'active').length}</p>
+              <p className="text-xs text-content-muted">{t('docNursingCarePlan.activePlans')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-red-600">{plans.filter(p => p.priority === 'high').length}</p>
-              <p className="text-xs text-gray-500">{t('docNursingCarePlan.highPriority')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-critical-subtle-fg">{plans.filter(p => p.priority === 'high').length}</p>
+              <p className="text-xs text-content-muted">{t('docNursingCarePlan.highPriority')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-ok-subtle-fg">
                 {plans.reduce((acc, p) => acc + p.goals.filter(g => g.status === 'met').length, 0)}
               </p>
-              <p className="text-xs text-gray-500">{t('docNursingCarePlan.goalsMet')}</p>
+              <p className="text-xs text-content-muted">{t('docNursingCarePlan.goalsMet')}</p>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="bg-white border-b">
+          <div className="bg-surface border-b">
             <div className="flex">
               {(['plans', 'new', 'templates'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium ${
-                    activeTab === tab ? 'text-purple-700 border-b-2 border-purple-700' : 'text-gray-500'
+                    activeTab === tab ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'plans' ? t('docNursingCarePlan.tabPlans') : tab === 'new' ? t('docNursingCarePlan.tabNew') : t('docNursingCarePlan.tabTemplates')}
@@ -320,7 +320,7 @@ const NursingCarePlanPage: React.FC = () => {
             <div className="p-4">
               <div className="relative mb-4">
                 <label htmlFor="ncp-search" className="sr-only">{t('docNursingCarePlan.searchLabel')}</label>
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
                 <input
                   id="ncp-search"
                   type="text"
@@ -333,7 +333,7 @@ const NursingCarePlanPage: React.FC = () => {
 
               <div className="space-y-3">
                 {filteredPlans.map(plan => (
-                  <div key={plan.id} className="bg-white rounded-lg shadow border overflow-hidden">
+                  <div key={plan.id} className="bg-surface rounded-lg shadow border overflow-hidden">
                     <div
                       className="p-4 cursor-pointer"
                       onClick={() => setExpandedPlan(expandedPlan === plan.id ? null : plan.id)}
@@ -344,7 +344,7 @@ const NursingCarePlanPage: React.FC = () => {
                         <h3 className="font-semibold">{plan.patientName}</h3>
                         {getPriorityBadge(plan.priority)}
                       </div>
-                      <p className="text-sm text-gray-500">{t('docNursingCarePlan.roomMrn', { room: plan.room, mrn: plan.mrn })}</p>
+                      <p className="text-sm text-content-muted">{t('docNursingCarePlan.roomMrn', { room: plan.room, mrn: plan.mrn })}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {getStatusBadge(plan.status)}
@@ -356,7 +356,7 @@ const NursingCarePlanPage: React.FC = () => {
                     <p className="text-sm font-medium text-purple-800">{plan.diagnosis}</p>
                   </div>
 
-                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <div className="flex items-center gap-4 text-xs text-content-muted">
                     <span><Target className="w-3 h-3 inline mr-1" />{t('docNursingCarePlan.goalsCount', { count: plan.goals.length })}</span>
                     <span><Activity className="w-3 h-3 inline mr-1" />{t('docNursingCarePlan.interventionsCount', { count: plan.interventions.length })}</span>
                     <span><User className="w-3 h-3 inline mr-1" />{plan.createdBy}</span>
@@ -364,12 +364,12 @@ const NursingCarePlanPage: React.FC = () => {
                 </div>
 
                 {expandedPlan === plan.id && (
-                  <div className="border-t p-4 bg-gray-50">
+                  <div className="border-t p-4 bg-surface-sunken">
                     <div className="mb-4">
                       <h4 className="font-medium mb-2 flex items-center gap-2"><Target className="w-4 h-4" /> {t('docNursingCarePlan.goals')}</h4>
                       <div className="space-y-2">
                         {plan.goals.map(goal => (
-                          <div key={goal.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                          <div key={goal.id} className="flex items-center justify-between bg-surface p-2 rounded border">
                             <span className="text-sm">{goal.description}</span>
                             {getGoalStatusBadge(goal.status)}
                           </div>
@@ -381,12 +381,12 @@ const NursingCarePlanPage: React.FC = () => {
                       <h4 className="font-medium mb-2 flex items-center gap-2"><Activity className="w-4 h-4" /> {t('docNursingCarePlan.interventions')}</h4>
                       <div className="space-y-2">
                         {plan.interventions.map(int => (
-                          <div key={int.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                          <div key={int.id} className="flex items-center justify-between bg-surface p-2 rounded border">
                             <div className="flex items-center gap-2">
                               <input type="checkbox" checked={int.completed} readOnly className="w-4 h-4" />
-                              <span className={`text-sm ${int.completed ? 'line-through text-gray-400' : ''}`}>{int.description}</span>
+                              <span className={`text-sm ${int.completed ? 'line-through text-content-muted' : ''}`}>{int.description}</span>
                             </div>
-                            <span className="text-xs text-gray-500">{int.frequency}</span>
+                            <span className="text-xs text-content-muted">{int.frequency}</span>
                           </div>
                         ))}
                       </div>
@@ -408,7 +408,7 @@ const NursingCarePlanPage: React.FC = () => {
       {/* New Plan */}
       {activeTab === 'new' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.createCarePlan')}</h2>
             <div className="space-y-4">
               <div>
@@ -436,14 +436,14 @@ const NursingCarePlanPage: React.FC = () => {
                       key={p}
                       onClick={() => setForm(f => ({ ...f, priority: p }))}
                       aria-pressed={form.priority === p}
-                      className={`flex-1 py-2 rounded-lg border capitalize ${form.priority === p ? 'ring-2 ring-offset-1 ring-purple-500 ' : ''}${p === 'high' ? 'bg-red-50 border-red-300 text-red-700' : p === 'medium' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-gray-50 border-gray-300'}`}>
+                      className={`flex-1 py-2 rounded-lg border capitalize ${form.priority === p ? 'ring-2 ring-offset-1 ring-purple-500 ' : ''}${p === 'high' ? 'bg-critical-subtle border-critical text-critical-subtle-fg' : p === 'medium' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-surface-sunken border-border-strong'}`}>
                       {priorityLabel(p)}
                     </button>
                   ))}
                 </div>
               </div>
               {saveMessage && (
-                <p className="text-sm text-center text-gray-700" role="status">{saveMessage}</p>
+                <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>
               )}
               <button
                 onClick={createPlan}
@@ -463,11 +463,11 @@ const NursingCarePlanPage: React.FC = () => {
           <h2 className="text-lg font-semibold mb-4">{t('docNursingCarePlan.templatesTitle')}</h2>
           <div className="grid gap-3">
             {templates.map(tpl => (
-              <div key={tpl.id} className="bg-white rounded-lg shadow border p-4 flex items-center justify-between">
+              <div key={tpl.id} className="bg-surface rounded-lg shadow border p-4 flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold">{tpl.name}</h3>
-                  <p className="text-sm text-gray-500">{tpl.diagnosis}</p>
-                  <p className="text-xs text-gray-400">{t('docNursingCarePlan.interventionsCount', { count: tpl.interventions })}</p>
+                  <p className="text-sm text-content-muted">{tpl.diagnosis}</p>
+                  <p className="text-xs text-content-muted">{t('docNursingCarePlan.interventionsCount', { count: tpl.interventions })}</p>
                 </div>
                 <button className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
               </div>

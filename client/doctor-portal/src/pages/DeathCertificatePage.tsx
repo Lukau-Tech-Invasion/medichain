@@ -170,11 +170,11 @@ const DeathCertificatePage: React.FC = () => {
 
   const getStatusBadge = (status: CertificateStatus) => {
     const styles: Record<CertificateStatus, string> = {
-      'draft': 'bg-gray-100 text-gray-700',
-      'pending-review': 'bg-yellow-100 text-yellow-700',
+      'draft': 'bg-surface-sunken text-content-secondary',
+      'pending-review': 'bg-caution-subtle text-caution-subtle-fg',
       'pending-signature': 'bg-orange-100 text-orange-700',
-      'filed': 'bg-green-100 text-green-700',
-      'amended': 'bg-blue-100 text-blue-700'
+      'filed': 'bg-ok-subtle text-ok-subtle-fg',
+      'amended': 'bg-notice-subtle text-notice-subtle-fg'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
@@ -264,7 +264,7 @@ const DeathCertificatePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-slate-800 to-zinc-700 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -275,7 +275,7 @@ const DeathCertificatePage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {(['certificates', 'new'] as const).map(tab => (
             <button
@@ -283,8 +283,8 @@ const DeathCertificatePage: React.FC = () => {
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-4 text-sm font-medium transition-colors ${
                 activeTab === tab
-                  ? 'text-slate-800 border-b-2 border-slate-800'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'text-content-secondary border-b-2 border-slate-800'
+                  : 'text-content-muted hover:text-content-secondary'
               }`}
             >
               {tab === 'certificates' ? t('docDeathCertificate.tabCertificates') : t('docDeathCertificate.tabNew')}
@@ -299,7 +299,7 @@ const DeathCertificatePage: React.FC = () => {
           {/* Search & Filter */}
           <div className="flex flex-col sm:flex-row gap-4 mb-6">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
               <input
                 type="text"
                 value={searchQuery}
@@ -325,45 +325,45 @@ const DeathCertificatePage: React.FC = () => {
           {/* Certificates */}
           <div className="space-y-4">
             {filteredCertificates.map(cert => (
-              <div key={cert.id} className="bg-white rounded-lg shadow border p-6">
+              <div key={cert.id} className="bg-surface rounded-lg shadow border p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <div className="flex items-center gap-3">
-                      <h3 className="text-lg font-semibold text-gray-900">{cert.deceasedName}</h3>
+                      <h3 className="text-lg font-semibold text-content">{cert.deceasedName}</h3>
                       {getStatusBadge(cert.status)}
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{t('docDeathCertificate.certificateIdLabel', { id: cert.id })}</p>
+                    <p className="text-sm text-content-muted mt-1">{t('docDeathCertificate.certificateIdLabel', { id: cert.id })}</p>
                   </div>
                   <div className="flex gap-2">
-                    <button className="p-2 hover:bg-gray-100 rounded-lg" title={t('docDeathCertificate.viewTitle')}>
-                      <Eye className="w-5 h-5 text-gray-600" />
+                    <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.viewTitle')}>
+                      <Eye className="w-5 h-5 text-content-muted" />
                     </button>
                     {cert.status !== 'filed' && (
-                      <button className="p-2 hover:bg-gray-100 rounded-lg" title={t('docDeathCertificate.editTitle')}>
-                        <Edit className="w-5 h-5 text-gray-600" />
+                      <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.editTitle')}>
+                        <Edit className="w-5 h-5 text-content-muted" />
                       </button>
                     )}
-                    <button className="p-2 hover:bg-gray-100 rounded-lg" title={t('docDeathCertificate.printTitle')}>
-                      <Printer className="w-5 h-5 text-gray-600" />
+                    <button className="p-2 hover:bg-surface-sunken rounded-lg" title={t('docDeathCertificate.printTitle')}>
+                      <Printer className="w-5 h-5 text-content-muted" />
                     </button>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
-                    <p className="text-gray-500">{t('docDeathCertificate.lblDateOfBirth')}</p>
+                    <p className="text-content-muted">{t('docDeathCertificate.lblDateOfBirth')}</p>
                     <p className="font-medium">{new Date(cert.dateOfBirth).toLocaleDateString()}</p>
                   </div>
                   <div>
-                    <p className="text-gray-500">{t('docDeathCertificate.lblDateOfDeath')}</p>
+                    <p className="text-content-muted">{t('docDeathCertificate.lblDateOfDeath')}</p>
                     <p className="font-medium">{new Date(cert.dateOfDeath).toLocaleDateString()}</p>
                   </div>
                   <div>
-                    <p className="text-gray-500">{t('docDeathCertificate.lblTimeOfDeath')}</p>
+                    <p className="text-content-muted">{t('docDeathCertificate.lblTimeOfDeath')}</p>
                     <p className="font-medium">{cert.timeOfDeath}</p>
                   </div>
                   <div>
-                    <p className="text-gray-500">{t('docDeathCertificate.lblMannerOfDeath')}</p>
+                    <p className="text-content-muted">{t('docDeathCertificate.lblMannerOfDeath')}</p>
                     <p className="font-medium">{getMannerLabel(cert.mannerOfDeath)}</p>
                   </div>
                 </div>
@@ -371,32 +371,32 @@ const DeathCertificatePage: React.FC = () => {
                 <div className="mt-4 pt-4 border-t">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div>
-                      <p className="text-gray-500">{t('docDeathCertificate.lblCauseOfDeath')}</p>
+                      <p className="text-content-muted">{t('docDeathCertificate.lblCauseOfDeath')}</p>
                       <p className="font-medium">{cert.causeOfDeath}</p>
                       {cert.otherConditions.length > 0 && (
-                        <p className="text-gray-400 text-xs mt-1">
+                        <p className="text-content-muted text-xs mt-1">
                           {t('docDeathCertificate.contributingLine', { value: cert.otherConditions.join(', ') })}
                         </p>
                       )}
                     </div>
                     <div>
-                      <p className="text-gray-500">{t('docDeathCertificate.lblPlaceOfDeath')}</p>
+                      <p className="text-content-muted">{t('docDeathCertificate.lblPlaceOfDeath')}</p>
                       <p className="font-medium">{cert.placeOfDeath}</p>
-                      <p className="text-gray-400 text-xs">{cert.countyOfDeath}</p>
+                      <p className="text-content-muted text-xs">{cert.countyOfDeath}</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-4 border-t flex items-center justify-between text-sm">
                   <div>
-                    <p className="text-gray-500">{t('docDeathCertificate.lblCertifyingPhysician')}</p>
+                    <p className="text-content-muted">{t('docDeathCertificate.lblCertifyingPhysician')}</p>
                     <p className="font-medium">{cert.certifyingPhysician}</p>
-                    <p className="text-gray-400 text-xs">{t('docDeathCertificate.licenseLine', { value: cert.certifyingPhysicianLicense })}</p>
+                    <p className="text-content-muted text-xs">{t('docDeathCertificate.licenseLine', { value: cert.certifyingPhysicianLicense })}</p>
                   </div>
                   {cert.status === 'filed' && cert.caseNumber && (
                     <div className="text-right">
-                      <p className="text-gray-500">{t('docDeathCertificate.lblFiledCaseNumber')}</p>
-                      <p className="font-medium text-green-600">{cert.caseNumber}</p>
+                      <p className="text-content-muted">{t('docDeathCertificate.lblFiledCaseNumber')}</p>
+                      <p className="font-medium text-ok-subtle-fg">{cert.caseNumber}</p>
                     </div>
                   )}
                 </div>
@@ -422,15 +422,15 @@ const DeathCertificatePage: React.FC = () => {
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
                     currentStep >= step.num
                       ? 'bg-slate-800 text-white'
-                      : 'bg-gray-200 text-gray-500'
+                      : 'bg-surface-sunken text-content-muted'
                   }`}>
                     {currentStep > step.num ? <CheckCircle className="w-5 h-5" /> : step.num}
                   </div>
-                  <span className="text-xs mt-1 text-gray-600">{step.label}</span>
+                  <span className="text-xs mt-1 text-content-muted">{step.label}</span>
                 </div>
                 {idx < 3 && (
                   <div className={`flex-1 h-1 mx-2 rounded ${
-                    currentStep > step.num ? 'bg-slate-800' : 'bg-gray-200'
+                    currentStep > step.num ? 'bg-slate-800' : 'bg-surface-sunken'
                   }`} />
                 )}
               </React.Fragment>
@@ -439,15 +439,15 @@ const DeathCertificatePage: React.FC = () => {
 
           {/* Step 1: Decedent Information */}
           {currentStep === 1 && (
-            <div className="max-w-3xl mx-auto bg-white rounded-lg shadow p-6">
+            <div className="max-w-3xl mx-auto bg-surface rounded-lg shadow p-6">
               <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <User className="w-5 h-5 text-slate-700" />
+                <User className="w-5 h-5 text-content-secondary" />
                 {t('docDeathCertificate.decedentInfoTitle')}
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="death-first-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.firstNameLabel')}</label>
+                  <label htmlFor="death-first-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.firstNameLabel')}</label>
                   <input
                     id="death-first-name"
                     type="text"
@@ -458,7 +458,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-middle-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.middleNameLabel')}</label>
+                  <label htmlFor="death-middle-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.middleNameLabel')}</label>
                   <input
                     id="death-middle-name"
                     type="text"
@@ -468,7 +468,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-last-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.lastNameLabel')}</label>
+                  <label htmlFor="death-last-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.lastNameLabel')}</label>
                   <input
                     id="death-last-name"
                     type="text"
@@ -482,7 +482,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                 <div>
-                  <label htmlFor="death-ssn" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.ssnLabel')}</label>
+                  <label htmlFor="death-ssn" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.ssnLabel')}</label>
                   <input
                     id="death-ssn"
                     type="text"
@@ -493,7 +493,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-date-of-birth" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.dobLabel')}</label>
+                  <label htmlFor="death-date-of-birth" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.dobLabel')}</label>
                   <input
                     id="death-date-of-birth"
                     type="date"
@@ -504,7 +504,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-sex" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.sexLabel')}</label>
+                  <label htmlFor="death-sex" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.sexLabel')}</label>
                   <select
                     id="death-sex"
                     value={deceasedInfo.sex}
@@ -519,7 +519,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label htmlFor="death-marital-status" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.maritalStatusLabel')}</label>
+                  <label htmlFor="death-marital-status" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.maritalStatusLabel')}</label>
                   <select
                     id="death-marital-status"
                     value={deceasedInfo.maritalStatus}
@@ -534,7 +534,7 @@ const DeathCertificatePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="death-occupation" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.occupationLabel')}</label>
+                  <label htmlFor="death-occupation" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.occupationLabel')}</label>
                   <input
                     id="death-occupation"
                     type="text"
@@ -547,7 +547,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label htmlFor="death-birthplace" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.birthplaceLabel')}</label>
+                  <label htmlFor="death-birthplace" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.birthplaceLabel')}</label>
                   <input
                     id="death-birthplace"
                     type="text"
@@ -558,7 +558,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-residence" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.residenceLabel')}</label>
+                  <label htmlFor="death-residence" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.residenceLabel')}</label>
                   <input
                     id="death-residence"
                     type="text"
@@ -582,15 +582,15 @@ const DeathCertificatePage: React.FC = () => {
 
           {/* Step 2: Death Information */}
           {currentStep === 2 && (
-            <div className="max-w-3xl mx-auto bg-white rounded-lg shadow p-6">
+            <div className="max-w-3xl mx-auto bg-surface rounded-lg shadow p-6">
               <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-slate-700" />
+                <Calendar className="w-5 h-5 text-content-secondary" />
                 {t('docDeathCertificate.deathInfoTitle')}
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="death-date-of-death" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.dateOfDeathLabel')}</label>
+                  <label htmlFor="death-date-of-death" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.dateOfDeathLabel')}</label>
                   <input
                     id="death-date-of-death"
                     type="date"
@@ -601,7 +601,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-time-of-death" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.timeOfDeathLabel')}</label>
+                  <label htmlFor="death-time-of-death" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.timeOfDeathLabel')}</label>
                   <input
                     id="death-time-of-death"
                     type="time"
@@ -615,7 +615,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label htmlFor="death-place-of-death" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.placeOfDeathLabel')}</label>
+                  <label htmlFor="death-place-of-death" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.placeOfDeathLabel')}</label>
                   <select
                     id="death-place-of-death"
                     value={deathInfo.placeOfDeath}
@@ -633,7 +633,7 @@ const DeathCertificatePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="death-facility-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.facilityNameLabel')}</label>
+                  <label htmlFor="death-facility-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.facilityNameLabel')}</label>
                   <input
                     id="death-facility-name"
                     type="text"
@@ -646,7 +646,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                 <div>
-                  <label htmlFor="death-city" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.cityLabel')}</label>
+                  <label htmlFor="death-city" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.cityLabel')}</label>
                   <input
                     id="death-city"
                     type="text"
@@ -656,7 +656,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-county" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.countyProvinceLabel')}</label>
+                  <label htmlFor="death-county" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.countyProvinceLabel')}</label>
                   <input
                     id="death-county"
                     type="text"
@@ -666,7 +666,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-state" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.stateCountryLabel')}</label>
+                  <label htmlFor="death-state" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.stateCountryLabel')}</label>
                   <input
                     id="death-state"
                     type="text"
@@ -678,10 +678,10 @@ const DeathCertificatePage: React.FC = () => {
               </div>
 
               <div className="border-t mt-6 pt-6">
-                <h3 className="font-medium text-gray-900 mb-4">{t('docDeathCertificate.pronouncementTitle')}</h3>
+                <h3 className="font-medium text-content mb-4">{t('docDeathCertificate.pronouncementTitle')}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label htmlFor="death-pronounced-by" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.pronouncedByLabel')}</label>
+                    <label htmlFor="death-pronounced-by" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.pronouncedByLabel')}</label>
                     <input
                       id="death-pronounced-by"
                       type="text"
@@ -691,7 +691,7 @@ const DeathCertificatePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label htmlFor="death-pronounced-date" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.datePronouncedLabel')}</label>
+                    <label htmlFor="death-pronounced-date" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.datePronouncedLabel')}</label>
                     <input
                       id="death-pronounced-date"
                       type="date"
@@ -701,7 +701,7 @@ const DeathCertificatePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label htmlFor="death-pronounced-time" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.timePronouncedLabel')}</label>
+                    <label htmlFor="death-pronounced-time" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.timePronouncedLabel')}</label>
                     <input
                       id="death-pronounced-time"
                       type="time"
@@ -716,7 +716,7 @@ const DeathCertificatePage: React.FC = () => {
               <div className="flex justify-between mt-6">
                 <button
                   onClick={() => setCurrentStep(1)}
-                  className="px-6 py-2 border border-gray-300 rounded-lg font-medium"
+                  className="px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docDeathCertificate.backBtn')}
                 </button>
@@ -732,21 +732,21 @@ const DeathCertificatePage: React.FC = () => {
 
           {/* Step 3: Cause of Death */}
           {currentStep === 3 && (
-            <div className="max-w-3xl mx-auto bg-white rounded-lg shadow p-6">
+            <div className="max-w-3xl mx-auto bg-surface rounded-lg shadow p-6">
               <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <Heart className="w-5 h-5 text-slate-700" />
+                <Heart className="w-5 h-5 text-content-secondary" />
                 {t('docDeathCertificate.causeOfDeathTitle')}
               </h2>
 
-              <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                <p className="text-sm text-gray-600 mb-2">
+              <div className="bg-surface-sunken rounded-lg p-4 mb-6">
+                <p className="text-sm text-content-muted mb-2">
                   <strong>{t('docDeathCertificate.partIIntro')}</strong> {t('docDeathCertificate.partIDesc')}
                 </p>
 
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="md:col-span-3">
-                      <label htmlFor="death-immediate-cause" className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="death-immediate-cause" className="block text-sm font-medium text-content-secondary mb-1">
                         {t('docDeathCertificate.immediateCauseLabel')}
                       </label>
                       <input
@@ -759,7 +759,7 @@ const DeathCertificatePage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label htmlFor="death-immediate-duration" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.durationLabel')}</label>
+                      <label htmlFor="death-immediate-duration" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.durationLabel')}</label>
                       <input
                         id="death-immediate-duration"
                         type="text"
@@ -774,7 +774,7 @@ const DeathCertificatePage: React.FC = () => {
                   {causeInfo.underlyingCauses.map((cause, idx) => (
                     <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <div className="md:col-span-3">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className="block text-sm font-medium text-content-secondary mb-1">
                           {t('docDeathCertificate.dueToLabel', { letter: String.fromCharCode(98 + idx) })}
                         </label>
                         <input
@@ -789,7 +789,7 @@ const DeathCertificatePage: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.durationLabel')}</label>
+                        <label className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.durationLabel')}</label>
                         <input
                           type="text"
                           value={cause.duration}
@@ -807,7 +807,7 @@ const DeathCertificatePage: React.FC = () => {
                   {causeInfo.underlyingCauses.length < 4 && (
                     <button
                       onClick={addUnderlyingCause}
-                      className="text-sm text-slate-600 hover:text-slate-800"
+                      className="text-sm text-content-muted hover:text-content-secondary"
                     >
                       {t('docDeathCertificate.addUnderlyingCauseBtn')}
                     </button>
@@ -817,7 +817,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="death-manner-of-death" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.mannerOfDeathLabel')}</label>
+                  <label htmlFor="death-manner-of-death" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.mannerOfDeathLabel')}</label>
                   <select
                     id="death-manner-of-death"
                     value={causeInfo.mannerOfDeath}
@@ -833,7 +833,7 @@ const DeathCertificatePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="death-tobacco-contributed" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.tobaccoContributedLabel')}</label>
+                  <label htmlFor="death-tobacco-contributed" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.tobaccoContributedLabel')}</label>
                   <select
                     id="death-tobacco-contributed"
                     value={causeInfo.tobaccoContributed}
@@ -857,7 +857,7 @@ const DeathCertificatePage: React.FC = () => {
                     onChange={(e) => setCauseInfo({ ...causeInfo, autopsy: e.target.checked })}
                     className="w-4 h-4"
                   />
-                  <label htmlFor="autopsy" className="text-sm font-medium text-gray-700">
+                  <label htmlFor="autopsy" className="text-sm font-medium text-content-secondary">
                     {t('docDeathCertificate.autopsyPerformedLabel')}
                   </label>
                 </div>
@@ -870,7 +870,7 @@ const DeathCertificatePage: React.FC = () => {
                       onChange={(e) => setCauseInfo({ ...causeInfo, autopsyUsed: e.target.checked })}
                       className="w-4 h-4"
                     />
-                    <label htmlFor="autopsyUsed" className="text-sm font-medium text-gray-700">
+                    <label htmlFor="autopsyUsed" className="text-sm font-medium text-content-secondary">
                       {t('docDeathCertificate.autopsyUsedLabel')}
                     </label>
                   </div>
@@ -880,7 +880,7 @@ const DeathCertificatePage: React.FC = () => {
               <div className="flex justify-between mt-6">
                 <button
                   onClick={() => setCurrentStep(2)}
-                  className="px-6 py-2 border border-gray-300 rounded-lg font-medium"
+                  className="px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docDeathCertificate.backBtn')}
                 </button>
@@ -896,18 +896,18 @@ const DeathCertificatePage: React.FC = () => {
 
           {/* Step 4: Certifier */}
           {currentStep === 4 && (
-            <div className="max-w-3xl mx-auto bg-white rounded-lg shadow p-6">
+            <div className="max-w-3xl mx-auto bg-surface rounded-lg shadow p-6">
               <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <PenTool className="w-5 h-5 text-slate-700" />
+                <PenTool className="w-5 h-5 text-content-secondary" />
                 {t('docDeathCertificate.certifierInfoTitle')}
               </h2>
 
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+              <div className="bg-caution-subtle border border-caution rounded-lg p-4 mb-6">
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <AlertCircle className="w-5 h-5 text-caution-subtle-fg flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm text-yellow-800 font-medium">{t('docDeathCertificate.legalDeclarationTitle')}</p>
-                    <p className="text-sm text-yellow-700 mt-1">
+                    <p className="text-sm text-caution-subtle-fg font-medium">{t('docDeathCertificate.legalDeclarationTitle')}</p>
+                    <p className="text-sm text-caution-subtle-fg mt-1">
                       {t('docDeathCertificate.legalDeclarationText')}
                     </p>
                   </div>
@@ -916,7 +916,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="death-certifier-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.certifierTypeLabel')}</label>
+                  <label htmlFor="death-certifier-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.certifierTypeLabel')}</label>
                   <select
                     id="death-certifier-type"
                     value={certifierInfo.certifierType}
@@ -929,7 +929,7 @@ const DeathCertificatePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="death-license-number" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.licenseNumberLabel')}</label>
+                  <label htmlFor="death-license-number" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.licenseNumberLabel')}</label>
                   <input
                     id="death-license-number"
                     type="text"
@@ -943,7 +943,7 @@ const DeathCertificatePage: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="death-certifier-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.certifierNameLabel')}</label>
+                  <label htmlFor="death-certifier-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.certifierNameLabel')}</label>
                   <input
                     id="death-certifier-name"
                     type="text"
@@ -953,7 +953,7 @@ const DeathCertificatePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="death-date-signed" className="block text-sm font-medium text-gray-700 mb-1">{t('docDeathCertificate.dateSignedLabel')}</label>
+                  <label htmlFor="death-date-signed" className="block text-sm font-medium text-content-secondary mb-1">{t('docDeathCertificate.dateSignedLabel')}</label>
                   <input
                     id="death-date-signed"
                     type="date"
@@ -964,19 +964,19 @@ const DeathCertificatePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-6 cursor-pointer hover:bg-gray-50 transition-colors"
+              <div className="border-2 border-dashed border-border-strong rounded-lg p-8 text-center mb-6 cursor-pointer hover:bg-surface-sunken transition-colors"
                    onClick={() => setCertifierInfo({ ...certifierInfo, signature: 'DIGITAL_SIG_' + Date.now() })}>
                 {certifierInfo.signature ? (
                   <div className="flex flex-col items-center">
                     <CheckCircle className="w-8 h-8 text-green-500 mb-2" />
-                    <p className="text-green-600 font-medium">{t('docDeathCertificate.signedDigitallyLabel')}</p>
-                    <p className="text-xs text-gray-400 mt-1">{certifierInfo.signature}</p>
+                    <p className="text-ok-subtle-fg font-medium">{t('docDeathCertificate.signedDigitallyLabel')}</p>
+                    <p className="text-xs text-content-muted mt-1">{certifierInfo.signature}</p>
                   </div>
                 ) : (
                   <>
-                    <PenTool className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-500">{t('docDeathCertificate.clickToSignLabel')}</p>
-                    <p className="text-xs text-gray-400 mt-1">{t('docDeathCertificate.orDrawSignature')}</p>
+                    <PenTool className="w-8 h-8 text-content-muted mx-auto mb-2" />
+                    <p className="text-content-muted">{t('docDeathCertificate.clickToSignLabel')}</p>
+                    <p className="text-xs text-content-muted mt-1">{t('docDeathCertificate.orDrawSignature')}</p>
                   </>
                 )}
               </div>
@@ -984,12 +984,12 @@ const DeathCertificatePage: React.FC = () => {
               <div className="flex justify-between">
                 <button
                   onClick={() => setCurrentStep(3)}
-                  className="px-6 py-2 border border-gray-300 rounded-lg font-medium"
+                  className="px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docDeathCertificate.backBtn')}
                 </button>
                 <div className="flex gap-3">
-                  <button className="px-6 py-2 border border-gray-300 rounded-lg font-medium">
+                  <button className="px-6 py-2 border border-border-strong rounded-lg font-medium">
                     {t('docDeathCertificate.saveAsDraftBtn')}
                   </button>
                   <button
@@ -998,7 +998,7 @@ const DeathCertificatePage: React.FC = () => {
                     className={`px-6 py-2 rounded-lg font-medium flex items-center gap-2 ${
                       certifierInfo.signature
                         ? 'bg-slate-800 text-white hover:bg-slate-900'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-gray-300 text-content-muted cursor-not-allowed'
                     }`}
                   >
                     <FileSignature className="w-4 h-4" />

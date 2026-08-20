@@ -105,13 +105,13 @@ export function FamilyGroupPage() {
     <div className="p-4 md:p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">{t('family.familyGroups')}</h1>
-        <p className="text-neutral-500">{t('family.subtitle')}</p>
+        <h1 className="text-2xl font-bold text-content">{t('family.familyGroups')}</h1>
+        <p className="text-content-muted">{t('family.subtitle')}</p>
       </div>
 
       {/* Create Group Form */}
       <div className="patient-card">
-        <h2 className="font-semibold text-neutral-800 mb-3 flex items-center gap-2">
+        <h2 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
           <Plus className="w-4 h-4 text-primary-500" />
           {t('family.createNewGroup')}
         </h2>
@@ -122,7 +122,7 @@ export function FamilyGroupPage() {
             value={newGroupName}
             onChange={e => setNewGroupName(e.target.value)}
             placeholder={t('family.groupNamePlaceholder')}
-            className="flex-1 border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+            className="flex-1 border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             required
           />
           <button
@@ -141,7 +141,7 @@ export function FamilyGroupPage() {
         {groups.length === 0 ? (
           <div className="text-center py-12">
             <Users className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-            <p className="text-neutral-500">{t('family.noGroups')}</p>
+            <p className="text-content-muted">{t('family.noGroups')}</p>
           </div>
         ) : (
           groups.map(group => (
@@ -160,16 +160,16 @@ export function FamilyGroupPage() {
                     <Users className="w-5 h-5 text-primary-600" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-neutral-900">{group.group_name}</h3>
-                    <p className="text-sm text-neutral-500">
+                    <h3 className="font-semibold text-content">{group.group_name}</h3>
+                    <p className="text-sm text-content-muted">
                       {t('family.memberCount', { count: group.members?.length || 0 })}
                     </p>
                   </div>
                 </div>
                 {expandedGroup === group.group_id ? (
-                  <ChevronUp className="w-5 h-5 text-neutral-400" />
+                  <ChevronUp className="w-5 h-5 text-content-muted" />
                 ) : (
-                  <ChevronDown className="w-5 h-5 text-neutral-400" />
+                  <ChevronDown className="w-5 h-5 text-content-muted" />
                 )}
               </button>
 
@@ -178,16 +178,16 @@ export function FamilyGroupPage() {
                   {/* Members List */}
                   {group.members && group.members.length > 0 && (
                     <div>
-                      <p className="text-xs font-medium text-neutral-500 uppercase mb-2">{t('family.membersShort')}</p>
+                      <p className="text-xs font-medium text-content-muted uppercase mb-2">{t('family.membersShort')}</p>
                       <div className="space-y-1">
                         {group.members.map((m, idx) => (
-                          <div key={m.patient_id || idx} className="flex items-center gap-2 text-sm text-neutral-700 py-1">
-                            <div className="w-6 h-6 bg-neutral-200 rounded-full flex items-center justify-center">
-                              <Users className="w-3 h-3 text-neutral-500" />
+                          <div key={m.patient_id || idx} className="flex items-center gap-2 text-sm text-content-secondary py-1">
+                            <div className="w-6 h-6 bg-surface-sunken rounded-full flex items-center justify-center">
+                              <Users className="w-3 h-3 text-content-muted" />
                             </div>
                             <span>{m.name || m.patient_id}</span>
                             {m.relationship && (
-                              <span className="text-xs text-neutral-400">({m.relationship})</span>
+                              <span className="text-xs text-content-muted">({m.relationship})</span>
                             )}
                           </div>
                         ))}
@@ -199,21 +199,21 @@ export function FamilyGroupPage() {
                   {addMemberGroupId !== group.group_id ? (
                     <button
                       onClick={() => setAddMemberGroupId(group.group_id)}
-                      className="w-full py-2 border-2 border-dashed border-neutral-200 rounded-lg text-sm text-neutral-500 hover:border-primary-300 hover:text-primary-600 transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-2 border-2 border-dashed border-border rounded-lg text-sm text-content-muted hover:border-primary-300 hover:text-primary-600 transition-colors flex items-center justify-center gap-2"
                     >
                       <UserPlus className="w-4 h-4" />
                       {t('family.addMember')}
                     </button>
                   ) : (
-                    <form onSubmit={handleAddMember} className="space-y-2 bg-neutral-50 rounded-lg p-3">
-                      <p className="text-sm font-medium text-neutral-700">{t('family.addMemberTo', { group: group.group_name })}</p>
+                    <form onSubmit={handleAddMember} className="space-y-2 bg-surface-sunken rounded-lg p-3">
+                      <p className="text-sm font-medium text-content-secondary">{t('family.addMemberTo', { group: group.group_name })}</p>
                       <label htmlFor={`member-id-${group.group_id}`} className="sr-only">{t('family.healthId')}</label>
                       <input
                         id={`member-id-${group.group_id}`}
                         value={newMemberHealthId}
                         onChange={e => setNewMemberHealthId(e.target.value)}
                         placeholder={t('family.memberIdPlaceholder')}
-                        className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                        className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
                         required
                       />
                       <label htmlFor={`member-rel-${group.group_id}`} className="sr-only">{t('family.relationship')}</label>
@@ -222,7 +222,7 @@ export function FamilyGroupPage() {
                         value={newMemberRelationship}
                         onChange={e => setNewMemberRelationship(e.target.value)}
                         placeholder={t('family.relationshipPlaceholder')}
-                        className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+                        className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
                       />
                       <div className="flex gap-2">
                         <button
@@ -236,7 +236,7 @@ export function FamilyGroupPage() {
                         <button
                           type="button"
                           onClick={() => { setAddMemberGroupId(null); setNewMemberHealthId(''); setNewMemberRelationship(''); }}
-                          className="flex-1 border border-neutral-200 py-2 rounded-lg text-sm text-neutral-600 hover:bg-neutral-50"
+                          className="flex-1 border border-border py-2 rounded-lg text-sm text-content-muted hover:bg-surface-sunken"
                         >
                           {t('common.cancel')}
                         </button>

@@ -79,7 +79,7 @@ export default function CriticalAlertsBanner({
         </div>
         <Link 
           to={viewAllLink}
-          className="bg-white text-red-600 px-4 py-2 rounded-lg font-medium hover:bg-red-50 transition-colors"
+          className="bg-surface text-critical-subtle-fg px-4 py-2 rounded-lg font-medium hover:bg-critical-subtle transition-colors"
         >
           View All
         </Link>

@@ -115,9 +115,9 @@ function AccessLogsPage() {
         return <Shield className="text-primary-600" size={16} />;
       case 'upload_record':
       case 'download_record':
-        return <FileText className="text-gray-600" size={16} />;
+        return <FileText className="text-content-muted" size={16} />;
       default:
-        return <Clock className="text-gray-400" size={16} />;
+        return <Clock className="text-content-muted" size={16} />;
     }
   };
 
@@ -170,16 +170,16 @@ function AccessLogsPage() {
             <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
               <FileText className="text-primary-600" size={24} />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('docAccessLogs.title')}</h1>
+            <h1 className="text-2xl font-bold text-content">{t('docAccessLogs.title')}</h1>
           </div>
-          <p className="text-gray-500">
+          <p className="text-content-muted">
             {t('docAccessLogs.subtitle')}
           </p>
         </div>
 
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors"
         >
           <Download size={18} />
           {t('docAccessLogs.exportCsv')}
@@ -188,11 +188,11 @@ function AccessLogsPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white rounded-xl shadow p-4">
+        <div className="bg-surface rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">{t('docAccessLogs.totalAccesses')}</p>
-              <p className="text-2xl font-bold text-gray-900">{logs.length}</p>
+              <p className="text-sm text-content-muted">{t('docAccessLogs.totalAccesses')}</p>
+              <p className="text-2xl font-bold text-content">{logs.length}</p>
             </div>
             <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
               <FileText className="text-primary-600" size={20} />
@@ -200,10 +200,10 @@ function AccessLogsPage() {
           </div>
         </div>
         
-        <div className="bg-white rounded-xl shadow p-4">
+        <div className="bg-surface rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">{t('docAccessLogs.emergencyAccesses')}</p>
+              <p className="text-sm text-content-muted">{t('docAccessLogs.emergencyAccesses')}</p>
               <p className="text-2xl font-bold text-emergency-600">
                 {logs.filter(l => l.emergency).length}
               </p>
@@ -214,11 +214,11 @@ function AccessLogsPage() {
           </div>
         </div>
         
-        <div className="bg-white rounded-xl shadow p-4">
+        <div className="bg-surface rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">{t('docAccessLogs.uniquePatients')}</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-content-muted">{t('docAccessLogs.uniquePatients')}</p>
+              <p className="text-2xl font-bold text-content">
                 {new Set(logs.map(l => l.patient_id)).size}
               </p>
             </div>
@@ -228,44 +228,44 @@ function AccessLogsPage() {
           </div>
         </div>
         
-        <div className="bg-white rounded-xl shadow p-4">
+        <div className="bg-surface rounded-xl shadow p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">{t('docAccessLogs.todaysAccesses')}</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-content-muted">{t('docAccessLogs.todaysAccesses')}</p>
+              <p className="text-2xl font-bold text-content">
                 {logs.filter(l => {
                   const today = new Date().toDateString();
                   return new Date(l.timestamp).toDateString() === today;
                 }).length}
               </p>
             </div>
-            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-              <Calendar className="text-gray-600" size={20} />
+            <div className="w-10 h-10 bg-surface-sunken rounded-lg flex items-center justify-center">
+              <Calendar className="text-content-muted" size={20} />
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow p-4 mb-6">
+      <div className="bg-surface rounded-xl shadow p-4 mb-6">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted" size={20} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('docAccessLogs.searchPlaceholder')}
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             />
           </div>
           
           <div className="flex items-center gap-2">
-            <Filter size={18} className="text-gray-400" />
+            <Filter size={18} className="text-content-muted" />
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as typeof filterType)}
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             >
               <option value="all">{t('docAccessLogs.filterAll')}</option>
               <option value="emergency">{t('docAccessLogs.filterEmergency')}</option>
@@ -276,7 +276,7 @@ function AccessLogsPage() {
       </div>
 
       {/* Logs Table */}
-      <div className="bg-white rounded-xl shadow overflow-hidden">
+      <div className="bg-surface rounded-xl shadow overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="animate-spin text-primary-600" size={32} />
@@ -284,65 +284,65 @@ function AccessLogsPage() {
         ) : paginatedLogs.length === 0 ? (
           <div className="text-center py-12">
             <FileText className="mx-auto mb-4 text-gray-300" size={48} />
-            <p className="text-gray-500">{t('docAccessLogs.noneFound')}</p>
+            <p className="text-content-muted">{t('docAccessLogs.noneFound')}</p>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-surface-sunken border-b border-border">
                   <tr>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-content-muted uppercase tracking-wider">
                       {t('docAccessLogs.colAccessType')}
                     </th>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-content-muted uppercase tracking-wider">
                       {t('docAccessLogs.colPatient')}
                     </th>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-content-muted uppercase tracking-wider">
                       {t('docAccessLogs.colAccessor')}
                     </th>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-content-muted uppercase tracking-wider">
                       {t('docAccessLogs.colLocation')}
                     </th>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-content-muted uppercase tracking-wider">
                       {t('docAccessLogs.colTimestamp')}
                     </th>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-content-muted uppercase tracking-wider">
                       {t('docAccessLogs.colStatus')}
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-border">
                   {paginatedLogs.map((log) => {
                     const { date, time } = formatTimestamp(log.timestamp);
                     return (
-                      <tr key={log.access_id} className="hover:bg-gray-50">
+                      <tr key={log.access_id} className="hover:bg-surface-sunken">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
                             {getAccessTypeIcon(log.access_type, log.emergency)}
-                            <span className="text-sm font-medium text-gray-900">
+                            <span className="text-sm font-medium text-content">
                               {getAccessTypeLabel(log.access_type)}
                             </span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-sm font-mono text-gray-900">{log.patient_id}</span>
+                          <span className="text-sm font-mono text-content">{log.patient_id}</span>
                         </td>
                         <td className="px-6 py-4">
                           <div>
-                            <span className="text-sm font-mono text-gray-900">{log.accessor_id}</span>
-                            <p className="text-xs text-gray-500">{log.accessor_role}</p>
+                            <span className="text-sm font-mono text-content">{log.accessor_id}</span>
+                            <p className="text-xs text-content-muted">{log.accessor_role}</p>
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-sm text-gray-500">
+                          <span className="text-sm text-content-muted">
                             {log.location || '-'}
                           </span>
                         </td>
                         <td className="px-6 py-4">
                           <div>
-                            <span className="text-sm text-gray-900">{date}</span>
-                            <p className="text-xs text-gray-500">{time}</p>
+                            <span className="text-sm text-content">{date}</span>
+                            <p className="text-xs text-content-muted">{time}</p>
                           </div>
                         </td>
                         <td className="px-6 py-4">
@@ -367,8 +367,8 @@ function AccessLogsPage() {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
-                <p className="text-sm text-gray-500">
+              <div className="flex items-center justify-between px-6 py-4 border-t border-border">
+                <p className="text-sm text-content-muted">
                   {t('docAccessLogs.showingResults', {
                     from: (currentPage - 1) * logsPerPage + 1,
                     to: Math.min(currentPage * logsPerPage, filteredLogs.length),
@@ -379,17 +379,17 @@ function AccessLogsPage() {
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft size={20} />
                   </button>
-                  <span className="text-sm text-gray-700">
+                  <span className="text-sm text-content-secondary">
                     {t('docAccessLogs.pageOf', { current: currentPage, total: totalPages })}
                   </span>
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-2 rounded-lg hover:bg-surface-sunken disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronRight size={20} />
                   </button>

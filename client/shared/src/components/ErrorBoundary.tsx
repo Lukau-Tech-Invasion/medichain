@@ -109,36 +109,36 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       // Default error UI
       return (
         <div 
-          className="min-h-screen bg-gray-100 flex items-center justify-center p-4"
+          className="min-h-screen bg-surface-sunken flex items-center justify-center p-4"
           role="alert"
           aria-live="assertive"
         >
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+          <div className="bg-surface rounded-lg shadow-xl max-w-lg w-full p-6">
             {/* Header */}
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-red-100 rounded-full">
-                <AlertTriangle className="w-8 h-8 text-red-600" aria-hidden="true" />
+              <div className="p-3 bg-critical-subtle rounded-full">
+                <AlertTriangle className="w-8 h-8 text-critical-subtle-fg" aria-hidden="true" />
               </div>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900">
+                <h1 className="text-xl font-semibold text-content">
                   {this.props.title || 'Something went wrong'}
                 </h1>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-content-muted">
                   An unexpected error occurred
                 </p>
               </div>
             </div>
 
             {/* Error Message */}
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-              <p className="text-sm text-red-800 font-medium">
+            <div className="bg-critical-subtle border border-critical rounded-lg p-4 mb-4">
+              <p className="text-sm text-critical-subtle-fg font-medium">
                 {this.state.error?.message || 'Unknown error'}
               </p>
             </div>
 
             {/* Medical System Notice */}
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-              <p className="text-sm text-yellow-800">
+            <div className="bg-caution-subtle border border-caution rounded-lg p-4 mb-4">
+              <p className="text-sm text-caution-subtle-fg">
                 <strong>Medical System Notice:</strong> If you need immediate access to 
                 patient information, please use the backup access procedures or contact 
                 IT support at extension 1234.
@@ -158,7 +158,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               
               <button
                 onClick={this.handleGoHome}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                className="flex items-center gap-2 px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                 aria-label="Go to dashboard"
               >
                 <Home className="w-4 h-4" aria-hidden="true" />
@@ -167,7 +167,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
               <button
                 onClick={this.handleReload}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                className="flex items-center gap-2 px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                 aria-label="Reload the page"
               >
                 <RefreshCw className="w-4 h-4" aria-hidden="true" />
@@ -180,7 +180,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               <div className="border-t pt-4">
                 <button
                   onClick={this.toggleStack}
-                  className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 mb-2"
+                  className="flex items-center gap-2 text-sm text-content-muted hover:text-content-secondary mb-2"
                   aria-expanded={this.state.showStack}
                   aria-controls="error-stack-trace"
                 >
@@ -196,13 +196,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                     <p className="text-red-400 mb-2">
                       {this.state.error?.name}: {this.state.error?.message}
                     </p>
-                    <pre className="whitespace-pre-wrap text-gray-400">
+                    <pre className="whitespace-pre-wrap text-content-muted">
                       {this.state.error?.stack}
                     </pre>
                     {this.state.errorInfo && (
                       <>
                         <p className="text-yellow-400 mt-4 mb-2">Component Stack:</p>
-                        <pre className="whitespace-pre-wrap text-gray-400">
+                        <pre className="whitespace-pre-wrap text-content-muted">
                           {this.state.errorInfo.componentStack}
                         </pre>
                       </>
@@ -261,21 +261,21 @@ export function InlineErrorFallback({
 }: InlineErrorFallbackProps): JSX.Element {
   return (
     <div 
-      className="bg-red-50 border border-red-200 rounded-lg p-4"
+      className="bg-critical-subtle border border-critical rounded-lg p-4"
       role="alert"
     >
       <div className="flex items-center gap-2 mb-2">
         <AlertTriangle className="w-5 h-5 text-red-500" aria-hidden="true" />
-        <span className="font-medium text-red-800">
+        <span className="font-medium text-critical-subtle-fg">
           Error loading {componentName}
         </span>
       </div>
-      <p className="text-sm text-red-600 mb-3">
+      <p className="text-sm text-critical-subtle-fg mb-3">
         {error?.message || 'An unexpected error occurred'}
       </p>
       <button
         onClick={resetError}
-        className="text-sm text-red-700 underline hover:text-red-900 focus:outline-none focus:ring-2 focus:ring-red-500 rounded"
+        className="text-sm text-critical-subtle-fg underline hover:text-critical-subtle-fg focus:outline-none focus:ring-2 focus:ring-red-500 rounded"
       >
         Try again
       </button>

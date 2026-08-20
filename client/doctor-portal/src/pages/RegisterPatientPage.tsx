@@ -144,23 +144,23 @@ function RegisterPatientPage() {
   if (success) {
     return (
       <div className="p-8">
-        <div className="max-w-lg mx-auto bg-white rounded-xl shadow p-8 text-center">
+        <div className="max-w-lg mx-auto bg-surface rounded-xl shadow p-8 text-center">
           <div className="w-16 h-16 bg-success-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="text-success-600" size={32} />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">{t('docRegisterPatient.registered')}</h2>
-          <p className="text-gray-500 mb-6">
+          <h2 className="text-2xl font-bold text-content mb-2">{t('docRegisterPatient.registered')}</h2>
+          <p className="text-content-muted mb-6">
             {t('docRegisterPatient.registeredBody')}
           </p>
           
-          <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left">
+          <div className="bg-surface-sunken rounded-lg p-4 mb-6 text-left">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-500">{t('docRegisterPatient.patientId')}</p>
+                <p className="text-sm text-content-muted">{t('docRegisterPatient.patientId')}</p>
                 <p className="font-mono font-medium">{success.patientId}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">{t('docRegisterPatient.nfcTagId')}</p>
+                <p className="text-sm text-content-muted">{t('docRegisterPatient.nfcTagId')}</p>
                 <p className="font-mono font-medium">{success.nfcTagId}</p>
               </div>
             </div>
@@ -172,7 +172,7 @@ function RegisterPatientPage() {
                 setSuccess(null);
                 setFormData(initialFormData);
               }}
-              className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex-1 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors"
             >
               {t('docRegisterPatient.registerAnother')}
             </button>
@@ -196,9 +196,9 @@ function RegisterPatientPage() {
           <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
             <UserPlus className="text-primary-600" size={24} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('docRegisterPatient.title')}</h1>
+          <h1 className="text-2xl font-bold text-content">{t('docRegisterPatient.title')}</h1>
         </div>
-        <p className="text-gray-500">
+        <p className="text-content-muted">
           {t('docRegisterPatient.subtitle')}
         </p>
       </div>
@@ -211,12 +211,12 @@ function RegisterPatientPage() {
       )}
 
       <form onSubmit={handleSubmit} className="max-w-3xl">
-        <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h3 className="font-semibold text-gray-900 mb-4">{t('docRegisterPatient.personalInfo')}</h3>
+        <div className="bg-surface rounded-xl shadow p-6 mb-6">
+          <h3 className="font-semibold text-content mb-4">{t('docRegisterPatient.personalInfo')}</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="register-full-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.fullName')}</label>
+              <label htmlFor="register-full-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.fullName')}</label>
               <input
                 type="text"
                 id="register-full-name"
@@ -224,13 +224,13 @@ function RegisterPatientPage() {
                 value={formData.fullName}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                 placeholder={t('docRegisterPatient.fullNamePlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-date-of-birth" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.dob')}</label>
+              <label htmlFor="register-date-of-birth" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.dob')}</label>
               <input
                 type="date"
                 id="register-date-of-birth"
@@ -238,12 +238,12 @@ function RegisterPatientPage() {
                 value={formData.dateOfBirth}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
               />
             </div>
 
             <div className="md:col-span-2">
-              <label htmlFor="register-wallet-address" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.walletAddress')}</label>
+              <label htmlFor="register-wallet-address" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.walletAddress')}</label>
               <input
                 type="text"
                 id="register-wallet-address"
@@ -251,13 +251,13 @@ function RegisterPatientPage() {
                 value={formData.walletAddress}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                 placeholder={t('docRegisterPatient.walletAddressPlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-national-id" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.nationalId')}</label>
+              <label htmlFor="register-national-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.nationalId')}</label>
               <input
                 type="text"
                 id="register-national-id"
@@ -265,20 +265,20 @@ function RegisterPatientPage() {
                 value={formData.nationalId}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                 placeholder={t('docRegisterPatient.nationalIdPlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-blood-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.bloodType')}</label>
+              <label htmlFor="register-blood-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.bloodType')}</label>
               <select
                 id="register-blood-type"
                 name="bloodType"
                 value={formData.bloodType}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectBloodType')}</option>
                 {bloodTypes.map(bt => (
@@ -288,13 +288,13 @@ function RegisterPatientPage() {
             </div>
 
             <div>
-              <label htmlFor="register-gender" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.gender')}</label>
+              <label htmlFor="register-gender" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.gender')}</label>
               <select
                 id="register-gender"
                 name="gender"
                 value={formData.gender}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectGender')}</option>
                 {genders.map(g => (
@@ -305,13 +305,13 @@ function RegisterPatientPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h3 className="font-semibold text-gray-900 mb-4">{t('docRegisterPatient.medicalInfo')}</h3>
+        <div className="bg-surface rounded-xl shadow p-6 mb-6">
+          <h3 className="font-semibold text-content mb-4">{t('docRegisterPatient.medicalInfo')}</h3>
           
           <div className="space-y-4">
             <div>
-              <label htmlFor="register-allergies" className="block text-sm font-medium text-gray-700 mb-1">
-                {t('docRegisterPatient.allergies')} <span className="text-gray-400">{t('docRegisterPatient.commaSeparated')}</span>
+              <label htmlFor="register-allergies" className="block text-sm font-medium text-content-secondary mb-1">
+                {t('docRegisterPatient.allergies')} <span className="text-content-muted">{t('docRegisterPatient.commaSeparated')}</span>
               </label>
               <input
                 type="text"
@@ -319,14 +319,14 @@ function RegisterPatientPage() {
                 name="allergies"
                 value={formData.allergies}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                 placeholder={t('docRegisterPatient.allergiesPlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-current-medications" className="block text-sm font-medium text-gray-700 mb-1">
-                {t('docRegisterPatient.currentMeds')} <span className="text-gray-400">{t('docRegisterPatient.commaSeparated')}</span>
+              <label htmlFor="register-current-medications" className="block text-sm font-medium text-content-secondary mb-1">
+                {t('docRegisterPatient.currentMeds')} <span className="text-content-muted">{t('docRegisterPatient.commaSeparated')}</span>
               </label>
               <textarea
                 id="register-current-medications"
@@ -334,14 +334,14 @@ function RegisterPatientPage() {
                 value={formData.currentMedications}
                 onChange={handleChange}
                 rows={2}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
                 placeholder={t('docRegisterPatient.currentMedsPlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-chronic-conditions" className="block text-sm font-medium text-gray-700 mb-1">
-                {t('docRegisterPatient.chronicConditions')} <span className="text-gray-400">{t('docRegisterPatient.commaSeparated')}</span>
+              <label htmlFor="register-chronic-conditions" className="block text-sm font-medium text-content-secondary mb-1">
+                {t('docRegisterPatient.chronicConditions')} <span className="text-content-muted">{t('docRegisterPatient.commaSeparated')}</span>
               </label>
               <input
                 type="text"
@@ -349,7 +349,7 @@ function RegisterPatientPage() {
                 name="chronicConditions"
                 value={formData.chronicConditions}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                 placeholder={t('docRegisterPatient.chronicPlaceholder')}
               />
             </div>
@@ -364,7 +364,7 @@ function RegisterPatientPage() {
                   onChange={handleChange}
                   className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
                 />
-                <span className="text-sm text-gray-700">{t('docRegisterPatient.organDonor')}</span>
+                <span className="text-sm text-content-secondary">{t('docRegisterPatient.organDonor')}</span>
               </label>
               
               <label htmlFor="register-dnr-status" className="flex items-center gap-2 cursor-pointer">
@@ -376,18 +376,18 @@ function RegisterPatientPage() {
                   onChange={handleChange}
                   className="w-4 h-4 text-emergency-600 rounded focus:ring-emergency-500"
                 />
-                <span className="text-sm text-gray-700">{t('docRegisterPatient.dnr')}</span>
+                <span className="text-sm text-content-secondary">{t('docRegisterPatient.dnr')}</span>
               </label>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-6 mb-6">
-          <h3 className="font-semibold text-gray-900 mb-4">{t('docRegisterPatient.emergencyContact')}</h3>
+        <div className="bg-surface rounded-xl shadow p-6 mb-6">
+          <h3 className="font-semibold text-content mb-4">{t('docRegisterPatient.emergencyContact')}</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label htmlFor="register-emergency-contact-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.contactName')}</label>
+              <label htmlFor="register-emergency-contact-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.contactName')}</label>
               <input
                 type="text"
                 id="register-emergency-contact-name"
@@ -395,13 +395,13 @@ function RegisterPatientPage() {
                 value={formData.emergencyContactName}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                 placeholder={t('docRegisterPatient.contactNamePlaceholder')}
               />
             </div>
             
             <div>
-              <label htmlFor="register-emergency-contact-phone" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.phone')}</label>
+              <label htmlFor="register-emergency-contact-phone" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.phone')}</label>
               <input
                 type="tel"
                 id="register-emergency-contact-phone"
@@ -411,17 +411,17 @@ function RegisterPatientPage() {
                 required
                 aria-invalid={phoneError ? true : undefined}
                 className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none ${
-                  phoneError ? 'border-red-400' : 'border-gray-200'
+                  phoneError ? 'border-critical' : 'border-border'
                 }`}
                 placeholder={t('docRegisterPatient.phonePlaceholder')}
               />
               {phoneError && (
-                <p className="mt-1 text-sm text-red-600">{phoneError}</p>
+                <p className="mt-1 text-sm text-critical-subtle-fg">{phoneError}</p>
               )}
             </div>
             
             <div>
-              <label htmlFor="register-emergency-contact-relationship" className="block text-sm font-medium text-gray-700 mb-1">{t('docRegisterPatient.relationship')}</label>
+              <label htmlFor="register-emergency-contact-relationship" className="block text-sm font-medium text-content-secondary mb-1">{t('docRegisterPatient.relationship')}</label>
               <input
                 type="text"
                 id="register-emergency-contact-relationship"
@@ -429,7 +429,7 @@ function RegisterPatientPage() {
                 value={formData.emergencyContactRelationship}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                 placeholder={t('docRegisterPatient.relationshipPlaceholder')}
               />
             </div>
@@ -440,7 +440,7 @@ function RegisterPatientPage() {
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            className="px-6 py-3 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors"
           >
             {t('docRegisterPatient.cancel')}
           </button>

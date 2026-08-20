@@ -218,7 +218,7 @@ export default function AdminDashboardPage() {
       case 'online': return 'text-green-500';
       case 'degraded': return 'text-amber-500';
       case 'offline': return 'text-red-500';
-      default: return 'text-gray-500';
+      default: return 'text-content-muted';
     }
   };
 
@@ -227,7 +227,7 @@ export default function AdminDashboardPage() {
       case 'online': return <CheckCircle className="text-green-500" size={18} />;
       case 'degraded': return <AlertTriangle className="text-amber-500" size={18} />;
       case 'offline': return <AlertTriangle className="text-red-500" size={18} />;
-      default: return <Clock className="text-gray-500" size={18} />;
+      default: return <Clock className="text-content-muted" size={18} />;
     }
   };
 
@@ -237,9 +237,9 @@ export default function AdminDashboardPage() {
       case 'emergency':
         return 'bg-orange-100 text-orange-700';
       case 'fail':
-        return 'bg-red-100 text-red-700';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       default:
-        return 'bg-green-100 text-green-700';
+        return 'bg-ok-subtle text-ok-subtle-fg';
     }
   };
 
@@ -257,10 +257,10 @@ export default function AdminDashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-surface-sunken">
         <div className="text-center">
           <Loader2 className="mx-auto animate-spin text-purple-600" size={48} />
-          <p className="mt-4 text-gray-600">{t('docAdmin.loading')}</p>
+          <p className="mt-4 text-content-muted">{t('docAdmin.loading')}</p>
         </div>
       </div>
     );
@@ -268,8 +268,8 @@ export default function AdminDashboardPage() {
 
   if (!data) {
     return (
-      <div className="p-6 bg-gray-50 min-h-screen">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+      <div className="p-6 bg-surface-sunken min-h-screen">
+        <div className="bg-critical-subtle border border-critical rounded-lg p-4 text-critical-subtle-fg">
           {t('docAdmin.loadError')}
         </div>
       </div>
@@ -277,12 +277,12 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+    <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('docAdmin.title')}</h1>
-          <p className="text-gray-500">{t('docAdmin.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('docAdmin.title')}</h1>
+          <p className="text-content-muted">{t('docAdmin.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
@@ -293,9 +293,9 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* System Status Banner */}
-      <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
+      <div className="bg-surface rounded-lg shadow p-4 border border-border">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2">
             <Server size={16} />
             {t('docAdmin.systemStatus')}
           </h3>
@@ -303,18 +303,18 @@ export default function AdminDashboardPage() {
             <button
               onClick={loadHealthStatus}
               disabled={healthLoading}
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+              className="flex items-center gap-1 text-xs text-notice-subtle-fg hover:text-notice-subtle-fg disabled:text-content-muted"
             >
               <RefreshCw size={12} className={healthLoading ? 'animate-spin' : ''} />
               {t('docAdmin.refresh')}
             </button>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-content-muted">
               {t('docAdmin.lastCheck', { time: formatClock(lastHealthCheck) })}
             </span>
           </div>
         </div>
         {healthLoading && systemStatus.length === 0 ? (
-          <div className="flex items-center gap-2 text-gray-500">
+          <div className="flex items-center gap-2 text-content-muted">
             <Loader2 size={16} className="animate-spin" />
             <span className="text-sm">{t('docAdmin.checkingHealth')}</span>
           </div>
@@ -323,7 +323,7 @@ export default function AdminDashboardPage() {
             {systemStatus.map((system) => (
               <div key={system.name} className="flex items-center gap-2">
                 {getStatusIcon(system.status)}
-                <span className="text-sm text-gray-700">{system.name}:</span>
+                <span className="text-sm text-content-secondary">{system.name}:</span>
                 <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${getStatusColor(system.status)}`}>
                   <span
                     className={`inline-block w-2 h-2 rounded-full ${
@@ -342,7 +342,7 @@ export default function AdminDashboardPage() {
                     : t('docAdmin.statusOffline')}
                 </span>
                 {system.latency_ms !== undefined && system.latency_ms !== null && (
-                  <span className="text-xs text-gray-400">({system.latency_ms}ms)</span>
+                  <span className="text-xs text-content-muted">({system.latency_ms}ms)</span>
                 )}
               </div>
             ))}
@@ -363,20 +363,20 @@ export default function AdminDashboardPage() {
           icon={<Activity size={24} />}
           label={t('docAdmin.totalPatients')}
           value={data.system_stats?.total_patients || 0}
-          color="bg-blue-100"
+          color="bg-notice-subtle"
           onClick={() => navigate('/patient-search')}
         />
         <StatCard
           icon={<Siren size={24} />}
           label={t('docAdmin.emergencyEvents')}
           value={data.emergency_events?.total || 0}
-          color="bg-red-100"
+          color="bg-critical-subtle"
         />
         <StatCard
           icon={<FileText size={24} />}
           label={t('docAdmin.accessLogsToday')}
           value={data.recent_access_logs?.length || 0}
-          color="bg-green-100"
+          color="bg-ok-subtle"
           onClick={() => navigate('/access-logs')}
         />
       </div>
@@ -384,8 +384,8 @@ export default function AdminDashboardPage() {
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Users by Role */}
-        <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
             <Users size={16} />
             {t('docAdmin.usersByRole')}
           </h3>
@@ -400,10 +400,10 @@ export default function AdminDashboardPage() {
               <div key={item.role} className="flex items-center gap-3">
                 <div className="flex-1">
                   <div className="flex items-center justify-between text-sm mb-1">
-                    <span className="text-gray-700">{item.role}</span>
+                    <span className="text-content-secondary">{item.role}</span>
                     <span className="font-medium">{item.count}</span>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div className="w-full bg-surface-sunken rounded-full h-2">
                     <div
                       className={`h-2 rounded-full ${item.color}`}
                       style={{ width: `${Math.min((item.count / (data.system_stats?.total_users || 1)) * 100, 100)}%` }}
@@ -422,17 +422,17 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Emergency Events */}
-        <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
             <Siren size={16} />
             {t('docAdmin.emergencyEventsHeader')}
           </h3>
           <div className="grid grid-cols-2 gap-4">
             {[
-              { type: t('docAdmin.evtCodeBlue'), count: data.emergency_events?.code_blues || 0, color: 'bg-red-100 text-red-700' },
+              { type: t('docAdmin.evtCodeBlue'), count: data.emergency_events?.code_blues || 0, color: 'bg-critical-subtle text-critical-subtle-fg' },
               { type: t('docAdmin.evtTrauma'), count: data.emergency_events?.traumas || 0, color: 'bg-orange-100 text-orange-700' },
-              { type: t('docAdmin.evtStroke'), count: data.emergency_events?.strokes || 0, color: 'bg-yellow-100 text-yellow-700' },
-              { type: t('docAdmin.evtSepsis'), count: data.emergency_events?.sepsis_cases || 0, color: 'bg-amber-100 text-amber-700' },
+              { type: t('docAdmin.evtStroke'), count: data.emergency_events?.strokes || 0, color: 'bg-caution-subtle text-caution-subtle-fg' },
+              { type: t('docAdmin.evtSepsis'), count: data.emergency_events?.sepsis_cases || 0, color: 'bg-caution-subtle text-caution-subtle-fg' },
             ].map((event) => (
               <div key={event.type} className={`p-3 rounded-lg ${event.color}`}>
                 <div className="text-2xl font-bold">{event.count}</div>
@@ -442,7 +442,7 @@ export default function AdminDashboardPage() {
           </div>
           <button
             onClick={() => navigate('/emergency-protocols')}
-            className="mt-4 w-full py-2 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+            className="mt-4 w-full py-2 text-sm text-critical-subtle-fg hover:text-critical-subtle-fg hover:bg-critical-subtle rounded transition-colors"
           >
             {t('docAdmin.viewEmergencyLog')}
           </button>
@@ -450,9 +450,9 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Access Logs Table */}
-      <div className="bg-white rounded-lg shadow border border-gray-200">
+      <div className="bg-surface rounded-lg shadow border border-border">
         <div className="px-4 py-3 border-b flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-content-secondary flex items-center gap-2">
             <FileText size={16} />
             {t('docAdmin.recentAccessLogs')}
           </h3>
@@ -464,17 +464,17 @@ export default function AdminDashboardPage() {
           </button>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-border">
+            <thead className="bg-surface-sunken">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docAdmin.colTime')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docAdmin.colUser')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docAdmin.colAction')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docAdmin.colPatient')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docAdmin.colType')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docAdmin.colTime')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docAdmin.colUser')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docAdmin.colAction')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docAdmin.colPatient')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docAdmin.colType')}</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-surface divide-y divide-border">
               {data.recent_access_logs?.slice(0, 10).map((log) => {
                 // `is_emergency_access` is the authoritative flag; matching on
                 // the action string was a guess that only ever worked if the
@@ -485,17 +485,17 @@ export default function AdminDashboardPage() {
                     ? 'fail'
                     : 'normal';
                 return (
-                <tr key={log.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                <tr key={log.id} className="hover:bg-surface-sunken">
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-content-muted">
                     {formatWhen(log.accessed_at)}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-content">
                     {truncateId(log.accessor_id)}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-content-muted">
                     {log.action || '—'}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-content-muted">
                     {truncateId(log.patient_id)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -522,7 +522,7 @@ export default function AdminDashboardPage() {
               })}
               {(!data.recent_access_logs || data.recent_access_logs.length === 0) && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-content-muted">
                     {t('docAdmin.noAccessLogs')}
                   </td>
                 </tr>
@@ -535,27 +535,27 @@ export default function AdminDashboardPage() {
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* NFC Card Status */}
-        <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
             <CreditCard size={16} />
             {t('docAdmin.nfcCardStatus')}
           </h3>
           <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-gray-900">{data.nfc_cards?.total || 0}</div>
-              <div className="text-xs text-gray-500">{t('docAdmin.totalIssued')}</div>
+            <div className="text-center p-3 bg-surface-sunken rounded-lg">
+              <div className="text-2xl font-bold text-content">{data.nfc_cards?.total || 0}</div>
+              <div className="text-xs text-content-muted">{t('docAdmin.totalIssued')}</div>
             </div>
-            <div className="text-center p-3 bg-green-50 rounded-lg">
-              <div className="text-2xl font-bold text-green-700">
+            <div className="text-center p-3 bg-ok-subtle rounded-lg">
+              <div className="text-2xl font-bold text-ok-subtle-fg">
                 {data.nfc_cards?.cards?.filter(c => c.status === 'active').length || 0}
               </div>
-              <div className="text-xs text-green-600">{t('docAdmin.active')}</div>
+              <div className="text-xs text-ok-subtle-fg">{t('docAdmin.active')}</div>
             </div>
-            <div className="text-center p-3 bg-red-50 rounded-lg">
-              <div className="text-2xl font-bold text-red-700">
+            <div className="text-center p-3 bg-critical-subtle rounded-lg">
+              <div className="text-2xl font-bold text-critical-subtle-fg">
                 {data.nfc_cards?.cards?.filter(c => c.status === 'revoked').length || 0}
               </div>
-              <div className="text-xs text-red-600">{t('docAdmin.revoked')}</div>
+              <div className="text-xs text-critical-subtle-fg">{t('docAdmin.revoked')}</div>
             </div>
           </div>
           <div className="flex gap-2">
@@ -567,7 +567,7 @@ export default function AdminDashboardPage() {
             </button>
             <button
               onClick={() => navigate('/barcode')}
-              className="flex-1 py-2 text-sm border border-gray-300 text-gray-700 rounded hover:bg-gray-50 transition-colors"
+              className="flex-1 py-2 text-sm border border-border-strong text-content-secondary rounded hover:bg-surface-sunken transition-colors"
             >
               {t('docAdmin.viewAllCards')}
             </button>
@@ -575,23 +575,23 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Lab Submission Stats */}
-        <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+          <h3 className="text-sm font-semibold text-content-secondary mb-4 flex items-center gap-2">
             <Database size={16} />
             {t('docAdmin.labSubmissionStats')}
           </h3>
           <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <div className="text-2xl font-bold text-gray-900">{data.lab_submissions?.total || 0}</div>
-              <div className="text-xs text-gray-500">{t('docAdmin.total')}</div>
+            <div className="text-center p-3 bg-surface-sunken rounded-lg">
+              <div className="text-2xl font-bold text-content">{data.lab_submissions?.total || 0}</div>
+              <div className="text-xs text-content-muted">{t('docAdmin.total')}</div>
             </div>
-            <div className="text-center p-3 bg-amber-50 rounded-lg">
-              <div className="text-2xl font-bold text-amber-700">{data.lab_submissions?.pending || 0}</div>
-              <div className="text-xs text-amber-600">{t('docAdmin.pending')}</div>
+            <div className="text-center p-3 bg-caution-subtle rounded-lg">
+              <div className="text-2xl font-bold text-caution-subtle-fg">{data.lab_submissions?.pending || 0}</div>
+              <div className="text-xs text-caution-subtle-fg">{t('docAdmin.pending')}</div>
             </div>
-            <div className="text-center p-3 bg-green-50 rounded-lg">
-              <div className="text-2xl font-bold text-green-700">{data.lab_submissions?.approved || 0}</div>
-              <div className="text-xs text-green-600">{t('docAdmin.approved')}</div>
+            <div className="text-center p-3 bg-ok-subtle rounded-lg">
+              <div className="text-2xl font-bold text-ok-subtle-fg">{data.lab_submissions?.approved || 0}</div>
+              <div className="text-xs text-ok-subtle-fg">{t('docAdmin.approved')}</div>
             </div>
           </div>
           <button

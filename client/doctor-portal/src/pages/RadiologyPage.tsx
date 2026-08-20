@@ -263,11 +263,11 @@ const RadiologyPage: React.FC = () => {
 
   const getStatusBadge = (status: ReportStatus) => {
     const styles: Record<ReportStatus, string> = {
-      pending: 'bg-red-100 text-red-700',
-      'in-progress': 'bg-yellow-100 text-yellow-700',
+      pending: 'bg-critical-subtle text-critical-subtle-fg',
+      'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
       preliminary: 'bg-orange-100 text-orange-700',
-      final: 'bg-green-100 text-green-700',
-      addendum: 'bg-blue-100 text-blue-700'
+      final: 'bg-ok-subtle text-ok-subtle-fg',
+      addendum: 'bg-notice-subtle text-notice-subtle-fg'
     };
     return styles[status];
   };
@@ -321,10 +321,10 @@ const RadiologyPage: React.FC = () => {
             <Scan className="w-8 h-8 text-blue-400" />
             <div>
               <h1 className="text-xl font-bold">{t('docRadiology.title')}</h1>
-              <p className="text-gray-400 text-sm">{t('docRadiology.subtitle')}</p>
+              <p className="text-content-muted text-sm">{t('docRadiology.subtitle')}</p>
             </div>
           </div>
-          <div className="text-sm text-gray-400">
+          <div className="text-sm text-content-muted">
             {t('docRadiology.radiologistLabel', { name: user?.walletAddress || t('docRadiology.notLoggedIn') })}
           </div>
         </div>
@@ -340,8 +340,8 @@ const RadiologyPage: React.FC = () => {
               key={tab.id}
               onClick={() => setActiveTab(tab.id as 'worklist' | 'report' | 'search')}
               className={`px-6 py-3 font-medium flex items-center gap-2 ${activeTab === tab.id
-                ? 'text-blue-400 border-b-2 border-blue-400'
-                : 'text-gray-400 hover:text-gray-200'}`}
+                ? 'text-blue-400 border-b-2 border-notice'
+                : 'text-content-muted hover:text-gray-200'}`}
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
@@ -356,7 +356,7 @@ const RadiologyPage: React.FC = () => {
             {/* Filters */}
             <div className="flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2 flex-1 min-w-64">
-                <Search className="w-5 h-5 text-gray-400" />
+                <Search className="w-5 h-5 text-content-muted" />
                 <input
                   type="text"
                   placeholder={t('docRadiology.searchPlaceholder')}
@@ -416,7 +416,7 @@ const RadiologyPage: React.FC = () => {
                       </td>
                       <td className="p-3">
                         <div>{s.patientName}</div>
-                        <div className="text-xs text-gray-400">{t('docRadiology.mrnDob', { mrn: s.mrn, dob: s.dob })}</div>
+                        <div className="text-xs text-content-muted">{t('docRadiology.mrnDob', { mrn: s.mrn, dob: s.dob })}</div>
                       </td>
                       <td className="p-3">
                         <div className="flex items-center gap-2">
@@ -425,7 +425,7 @@ const RadiologyPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="p-3 text-center">{s.numImages}</td>
-                      <td className="p-3 text-gray-400">{new Date(s.studyDate).toLocaleString()}</td>
+                      <td className="p-3 text-content-muted">{new Date(s.studyDate).toLocaleString()}</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs ${getStatusBadge(s.status)}`}>
                           {statusLabel(s.status)}
@@ -467,7 +467,7 @@ const RadiologyPage: React.FC = () => {
                 <p><strong>{t('docRadiology.lblReferring')}</strong> {selectedStudy.referringPhysician}</p>
                 <p><strong>{t('docRadiology.lblImages')}</strong> {selectedStudy.numImages}</p>
               </div>
-              <div className="mt-4 p-3 bg-gray-900 rounded text-center text-gray-500">
+              <div className="mt-4 p-3 bg-gray-900 rounded text-center text-content-muted">
                 {t('docRadiology.dicomPlaceholder')}<br />
                 {t('docRadiology.dicomHint')}
               </div>
@@ -477,7 +477,7 @@ const RadiologyPage: React.FC = () => {
             <div className="bg-gray-800 rounded-lg p-4 space-y-4">
               <h2 className="font-semibold text-blue-400">{t('docRadiology.reportTitle')}</h2>
               <div>
-                <label htmlFor="rad-technique" className="text-sm text-gray-400">{t('docRadiology.technique')}</label>
+                <label htmlFor="rad-technique" className="text-sm text-content-muted">{t('docRadiology.technique')}</label>
                 <textarea
                   id="rad-technique"
                   value={technique}
@@ -487,7 +487,7 @@ const RadiologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="rad-comparison" className="text-sm text-gray-400">{t('docRadiology.comparison')}</label>
+                <label htmlFor="rad-comparison" className="text-sm text-content-muted">{t('docRadiology.comparison')}</label>
                 <input
                   id="rad-comparison"
                   type="text"
@@ -498,7 +498,7 @@ const RadiologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="rad-findings" className="text-sm text-gray-400">{t('docRadiology.findings')}</label>
+                <label htmlFor="rad-findings" className="text-sm text-content-muted">{t('docRadiology.findings')}</label>
                 <textarea
                   id="rad-findings"
                   value={findings}
@@ -508,7 +508,7 @@ const RadiologyPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="rad-impression" className="text-sm text-gray-400">{t('docRadiology.impression')}</label>
+                <label htmlFor="rad-impression" className="text-sm text-content-muted">{t('docRadiology.impression')}</label>
                 <textarea
                   id="rad-impression"
                   value={impression}
@@ -532,7 +532,7 @@ const RadiologyPage: React.FC = () => {
                 </label>
                 {criticalFindings && (
                   <div className="mt-2">
-                    <label htmlFor="rad-communicated-to" className="text-sm text-gray-400">{t('docRadiology.communicatedTo')}</label>
+                    <label htmlFor="rad-communicated-to" className="text-sm text-content-muted">{t('docRadiology.communicatedTo')}</label>
                     <input
                       id="rad-communicated-to"
                       type="text"
@@ -567,7 +567,7 @@ const RadiologyPage: React.FC = () => {
         )}
 
         {activeTab === 'report' && !selectedStudy && (
-          <div className="text-center py-12 text-gray-500">
+          <div className="text-center py-12 text-content-muted">
             {t('docRadiology.selectStudy')}
           </div>
         )}
@@ -579,7 +579,7 @@ const RadiologyPage: React.FC = () => {
                 {t('docRadiology.searchPriorsLabel')}
               </label>
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-3 text-gray-500" />
+                <Search className="w-4 h-4 absolute left-3 top-3 text-content-muted" />
                 <input
                   id="rad-prior-search"
                   type="search"
@@ -592,7 +592,7 @@ const RadiologyPage: React.FC = () => {
             </div>
 
             {matchingReports.length === 0 ? (
-              <p className="text-gray-400 py-6 text-center">
+              <p className="text-content-muted py-6 text-center">
                 {searchTerm
                   ? t('docRadiology.searchPriorsNoMatch')
                   : t('docRadiology.searchPriorsEmpty')}
@@ -606,13 +606,13 @@ const RadiologyPage: React.FC = () => {
                         <p className="font-medium text-white truncate">
                           {r.bodyPart || r.accessionNumber || r.id}
                         </p>
-                        <p className="text-sm text-gray-400 truncate">
+                        <p className="text-sm text-content-muted truncate">
                           {r.patientId} · {r.accessionNumber}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {r.criticalFinding && (
-                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-critical-subtle text-critical-subtle-fg">
                             <AlertCircle className="w-3 h-3" />
                             {t('docRadiology.criticalBadge')}
                           </span>

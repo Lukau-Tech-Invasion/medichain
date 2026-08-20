@@ -75,8 +75,8 @@ function MetricRow({
   // and unemphasised; those are not the same thing, and greying it to the point
   // of illegibility is how a reader mistakes "not measured" for "nothing here".
   // `gray-600` on `gray-50` measures 7.0:1 and still reads as secondary.
-  const tone = value == null ? 'bg-gray-100' : urgent ? 'bg-red-50' : 'bg-green-50';
-  const text = value == null ? 'text-gray-600' : urgent ? 'text-red-800' : 'text-green-800';
+  const tone = value == null ? 'bg-surface-sunken' : urgent ? 'bg-critical-subtle' : 'bg-ok-subtle';
+  const text = value == null ? 'text-content-muted' : urgent ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg';
   // Urgency must not be carried by hue alone: red-on-pale-red is invisible to a
   // reader with deuteranopia or protanopia, and this row is the most
   // time-critical number on the page. The icon and the border give it two more
@@ -85,12 +85,12 @@ function MetricRow({
   const edge = urgent ? 'border-l-4 border-red-700' : 'border-l-4 border-transparent';
   return (
     <div className={`flex items-center justify-between p-3 rounded-lg ${tone} ${edge}`}>
-      <span className="text-sm text-gray-800">
+      <span className="text-sm text-content-secondary">
         <span className="inline-flex items-center gap-1.5">
-          {urgent && <AlertCircle className="w-4 h-4 text-red-800 shrink-0" aria-hidden="true" />}
+          {urgent && <AlertCircle className="w-4 h-4 text-critical-subtle-fg shrink-0" aria-hidden="true" />}
           {label}
         </span>
-        {hint && <span className="block text-xs text-gray-600">{hint}</span>}
+        {hint && <span className="block text-xs text-content-muted">{hint}</span>}
       </span>
       <span className={`text-lg font-bold ${text}`}>{value ?? '—'}</span>
     </div>
@@ -366,15 +366,15 @@ const AnalyticsPage: React.FC = () => {
   const getColorClasses = (color: string) => {
     switch (color) {
       case 'blue':
-        return { bg: 'bg-blue-100', text: 'text-blue-600', border: 'border-blue-200' };
+        return { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', border: 'border-notice' };
       case 'green':
-        return { bg: 'bg-green-100', text: 'text-green-600', border: 'border-green-200' };
+        return { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', border: 'border-ok' };
       case 'purple':
         return { bg: 'bg-purple-100', text: 'text-purple-600', border: 'border-purple-200' };
       case 'red':
-        return { bg: 'bg-red-100', text: 'text-red-600', border: 'border-red-200' };
+        return { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', border: 'border-critical' };
       default:
-        return { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' };
+        return { bg: 'bg-surface-sunken', text: 'text-content-muted', border: 'border-border' };
     }
   };
 
@@ -440,7 +440,7 @@ const AnalyticsPage: React.FC = () => {
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-          <span className="ml-2 text-gray-600">{t('docAnalytics.loading')}</span>
+          <span className="ml-2 text-content-muted">{t('docAnalytics.loading')}</span>
         </div>
       </div>
     );
@@ -449,7 +449,7 @@ const AnalyticsPage: React.FC = () => {
   if (error) {
     return (
       <div className="p-6 max-w-7xl mx-auto">
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div className="bg-critical-subtle border border-critical text-critical-subtle-fg px-4 py-3 rounded-lg">
           <p className="font-medium">{t('docAnalytics.errorTitle')}</p>
           <p className="text-sm">{error}</p>
         </div>
@@ -475,7 +475,7 @@ const AnalyticsPage: React.FC = () => {
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${
             selectedPeriod === 'today'
               ? 'bg-purple-600 text-white'
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              : 'bg-surface text-content-secondary border border-border-strong hover:bg-surface-sunken'
           }`}
         >
           {t('docAnalytics.periodToday')}
@@ -485,7 +485,7 @@ const AnalyticsPage: React.FC = () => {
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${
             selectedPeriod === 'week'
               ? 'bg-purple-600 text-white'
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              : 'bg-surface text-content-secondary border border-border-strong hover:bg-surface-sunken'
           }`}
         >
           {t('docAnalytics.periodWeek')}
@@ -495,7 +495,7 @@ const AnalyticsPage: React.FC = () => {
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${
             selectedPeriod === 'month'
               ? 'bg-purple-600 text-white'
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              : 'bg-surface text-content-secondary border border-border-strong hover:bg-surface-sunken'
           }`}
         >
           {t('docAnalytics.periodMonth')}
@@ -505,7 +505,7 @@ const AnalyticsPage: React.FC = () => {
           className={`px-4 py-2 rounded-lg font-medium transition-colors ${
             selectedPeriod === 'year'
               ? 'bg-purple-600 text-white'
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+              : 'bg-surface text-content-secondary border border-border-strong hover:bg-surface-sunken'
           }`}
         >
           {t('docAnalytics.periodYear')}
@@ -516,12 +516,12 @@ const AnalyticsPage: React.FC = () => {
         {metrics.map((metric, idx) => {
           const colors = getColorClasses(metric.color);
           return (
-            <div key={idx} className={`bg-white rounded-lg shadow p-6 border ${colors.border}`}>
+            <div key={idx} className={`bg-surface rounded-lg shadow p-6 border ${colors.border}`}>
               <div className="flex items-center justify-between mb-4">
                 <div className={`${colors.bg} ${colors.text} p-3 rounded-lg`}>
                   {metric.icon}
                 </div>
-                <div className={`flex items-center gap-1 ${metric.trend === 'up' ? 'text-green-600' : metric.trend === 'down' ? 'text-red-600' : 'text-gray-600'}`}>
+                <div className={`flex items-center gap-1 ${metric.trend === 'up' ? 'text-ok-subtle-fg' : metric.trend === 'down' ? 'text-critical-subtle-fg' : 'text-content-muted'}`}>
                   {metric.trend === 'up' ? (
                     <TrendingUp className="w-4 h-4" />
                   ) : metric.trend === 'down' ? (
@@ -532,22 +532,22 @@ const AnalyticsPage: React.FC = () => {
                   <span className="text-sm font-medium">{metric.change}</span>
                 </div>
               </div>
-              <div className="text-2xl font-bold text-gray-900 mb-1">{metric.value}</div>
-              <div className="text-sm text-gray-600">{metric.title}</div>
+              <div className="text-2xl font-bold text-content mb-1">{metric.value}</div>
+              <div className="text-sm text-content-muted">{metric.title}</div>
             </div>
           );
         })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+        <div className="bg-surface rounded-lg shadow p-6">
+          <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
             <Users className="w-6 h-6 text-purple-600" />
             {t('docAnalytics.departmentPerformance')}
           </h2>
           <div className="space-y-4">
             {departmentData.length === 0 && (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-content-muted">
                 {t('docAnalytics.departmentNoSource')}
               </p>
             )}
@@ -557,28 +557,28 @@ const AnalyticsPage: React.FC = () => {
               const occupancyStatus = getOccupancyStatus(dept.bedOccupancy);
               
               return (
-                <div key={dept.department} className="border border-gray-200 rounded-lg p-4">
+                <div key={dept.department} className="border border-border rounded-lg p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <div className={`${colors.bg} ${colors.text} p-2 rounded`}>
                         <Activity className="w-4 h-4" />
                       </div>
-                      <span className="font-semibold text-gray-900">{getDepartmentName(dept.department)}</span>
+                      <span className="font-semibold text-content">{getDepartmentName(dept.department)}</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm text-gray-600">{t('docAnalytics.staffCount', { count: dept.staffOnDuty })}</span>
+                      <Users className="w-4 h-4 text-content-muted" />
+                      <span className="text-sm text-content-muted">{t('docAnalytics.staffCount', { count: dept.staffOnDuty })}</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 text-sm">
-                    <div className="bg-blue-50 rounded p-2">
-                      <div className="text-blue-700 font-medium">{t('docAnalytics.lblPatients')}</div>
-                      <div className="text-blue-900 text-lg font-bold">{dept.patients}</div>
+                    <div className="bg-notice-subtle rounded p-2">
+                      <div className="text-notice-subtle-fg font-medium">{t('docAnalytics.lblPatients')}</div>
+                      <div className="text-notice-subtle-fg text-lg font-bold">{dept.patients}</div>
                     </div>
-                    <div className="bg-green-50 rounded p-2">
-                      <div className="text-green-700 font-medium">{t('docAnalytics.lblWaitTime')}</div>
-                      <div className="text-green-900 text-lg font-bold">{t('docAnalytics.minutesSuffix', { count: dept.avgWaitTime })}</div>
+                    <div className="bg-ok-subtle rounded p-2">
+                      <div className="text-ok-subtle-fg font-medium">{t('docAnalytics.lblWaitTime')}</div>
+                      <div className="text-ok-subtle-fg text-lg font-bold">{t('docAnalytics.minutesSuffix', { count: dept.avgWaitTime })}</div>
                     </div>
                     {dept.bedOccupancy > 0 ? (
                       <div className={`bg-${occupancyStatus.color}-50 rounded p-2`}>
@@ -589,9 +589,9 @@ const AnalyticsPage: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      <div className="bg-gray-50 rounded p-2">
-                        <div className="text-gray-700 font-medium">{t('docAnalytics.naLabel')}</div>
-                        <div className="text-gray-900 text-lg font-bold">—</div>
+                      <div className="bg-surface-sunken rounded p-2">
+                        <div className="text-content-secondary font-medium">{t('docAnalytics.naLabel')}</div>
+                        <div className="text-content text-lg font-bold">—</div>
                       </div>
                     )}
                   </div>
@@ -601,30 +601,30 @@ const AnalyticsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+        <div className="bg-surface rounded-lg shadow p-6">
+          <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-purple-600" />
             {t('docAnalytics.patientFlowTitle')}
           </h2>
           <div className="space-y-3">
-            <div className="flex items-center gap-4 pb-2 border-b border-gray-200">
+            <div className="flex items-center gap-4 pb-2 border-b border-border">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <span className="text-sm text-gray-700">{t('docAnalytics.legendAdmissions')}</span>
+                <span className="text-sm text-content-secondary">{t('docAnalytics.legendAdmissions')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                <span className="text-sm text-gray-700">{t('docAnalytics.legendDischarges')}</span>
+                <span className="text-sm text-content-secondary">{t('docAnalytics.legendDischarges')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                <span className="text-sm text-gray-700">{t('docAnalytics.legendTransfers')}</span>
+                <span className="text-sm text-content-secondary">{t('docAnalytics.legendTransfers')}</span>
               </div>
             </div>
             
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {patientFlow.length === 0 && (
-                <p className="text-sm text-gray-500 pt-2">
+                <p className="text-sm text-content-muted pt-2">
                   {t('docAnalytics.patientFlowNoSource')}
                 </p>
               )}
@@ -635,34 +635,34 @@ const AnalyticsPage: React.FC = () => {
                 
                 return (
                   <div key={data.hour} className="space-y-1">
-                    <div className="text-xs font-medium text-gray-600">{data.hour}</div>
+                    <div className="text-xs font-medium text-content-muted">{data.hour}</div>
                     <div className="flex gap-2">
                       <div className="flex-1">
-                        <div className="bg-gray-100 rounded-full overflow-hidden h-2">
+                        <div className="bg-surface-sunken rounded-full overflow-hidden h-2">
                           <div
                             className="bg-blue-500 h-full rounded-full"
                             style={{ width: `${(data.admissions / maxValue) * 100}%` }}
                           ></div>
                         </div>
-                        <div className="text-xs text-gray-600 mt-0.5">{data.admissions}</div>
+                        <div className="text-xs text-content-muted mt-0.5">{data.admissions}</div>
                       </div>
                       <div className="flex-1">
-                        <div className="bg-gray-100 rounded-full overflow-hidden h-2">
+                        <div className="bg-surface-sunken rounded-full overflow-hidden h-2">
                           <div
                             className="bg-green-500 h-full rounded-full"
                             style={{ width: `${(data.discharges / maxValue) * 100}%` }}
                           ></div>
                         </div>
-                        <div className="text-xs text-gray-600 mt-0.5">{data.discharges}</div>
+                        <div className="text-xs text-content-muted mt-0.5">{data.discharges}</div>
                       </div>
                       <div className="flex-1">
-                        <div className="bg-gray-100 rounded-full overflow-hidden h-2">
+                        <div className="bg-surface-sunken rounded-full overflow-hidden h-2">
                           <div
                             className="bg-orange-500 h-full rounded-full"
                             style={{ width: `${(data.transfers / maxValue) * 100}%` }}
                           ></div>
                         </div>
-                        <div className="text-xs text-gray-600 mt-0.5">{data.transfers}</div>
+                        <div className="text-xs text-content-muted mt-0.5">{data.transfers}</div>
                       </div>
                     </div>
                   </div>
@@ -681,9 +681,9 @@ const AnalyticsPage: React.FC = () => {
           deployment cannot measure is named as unmeasured rather than
           estimated. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-green-600" />
+        <div className="bg-surface rounded-lg shadow p-6">
+          <h3 className="text-lg font-bold text-content mb-4 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-ok-subtle-fg" />
             {t('docAnalytics.measuredTitle')}
           </h3>
           <div className="space-y-3">
@@ -724,42 +724,42 @@ const AnalyticsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-gray-500" />
+        <div className="bg-surface rounded-lg shadow p-6">
+          <h3 className="text-lg font-bold text-content mb-4 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-content-muted" />
             {t('docAnalytics.unmeasuredTitle')}
           </h3>
-          <p className="text-sm text-gray-600 mb-3">{t('docAnalytics.unmeasuredHint')}</p>
+          <p className="text-sm text-content-muted mb-3">{t('docAnalytics.unmeasuredHint')}</p>
           <ul className="space-y-2">
             {(operations?.unmeasured ?? []).map((key) => (
-              <li key={key} className="flex items-center justify-between p-3 bg-gray-100 rounded-lg">
-                <span className="text-sm text-gray-800">
+              <li key={key} className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
+                <span className="text-sm text-content-secondary">
                   {t(`docAnalytics.unmeasured_${key}`)}
                 </span>
-                <span className="text-sm text-gray-600">{t('docAnalytics.notMeasured')}</span>
+                <span className="text-sm text-content-muted">{t('docAnalytics.notMeasured')}</span>
               </li>
             ))}
           </ul>
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+      <div className="bg-surface rounded-lg shadow p-6">
+        <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
           <Calendar className="w-6 h-6 text-purple-600" />
           {t('docAnalytics.recentActivityTitle')}
         </h2>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-surface-sunken">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colTime')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colEvent')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colDepartment')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colImpact')}</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">{t('docAnalytics.colStatus')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase tracking-wider">{t('docAnalytics.colTime')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase tracking-wider">{t('docAnalytics.colEvent')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase tracking-wider">{t('docAnalytics.colDepartment')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase tracking-wider">{t('docAnalytics.colImpact')}</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase tracking-wider">{t('docAnalytics.colStatus')}</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-surface divide-y divide-border">
               {/* Five invented incidents used to live here — "Mass casualty
                   incident alert", "Ventilator shortage" — with fixed times, on
                   a screen an executive reads to decide where to send staff.
@@ -767,18 +767,18 @@ const AnalyticsPage: React.FC = () => {
                   are the actual outstanding events this system knows about. */}
               {recentEvents.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-content-muted">
                     {t('docAnalytics.noRecentActivity')}
                   </td>
                 </tr>
               ) : (
                 recentEvents.map((event) => (
                   <tr key={event.id}>
-                    <td className="px-4 py-3 text-sm text-gray-900">{event.when}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900">{event.label}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{event.patientId}</td>
+                    <td className="px-4 py-3 text-sm text-content">{event.when}</td>
+                    <td className="px-4 py-3 text-sm text-content">{event.label}</td>
+                    <td className="px-4 py-3 text-sm text-content-muted">{event.patientId}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-critical-subtle text-critical-subtle-fg">
                         {t('docAnalytics.impactHigh')}
                       </span>
                     </td>

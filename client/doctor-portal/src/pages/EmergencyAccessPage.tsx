@@ -45,20 +45,20 @@ function EmergencyAccessPage() {
           <div className="w-10 h-10 bg-emergency-100 rounded-lg flex items-center justify-center">
             <AlertTriangle className="text-emergency-600" size={24} />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('docEmergencyAccess.title')}</h1>
+          <h1 className="text-2xl font-bold text-content">{t('docEmergencyAccess.title')}</h1>
         </div>
-        <p className="text-gray-500">
+        <p className="text-content-muted">
           {t('docEmergencyAccess.subtitle')}
         </p>
       </div>
 
       {/* Security Notice */}
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-8">
+      <div className="bg-caution-subtle border border-caution rounded-lg p-4 mb-8">
         <div className="flex items-start gap-3">
-          <Shield className="text-amber-600 flex-shrink-0 mt-0.5" size={20} />
+          <Shield className="text-caution-subtle-fg flex-shrink-0 mt-0.5" size={20} />
           <div>
-            <p className="font-medium text-amber-800">{t('docEmergencyAccess.securityTitle')}</p>
-            <p className="text-sm text-amber-700 mt-1">
+            <p className="font-medium text-caution-subtle-fg">{t('docEmergencyAccess.securityTitle')}</p>
+            <p className="text-sm text-caution-subtle-fg mt-1">
               {t('docEmergencyAccess.securityBody')}
             </p>
           </div>
@@ -76,11 +76,11 @@ function EmergencyAccessPage() {
           {currentEmergency ? (
             <div className="space-y-4">
               {/* Access Timer */}
-              <div className="bg-white rounded-xl shadow p-4">
+              <div className="bg-surface rounded-xl shadow p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="text-primary-600" size={20} />
-                    <span className="font-medium text-gray-700">{t('docEmergencyAccess.timeRemaining')}</span>
+                    <span className="font-medium text-content-secondary">{t('docEmergencyAccess.timeRemaining')}</span>
                   </div>
                   <span className="text-2xl font-mono font-bold text-primary-600">
                     {getTimeRemaining()}
@@ -98,7 +98,7 @@ function EmergencyAccessPage() {
               <div className="flex gap-3">
                 <button
                   onClick={handleClearAccess}
-                  className="flex-1 py-3 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                  className="flex-1 py-3 px-4 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken transition-colors font-medium"
                 >
                   {t('docEmergencyAccess.endAccess')}
                 </button>
@@ -112,8 +112,8 @@ function EmergencyAccessPage() {
             </div>
           ) : (
             /* Instructions when no patient loaded */
-            <div className="bg-white rounded-xl shadow p-8">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-surface rounded-xl shadow p-8">
+              <h3 className="text-lg font-semibold text-content mb-4">
                 {t('docEmergencyAccess.howToTitle')}
               </h3>
               
@@ -123,8 +123,8 @@ function EmergencyAccessPage() {
                     <span className="font-bold text-primary-600">1</span>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">{t('docEmergencyAccess.step1Title')}</p>
-                    <p className="text-sm text-gray-500">
+                    <p className="font-medium text-content">{t('docEmergencyAccess.step1Title')}</p>
+                    <p className="text-sm text-content-muted">
                       {t('docEmergencyAccess.step1Body')}
                     </p>
                   </div>
@@ -135,8 +135,8 @@ function EmergencyAccessPage() {
                     <span className="font-bold text-primary-600">2</span>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">{t('docEmergencyAccess.step2Title')}</p>
-                    <p className="text-sm text-gray-500">
+                    <p className="font-medium text-content">{t('docEmergencyAccess.step2Title')}</p>
+                    <p className="text-sm text-content-muted">
                       {t('docEmergencyAccess.step2Body')}
                     </p>
                   </div>
@@ -147,16 +147,16 @@ function EmergencyAccessPage() {
                     <span className="font-bold text-primary-600">3</span>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">{t('docEmergencyAccess.step3Title')}</p>
-                    <p className="text-sm text-gray-500">
+                    <p className="font-medium text-content">{t('docEmergencyAccess.step3Title')}</p>
+                    <p className="text-sm text-content-muted">
                       {t('docEmergencyAccess.step3Body')}
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600">
+              <div className="mt-6 p-4 bg-surface-sunken rounded-lg">
+                <p className="text-sm text-content-muted">
                   <strong>{t('docEmergencyAccess.noteLabel')}</strong> {t('docEmergencyAccess.noteBody')}
                 </p>
               </div>

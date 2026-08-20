@@ -23,14 +23,14 @@ export function RestrictedSection({ title, audience, currentRole }: RestrictedSe
     <div className="p-8">
       <div
         role="status"
-        className="mx-auto flex max-w-xl items-start gap-4 rounded-lg border border-amber-300 bg-amber-50 p-6 dark:border-amber-700 dark:bg-amber-950"
+        className="mx-auto flex max-w-xl items-start gap-4 rounded-lg border border-caution bg-caution-subtle p-6 dark:border-amber-700 dark:bg-amber-950"
       >
-        <ShieldAlert className="mt-0.5 h-6 w-6 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+        <ShieldAlert className="mt-0.5 h-6 w-6 flex-shrink-0 text-caution-subtle-fg dark:text-amber-400" />
         <div>
-          <h2 className="text-lg font-semibold text-amber-900 dark:text-amber-100">
+          <h2 className="text-lg font-semibold text-caution-subtle-fg dark:text-amber-100">
             {title} is restricted to {audience}
           </h2>
-          <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">
+          <p className="mt-1 text-sm text-caution-subtle-fg dark:text-amber-200">
             {currentRole
               ? `You are signed in as ${currentRole}, which cannot open this section.`
               : 'Your role cannot open this section.'}{' '}

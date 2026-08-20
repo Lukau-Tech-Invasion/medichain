@@ -343,21 +343,21 @@ function DischargePage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'draft': return 'bg-gray-100 text-gray-700';
-      case 'pending_approval': return 'bg-yellow-100 text-yellow-700';
-      case 'approved': return 'bg-green-100 text-green-700';
-      case 'completed': return 'bg-blue-100 text-blue-700';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'draft': return 'bg-surface-sunken text-content-secondary';
+      case 'pending_approval': return 'bg-caution-subtle text-caution-subtle-fg';
+      case 'approved': return 'bg-ok-subtle text-ok-subtle-fg';
+      case 'completed': return 'bg-notice-subtle text-notice-subtle-fg';
+      default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   const getConditionColor = (condition: string) => {
     switch (condition) {
-      case 'improved': return 'text-green-600';
-      case 'stable': return 'text-blue-600';
-      case 'unchanged': return 'text-yellow-600';
-      case 'declined': return 'text-red-600';
-      default: return 'text-gray-600';
+      case 'improved': return 'text-ok-subtle-fg';
+      case 'stable': return 'text-notice-subtle-fg';
+      case 'unchanged': return 'text-caution-subtle-fg';
+      case 'declined': return 'text-critical-subtle-fg';
+      default: return 'text-content-muted';
     }
   };
 
@@ -369,16 +369,16 @@ function DischargePage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-content flex items-center gap-3">
             <LogOut className="text-primary-600" />
             {t('docDischarge.title')}
           </h1>
-          <p className="text-gray-500 mt-1">
+          <p className="text-content-muted mt-1">
             {t('docDischarge.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${apiConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
             {apiConnected ? <Wifi size={16} /> : <WifiOff size={16} />}
             {apiConnected ? t('docDischarge.apiConnected') : t('docDischarge.offlineMode')}
           </div>
@@ -394,55 +394,55 @@ function DischargePage() {
 
       {/* Alerts */}
       {success && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+        <div className="mb-6 p-4 bg-ok-subtle border border-ok rounded-lg flex items-center gap-3">
           <CheckCircle className="text-green-500" size={20} />
-          <span className="text-green-700">{success}</span>
-          <button onClick={() => setSuccess(null)} className="ml-auto text-green-500 hover:text-green-700">×</button>
+          <span className="text-ok-subtle-fg">{success}</span>
+          <button onClick={() => setSuccess(null)} className="ml-auto text-green-500 hover:text-ok-subtle-fg">×</button>
         </div>
       )}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+        <div className="mb-6 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-3">
           <AlertTriangle className="text-red-500" size={20} />
-          <span className="text-red-700">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">×</button>
+          <span className="text-critical-subtle-fg">{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-critical-subtle-fg">×</button>
         </div>
       )}
 
       {/* Quick Stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
-        <div className="bg-white rounded-xl p-4 shadow border-l-4 border-yellow-500">
+        <div className="bg-surface rounded-xl p-4 shadow border-l-4 border-yellow-500">
           <div className="flex items-center gap-3">
             <Clock className="text-yellow-500" size={24} />
             <div>
-              <p className="text-2xl font-bold text-gray-900">{pendingDischarges.length}</p>
-              <p className="text-sm text-gray-500">{t('docDischarge.statPending')}</p>
+              <p className="text-2xl font-bold text-content">{pendingDischarges.length}</p>
+              <p className="text-sm text-content-muted">{t('docDischarge.statPending')}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow border-l-4 border-green-500">
+        <div className="bg-surface rounded-xl p-4 shadow border-l-4 border-green-500">
           <div className="flex items-center gap-3">
             <CheckCircle className="text-green-500" size={24} />
             <div>
-              <p className="text-2xl font-bold text-gray-900">{completedDischarges.length}</p>
-              <p className="text-sm text-gray-500">{t('docDischarge.statCompletedToday')}</p>
+              <p className="text-2xl font-bold text-content">{completedDischarges.length}</p>
+              <p className="text-sm text-content-muted">{t('docDischarge.statCompletedToday')}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow border-l-4 border-blue-500">
+        <div className="bg-surface rounded-xl p-4 shadow border-l-4 border-blue-500">
           <div className="flex items-center gap-3">
             <Home className="text-blue-500" size={24} />
             <div>
-              <p className="text-2xl font-bold text-gray-900">{discharges.filter(d => d.discharge_disposition === 'home').length}</p>
-              <p className="text-sm text-gray-500">{t('docDischarge.statDischargedHome')}</p>
+              <p className="text-2xl font-bold text-content">{discharges.filter(d => d.discharge_disposition === 'home').length}</p>
+              <p className="text-sm text-content-muted">{t('docDischarge.statDischargedHome')}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow border-l-4 border-purple-500">
+        <div className="bg-surface rounded-xl p-4 shadow border-l-4 border-purple-500">
           <div className="flex items-center gap-3">
             <Activity className="text-purple-500" size={24} />
             <div>
-              <p className="text-2xl font-bold text-gray-900">{recentPatients.length}</p>
-              <p className="text-sm text-gray-500">{t('docDischarge.statRecentPatients')}</p>
+              <p className="text-2xl font-bold text-content">{recentPatients.length}</p>
+              <p className="text-sm text-content-muted">{t('docDischarge.statRecentPatients')}</p>
             </div>
           </div>
         </div>
@@ -452,13 +452,13 @@ function DischargePage() {
       <div className="flex gap-4 mb-6">
         <button
           onClick={() => setActiveTab('pending')}
-          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'pending' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'pending' ? 'bg-primary-600 text-white' : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'}`}
         >
           {t('docDischarge.tabPending', { count: pendingDischarges.length })}
         </button>
         <button
           onClick={() => setActiveTab('completed')}
-          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'completed' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'completed' ? 'bg-primary-600 text-white' : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'}`}
         >
           {t('docDischarge.tabCompleted', { count: completedDischarges.length })}
         </button>
@@ -466,14 +466,14 @@ function DischargePage() {
 
       {/* Discharge List */}
       {loading ? (
-        <div className="bg-white rounded-xl shadow p-12 text-center">
+        <div className="bg-surface rounded-xl shadow p-12 text-center">
           <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-          <p className="text-gray-500">{t('docDischarge.loadingDischarges')}</p>
+          <p className="text-content-muted">{t('docDischarge.loadingDischarges')}</p>
         </div>
       ) : (
         <div className="space-y-4">
           {(activeTab === 'pending' ? pendingDischarges : completedDischarges).map((discharge) => (
-            <div key={discharge.id} className="bg-white rounded-xl shadow overflow-hidden">
+            <div key={discharge.id} className="bg-surface rounded-xl shadow overflow-hidden">
               <div className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-4">
@@ -481,8 +481,8 @@ function DischargePage() {
                       <User className="text-primary-600" size={24} />
                     </div>
                     <div>
-                      <h3 className="font-bold text-gray-900">{discharge.patient_name}</h3>
-                      <p className="text-sm text-gray-500">{t('docDischarge.admittedLine', { id: discharge.patient_id, date: discharge.admission_date })}</p>
+                      <h3 className="font-bold text-content">{discharge.patient_name}</h3>
+                      <p className="text-sm text-content-muted">{t('docDischarge.admittedLine', { id: discharge.patient_id, date: discharge.admission_date })}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
@@ -503,15 +503,15 @@ function DischargePage() {
 
                 <div className="mt-4 grid grid-cols-3 gap-4">
                   <div>
-                    <p className="text-sm text-gray-500">{t('docDischarge.lblPrimaryDiagnosis')}</p>
-                    <p className="font-medium text-gray-900">{discharge.primary_diagnosis}</p>
+                    <p className="text-sm text-content-muted">{t('docDischarge.lblPrimaryDiagnosis')}</p>
+                    <p className="font-medium text-content">{discharge.primary_diagnosis}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">{t('docDischarge.lblDischargeDate')}</p>
-                    <p className="font-medium text-gray-900">{discharge.discharge_date}</p>
+                    <p className="text-sm text-content-muted">{t('docDischarge.lblDischargeDate')}</p>
+                    <p className="font-medium text-content">{discharge.discharge_date}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">{t('docDischarge.lblCondition')}</p>
+                    <p className="text-sm text-content-muted">{t('docDischarge.lblCondition')}</p>
                     <p className={`font-medium capitalize ${getConditionColor(discharge.discharge_condition)}`}>
                       {discharge.discharge_condition}
                     </p>
@@ -520,20 +520,20 @@ function DischargePage() {
 
                 {/* Medications */}
                 {discharge.discharge_medications.length > 0 && (
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                  <div className="mt-4 p-3 bg-notice-subtle rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
-                      <Pill className="text-blue-600" size={16} />
-                      <span className="font-medium text-blue-900">{t('docDischarge.dischargeMedicationsTitle')}</span>
+                      <Pill className="text-notice-subtle-fg" size={16} />
+                      <span className="font-medium text-notice-subtle-fg">{t('docDischarge.dischargeMedicationsTitle')}</span>
                     </div>
                     <div className="space-y-1">
                       {discharge.discharge_medications.slice(0, 3).map((med, i) => (
-                        <p key={i} className="text-sm text-blue-800">
+                        <p key={i} className="text-sm text-notice-subtle-fg">
                           {med.name} {med.dosage} - {med.frequency}
-                          {med.is_new && <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">{t('docDischarge.newBadge')}</span>}
+                          {med.is_new && <span className="ml-2 px-2 py-0.5 bg-ok-subtle text-ok-subtle-fg rounded text-xs">{t('docDischarge.newBadge')}</span>}
                         </p>
                       ))}
                       {discharge.discharge_medications.length > 3 && (
-                        <p className="text-sm text-blue-600">{t('docDischarge.moreCount', { count: discharge.discharge_medications.length - 3 })}</p>
+                        <p className="text-sm text-notice-subtle-fg">{t('docDischarge.moreCount', { count: discharge.discharge_medications.length - 3 })}</p>
                       )}
                     </div>
                   </div>
@@ -558,12 +558,12 @@ function DischargePage() {
 
                 {/* Warning Signs */}
                 {discharge.warning_signs.length > 0 && (
-                  <div className="mt-4 p-3 bg-red-50 rounded-lg">
+                  <div className="mt-4 p-3 bg-critical-subtle rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="text-red-600" size={16} />
-                      <span className="font-medium text-red-900">{t('docDischarge.warningSignsTitle')}</span>
+                      <AlertTriangle className="text-critical-subtle-fg" size={16} />
+                      <span className="font-medium text-critical-subtle-fg">{t('docDischarge.warningSignsTitle')}</span>
                     </div>
-                    <ul className="text-sm text-red-800 list-disc list-inside">
+                    <ul className="text-sm text-critical-subtle-fg list-disc list-inside">
                       {discharge.warning_signs.map((sign, i) => (
                         <li key={i}>{sign}</li>
                       ))}
@@ -571,7 +571,7 @@ function DischargePage() {
                   </div>
                 )}
 
-                <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
+                <div className="mt-4 flex items-center justify-between text-sm text-content-muted">
                   <span>{t('docDischarge.preparedByLine', { value: discharge.prepared_by })}</span>
                   <div className="flex items-center gap-4">
                     <button
@@ -592,9 +592,9 @@ function DischargePage() {
           ))}
 
           {(activeTab === 'pending' ? pendingDischarges : completedDischarges).length === 0 && (
-            <div className="bg-white rounded-xl shadow p-12 text-center">
+            <div className="bg-surface rounded-xl shadow p-12 text-center">
               <LogOut className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">{t('docDischarge.noDischarges', { tab: activeTab })}</p>
+              <p className="text-content-muted">{t('docDischarge.noDischarges', { tab: activeTab })}</p>
             </div>
           )}
         </div>
@@ -603,23 +603,23 @@ function DischargePage() {
       {/* New Discharge Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">{t('docDischarge.createModalTitle')}</h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+          <div className="bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b border-border p-6 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-content">{t('docDischarge.createModalTitle')}</h2>
+              <button onClick={() => setShowForm(false)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
               {/* Patient Selection */}
               <div>
-                <label htmlFor="dc-patient" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                <label htmlFor="dc-patient" className="text-sm font-medium text-content-secondary mb-1 flex items-center gap-1">
                   <User size={16} /> {t('docDischarge.patientLabel')}
                 </label>
                 <select
                   id="dc-patient"
                   value={selectedPatient}
                   onChange={(e) => setSelectedPatient(e.target.value)}
-                  className="w-full p-3 border border-gray-200 rounded-lg"
+                  className="w-full p-3 border border-border rounded-lg"
                   required
                 >
                   <option value="">{t('docDischarge.selectPatientPh')}</option>
@@ -632,7 +632,7 @@ function DischargePage() {
               {/* Diagnoses */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="dc-primary-diagnosis" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <label htmlFor="dc-primary-diagnosis" className="text-sm font-medium text-content-secondary mb-1 flex items-center gap-1">
                     <Heart size={16} /> {t('docDischarge.primaryDiagnosisLabel')}
                   </label>
                   <input
@@ -640,20 +640,20 @@ function DischargePage() {
                     type="text"
                     value={formData.primary_diagnosis}
                     onChange={(e) => setFormData({ ...formData, primary_diagnosis: e.target.value })}
-                    className="w-full p-3 border border-gray-200 rounded-lg"
+                    className="w-full p-3 border border-border rounded-lg"
                     placeholder={t('docDischarge.primaryDiagnosisPh')}
                     required
                   />
                 </div>
                 <div>
-                  <label htmlFor="dc-discharge-disposition" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                  <label htmlFor="dc-discharge-disposition" className="text-sm font-medium text-content-secondary mb-1 flex items-center gap-1">
                     <Clipboard size={16} /> {t('docDischarge.dischargeDispositionLabel')}
                   </label>
                   <select
                     id="dc-discharge-disposition"
                     value={formData.discharge_disposition}
                     onChange={(e) => setFormData({ ...formData, discharge_disposition: e.target.value })}
-                    className="w-full p-3 border border-gray-200 rounded-lg"
+                    className="w-full p-3 border border-border rounded-lg"
                   >
                     <option value="home">{t('docDischarge.disposition_home')}</option>
                     <option value="home_health">{t('docDischarge.disposition_homeHealth')}</option>
@@ -667,12 +667,12 @@ function DischargePage() {
               </div>
 
               <div>
-                <label htmlFor="dc-secondary-diagnoses" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.secondaryDiagnosesLabel')}</label>
+                <label htmlFor="dc-secondary-diagnoses" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.secondaryDiagnosesLabel')}</label>
                 <textarea
                   id="dc-secondary-diagnoses"
                   value={formData.secondary_diagnoses}
                   onChange={(e) => setFormData({ ...formData, secondary_diagnoses: e.target.value })}
-                  className="w-full p-3 border border-gray-200 rounded-lg"
+                  className="w-full p-3 border border-border rounded-lg"
                   rows={3}
                   placeholder="Type 2 Diabetes&#10;Hypertension&#10;..."
                 />
@@ -680,14 +680,14 @@ function DischargePage() {
 
               {/* Discharge Condition */}
               <div>
-                <label id="dc-discharge-condition-label" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.dischargeConditionLabel')}</label>
+                <label id="dc-discharge-condition-label" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.dischargeConditionLabel')}</label>
                 <div className="grid grid-cols-4 gap-2" role="group" aria-labelledby="dc-discharge-condition-label">
                   {['improved', 'stable', 'unchanged', 'declined'].map((condition) => (
                     <button
                       key={condition}
                       type="button"
                       onClick={() => setFormData({ ...formData, discharge_condition: condition })}
-                      className={`p-3 rounded-lg border capitalize ${formData.discharge_condition === condition ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-gray-200 hover:bg-gray-50'}`}
+                      className={`p-3 rounded-lg border capitalize ${formData.discharge_condition === condition ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-border hover:bg-surface-sunken'}`}
                     >
                       {t(`docDischarge.condition_${condition}`)}
                     </button>
@@ -698,7 +698,7 @@ function DischargePage() {
               {/* Medications */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <label className="text-sm font-medium text-content-secondary flex items-center gap-1">
                     <Pill size={16} /> {t('docDischarge.dischargeMedicationsLabel')}
                   </label>
                   <button type="button" onClick={addMedication} className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
@@ -716,7 +716,7 @@ function DischargePage() {
                         setMedications(updated);
                       }}
                       placeholder={t('docDischarge.medNamePh')}
-                      className="p-2 border border-gray-200 rounded-lg"
+                      className="p-2 border border-border rounded-lg"
                     />
                     <input
                       type="text"
@@ -727,7 +727,7 @@ function DischargePage() {
                         setMedications(updated);
                       }}
                       placeholder={t('docDischarge.dosagePh')}
-                      className="p-2 border border-gray-200 rounded-lg"
+                      className="p-2 border border-border rounded-lg"
                     />
                     <input
                       type="text"
@@ -738,7 +738,7 @@ function DischargePage() {
                         setMedications(updated);
                       }}
                       placeholder={t('docDischarge.frequencyPh')}
-                      className="p-2 border border-gray-200 rounded-lg"
+                      className="p-2 border border-border rounded-lg"
                     />
                     <input
                       type="text"
@@ -749,12 +749,12 @@ function DischargePage() {
                         setMedications(updated);
                       }}
                       placeholder={t('docDischarge.durationPh')}
-                      className="p-2 border border-gray-200 rounded-lg"
+                      className="p-2 border border-border rounded-lg"
                     />
                     <button
                       type="button"
                       onClick={() => setMedications(medications.filter((_, idx) => idx !== i))}
-                      className="text-red-500 hover:text-red-700"
+                      className="text-red-500 hover:text-critical-subtle-fg"
                     >
                       {t('docDischarge.removeBtn')}
                     </button>
@@ -765,7 +765,7 @@ function DischargePage() {
               {/* Follow-up Appointments */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  <label className="text-sm font-medium text-content-secondary flex items-center gap-1">
                     <Calendar size={16} /> {t('docDischarge.followUpAppointmentsLabel')}
                   </label>
                   <button type="button" onClick={addFollowUp} className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
@@ -783,7 +783,7 @@ function DischargePage() {
                         setFollowUps(updated);
                       }}
                       placeholder={t('docDischarge.specialtyPh')}
-                      className="p-2 border border-gray-200 rounded-lg"
+                      className="p-2 border border-border rounded-lg"
                     />
                     <input
                       type="text"
@@ -794,7 +794,7 @@ function DischargePage() {
                         setFollowUps(updated);
                       }}
                       placeholder={t('docDischarge.providerPh')}
-                      className="p-2 border border-gray-200 rounded-lg"
+                      className="p-2 border border-border rounded-lg"
                     />
                     <input
                       type="date"
@@ -804,12 +804,12 @@ function DischargePage() {
                         updated[i].date = e.target.value;
                         setFollowUps(updated);
                       }}
-                      className="p-2 border border-gray-200 rounded-lg"
+                      className="p-2 border border-border rounded-lg"
                     />
                     <button
                       type="button"
                       onClick={() => setFollowUps(followUps.filter((_, idx) => idx !== i))}
-                      className="text-red-500 hover:text-red-700"
+                      className="text-red-500 hover:text-critical-subtle-fg"
                     >
                       {t('docDischarge.removeBtn')}
                     </button>
@@ -819,14 +819,14 @@ function DischargePage() {
 
               {/* Warning Signs */}
               <div>
-                <label htmlFor="dc-warning-signs" className="text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                <label htmlFor="dc-warning-signs" className="text-sm font-medium text-content-secondary mb-1 flex items-center gap-1">
                   <AlertTriangle size={16} /> {t('docDischarge.warningSignsLabel')}
                 </label>
                 <textarea
                   id="dc-warning-signs"
                   value={formData.warning_signs}
                   onChange={(e) => setFormData({ ...formData, warning_signs: e.target.value })}
-                  className="w-full p-3 border border-gray-200 rounded-lg"
+                  className="w-full p-3 border border-border rounded-lg"
                   rows={3}
                   placeholder="Fever above 38.5°C&#10;Worsening shortness of breath&#10;..."
                 />
@@ -835,22 +835,22 @@ function DischargePage() {
               {/* Diet & Activity */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="dc-diet-instructions" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.dietInstructionsLabel')}</label>
+                  <label htmlFor="dc-diet-instructions" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.dietInstructionsLabel')}</label>
                   <textarea
                     id="dc-diet-instructions"
                     value={formData.diet_instructions}
                     onChange={(e) => setFormData({ ...formData, diet_instructions: e.target.value })}
-                    className="w-full p-3 border border-gray-200 rounded-lg"
+                    className="w-full p-3 border border-border rounded-lg"
                     rows={2}
                   />
                 </div>
                 <div>
-                  <label htmlFor="dc-activity-restrictions" className="text-sm font-medium text-gray-700 mb-1">{t('docDischarge.activityRestrictionsLabel')}</label>
+                  <label htmlFor="dc-activity-restrictions" className="text-sm font-medium text-content-secondary mb-1">{t('docDischarge.activityRestrictionsLabel')}</label>
                   <textarea
                     id="dc-activity-restrictions"
                     value={formData.activity_restrictions}
                     onChange={(e) => setFormData({ ...formData, activity_restrictions: e.target.value })}
-                    className="w-full p-3 border border-gray-200 rounded-lg"
+                    className="w-full p-3 border border-border rounded-lg"
                     rows={2}
                     placeholder={t('docDischarge.activityRestrictionsPh')}
                   />
@@ -862,7 +862,7 @@ function DischargePage() {
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="px-6 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+                  className="px-6 py-2 border border-border rounded-lg hover:bg-surface-sunken"
                 >
                   {t('docDischarge.cancelBtn')}
                 </button>

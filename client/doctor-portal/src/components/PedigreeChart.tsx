@@ -337,14 +337,14 @@ const PedigreeChart: React.FC<PedigreeChartProps> = ({
 
   if (familyMembers.length === 0) {
     return (
-      <div className={`bg-gray-50 border border-gray-200 rounded-lg p-8 text-center ${className}`}>
-        <p className="text-gray-600">No family members recorded. Add family history to generate pedigree chart.</p>
+      <div className={`bg-surface-sunken border border-border rounded-lg p-8 text-center ${className}`}>
+        <p className="text-content-muted">No family members recorded. Add family history to generate pedigree chart.</p>
       </div>
     );
   }
 
   return (
-    <div className={`bg-white rounded-lg ${className}`}>
+    <div className={`bg-surface rounded-lg ${className}`}>
       <svg
         width="100%"
         height={dimensions.height}
@@ -499,45 +499,45 @@ const PedigreeChart: React.FC<PedigreeChartProps> = ({
       </svg>
       
       {/* Legend */}
-      <div className="border-t border-gray-200 p-4 mt-4">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">Legend</h4>
+      <div className="border-t border-border p-4 mt-4">
+        <h4 className="text-sm font-semibold text-content-secondary mb-3">Legend</h4>
         <div className="flex flex-wrap gap-6 text-sm">
           <div className="flex items-center gap-2">
             <svg width="24" height="24" viewBox="0 0 24 24">
               <rect x="2" y="2" width="20" height="20" fill="white" stroke="#374151" strokeWidth="2" />
             </svg>
-            <span className="text-gray-600">Male</span>
+            <span className="text-content-muted">Male</span>
           </div>
           <div className="flex items-center gap-2">
             <svg width="24" height="24" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" fill="white" stroke="#374151" strokeWidth="2" />
             </svg>
-            <span className="text-gray-600">Female</span>
+            <span className="text-content-muted">Female</span>
           </div>
           <div className="flex items-center gap-2">
             <svg width="24" height="24" viewBox="0 0 24 24">
               <polygon points="12,2 22,12 12,22 2,12" fill="white" stroke="#374151" strokeWidth="2" />
             </svg>
-            <span className="text-gray-600">Unknown</span>
+            <span className="text-content-muted">Unknown</span>
           </div>
           <div className="flex items-center gap-2">
             <svg width="24" height="24" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" fill="#1e40af" stroke="#374151" strokeWidth="2" />
             </svg>
-            <span className="text-gray-600">Affected</span>
+            <span className="text-content-muted">Affected</span>
           </div>
           <div className="flex items-center gap-2">
             <svg width="24" height="24" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" fill="white" stroke="#dc2626" strokeWidth="3" />
             </svg>
-            <span className="text-gray-600">Proband (Patient)</span>
+            <span className="text-content-muted">Proband (Patient)</span>
           </div>
           <div className="flex items-center gap-2">
             <svg width="24" height="24" viewBox="0 0 24 24">
               <circle cx="12" cy="12" r="10" fill="white" stroke="#374151" strokeWidth="2" />
               <line x1="0" y1="24" x2="24" y2="0" stroke="#374151" strokeWidth="2" />
             </svg>
-            <span className="text-gray-600">Deceased</span>
+            <span className="text-content-muted">Deceased</span>
           </div>
         </div>
       </div>

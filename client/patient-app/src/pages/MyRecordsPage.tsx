@@ -348,7 +348,7 @@ export function MyRecordsPage() {
       case 'vaccination':
         return 'bg-emergency-50 text-emergency-500';
       default:
-        return 'bg-neutral-100 text-neutral-600';
+        return 'bg-surface-sunken text-content-muted';
     }
   };
 
@@ -494,10 +494,10 @@ export function MyRecordsPage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-4 animate-pulse">
-        <div className="h-8 bg-neutral-200 rounded w-48" />
-        <div className="h-12 bg-neutral-200 rounded-xl" />
+        <div className="h-8 bg-surface-sunken rounded w-48" />
+        <div className="h-12 bg-surface-sunken rounded-xl" />
         {[1, 2, 3].map(i => (
-          <div key={i} className="h-24 bg-neutral-200 rounded-xl" />
+          <div key={i} className="h-24 bg-surface-sunken rounded-xl" />
         ))}
       </div>
     );
@@ -507,20 +507,20 @@ export function MyRecordsPage() {
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">{t('records.pageTitle')}</h1>
-        <p className="text-neutral-600">{t('records.subtitle')}</p>
+        <h1 className="text-2xl font-bold text-content">{t('records.pageTitle')}</h1>
+        <p className="text-content-muted">{t('records.subtitle')}</p>
       </div>
 
       {/* Search & Filter */}
       <div className="space-y-4">
         <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
           <input
             type="text"
             placeholder={t('records.search')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-neutral-100 border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
+            className="w-full pl-12 pr-4 py-3 bg-surface-sunken border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
@@ -532,7 +532,7 @@ export function MyRecordsPage() {
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                 filterType === type
                   ? 'bg-primary-500 text-white'
-                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                  : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
               }`}
             >
               {type === 'all' ? t('records.allRecords') : typeLabel(type)}
@@ -542,7 +542,7 @@ export function MyRecordsPage() {
       </div>
 
       {/* Records Count */}
-      <div className="flex items-center gap-2 text-sm text-neutral-500">
+      <div className="flex items-center gap-2 text-sm text-content-muted">
         <FileText className="w-4 h-4" />
         {t('records.found', { count: filteredRecords.length })}
       </div>
@@ -561,13 +561,13 @@ export function MyRecordsPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-medium text-neutral-900 truncate">{record.title}</h3>
+                  <h3 className="font-medium text-content truncate">{record.title}</h3>
                   {record.verified && (
                     <Shield className="w-4 h-4 text-success-500 flex-shrink-0" />
                   )}
                 </div>
-                <p className="text-sm text-neutral-500 truncate mb-2">{record.description}</p>
-                <div className="flex items-center gap-4 text-xs text-neutral-400">
+                <p className="text-sm text-content-muted truncate mb-2">{record.description}</p>
+                <div className="flex items-center gap-4 text-xs text-content-muted">
                   <span className="flex items-center gap-1">
                     <User className="w-3 h-3" />
                     {record.provider}
@@ -578,7 +578,7 @@ export function MyRecordsPage() {
                   </span>
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-neutral-400 flex-shrink-0" />
+              <ChevronRight className="w-5 h-5 text-content-muted flex-shrink-0" />
             </div>
           </div>
         ))}
@@ -586,7 +586,7 @@ export function MyRecordsPage() {
         {filteredRecords.length === 0 && (
           <div className="text-center py-12">
             <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
-            <p className="text-neutral-500">{t('records.noRecords')}</p>
+            <p className="text-content-muted">{t('records.noRecords')}</p>
           </div>
         )}
       </div>
@@ -594,14 +594,14 @@ export function MyRecordsPage() {
       {/* Record Detail Modal */}
       {selectedRecord && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
-            <div className="sticky top-0 bg-white p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-neutral-900">{t('records.recordDetails')}</h2>
+          <div className="bg-surface w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
+            <div className="sticky top-0 bg-surface p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold text-content">{t('records.recordDetails')}</h2>
               <button
                 onClick={() => setSelectedRecord(null)}
-                className="p-2 hover:bg-neutral-100 rounded-xl transition-colors"
+                className="p-2 hover:bg-surface-sunken rounded-xl transition-colors"
               >
-                <X className="w-6 h-6 text-neutral-500" />
+                <X className="w-6 h-6 text-content-muted" />
               </button>
             </div>
 
@@ -615,34 +615,34 @@ export function MyRecordsPage() {
                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-1 ${getRecordColor(selectedRecord.type)}`}>
                     {typeLabel(selectedRecord.type)}
                   </span>
-                  <h3 className="font-semibold text-lg text-neutral-900">{selectedRecord.title}</h3>
-                  <p className="text-neutral-600">{selectedRecord.description}</p>
+                  <h3 className="font-semibold text-lg text-content">{selectedRecord.title}</h3>
+                  <p className="text-content-muted">{selectedRecord.description}</p>
                 </div>
               </div>
 
               {/* Record Info */}
-              <div className="space-y-4 p-4 bg-neutral-50 rounded-xl">
+              <div className="space-y-4 p-4 bg-surface-sunken rounded-xl">
                 <div className="flex items-center gap-3">
-                  <User className="w-5 h-5 text-neutral-400" />
+                  <User className="w-5 h-5 text-content-muted" />
                   <div>
-                    <p className="text-sm text-neutral-500">{t('records.provider')}</p>
-                    <p className="font-medium text-neutral-900">{selectedRecord.provider}</p>
+                    <p className="text-sm text-content-muted">{t('records.provider')}</p>
+                    <p className="font-medium text-content">{selectedRecord.provider}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Calendar className="w-5 h-5 text-neutral-400" />
+                  <Calendar className="w-5 h-5 text-content-muted" />
                   <div>
-                    <p className="text-sm text-neutral-500">{t('records.date')}</p>
-                    <p className="font-medium text-neutral-900">{formatDate(selectedRecord.date)}</p>
+                    <p className="text-sm text-content-muted">{t('records.date')}</p>
+                    <p className="font-medium text-content">{formatDate(selectedRecord.date)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-neutral-400" />
+                  <Clock className="w-5 h-5 text-content-muted" />
                   <div>
-                    <p className="text-sm text-neutral-500">{t('records.status')}</p>
+                    <p className="text-sm text-content-muted">{t('records.status')}</p>
                     <div className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${selectedRecord.verified ? 'bg-success-500' : 'bg-warning-500'}`} />
-                      <p className="font-medium text-neutral-900">
+                      <p className="font-medium text-content">
                         {selectedRecord.verified ? t('records.verified') : t('records.pendingVerification')}
                       </p>
                     </div>
@@ -664,30 +664,30 @@ export function MyRecordsPage() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
                     <FlaskConical className="w-5 h-5 text-info" />
-                    <h4 className="font-semibold text-neutral-900">{t('records.testResults')}</h4>
+                    <h4 className="font-semibold text-content">{t('records.testResults')}</h4>
                     <span className="text-xs text-success-600 flex items-center gap-1 bg-success-50 px-2 py-0.5 rounded-full">
                       <CheckCircle className="w-3 h-3" />
                       {t('records.doctorApproved')}
                     </span>
                   </div>
-                  <div className="bg-neutral-50 rounded-xl overflow-hidden">
+                  <div className="bg-surface-sunken rounded-xl overflow-hidden">
                     <table className="w-full text-sm">
-                      <thead className="bg-neutral-100">
+                      <thead className="bg-surface-sunken">
                         <tr>
-                          <th className="text-left px-4 py-2 font-medium text-neutral-600">{t('records.parameter')}</th>
-                          <th className="text-right px-4 py-2 font-medium text-neutral-600">{t('records.value')}</th>
-                          <th className="text-right px-4 py-2 font-medium text-neutral-600">{t('records.reference')}</th>
+                          <th className="text-left px-4 py-2 font-medium text-content-muted">{t('records.parameter')}</th>
+                          <th className="text-right px-4 py-2 font-medium text-content-muted">{t('records.value')}</th>
+                          <th className="text-right px-4 py-2 font-medium text-content-muted">{t('records.reference')}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {selectedRecord.labResults.map((result, idx) => (
-                          <tr key={idx} className="border-t border-neutral-100">
-                            <td className="px-4 py-2 text-neutral-900">{result.parameter}</td>
+                          <tr key={idx} className="border-t border-border">
+                            <td className="px-4 py-2 text-content">{result.parameter}</td>
                             <td className="px-4 py-2 text-right">
                               <span className={`font-medium ${
                                 result.flag === 'High' ? 'text-emergency-500' :
                                 result.flag === 'Low' ? 'text-warning-600' :
-                                'text-neutral-900'
+                                'text-content'
                               }`}>
                                 {result.value} {result.unit}
                               </span>
@@ -700,14 +700,14 @@ export function MyRecordsPage() {
                                 </span>
                               )}
                             </td>
-                            <td className="px-4 py-2 text-right text-neutral-500">{result.reference_range}</td>
+                            <td className="px-4 py-2 text-right text-content-muted">{result.reference_range}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                   {selectedRecord.reviewedBy && (
-                    <p className="text-xs text-neutral-500 flex items-center gap-1">
+                    <p className="text-xs text-content-muted flex items-center gap-1">
                       <Shield className="w-3 h-3 text-success-500" />
                       {t('records.reviewedByName', { name: selectedRecord.reviewedBy })}
                     </p>
@@ -732,10 +732,10 @@ export function MyRecordsPage() {
                 <button
                   onClick={() => void handleView(selectedRecord)}
                   disabled={isViewing === selectedRecord.id}
-                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors disabled:opacity-50"
                 >
                   {isViewing === selectedRecord.id ? (
-                    <div className="w-5 h-5 border-2 border-neutral-300 border-t-neutral-600 rounded-full animate-spin" />
+                    <div className="w-5 h-5 border-2 border-border-strong border-t-neutral-600 rounded-full animate-spin" />
                   ) : (
                     <Eye className="w-5 h-5" />
                   )}
@@ -754,20 +754,20 @@ export function MyRecordsPage() {
           aria-modal="true"
           aria-label={preview.title}
         >
-          <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-neutral-200">
-              <h2 className="font-semibold text-neutral-900 truncate">{preview.title}</h2>
+          <div className="bg-surface rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="font-semibold text-content truncate">{preview.title}</h2>
               <button
                 type="button"
                 onClick={closePreview}
-                className="px-3 py-1 text-sm text-neutral-600 hover:text-neutral-900"
+                className="px-3 py-1 text-sm text-content-muted hover:text-content"
               >
                 {t('records.close')}
               </button>
             </div>
             <div className="p-4 overflow-auto">
               {preview.kind === 'text' && (
-                <pre className="text-sm text-neutral-900 whitespace-pre-wrap break-words font-mono">
+                <pre className="text-sm text-content whitespace-pre-wrap break-words font-mono">
                   {preview.text}
                 </pre>
               )}
@@ -778,7 +778,7 @@ export function MyRecordsPage() {
                 <iframe src={preview.url} title={preview.title} className="w-full h-[65vh]" />
               )}
               {preview.kind === 'unsupported' && (
-                <p className="text-sm text-neutral-600">
+                <p className="text-sm text-content-muted">
                   {t('records.viewUnsupported', { type: preview.contentType })}
                 </p>
               )}

@@ -30,16 +30,16 @@ const ORDER_TYPES = [
 ];
 
 const PRIORITIES = [
-  { value: 'stat', label: 'STAT', color: 'bg-red-100 text-red-800' },
+  { value: 'stat', label: 'STAT', color: 'bg-critical-subtle text-critical-subtle-fg' },
   { value: 'urgent', label: 'Urgent', color: 'bg-orange-100 text-orange-800' },
-  { value: 'routine', label: 'Routine', color: 'bg-blue-100 text-blue-800' },
+  { value: 'routine', label: 'Routine', color: 'bg-notice-subtle text-notice-subtle-fg' },
 ];
 
 const STATUSES = [
-  { value: 'pending', label: 'Pending', icon: Clock, color: 'text-yellow-600' },
-  { value: 'in_progress', label: 'In Progress', icon: Activity, color: 'text-blue-600' },
-  { value: 'completed', label: 'Completed', icon: CheckCircle, color: 'text-green-600' },
-  { value: 'cancelled', label: 'Cancelled', icon: XCircle, color: 'text-gray-600' },
+  { value: 'pending', label: 'Pending', icon: Clock, color: 'text-caution-subtle-fg' },
+  { value: 'in_progress', label: 'In Progress', icon: Activity, color: 'text-notice-subtle-fg' },
+  { value: 'completed', label: 'Completed', icon: CheckCircle, color: 'text-ok-subtle-fg' },
+  { value: 'cancelled', label: 'Cancelled', icon: XCircle, color: 'text-content-muted' },
 ];
 
 function OrdersPage() {
@@ -254,8 +254,8 @@ function OrdersPage() {
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('docOrders.title')}</h1>
-          <p className="text-gray-500 mt-1">{t('docOrders.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('docOrders.title')}</h1>
+          <p className="text-content-muted mt-1">{t('docOrders.subtitle')}</p>
         </div>
         <button
           onClick={() => setShowNewOrder(true)}
@@ -268,57 +268,57 @@ function OrdersPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
-        <div className="bg-white p-4 rounded-xl shadow">
+        <div className="bg-surface p-4 rounded-xl shadow">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <Clock className="text-yellow-600" size={24} />
+            <div className="p-2 bg-caution-subtle rounded-lg">
+              <Clock className="text-caution-subtle-fg" size={24} />
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.status === 'pending').length}</p>
-              <p className="text-sm text-gray-500">{t('docOrders.statPending')}</p>
+              <p className="text-sm text-content-muted">{t('docOrders.statPending')}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl shadow">
+        <div className="bg-surface p-4 rounded-xl shadow">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Activity className="text-blue-600" size={24} />
+            <div className="p-2 bg-notice-subtle rounded-lg">
+              <Activity className="text-notice-subtle-fg" size={24} />
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.status === 'in_progress').length}</p>
-              <p className="text-sm text-gray-500">{t('docOrders.statInProgress')}</p>
+              <p className="text-sm text-content-muted">{t('docOrders.statInProgress')}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl shadow">
+        <div className="bg-surface p-4 rounded-xl shadow">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <AlertTriangle className="text-red-600" size={24} />
+            <div className="p-2 bg-critical-subtle rounded-lg">
+              <AlertTriangle className="text-critical-subtle-fg" size={24} />
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.priority === 'stat').length}</p>
-              <p className="text-sm text-gray-500">{t('docOrders.statStat')}</p>
+              <p className="text-sm text-content-muted">{t('docOrders.statStat')}</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl shadow">
+        <div className="bg-surface p-4 rounded-xl shadow">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <CheckCircle className="text-green-600" size={24} />
+            <div className="p-2 bg-ok-subtle rounded-lg">
+              <CheckCircle className="text-ok-subtle-fg" size={24} />
             </div>
             <div>
               <p className="text-2xl font-bold">{orders.filter(o => o.status === 'completed').length}</p>
-              <p className="text-sm text-gray-500">{t('docOrders.statCompleted')}</p>
+              <p className="text-sm text-content-muted">{t('docOrders.statCompleted')}</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white p-4 rounded-xl shadow mb-6">
+      <div className="bg-surface p-4 rounded-xl shadow mb-6">
         <div className="flex gap-4 items-center">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" size={20} />
             <input
               type="text"
               value={searchQuery}
@@ -351,21 +351,21 @@ function OrdersPage() {
       </div>
 
       {/* Orders List */}
-      <div className="bg-white rounded-xl shadow">
+      <div className="bg-surface rounded-xl shadow">
         <div className="p-4 border-b flex items-center gap-2">
-          <ClipboardList className="text-gray-400" size={20} />
+          <ClipboardList className="text-content-muted" size={20} />
           <span className="font-medium">{t('docOrders.ordersCount', { count: filteredOrders.length })}</span>
         </div>
 
         {loading ? (
           <div className="p-12 text-center">
             <Loader2 className="mx-auto animate-spin text-primary-500" size={48} />
-            <p className="text-gray-500 mt-3">{t('docOrders.loading')}</p>
+            <p className="text-content-muted mt-3">{t('docOrders.loading')}</p>
           </div>
         ) : error ? (
           <div className="p-12 text-center text-red-500">{error}</div>
         ) : filteredOrders.length === 0 ? (
-          <div className="p-12 text-center text-gray-500">{t('docOrders.noneFound')}</div>
+          <div className="p-12 text-center text-content-muted">{t('docOrders.noneFound')}</div>
         ) : (
           <div className="divide-y">
             {filteredOrders.map(order => {
@@ -376,11 +376,11 @@ function OrdersPage() {
               const StatusIcon = statusInfo.icon;
 
               return (
-                <div key={order.order_id} className="p-4 hover:bg-gray-50">
+                <div key={order.order_id} className="p-4 hover:bg-surface-sunken">
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-4">
-                      <div className="p-2 bg-gray-100 rounded-lg">
-                        <TypeIcon className="text-gray-600" size={24} />
+                      <div className="p-2 bg-surface-sunken rounded-lg">
+                        <TypeIcon className="text-content-muted" size={24} />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
@@ -389,10 +389,10 @@ function OrdersPage() {
                             {priorityLabel(order.priority)}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">
+                        <p className="text-sm text-content-muted mt-1">
                           {t('docOrders.patientType', { patient: order.patient_name || order.patient_id, type: orderTypeLabel(order.order_type) })}
                         </p>
-                        <p className="text-xs text-gray-400 mt-1">
+                        <p className="text-xs text-content-muted mt-1">
                           {t('docOrders.orderedAt', { time: formatTime(order.ordered_at) })}
                           {order.completed_at && t('docOrders.completedAt', { time: formatTime(order.completed_at) })}
                         </p>
@@ -426,11 +426,11 @@ function OrdersPage() {
       {/* New Order Modal */}
       {showNewOrder && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+          <div className="bg-surface rounded-xl shadow-xl w-full max-w-lg p-6">
             <h2 className="text-xl font-bold mb-4">{t('docOrders.createNewOrder')}</h2>
             <form onSubmit={handleCreateOrder} className="space-y-4">
               <div>
-                <label htmlFor="order-patient-id" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.patientId')}</label>
+                <label htmlFor="order-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.patientId')}</label>
                 <input
                   id="order-patient-id"
                   type="text"
@@ -443,7 +443,7 @@ function OrdersPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="order-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.orderType')}</label>
+                  <label htmlFor="order-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.orderType')}</label>
                   <select
                     id="order-type"
                     value={newOrder.order_type}
@@ -456,7 +456,7 @@ function OrdersPage() {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="order-priority" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.priority')}</label>
+                  <label htmlFor="order-priority" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.priority')}</label>
                   <select
                     id="order-priority"
                     value={newOrder.priority}
@@ -470,7 +470,7 @@ function OrdersPage() {
                 </div>
               </div>
               <div>
-                <label htmlFor="order-details" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.orderDetails')}</label>
+                <label htmlFor="order-details" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.orderDetails')}</label>
                 <textarea
                   id="order-details"
                   value={newOrder.order_details}
@@ -482,7 +482,7 @@ function OrdersPage() {
                 />
               </div>
               <div>
-                <label htmlFor="order-notes" className="block text-sm font-medium text-gray-700 mb-1">{t('docOrders.notesOptional')}</label>
+                <label htmlFor="order-notes" className="block text-sm font-medium text-content-secondary mb-1">{t('docOrders.notesOptional')}</label>
                 <textarea
                   id="order-notes"
                   value={newOrder.notes}
@@ -496,7 +496,7 @@ function OrdersPage() {
                 <button
                   type="button"
                   onClick={() => setShowNewOrder(false)}
-                  className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                  className="px-4 py-2 border rounded-lg hover:bg-surface-sunken"
                 >
                   {t('docOrders.cancel')}
                 </button>

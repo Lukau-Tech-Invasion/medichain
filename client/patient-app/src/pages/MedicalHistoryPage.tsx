@@ -156,19 +156,19 @@ export function MedicalHistoryPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('medicalHistory.title')}</h1>
-          <p className="text-neutral-500">{t('medicalHistory.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('medicalHistory.title')}</h1>
+          <p className="text-content-muted">{t('medicalHistory.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadAll}
-            className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg"
+            className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg"
           >
             <RefreshCw className="w-5 h-5" />
           </button>
@@ -176,15 +176,15 @@ export function MedicalHistoryPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-neutral-100 p-1 rounded-xl">
+      <div className="flex gap-1 bg-surface-sunken p-1 rounded-xl">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeTab === tab.id
-                ? 'bg-white text-neutral-900 shadow-sm'
-                : 'text-neutral-600 hover:text-neutral-900'
+                ? 'bg-surface text-content shadow-sm'
+                : 'text-content-muted hover:text-content'
             }`}
           >
             {tab.icon}
@@ -199,20 +199,20 @@ export function MedicalHistoryPage() {
           {immunizations.length === 0 ? (
             <div className="text-center py-12">
               <Syringe className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">{t('medicalHistory.noImmunizations')}</p>
+              <p className="text-content-muted">{t('medicalHistory.noImmunizations')}</p>
             </div>
           ) : (
             immunizations.map((imm, idx) => (
               <div key={imm.record_id || imm.id || idx} className="patient-card">
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Syringe className="w-5 h-5 text-green-600" />
+                  <div className="w-10 h-10 bg-ok-subtle rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Syringe className="w-5 h-5 text-ok-subtle-fg" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-neutral-900">
+                    <h3 className="font-semibold text-content">
                       {imm.vaccine_name || imm.vaccine || t('medicalHistory.vaccine')}
                     </h3>
-                    <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1">
+                    <div className="flex items-center gap-3 text-xs text-content-muted mt-1">
                       {(imm.date_administered || imm.administered_date) && (
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
@@ -227,7 +227,7 @@ export function MedicalHistoryPage() {
                       )}
                     </div>
                     {imm.notes && (
-                      <p className="text-xs text-neutral-400 mt-1 italic">{imm.notes}</p>
+                      <p className="text-xs text-content-muted mt-1 italic">{imm.notes}</p>
                     )}
                   </div>
                 </div>
@@ -243,7 +243,7 @@ export function MedicalHistoryPage() {
           {familyHistory.length === 0 ? (
             <div className="text-center py-12">
               <Users className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">{t('medicalHistory.noFamily')}</p>
+              <p className="text-content-muted">{t('medicalHistory.noFamily')}</p>
             </div>
           ) : (
             familyHistory.map((entry, idx) => (
@@ -254,19 +254,19 @@ export function MedicalHistoryPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-neutral-900">{entry.condition}</h3>
+                      <h3 className="font-semibold text-content">{entry.condition}</h3>
                       {entry.deceased && (
-                        <span className="text-xs text-neutral-400">{t('medicalHistory.deceased')}</span>
+                        <span className="text-xs text-content-muted">{t('medicalHistory.deceased')}</span>
                       )}
                     </div>
-                    <p className="text-sm text-neutral-600 mt-0.5">{entry.relationship}</p>
+                    <p className="text-sm text-content-muted mt-0.5">{entry.relationship}</p>
                     {entry.age_of_onset != null && (
-                      <p className="text-xs text-neutral-400 mt-0.5">
+                      <p className="text-xs text-content-muted mt-0.5">
                         {t('medicalHistory.ageOfOnset', { age: entry.age_of_onset })}
                       </p>
                     )}
                     {entry.notes && (
-                      <p className="text-xs text-neutral-400 mt-1 italic">{entry.notes}</p>
+                      <p className="text-xs text-content-muted mt-1 italic">{entry.notes}</p>
                     )}
                   </div>
                 </div>
@@ -282,7 +282,7 @@ export function MedicalHistoryPage() {
           {documents.length === 0 ? (
             <div className="text-center py-12">
               <FileText className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">{t('medicalHistory.noDocuments')}</p>
+              <p className="text-content-muted">{t('medicalHistory.noDocuments')}</p>
             </div>
           ) : (
             documents.map((doc, idx) => (
@@ -292,12 +292,12 @@ export function MedicalHistoryPage() {
                     <FileText className="w-5 h-5 text-primary-600" />
                   </div>
                   <div>
-                    <h3 className="font-medium text-neutral-900">
+                    <h3 className="font-medium text-content">
                       {doc.file_name || doc.title || t('medicalHistory.document')}
                     </h3>
-                    <div className="flex items-center gap-2 text-xs text-neutral-400 mt-0.5">
+                    <div className="flex items-center gap-2 text-xs text-content-muted mt-0.5">
                       {doc.record_type && (
-                        <span className="px-1.5 py-0.5 bg-neutral-100 rounded">{doc.record_type}</span>
+                        <span className="px-1.5 py-0.5 bg-surface-sunken rounded">{doc.record_type}</span>
                       )}
                       {(doc.uploaded_at || doc.created_at) && (
                         <span>{formatDate(doc.uploaded_at || doc.created_at)}</span>
@@ -310,7 +310,7 @@ export function MedicalHistoryPage() {
                 </div>
                 {doc.ipfs_hash && (
                   <button
-                    className="p-2 text-neutral-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                    className="p-2 text-content-muted hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
                     title={t('medicalHistory.download')}
                   >
                     <Download className="w-4 h-4" />

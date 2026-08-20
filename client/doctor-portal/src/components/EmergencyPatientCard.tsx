@@ -11,12 +11,12 @@ interface EmergencyPatientCardProps {
  * Blood type color mapping
  */
 const BLOOD_TYPE_COLORS: Record<string, string> = {
-  'O+': 'bg-red-100 text-red-800',
-  'O-': 'bg-red-200 text-red-900',
-  'A+': 'bg-blue-100 text-blue-800',
-  'A-': 'bg-blue-200 text-blue-900',
-  'B+': 'bg-green-100 text-green-800',
-  'B-': 'bg-green-200 text-green-900',
+  'O+': 'bg-critical-subtle text-critical-subtle-fg',
+  'O-': 'bg-red-200 text-critical-subtle-fg',
+  'A+': 'bg-notice-subtle text-notice-subtle-fg',
+  'A-': 'bg-blue-200 text-notice-subtle-fg',
+  'B+': 'bg-ok-subtle text-ok-subtle-fg',
+  'B-': 'bg-green-200 text-ok-subtle-fg',
   'AB+': 'bg-purple-100 text-purple-800',
   'AB-': 'bg-purple-200 text-purple-900',
 };
@@ -49,10 +49,10 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
   const lastUpdated = patient.lastUpdated || new Date().toISOString();
 
   const bloodType = formatBloodType(patientBloodType);
-  const bloodTypeColor = BLOOD_TYPE_COLORS[bloodType] || 'bg-gray-100 text-gray-800';
+  const bloodTypeColor = BLOOD_TYPE_COLORS[bloodType] || 'bg-surface-sunken text-content-secondary';
 
   return (
-    <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+    <div className="bg-surface rounded-xl shadow-lg overflow-hidden">
       {/* Emergency header */}
       <div className="bg-emergency-500 text-white p-4">
         <div className="flex items-center justify-between">
@@ -75,12 +75,12 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
       {/* Critical info grid */}
       <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Blood Type - CRITICAL */}
-        <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+        <div className="flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
           <div className="w-12 h-12 flex items-center justify-center">
             <Droplets className="text-red-500" size={32} />
           </div>
           <div>
-            <p className="text-sm text-gray-500">Blood Type</p>
+            <p className="text-sm text-content-muted">Blood Type</p>
             <span
               className={`inline-block mt-1 px-3 py-1 rounded-full font-bold text-lg ${bloodTypeColor}`}
             >
@@ -90,17 +90,17 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         </div>
 
         {/* DNR Status */}
-        <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+        <div className="flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
           <div className="w-12 h-12 flex items-center justify-center">
             <FileHeart className={patient.dnrStatus ? 'text-red-500' : 'text-green-500'} size={32} />
           </div>
           <div>
-            <p className="text-sm text-gray-500">DNR Status</p>
+            <p className="text-sm text-content-muted">DNR Status</p>
             <span
               className={`inline-block mt-1 px-3 py-1 rounded-full font-bold ${
                 patient.dnrStatus
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-green-100 text-green-800'
+                  ? 'bg-critical-subtle text-critical-subtle-fg'
+                  : 'bg-ok-subtle text-ok-subtle-fg'
               }`}
             >
               {patient.dnrStatus ? 'DNR Active' : 'Full Code'}
@@ -112,21 +112,21 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="text-amber-500" size={20} />
-            <h3 className="font-semibold text-gray-900">Allergies</h3>
+            <h3 className="font-semibold text-content">Allergies</h3>
           </div>
           {patient.allergies.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {patient.allergies.map((allergy, idx) => (
                 <span
                   key={idx}
-                  className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-medium"
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-caution-subtle text-caution-subtle-fg rounded-full text-sm font-medium"
                 >
                   <AlertTriangle size={12} aria-hidden="true" /> {allergy}
                 </span>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-sm">No known allergies</p>
+            <p className="text-content-muted text-sm">No known allergies</p>
           )}
         </div>
 
@@ -134,19 +134,19 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
             <Pill className="text-blue-500" size={20} />
-            <h3 className="font-semibold text-gray-900">Current Medications</h3>
+            <h3 className="font-semibold text-content">Current Medications</h3>
           </div>
           {patient.currentMedications.length > 0 ? (
             <ul className="space-y-1">
               {patient.currentMedications.map((med, idx) => (
-                <li key={idx} className="text-sm text-gray-700 flex items-center gap-2">
+                <li key={idx} className="text-sm text-content-secondary flex items-center gap-2">
                   <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
                   {med}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-gray-500 text-sm">No current medications</p>
+            <p className="text-content-muted text-sm">No current medications</p>
           )}
         </div>
 
@@ -154,21 +154,21 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
         <div className="md:col-span-2">
           <div className="flex items-center gap-2 mb-3">
             <Heart className="text-red-500" size={20} />
-            <h3 className="font-semibold text-gray-900">Chronic Conditions</h3>
+            <h3 className="font-semibold text-content">Chronic Conditions</h3>
           </div>
           {chronicConditions.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {chronicConditions.map((condition, idx) => (
                 <span
                   key={idx}
-                  className="px-3 py-1 bg-red-50 text-red-700 rounded-full text-sm"
+                  className="px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm"
                 >
                   {condition}
                 </span>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-sm">No chronic conditions</p>
+            <p className="text-content-muted text-sm">No chronic conditions</p>
           )}
         </div>
 
@@ -177,14 +177,14 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-3">
               <Phone className="text-green-500" size={20} />
-              <h3 className="font-semibold text-gray-900">Emergency Contacts</h3>
+              <h3 className="font-semibold text-content">Emergency Contacts</h3>
             </div>
             <div className="space-y-2">
               {emergencyContacts.map((contact, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div key={idx} className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">{contact.name}</p>
-                    <p className="text-sm text-gray-500">{contact.relationship}</p>
+                    <p className="font-medium text-content">{contact.name}</p>
+                    <p className="text-sm text-content-muted">{contact.relationship}</p>
                   </div>
                   <a
                     href={`tel:${contact.phone}`}
@@ -200,20 +200,20 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
 
         {/* Organ Donor Status */}
         {showFullDetails && (
-          <div className="md:col-span-2 flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+          <div className="md:col-span-2 flex items-center gap-4 p-4 bg-surface-sunken rounded-lg">
             <div className="w-10 h-10 flex items-center justify-center">
-              <Heart className={patient.organDonor ? 'text-pink-500' : 'text-gray-400'} size={24} />
+              <Heart className={patient.organDonor ? 'text-pink-500' : 'text-content-muted'} size={24} />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Organ Donor Status</p>
+              <p className="text-sm text-content-muted">Organ Donor Status</p>
               <p className="font-medium inline-flex items-center gap-1.5">
                 {patient.organDonor ? (
                   <>
-                    <CheckCircle2 size={16} className="text-green-600" aria-hidden="true" /> Registered Organ Donor
+                    <CheckCircle2 size={16} className="text-ok-subtle-fg" aria-hidden="true" /> Registered Organ Donor
                   </>
                 ) : (
                   <>
-                    <XCircle size={16} className="text-gray-400" aria-hidden="true" /> Not a Registered Donor
+                    <XCircle size={16} className="text-content-muted" aria-hidden="true" /> Not a Registered Donor
                   </>
                 )}
               </p>
@@ -223,8 +223,8 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
       </div>
 
       {/* Footer with timestamp */}
-      <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-        <p className="text-xs text-gray-500">
+      <div className="px-6 py-4 bg-surface-sunken border-t border-border">
+        <p className="text-xs text-content-muted">
           Last updated: {new Date(lastUpdated).toLocaleString()}
         </p>
       </div>

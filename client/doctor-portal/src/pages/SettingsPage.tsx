@@ -158,9 +158,9 @@ function SettingsPage() {
             <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
               <Settings className="text-primary-600" size={24} />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">{t('docSettings.title')}</h1>
+            <h1 className="text-2xl font-bold text-content">{t('docSettings.title')}</h1>
           </div>
-          <p className="text-gray-500">
+          <p className="text-content-muted">
             {t('docSettings.subtitle')}
           </p>
         </div>
@@ -185,14 +185,14 @@ function SettingsPage() {
       </div>
 
       {settingsError && (
-        <div role="alert" className="mb-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div role="alert" className="mb-6 rounded-lg border border-critical bg-critical-subtle p-3 text-sm text-critical-subtle-fg">
           {settingsError}
         </div>
       )}
 
       <div className="flex gap-8">
         {/* Tabs */}
-        <div className="w-64 bg-white rounded-xl shadow p-4">
+        <div className="w-64 bg-surface rounded-xl shadow p-4">
           <nav className="space-y-1">
             {tabs.map((tab) => (
               <button
@@ -201,7 +201,7 @@ function SettingsPage() {
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
                   activeTab === tab.id
                     ? 'bg-primary-50 text-primary-700'
-                    : 'text-gray-600 hover:bg-gray-50'
+                    : 'text-content-muted hover:bg-surface-sunken'
                 }`}
               >
                 <tab.icon size={20} />
@@ -212,19 +212,19 @@ function SettingsPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 bg-white rounded-xl shadow p-6">
+        <div className="flex-1 bg-surface rounded-xl shadow p-6">
           {/* Profile Tab */}
           {activeTab === 'profile' && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('docSettings.profileInfo')}</h2>
+              <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.profileInfo')}</h2>
 
               <div className="flex items-start gap-6 mb-8">
                 <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center">
                   <User className="text-primary-600" size={32} />
                 </div>
                 <div>
-                  <h3 className="font-medium text-gray-900">{user?.username || t('docSettings.userFallback')}</h3>
-                  <p className="text-sm text-gray-500">{user?.role || t('docSettings.roleFallback')}</p>
+                  <h3 className="font-medium text-content">{user?.username || t('docSettings.userFallback')}</h3>
+                  <p className="text-sm text-content-muted">{user?.role || t('docSettings.roleFallback')}</p>
                   <button className="mt-2 text-sm text-primary-600 hover:text-primary-700">
                     {t('docSettings.changeAvatar')}
                   </button>
@@ -233,51 +233,51 @@ function SettingsPage() {
 
               <div className="grid grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.userId')}</label>
+                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.userId')}</label>
                   <input
                     type="text"
                     value={user?.userId || ''}
                     disabled
-                    className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-500"
+                    className="w-full px-4 py-2 bg-surface-sunken border border-border rounded-lg text-content-muted"
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.role')}</label>
+                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.role')}</label>
                   <input
                     type="text"
                     value={user?.role || ''}
                     disabled
-                    className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-500"
+                    className="w-full px-4 py-2 bg-surface-sunken border border-border rounded-lg text-content-muted"
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.email')}</label>
+                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.email')}</label>
                   <input
                     type="email"
                     defaultValue={`${user?.username || 'user'}@medichain.health`}
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                   />
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{t('docSettings.phone')}</label>
+                  <label className="block text-sm font-medium text-content-secondary mb-1">{t('docSettings.phone')}</label>
                   <input
                     type="tel"
                     defaultValue="+234-800-000-0000"
-                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                   />
                 </div>
               </div>
 
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <h4 className="font-medium text-gray-900 mb-3">{t('docSettings.accountStatus')}</h4>
+              <div className="mt-6 pt-6 border-t border-border">
+                <h4 className="font-medium text-content mb-3">{t('docSettings.accountStatus')}</h4>
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center px-3 py-1 bg-success-100 text-success-700 text-sm font-medium rounded-full">
                     {t('docSettings.active')}
                   </span>
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-content-muted">
                     {t('docSettings.memberSince')}
                   </span>
                 </div>
@@ -288,13 +288,13 @@ function SettingsPage() {
           {/* Notifications Tab */}
           {activeTab === 'notifications' && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('docSettings.notifPrefs')}</h2>
+              <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.notifPrefs')}</h2>
 
               <div className="space-y-6">
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-border">
                   <div>
-                    <h4 className="font-medium text-gray-900">{t('docSettings.emergencyAlerts')}</h4>
-                    <p className="text-sm text-gray-500">{t('docSettings.emergencyAlertsDesc')}</p>
+                    <h4 className="font-medium text-content">{t('docSettings.emergencyAlerts')}</h4>
+                    <p className="text-sm text-content-muted">{t('docSettings.emergencyAlertsDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -303,14 +303,14 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('emergencyAlerts', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
 
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-border">
                   <div>
-                    <h4 className="font-medium text-gray-900">{t('docSettings.patientUpdates')}</h4>
-                    <p className="text-sm text-gray-500">{t('docSettings.patientUpdatesDesc')}</p>
+                    <h4 className="font-medium text-content">{t('docSettings.patientUpdates')}</h4>
+                    <p className="text-sm text-content-muted">{t('docSettings.patientUpdatesDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -319,14 +319,14 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('patientUpdates', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
 
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-border">
                   <div>
-                    <h4 className="font-medium text-gray-900">{t('docSettings.systemAnnouncements')}</h4>
-                    <p className="text-sm text-gray-500">{t('docSettings.systemAnnouncementsDesc')}</p>
+                    <h4 className="font-medium text-content">{t('docSettings.systemAnnouncements')}</h4>
+                    <p className="text-sm text-content-muted">{t('docSettings.systemAnnouncementsDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -335,14 +335,14 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('systemAnnouncements', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
 
                 <div className="flex items-center justify-between py-3">
                   <div>
-                    <h4 className="font-medium text-gray-900">{t('docSettings.emailDigest')}</h4>
-                    <p className="text-sm text-gray-500">{t('docSettings.emailDigestDesc')}</p>
+                    <h4 className="font-medium text-content">{t('docSettings.emailDigest')}</h4>
+                    <p className="text-sm text-content-muted">{t('docSettings.emailDigestDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -351,7 +351,7 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('emailDigest', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
               </div>
@@ -361,15 +361,15 @@ function SettingsPage() {
           {/* Security Tab */}
           {activeTab === 'security' && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-6">{t('docSettings.securitySettings')}</h2>
+              <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.securitySettings')}</h2>
 
               <div className="space-y-6">
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-border">
                   <div className="flex items-start gap-3">
-                    <Smartphone className="text-gray-400 mt-1" size={20} />
+                    <Smartphone className="text-content-muted mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">{t('docSettings.twoFactor')}</h4>
-                      <p className="text-sm text-gray-500">{t('docSettings.twoFactorDesc')}</p>
+                      <h4 className="font-medium text-content">{t('docSettings.twoFactor')}</h4>
+                      <p className="text-sm text-content-muted">{t('docSettings.twoFactorDesc')}</p>
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -379,22 +379,22 @@ function SettingsPage() {
                       onChange={(e) => updateSecurity('twoFactorEnabled', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
 
-                <div className="py-3 border-b border-gray-100">
+                <div className="py-3 border-b border-border">
                   <div className="flex items-start gap-3 mb-3">
-                    <Key className="text-gray-400 mt-1" size={20} />
+                    <Key className="text-content-muted mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">{t('docSettings.sessionTimeout')}</h4>
-                      <p className="text-sm text-gray-500">{t('docSettings.sessionTimeoutDesc')}</p>
+                      <h4 className="font-medium text-content">{t('docSettings.sessionTimeout')}</h4>
+                      <p className="text-sm text-content-muted">{t('docSettings.sessionTimeoutDesc')}</p>
                     </div>
                   </div>
                   <select
                     value={settings.security.sessionTimeout}
                     onChange={(e) => updateSecurity('sessionTimeout', Number(e.target.value))}
-                    className="w-full max-w-xs px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                   >
                     <option value={15}>{t('docSettings.min15')}</option>
                     <option value={30}>{t('docSettings.min30')}</option>
@@ -403,12 +403,12 @@ function SettingsPage() {
                   </select>
                 </div>
 
-                <div className="flex items-center justify-between py-3 border-b border-gray-100">
+                <div className="flex items-center justify-between py-3 border-b border-border">
                   <div className="flex items-start gap-3">
-                    <Shield className="text-gray-400 mt-1" size={20} />
+                    <Shield className="text-content-muted mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">{t('docSettings.pinEmergency')}</h4>
-                      <p className="text-sm text-gray-500">{t('docSettings.pinEmergencyDesc')}</p>
+                      <h4 className="font-medium text-content">{t('docSettings.pinEmergency')}</h4>
+                      <p className="text-sm text-content-muted">{t('docSettings.pinEmergencyDesc')}</p>
                     </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -418,7 +418,7 @@ function SettingsPage() {
                       onChange={(e) => updateSecurity('requirePinForEmergency', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
 
@@ -434,15 +434,15 @@ function SettingsPage() {
           {/* Display Tab */}
           {activeTab === 'display' && (
             <div className="dark:text-white">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">{t('docSettings.displayPrefs')}</h2>
+              <h2 className="text-lg font-semibold text-content dark:text-white mb-6">{t('docSettings.displayPrefs')}</h2>
 
               <div className="space-y-6">
-                <div className="py-3 border-b border-gray-100 dark:border-gray-700">
+                <div className="py-3 border-b border-border dark:border-gray-700">
                   <div className="flex items-start gap-3 mb-3">
-                    <Palette className="text-gray-400 dark:text-gray-300 mt-1" size={20} />
+                    <Palette className="text-content-muted dark:text-gray-300 mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900 dark:text-white">{t('docSettings.theme')}</h4>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{t('docSettings.themeDesc')}</p>
+                      <h4 className="font-medium text-content dark:text-white">{t('docSettings.theme')}</h4>
+                      <p className="text-sm text-content-muted dark:text-gray-400">{t('docSettings.themeDesc')}</p>
                     </div>
                   </div>
                   <div className="flex gap-3">
@@ -460,7 +460,7 @@ function SettingsPage() {
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                           settings.display.theme === value
                             ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 border-2 border-primary-500'
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-2 border-transparent hover:bg-gray-200 dark:hover:bg-gray-600'
+                            : 'bg-surface-sunken dark:bg-gray-700 text-content-secondary dark:text-gray-300 border-2 border-transparent hover:bg-surface-sunken dark:hover:bg-gray-600'
                         }`}
                       >
                         <Icon size={18} />
@@ -473,24 +473,24 @@ function SettingsPage() {
                       screens so far; choosing it should be a decision, not
                       something a dark OS does to a clinician on first load. */}
                   {settings.display.theme !== 'light' && (
-                    <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="mt-3 text-sm text-caution-subtle-fg bg-caution-subtle border border-caution rounded-lg p-3">
                       {t('docSettings.themeDarkIncomplete')}
                     </p>
                   )}
                 </div>
 
-                <div className="py-3 border-b border-gray-100">
+                <div className="py-3 border-b border-border">
                   <div className="flex items-start gap-3 mb-3">
-                    <Globe className="text-gray-400 mt-1" size={20} />
+                    <Globe className="text-content-muted mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">{t('docSettings.language')}</h4>
-                      <p className="text-sm text-gray-500">{t('docSettings.languageDesc')}</p>
+                      <h4 className="font-medium text-content">{t('docSettings.language')}</h4>
+                      <p className="text-sm text-content-muted">{t('docSettings.languageDesc')}</p>
                     </div>
                   </div>
                   <select
                     value={settings.display.language}
                     onChange={(e) => updateDisplay('language', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                   >
                     <option value="en">{t('docSettings.langEnglish')}</option>
                     <option value="fr">{t('docSettings.langFrench')}</option>
@@ -501,18 +501,18 @@ function SettingsPage() {
                   </select>
                 </div>
 
-                <div className="py-3 border-b border-gray-100">
+                <div className="py-3 border-b border-border">
                   <div className="flex items-start gap-3 mb-3">
-                    <Settings className="text-gray-400 mt-1" size={20} />
+                    <Settings className="text-content-muted mt-1" size={20} />
                     <div>
-                      <h4 className="font-medium text-gray-900">{t('docSettings.dateFormat')}</h4>
-                      <p className="text-sm text-gray-500">{t('docSettings.dateFormatDesc')}</p>
+                      <h4 className="font-medium text-content">{t('docSettings.dateFormat')}</h4>
+                      <p className="text-sm text-content-muted">{t('docSettings.dateFormatDesc')}</p>
                     </div>
                   </div>
                   <select
                     value={settings.display.dateFormat}
                     onChange={(e) => updateDisplay('dateFormat', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                   >
                     <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                     <option value="DD/MM/YYYY">DD/MM/YYYY</option>
@@ -522,8 +522,8 @@ function SettingsPage() {
 
                 <div className="flex items-center justify-between py-3">
                   <div>
-                    <h4 className="font-medium text-gray-900">{t('docSettings.compactView')}</h4>
-                    <p className="text-sm text-gray-500">{t('docSettings.compactViewDesc')}</p>
+                    <h4 className="font-medium text-content">{t('docSettings.compactView')}</h4>
+                    <p className="text-sm text-content-muted">{t('docSettings.compactViewDesc')}</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -532,7 +532,7 @@ function SettingsPage() {
                       onChange={(e) => updateDisplay('compactView', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
                   </label>
                 </div>
               </div>

@@ -27,8 +27,11 @@ test.describe('Login Flow', () => {
     // Click Connect Wallet
     await page.click('button:has-text("Connect Wallet")');
 
-    // Check for error message
-    const errorAlert = page.locator('.bg-red-50');
+    // Check for error message. The selector follows the semantic token, not a
+    // raw palette shade: `bg-red-50` was migrated to `bg-critical-subtle` so the
+    // alert carries a dark tint in dark mode instead of a glaring pale patch.
+    // Asserting on a palette class would have quietly stopped matching.
+    const errorAlert = page.locator('.bg-critical-subtle');
     await expect(errorAlert).toBeVisible();
     await expect(errorAlert).toContainText(/Invalid wallet/i);
   });

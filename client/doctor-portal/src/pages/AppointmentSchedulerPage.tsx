@@ -124,16 +124,16 @@ function bucketFor(a: Appointment, today: string): Tab {
 }
 
 const STATUS_STYLE: Record<AppointmentStatus, string> = {
-  scheduled: 'bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-100',
-  confirmed: 'bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100',
-  checked_in: 'bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100',
+  scheduled: 'bg-surface-sunken text-content-secondary dark:bg-slate-700 dark:text-slate-100',
+  confirmed: 'bg-notice-subtle text-notice-subtle-fg dark:bg-blue-900 dark:text-blue-100',
+  checked_in: 'bg-caution-subtle text-caution-subtle-fg dark:bg-amber-900 dark:text-amber-100',
   in_progress: 'bg-indigo-100 text-indigo-900 dark:bg-indigo-900 dark:text-indigo-100',
-  completed: 'bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100',
-  cancelled: 'bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100',
-  declined: 'bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100',
+  completed: 'bg-ok-subtle text-ok-subtle-fg dark:bg-green-900 dark:text-green-100',
+  cancelled: 'bg-critical-subtle text-critical-subtle-fg dark:bg-red-900 dark:text-red-100',
+  declined: 'bg-critical-subtle text-critical-subtle-fg dark:bg-red-900 dark:text-red-100',
   no_show: 'bg-orange-100 text-orange-900 dark:bg-orange-900 dark:text-orange-100',
   rescheduled: 'bg-purple-100 text-purple-900 dark:bg-purple-900 dark:text-purple-100',
-  waitlisted: 'bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-100',
+  waitlisted: 'bg-surface-sunken text-content-secondary dark:bg-slate-700 dark:text-slate-100',
 };
 
 /**
@@ -301,14 +301,14 @@ export default function AppointmentSchedulerPage() {
         </button>
       </div>
       {/* Says whose calendar this is, instead of asking. */}
-      <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">
+      <p className="text-sm text-content-muted dark:text-gray-300 mb-6">
         {t('docAppointments.scheduleFor', { name: provider.displayName })}
         {provider.department ? ` · ${provider.department}` : ''}
       </p>
 
       {showForm && (
-        <div className="bg-white dark:bg-slate-800 rounded-xl shadow p-6 mb-6">
-          <h2 className="font-semibold text-gray-900 dark:text-white mb-4">
+        <div className="bg-surface dark:bg-slate-800 rounded-xl shadow p-6 mb-6">
+          <h2 className="font-semibold text-content dark:text-white mb-4">
             {t('docAppointments.scheduleNew')}
           </h2>
           <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
@@ -396,7 +396,7 @@ export default function AppointmentSchedulerPage() {
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="border px-4 py-2 rounded hover:bg-gray-50 dark:hover:bg-slate-700 dark:text-gray-200"
+                className="border px-4 py-2 rounded hover:bg-surface-sunken dark:hover:bg-slate-700 dark:text-gray-200"
               >
                 {t('docAppointments.cancel')}
               </button>
@@ -405,7 +405,7 @@ export default function AppointmentSchedulerPage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow">
+      <div className="bg-surface dark:bg-slate-800 rounded-xl shadow">
         <div role="tablist" aria-label={t('docAppointments.title')} className="flex border-b dark:border-slate-700">
           {TABS.map(({ id, label }) => (
             <button
@@ -415,12 +415,12 @@ export default function AppointmentSchedulerPage() {
               onClick={() => setTab(id)}
               className={`px-5 py-3 text-sm font-medium border-b-2 -mb-px focus:outline-none focus-visible:ring-2 ${
                 tab === id
-                  ? 'border-blue-600 text-blue-700 dark:text-blue-300'
-                  : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                  ? 'border-blue-600 text-notice-subtle-fg dark:text-blue-300'
+                  : 'border-transparent text-content-muted hover:text-content dark:text-gray-300 dark:hover:text-white'
               }`}
             >
               {label}
-              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+              <span className="ml-2 text-xs text-content-muted dark:text-gray-400">
                 {buckets[id].length}
               </span>
             </button>
@@ -430,15 +430,15 @@ export default function AppointmentSchedulerPage() {
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} aria-hidden="true" />
-            <p className="text-gray-600 dark:text-gray-300">{t('docAppointments.loading')}</p>
+            <p className="text-content-muted dark:text-gray-300">{t('docAppointments.loading')}</p>
           </div>
         ) : loadError ? (
           <div role="alert" className="p-8 text-center">
-            <AlertCircle className="mx-auto mb-2 text-red-600" size={32} aria-hidden="true" />
-            <p className="text-red-800 dark:text-red-300 mb-3">{loadError}</p>
+            <AlertCircle className="mx-auto mb-2 text-critical-subtle-fg" size={32} aria-hidden="true" />
+            <p className="text-critical-subtle-fg dark:text-red-300 mb-3">{loadError}</p>
             <button
               onClick={() => void fetchAppointments()}
-              className="px-4 py-2 border rounded hover:bg-gray-50 dark:hover:bg-slate-700 dark:text-gray-200"
+              className="px-4 py-2 border rounded hover:bg-surface-sunken dark:hover:bg-slate-700 dark:text-gray-200"
             >
               {t('docAppointments.retry')}
             </button>
@@ -446,7 +446,7 @@ export default function AppointmentSchedulerPage() {
         ) : rows.length === 0 ? (
           <div className="p-8 text-center">
             <Calendar className="mx-auto mb-2 text-gray-300" size={40} aria-hidden="true" />
-            <p className="text-gray-600 dark:text-gray-300 mb-3">
+            <p className="text-content-muted dark:text-gray-300 mb-3">
               {t(`docAppointments.empty_${tab}`)}
             </p>
             {(tab === 'today' || tab === 'upcoming') && (
@@ -470,18 +470,18 @@ export default function AppointmentSchedulerPage() {
                 (to) => !(awaitingPatient && (to === 'confirmed' || to === 'declined'))
               );
               return (
-                <li key={a.appointment_id} className="p-4 hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                <li key={a.appointment_id} className="p-4 hover:bg-surface-sunken dark:hover:bg-slate-700/50">
                   <div className="flex items-start justify-between gap-4 flex-wrap">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-medium text-gray-900 dark:text-white">
+                        <span className="font-medium text-content dark:text-white">
                           {a.patient_name || a.patient_id}
                         </span>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[status]}`}>
                           {t(`docAppointments.status_${status}`)}
                         </span>
                         {awaitingPatient && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-caution-subtle text-caution-subtle-fg dark:bg-amber-900 dark:text-amber-100">
                             {t('docAppointments.awaitingPatient')}
                           </span>
                         )}
@@ -492,7 +492,7 @@ export default function AppointmentSchedulerPage() {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300 flex-wrap">
+                      <div className="flex items-center gap-3 text-sm text-content-muted dark:text-gray-300 flex-wrap">
                         <span className="inline-flex items-center gap-1">
                           <Calendar size={13} aria-hidden="true" />{a.scheduled_date}
                         </span>
@@ -507,7 +507,7 @@ export default function AppointmentSchedulerPage() {
                         )}
                       </div>
                       {a.visit_reason && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{a.visit_reason}</p>
+                        <p className="text-sm text-content-muted dark:text-gray-400 mt-1">{a.visit_reason}</p>
                       )}
                     </div>
                     <div className="flex gap-2 flex-wrap">
@@ -528,7 +528,7 @@ export default function AppointmentSchedulerPage() {
                             {t('docAppointments.joinConsultation')}
                           </a>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400">
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-content-muted dark:text-gray-400">
                             <Video size={14} aria-hidden="true" />
                             {t('docAppointments.joinOpensSoon')}
                           </span>
@@ -544,7 +544,7 @@ export default function AppointmentSchedulerPage() {
                             disabled={busy === `${a.appointment_id}-${to}`}
                             className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded disabled:opacity-50 ${
                               destructive
-                                ? 'bg-red-50 text-red-800 hover:bg-red-100 dark:bg-red-900/40 dark:text-red-200'
+                                ? 'bg-critical-subtle text-critical-subtle-fg hover:bg-critical-subtle dark:bg-red-900/40 dark:text-red-200'
                                 : 'bg-blue-600 text-white hover:bg-blue-700'
                             }`}
                           >

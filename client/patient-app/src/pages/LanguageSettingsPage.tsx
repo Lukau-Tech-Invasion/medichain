@@ -195,7 +195,7 @@ const LanguageSettingsPage: React.FC = () => {
   const getCurrentLanguage = () => languages.find(l => l.code === selectedLanguage);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-600 to-violet-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -207,18 +207,18 @@ const LanguageSettingsPage: React.FC = () => {
 
       {/* Current Selection */}
       <div className="p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-surface rounded-lg shadow p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-100 text-indigo-700 font-bold text-sm" aria-hidden="true">
                 {languageBadge(getCurrentLanguage()?.code ?? '')}
               </span>
               <div>
-                <p className="font-semibold text-gray-900">{getCurrentLanguage()?.name}</p>
-                <p className="text-sm text-gray-500">{getCurrentLanguage()?.nativeName}</p>
+                <p className="font-semibold text-content">{getCurrentLanguage()?.name}</p>
+                <p className="text-sm text-content-muted">{getCurrentLanguage()?.nativeName}</p>
               </div>
             </div>
-            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
+            <span className="px-3 py-1 bg-ok-subtle text-ok-subtle-fg rounded-full text-sm font-medium">
               {t('languageSettings.active')}
             </span>
           </div>
@@ -229,14 +229,14 @@ const LanguageSettingsPage: React.FC = () => {
       <div className="px-4 mb-4">
         <div className="relative">
           <label htmlFor="lang-search" className="sr-only">{t('languageSettings.searchLabel')}</label>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
           <input
             id="lang-search"
             type="text"
             placeholder={t('languageSettings.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full pl-10 pr-4 py-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
         </div>
       </div>
@@ -245,35 +245,35 @@ const LanguageSettingsPage: React.FC = () => {
       <div className="px-4 mb-6">
         {Object.entries(groupedLanguages).map(([region, langs]) => (
           <div key={region} className="mb-4">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1">
+            <h3 className="text-sm font-semibold text-content-muted uppercase tracking-wide mb-2 px-1">
               {regionLabel(region)}
             </h3>
-            <div className="bg-white rounded-lg shadow divide-y divide-gray-100">
+            <div className="bg-surface rounded-lg shadow divide-y divide-border">
               {langs.map(lang => (
                 <button
                   key={lang.code}
                   onClick={() => handleLanguageSelect(lang.code)}
                   disabled={!lang.isAvailable}
-                  className={`w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${
+                  className={`w-full flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors ${
                     !lang.isAvailable ? 'opacity-50 cursor-not-allowed' : ''
                   } ${selectedLanguage === lang.code ? 'bg-indigo-50' : ''}`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-gray-100 text-gray-700 font-bold text-xs" aria-hidden="true">
+                    <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-sunken text-content-secondary font-bold text-xs" aria-hidden="true">
                       {languageBadge(lang.code)}
                     </span>
                     <div className="text-left">
-                      <p className={`font-medium ${selectedLanguage === lang.code ? 'text-indigo-600' : 'text-gray-900'}`}>
+                      <p className={`font-medium ${selectedLanguage === lang.code ? 'text-indigo-600' : 'text-content'}`}>
                         {lang.name}
                       </p>
-                      <p className="text-sm text-gray-500">{lang.nativeName}</p>
+                      <p className="text-sm text-content-muted">{lang.nativeName}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     {lang.translationProgress < 100 && (
-                      <div className="flex items-center gap-1 text-xs text-gray-400">
+                      <div className="flex items-center gap-1 text-xs text-content-muted">
                         <span>{lang.translationProgress}%</span>
-                        <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="w-12 h-1.5 bg-surface-sunken rounded-full overflow-hidden">
                           <div
                             className="h-full bg-indigo-500"
                             style={{ width: `${lang.translationProgress}%` }}
@@ -282,7 +282,7 @@ const LanguageSettingsPage: React.FC = () => {
                       </div>
                     )}
                     {!lang.isAvailable && (
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded">
+                      <span className="px-2 py-0.5 bg-surface-sunken text-content-muted text-xs rounded">
                         {t('languageSettings.comingSoon')}
                       </span>
                     )}
@@ -303,30 +303,30 @@ const LanguageSettingsPage: React.FC = () => {
       <div className="px-4 mb-4">
         <button
           onClick={() => setShowRegionalSettings(!showRegionalSettings)}
-          className="w-full flex items-center justify-between p-4 bg-white rounded-lg shadow"
+          className="w-full flex items-center justify-between p-4 bg-surface rounded-lg shadow"
         >
           <div className="flex items-center gap-3">
-            <Settings className="w-5 h-5 text-gray-600" />
-            <span className="font-medium text-gray-900">{t('languageSettings.regionalSettings')}</span>
+            <Settings className="w-5 h-5 text-content-muted" />
+            <span className="font-medium text-content">{t('languageSettings.regionalSettings')}</span>
           </div>
-          <ChevronRight className={`w-5 h-5 text-gray-400 transition-transform ${showRegionalSettings ? 'rotate-90' : ''}`} />
+          <ChevronRight className={`w-5 h-5 text-content-muted transition-transform ${showRegionalSettings ? 'rotate-90' : ''}`} />
         </button>
       </div>
 
       {/* Regional Settings Panel */}
       {showRegionalSettings && (
         <div className="px-4 mb-6">
-          <div className="bg-white rounded-lg shadow p-4 space-y-4">
+          <div className="bg-surface rounded-lg shadow p-4 space-y-4">
             {/* Date Format */}
             <div>
-              <label htmlFor="lang-date-format" className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="lang-date-format" className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2">
                 <Calendar className="w-4 h-4" /> {t('languageSettings.dateFormat')}
               </label>
               <select
                 id="lang-date-format"
                 value={regionalSettings.dateFormat}
                 onChange={(e) => setRegionalSettings(prev => ({ ...prev, dateFormat: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                className="w-full border border-border-strong rounded-lg px-3 py-2"
               >
                 {dateFormats.map(df => (
                   <option key={df.value} value={df.value}>
@@ -338,7 +338,7 @@ const LanguageSettingsPage: React.FC = () => {
 
             {/* Time Format */}
             <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2">
                 <Clock className="w-4 h-4" /> {t('languageSettings.timeFormat')}
               </label>
               <div className="flex gap-3">
@@ -347,7 +347,7 @@ const LanguageSettingsPage: React.FC = () => {
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.timeFormat === '12h'
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
-                      : 'border-gray-300 text-gray-700'
+                      : 'border-border-strong text-content-secondary'
                   }`}
                 >
                   {t('languageSettings.time12')}
@@ -357,7 +357,7 @@ const LanguageSettingsPage: React.FC = () => {
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.timeFormat === '24h'
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
-                      : 'border-gray-300 text-gray-700'
+                      : 'border-border-strong text-content-secondary'
                   }`}
                 >
                   {t('languageSettings.time24')}
@@ -367,14 +367,14 @@ const LanguageSettingsPage: React.FC = () => {
 
             {/* First Day of Week */}
             <div>
-              <label htmlFor="lang-first-day" className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="lang-first-day" className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2">
                 <Calendar className="w-4 h-4" /> {t('languageSettings.firstDayOfWeek')}
               </label>
               <select
                 id="lang-first-day"
                 value={regionalSettings.firstDayOfWeek}
                 onChange={(e) => setRegionalSettings(prev => ({ ...prev, firstDayOfWeek: e.target.value as typeof regionalSettings.firstDayOfWeek }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                className="w-full border border-border-strong rounded-lg px-3 py-2"
               >
                 <option value="sunday">{t('languageSettings.sunday')}</option>
                 <option value="monday">{t('languageSettings.monday')}</option>
@@ -384,7 +384,7 @@ const LanguageSettingsPage: React.FC = () => {
 
             {/* Temperature Unit */}
             <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2">
                 <Thermometer className="w-4 h-4" /> {t('languageSettings.temperatureUnit')}
               </label>
               <div className="flex gap-3">
@@ -393,7 +393,7 @@ const LanguageSettingsPage: React.FC = () => {
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.temperatureUnit === 'fahrenheit'
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
-                      : 'border-gray-300 text-gray-700'
+                      : 'border-border-strong text-content-secondary'
                   }`}
                 >
                   {t('languageSettings.fahrenheit')}
@@ -403,7 +403,7 @@ const LanguageSettingsPage: React.FC = () => {
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.temperatureUnit === 'celsius'
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
-                      : 'border-gray-300 text-gray-700'
+                      : 'border-border-strong text-content-secondary'
                   }`}
                 >
                   {t('languageSettings.celsius')}
@@ -413,7 +413,7 @@ const LanguageSettingsPage: React.FC = () => {
 
             {/* Measurement System */}
             <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2">
                 <Ruler className="w-4 h-4" /> {t('languageSettings.measurementSystem')}
               </label>
               <div className="flex gap-3">
@@ -422,7 +422,7 @@ const LanguageSettingsPage: React.FC = () => {
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.measurementSystem === 'imperial'
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
-                      : 'border-gray-300 text-gray-700'
+                      : 'border-border-strong text-content-secondary'
                   }`}
                 >
                   {t('languageSettings.imperial')}
@@ -432,7 +432,7 @@ const LanguageSettingsPage: React.FC = () => {
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.measurementSystem === 'metric'
                       ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
-                      : 'border-gray-300 text-gray-700'
+                      : 'border-border-strong text-content-secondary'
                   }`}
                 >
                   {t('languageSettings.metric')}
@@ -445,12 +445,12 @@ const LanguageSettingsPage: React.FC = () => {
 
       {/* Medical Translation Info */}
       <div className="px-4 mb-6">
-        <div className="bg-blue-50 rounded-lg p-4">
+        <div className="bg-notice-subtle rounded-lg p-4">
           <div className="flex items-start gap-3">
-            <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <Info className="w-5 h-5 text-notice-subtle-fg flex-shrink-0 mt-0.5" />
             <div>
-              <h4 className="font-medium text-blue-900">{t('languageSettings.medicalTermTitle')}</h4>
-              <p className="text-sm text-blue-700 mt-1">
+              <h4 className="font-medium text-notice-subtle-fg">{t('languageSettings.medicalTermTitle')}</h4>
+              <p className="text-sm text-notice-subtle-fg mt-1">
                 {t('languageSettings.medicalTermBody')}
               </p>
             </div>
@@ -467,7 +467,7 @@ const LanguageSettingsPage: React.FC = () => {
             saved
               ? 'bg-green-500 text-white'
               : saving
-              ? 'bg-gray-300 text-gray-500'
+              ? 'bg-gray-300 text-content-muted'
               : 'bg-gradient-to-r from-indigo-600 to-violet-500 text-white hover:from-indigo-700 hover:to-violet-600'
           }`}
         >

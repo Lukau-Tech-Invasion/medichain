@@ -235,16 +235,16 @@ const BarcodePage: React.FC = () => {
       case 'success': return <CheckCircle className="w-6 h-6 text-green-500" />;
       case 'warning': return <AlertTriangle className="w-6 h-6 text-yellow-500" />;
       case 'error': return <XCircle className="w-6 h-6 text-red-500" />;
-      case 'pending': return <Clock className="w-6 h-6 text-gray-400" />;
+      case 'pending': return <Clock className="w-6 h-6 text-content-muted" />;
     }
   };
 
   const getResultBg = (result: ScanResult) => {
     switch (result) {
-      case 'success': return 'bg-green-50 border-green-200';
-      case 'warning': return 'bg-yellow-50 border-yellow-200';
-      case 'error': return 'bg-red-50 border-red-200';
-      case 'pending': return 'bg-gray-50 border-gray-200';
+      case 'success': return 'bg-ok-subtle border-ok';
+      case 'warning': return 'bg-caution-subtle border-caution';
+      case 'error': return 'bg-critical-subtle border-critical';
+      case 'pending': return 'bg-surface-sunken border-border';
     }
   };
 
@@ -304,8 +304,8 @@ const BarcodePage: React.FC = () => {
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
                 activeTab === tab
-                  ? 'text-blue-400 border-b-2 border-blue-400'
-                  : 'text-gray-400 hover:text-gray-300'
+                  ? 'text-blue-400 border-b-2 border-notice'
+                  : 'text-content-muted hover:text-gray-300'
               }`}
             >
               {tabLabel(tab)}
@@ -320,14 +320,23 @@ const BarcodePage: React.FC = () => {
           {/* Camera View */}
           <div className="relative flex-1 bg-black min-h-[300px]">
             {isCameraActive ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption -- a live
+              // camera viewfinder carries no audio track and no recorded
+              // speech, so there is nothing a caption track could contain.
+              // What it does need is a name and an audible alternative, both
+              // below: the element is labelled, and a successful scan is
+              // announced through the live region rather than only drawn on
+              // the preview.
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
+                muted
+                aria-label={t('docBarcode.cameraViewfinderLabel')}
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-500">
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-content-muted">
                 <CameraOff className="w-16 h-16 mb-4" />
                 <p>{t('docBarcode.cameraNotActive')}</p>
                 <button
@@ -345,10 +354,10 @@ const BarcodePage: React.FC = () => {
                 {/* Scanning Frame */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-64 h-40 border-2 border-white/50 rounded-lg relative">
-                    <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-blue-400 rounded-tl" />
-                    <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-blue-400 rounded-tr" />
-                    <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-blue-400 rounded-bl" />
-                    <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-blue-400 rounded-br" />
+                    <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-notice rounded-tl" />
+                    <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-notice rounded-tr" />
+                    <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-notice rounded-bl" />
+                    <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-notice rounded-br" />
                     
                     {/* Scan Line Animation */}
                     {isScanning && (
@@ -411,7 +420,7 @@ const BarcodePage: React.FC = () => {
                   placeholder={t('docBarcode.manualPlaceholder')}
                   className="w-full bg-gray-700 text-white border border-gray-600 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-blue-500"
                 />
-                <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
               </div>
               <button
                 onClick={handleManualEntry}
@@ -430,17 +439,17 @@ const BarcodePage: React.FC = () => {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     {getModeIcon(lastScan.type)}
-                    <span className="font-semibold text-gray-900">{lastScan.name}</span>
+                    <span className="font-semibold text-content">{lastScan.name}</span>
                   </div>
-                  <p className="text-sm text-gray-600 mt-1">{lastScan.details}</p>
+                  <p className="text-sm text-content-muted mt-1">{lastScan.details}</p>
                   {lastScan.message && (
                     <p className={`text-sm mt-1 ${
-                      lastScan.result === 'error' ? 'text-red-600' : 'text-yellow-600'
+                      lastScan.result === 'error' ? 'text-critical-subtle-fg' : 'text-caution-subtle-fg'
                     }`}>
                       {lastScan.message}
                     </p>
                   )}
-                  <p className="text-xs text-gray-400 mt-2">{lastScan.barcode}</p>
+                  <p className="text-xs text-content-muted mt-2">{lastScan.barcode}</p>
                 </div>
               </div>
             </div>
@@ -461,7 +470,7 @@ const BarcodePage: React.FC = () => {
 
       {/* History Tab */}
       {activeTab === 'history' && (
-        <div className="flex-1 bg-gray-50 p-4 space-y-3">
+        <div className="flex-1 bg-surface-sunken p-4 space-y-3">
           {scanHistory.length === 0 ? (
             <EmptyState
               icon={<History className="w-12 h-12" />}
@@ -470,37 +479,37 @@ const BarcodePage: React.FC = () => {
             />
           ) : (
             scanHistory.map(scan => (
-              <div key={scan.id} className={`bg-white rounded-lg shadow p-4 border-l-4 ${
+              <div key={scan.id} className={`bg-surface rounded-lg shadow p-4 border-l-4 ${
                 scan.result === 'success' ? 'border-green-500' :
                 scan.result === 'warning' ? 'border-yellow-500' :
-                scan.result === 'error' ? 'border-red-500' : 'border-gray-300'
+                scan.result === 'error' ? 'border-red-500' : 'border-border-strong'
               }`}>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-full ${
-                      scan.type === 'patient' ? 'bg-blue-100 text-blue-600' :
+                      scan.type === 'patient' ? 'bg-notice-subtle text-notice-subtle-fg' :
                       scan.type === 'medication' ? 'bg-purple-100 text-purple-600' :
-                      scan.type === 'equipment' ? 'bg-gray-100 text-gray-600' :
-                      'bg-green-100 text-green-600'
+                      scan.type === 'equipment' ? 'bg-surface-sunken text-content-muted' :
+                      'bg-ok-subtle text-ok-subtle-fg'
                     }`}>
                       {getModeIcon(scan.type)}
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900">{scan.name}</p>
-                      <p className="text-sm text-gray-500">{scan.details}</p>
-                      <p className="text-xs text-gray-400 mt-1">{scan.barcode}</p>
+                      <p className="font-medium text-content">{scan.name}</p>
+                      <p className="text-sm text-content-muted">{scan.details}</p>
+                      <p className="text-xs text-content-muted mt-1">{scan.barcode}</p>
                     </div>
                   </div>
                   <div className="text-right">
                     {getResultIcon(scan.result)}
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-content-muted mt-1">
                       {scan.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                 </div>
                 {scan.message && (
                   <p className={`text-sm mt-2 ${
-                    scan.result === 'error' ? 'text-red-600' : 'text-yellow-600'
+                    scan.result === 'error' ? 'text-critical-subtle-fg' : 'text-caution-subtle-fg'
                   }`}>
                     {scan.message}
                   </p>
@@ -513,10 +522,10 @@ const BarcodePage: React.FC = () => {
 
       {/* Settings Tab */}
       {activeTab === 'settings' && (
-        <div className="flex-1 bg-gray-50 p-4 space-y-4">
-          <div className="bg-white rounded-lg shadow divide-y">
+        <div className="flex-1 bg-surface-sunken p-4 space-y-4">
+          <div className="bg-surface rounded-lg shadow divide-y">
             <div className="p-4">
-              <h3 className="font-semibold text-gray-900">{t('docBarcode.scannerSettings')}</h3>
+              <h3 className="font-semibold text-content">{t('docBarcode.scannerSettings')}</h3>
             </div>
             {[
               { label: t('docBarcode.setAutoScan'), enabled: true },
@@ -526,14 +535,14 @@ const BarcodePage: React.FC = () => {
               { label: t('docBarcode.setSaveHistory'), enabled: true }
             ].map((setting, idx) => (
               <div key={idx} className="p-4 flex items-center justify-between">
-                <span className="text-gray-700">{setting.label}</span>
+                <span className="text-content-secondary">{setting.label}</span>
                 <button
                   className={`w-12 h-6 rounded-full transition-colors ${
                     setting.enabled ? 'bg-blue-600' : 'bg-gray-300'
                   }`}
                 >
                   <div
-                    className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                    className={`w-5 h-5 bg-surface rounded-full shadow transition-transform ${
                       setting.enabled ? 'translate-x-6' : 'translate-x-0.5'
                     }`}
                   />
@@ -542,14 +551,14 @@ const BarcodePage: React.FC = () => {
             ))}
           </div>
 
-          <div className="bg-white rounded-lg shadow divide-y">
+          <div className="bg-surface rounded-lg shadow divide-y">
             <div className="p-4">
-              <h3 className="font-semibold text-gray-900">{t('docBarcode.supportedFormats')}</h3>
+              <h3 className="font-semibold text-content">{t('docBarcode.supportedFormats')}</h3>
             </div>
             <div className="p-4">
               <div className="flex flex-wrap gap-2">
                 {['Code 128', 'Code 39', 'EAN-13', 'UPC-A', 'QR Code', 'Data Matrix', 'PDF417'].map(format => (
-                  <span key={format} className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">
+                  <span key={format} className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm">
                     {format}
                   </span>
                 ))}
@@ -557,8 +566,8 @@ const BarcodePage: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-4">
-            <button className="w-full flex items-center justify-center gap-2 text-red-600 font-medium">
+          <div className="bg-surface rounded-lg shadow p-4">
+            <button className="w-full flex items-center justify-center gap-2 text-critical-subtle-fg font-medium">
               <History className="w-5 h-5" />
               {t('docBarcode.clearHistory')}
             </button>

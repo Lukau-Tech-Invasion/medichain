@@ -36,14 +36,14 @@ const DEMO_USERS: DemoUser[] = [
   { username: 'admin', displayName: 'System Admin', role: 'Admin', walletAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY', icon: ShieldCheck, color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
   { username: 'judge', displayName: 'Hackathon Judge', role: 'Admin', walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y', icon: Scale, color: 'bg-purple-100 border-purple-300 hover:bg-purple-200' },
   // Doctors
-  { username: 'dr.mbeki', displayName: 'Dr. Thandi Mbeki', role: 'Doctor', walletAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', icon: Stethoscope, color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
-  { username: 'dr.nkosi', displayName: 'Dr. Sipho Nkosi', role: 'Doctor', walletAddress: '5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw', icon: Stethoscope, color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
-  { username: 'dr.khumalo', displayName: 'Dr. Zama Khumalo', role: 'Doctor', walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy', icon: Stethoscope, color: 'bg-blue-100 border-blue-300 hover:bg-blue-200' },
+  { username: 'dr.mbeki', displayName: 'Dr. Thandi Mbeki', role: 'Doctor', walletAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', icon: Stethoscope, color: 'bg-notice-subtle border-notice hover:bg-blue-200' },
+  { username: 'dr.nkosi', displayName: 'Dr. Sipho Nkosi', role: 'Doctor', walletAddress: '5HGjWAeFDfFCWPsjFQdVV2Msvz2XtMktvgocEZcCj68kUMaw', icon: Stethoscope, color: 'bg-notice-subtle border-notice hover:bg-blue-200' },
+  { username: 'dr.khumalo', displayName: 'Dr. Zama Khumalo', role: 'Doctor', walletAddress: '5DAAnrj7VHTznn2AWBemMuyBwZWs6FNFjdyVXUeYum3PTXFy', icon: Stethoscope, color: 'bg-notice-subtle border-notice hover:bg-blue-200' },
   // Nurses
-  { username: 'nurse.dlamini', displayName: 'Nurse Nomvula Dlamini', role: 'Nurse', walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL', icon: Syringe, color: 'bg-green-100 border-green-300 hover:bg-green-200' },
-  { username: 'nurse.molefe', displayName: 'Nurse Kagiso Molefe', role: 'Nurse', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY', icon: Syringe, color: 'bg-green-100 border-green-300 hover:bg-green-200' },
+  { username: 'nurse.dlamini', displayName: 'Nurse Nomvula Dlamini', role: 'Nurse', walletAddress: '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL', icon: Syringe, color: 'bg-ok-subtle border-ok hover:bg-green-200' },
+  { username: 'nurse.molefe', displayName: 'Nurse Kagiso Molefe', role: 'Nurse', walletAddress: '5GNJqTPyNqANBkUVMN1LPPrxXnFouWXoe2wNSmmEoLctxiZY', icon: Syringe, color: 'bg-ok-subtle border-ok hover:bg-green-200' },
   // Lab Technician
-  { username: 'lab.mokoena', displayName: 'Lab Tech Lerato Mokoena', role: 'LabTechnician', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc', icon: FlaskConical, color: 'bg-amber-100 border-amber-300 hover:bg-amber-200' },
+  { username: 'lab.mokoena', displayName: 'Lab Tech Lerato Mokoena', role: 'LabTechnician', walletAddress: '5HpG9w8EBLe5XCrbczpwq5TSXvedjrBGCwqxK1iQ7qUsSWFc', icon: FlaskConical, color: 'bg-caution-subtle border-caution hover:bg-amber-200' },
   // Pharmacist
   { username: 'pharm.sithole', displayName: 'Pharm. Bongani Sithole', role: 'Pharmacist', walletAddress: '5Ew3MyB15VprZrjQVkpQFj8okmc9xLDSEdNhqMMS5cXsqxoW', icon: Pill, color: 'bg-pink-100 border-pink-300 hover:bg-pink-200' },
   // Patients (linked to demo patient records)
@@ -105,10 +105,10 @@ function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-600 to-primary-900 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         {/* Header */}
         <div className="bg-primary-600 p-8 text-center">
-          <div className="w-20 h-20 bg-white/20 rounded-full mx-auto flex items-center justify-center mb-4">
+          <div className="w-20 h-20 bg-surface/20 rounded-full mx-auto flex items-center justify-center mb-4">
             <Shield className="text-white" size={40} />
           </div>
           <h1 className="text-2xl font-bold text-white">MediChain</h1>
@@ -120,7 +120,7 @@ function LoginPage() {
             one typed into a box could never sign a request anyway. */}
         <form onSubmit={handleCredentialLogin} className="p-8">
           <div className="mb-4">
-            <label htmlFor="identifier" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="identifier" className="block text-sm font-medium text-content-secondary mb-2">
               <UserCircle size={16} className="inline mr-2" aria-hidden="true" />
               {t('docLogin.identifier')}
             </label>
@@ -132,14 +132,14 @@ function LoginPage() {
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               placeholder={t('docLogin.identifierPlaceholder')}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-4 py-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               disabled={isLoading}
               required
             />
           </div>
 
           <div className="mb-6">
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-content-secondary mb-2">
               <KeyRound size={16} className="inline mr-2" aria-hidden="true" />
               {t('docLogin.password')}
             </label>
@@ -150,7 +150,7 @@ function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              className="w-full px-4 py-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
               disabled={isLoading}
               required
             />
@@ -159,7 +159,7 @@ function LoginPage() {
           {error && (
             <div
               role="alert"
-              className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800"
+              className="mb-4 p-3 bg-critical-subtle border border-critical rounded-lg flex items-center gap-2 text-critical-subtle-fg"
             >
               <AlertCircle size={18} aria-hidden="true" />
               <span className="text-sm">{error}</span>
@@ -187,7 +187,7 @@ function LoginPage() {
             type="button"
             onClick={() => setShowAdvanced((v) => !v)}
             aria-expanded={showAdvanced}
-            className="w-full text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
+            className="w-full text-xs text-content-muted hover:text-content-secondary underline underline-offset-2"
           >
             {t('docLogin.otherSignInOptions')}
           </button>
@@ -197,7 +197,7 @@ function LoginPage() {
               type="button"
               onClick={handleExtensionLogin}
               disabled={isLoading}
-              className="mt-3 w-full py-3 bg-white border-2 border-primary-600 text-primary-700 font-semibold rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="mt-3 w-full py-3 bg-surface border-2 border-primary-600 text-primary-700 font-semibold rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               <Shield size={18} aria-hidden="true" />
               {t('docLogin.loginExtension')}
@@ -210,10 +210,10 @@ function LoginPage() {
           <div className="px-6 pb-6">
             <div className="relative mb-4">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200"></div>
+                <div className="w-full border-t border-border"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500 flex items-center gap-1">
+                <span className="px-2 bg-surface text-content-muted flex items-center gap-1">
                   <UserCircle size={14} />
                   {t('docLogin.quickLogin')}
                 </span>
@@ -230,23 +230,23 @@ function LoginPage() {
                     disabled={isLoading}
                     className={`p-2 border rounded-lg transition-all text-left disabled:opacity-50 ${user.color}`}
                   >
-                    <Icon className="mx-auto mb-1 text-gray-700" size={22} aria-hidden="true" />
-                    <span className="block text-xs font-semibold text-gray-800 truncate text-center">{user.displayName.split(' ').slice(-1)[0]}</span>
-                    <span className="block text-xs text-gray-600 text-center">{t(`docRoles.${user.role}`)}</span>
+                    <Icon className="mx-auto mb-1 text-content-secondary" size={22} aria-hidden="true" />
+                    <span className="block text-xs font-semibold text-content-secondary truncate text-center">{user.displayName.split(' ').slice(-1)[0]}</span>
+                    <span className="block text-xs text-content-muted text-center">{t(`docRoles.${user.role}`)}</span>
                   </button>
                 );
               })}
             </div>
 
-            <p className="mt-3 text-xs text-center text-gray-400">
+            <p className="mt-3 text-xs text-center text-content-muted">
               {t('docLogin.clickToLogin')}
             </p>
           </div>
         )}
 
         {/* Footer */}
-        <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
-          <p className="text-xs text-gray-500">
+        <div className="px-8 py-4 bg-surface-sunken border-t border-border text-center">
+          <p className="text-xs text-content-muted">
             © 2025 Lukau Invasion (Pty) Ltd • Rust Africa Hackathon 2026
           </p>
         </div>

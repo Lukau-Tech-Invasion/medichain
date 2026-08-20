@@ -132,7 +132,7 @@ export function VitalsPage() {
   const TrendIcon = ({ direction }: { direction: 'up' | 'down' | 'stable' }) => {
     if (direction === 'up') return <TrendingUp className="w-4 h-4 text-orange-500" />;
     if (direction === 'down') return <TrendingDown className="w-4 h-4 text-blue-500" />;
-    return <Minus className="w-4 h-4 text-neutral-400" />;
+    return <Minus className="w-4 h-4 text-content-muted" />;
   };
 
   const formatDate = (dateStr?: string) => {
@@ -159,19 +159,19 @@ export function VitalsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('vitals.title')}</h1>
-          <p className="text-neutral-500">{t('vitals.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('vitals.title')}</h1>
+          <p className="text-content-muted">{t('vitals.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadVitals}
-            className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg"
+            className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg"
           >
             <RefreshCw className="w-5 h-5" />
           </button>
@@ -187,7 +187,7 @@ export function VitalsPage() {
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {latest.systolic_bp != null && latest.diastolic_bp != null && (
-              <div className="bg-white/10 rounded-xl p-3">
+              <div className="bg-surface/10 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1">
                   <Heart className="w-4 h-4" />
                   <TrendIcon direction={trend('systolic_bp')} />
@@ -197,7 +197,7 @@ export function VitalsPage() {
               </div>
             )}
             {latest.heart_rate != null && (
-              <div className="bg-white/10 rounded-xl p-3">
+              <div className="bg-surface/10 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1">
                   <Activity className="w-4 h-4" />
                   <TrendIcon direction={trend('heart_rate')} />
@@ -207,7 +207,7 @@ export function VitalsPage() {
               </div>
             )}
             {latest.temperature_celsius != null && (
-              <div className="bg-white/10 rounded-xl p-3">
+              <div className="bg-surface/10 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1">
                   <Thermometer className="w-4 h-4" />
                   <TrendIcon direction={trend('temperature_celsius')} />
@@ -217,7 +217,7 @@ export function VitalsPage() {
               </div>
             )}
             {latest.oxygen_saturation != null && (
-              <div className="bg-white/10 rounded-xl p-3">
+              <div className="bg-surface/10 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1">
                   <Droplet className="w-4 h-4" />
                   <TrendIcon direction={trend('oxygen_saturation')} />
@@ -227,7 +227,7 @@ export function VitalsPage() {
               </div>
             )}
             {latest.respiratory_rate != null && (
-              <div className="bg-white/10 rounded-xl p-3">
+              <div className="bg-surface/10 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1">
                   <Wind className="w-4 h-4" />
                   <TrendIcon direction={trend('respiratory_rate')} />
@@ -237,7 +237,7 @@ export function VitalsPage() {
               </div>
             )}
             {latest.weight_kg != null && (
-              <div className="bg-white/10 rounded-xl p-3">
+              <div className="bg-surface/10 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-1">
                   <Scale className="w-4 h-4" />
                   <TrendIcon direction={trend('weight_kg')} />
@@ -251,60 +251,60 @@ export function VitalsPage() {
       ) : (
         <div className="patient-card text-center py-8">
           <Activity className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-          <p className="text-neutral-500">{t('vitals.noneRecorded')}</p>
+          <p className="text-content-muted">{t('vitals.noneRecorded')}</p>
         </div>
       )}
 
       {/* Vitals History */}
       <div>
-        <h2 className="text-lg font-semibold text-neutral-900 mb-3">{t('vitals.history')}</h2>
+        <h2 className="text-lg font-semibold text-content mb-3">{t('vitals.history')}</h2>
         {readings.length === 0 ? (
-          <p className="text-neutral-500 text-sm">{t('vitals.noHistory')}</p>
+          <p className="text-content-muted text-sm">{t('vitals.noHistory')}</p>
         ) : (
           <div className="space-y-3">
             {readings.map((r, idx) => (
               <div key={r.reading_id || r.id || idx} className="patient-card">
-                <p className="text-xs text-neutral-400 mb-2">{formatDate(r.recorded_at || r.created_at)}</p>
+                <p className="text-xs text-content-muted mb-2">{formatDate(r.recorded_at || r.created_at)}</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
                   {r.systolic_bp != null && r.diastolic_bp != null && (
-                    <div className="flex items-center gap-1 text-neutral-700">
+                    <div className="flex items-center gap-1 text-content-secondary">
                       <Heart className="w-4 h-4 text-red-400" />
                       <span>{r.systolic_bp}/{r.diastolic_bp} mmHg</span>
                     </div>
                   )}
                   {r.heart_rate != null && (
-                    <div className="flex items-center gap-1 text-neutral-700">
+                    <div className="flex items-center gap-1 text-content-secondary">
                       <Activity className="w-4 h-4 text-pink-400" />
                       <span>{r.heart_rate} bpm</span>
                     </div>
                   )}
                   {r.temperature_celsius != null && (
-                    <div className="flex items-center gap-1 text-neutral-700">
+                    <div className="flex items-center gap-1 text-content-secondary">
                       <Thermometer className="w-4 h-4 text-orange-400" />
                       <span>{r.temperature_celsius.toFixed(1)}°C</span>
                     </div>
                   )}
                   {r.oxygen_saturation != null && (
-                    <div className="flex items-center gap-1 text-neutral-700">
+                    <div className="flex items-center gap-1 text-content-secondary">
                       <Droplet className="w-4 h-4 text-blue-400" />
                       <span>{r.oxygen_saturation}% SpO2</span>
                     </div>
                   )}
                   {r.respiratory_rate != null && (
-                    <div className="flex items-center gap-1 text-neutral-700">
+                    <div className="flex items-center gap-1 text-content-secondary">
                       <Wind className="w-4 h-4 text-teal-400" />
                       <span>{r.respiratory_rate} /min</span>
                     </div>
                   )}
                   {r.weight_kg != null && (
-                    <div className="flex items-center gap-1 text-neutral-700">
+                    <div className="flex items-center gap-1 text-content-secondary">
                       <Scale className="w-4 h-4 text-purple-400" />
                       <span>{r.weight_kg} kg</span>
                     </div>
                   )}
                 </div>
                 {r.notes && (
-                  <p className="text-xs text-neutral-400 mt-2 italic">{r.notes}</p>
+                  <p className="text-xs text-content-muted mt-2 italic">{r.notes}</p>
                 )}
               </div>
             ))}

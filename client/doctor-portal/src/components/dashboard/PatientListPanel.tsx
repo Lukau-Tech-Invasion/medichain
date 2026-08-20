@@ -44,11 +44,11 @@ interface PatientListPanelProps {
 }
 
 const esiColors: Record<number, { bg: string; text: string; label: string }> = {
-  1: { bg: 'bg-red-100', text: 'text-red-700', label: 'ESI-1' },
+  1: { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', label: 'ESI-1' },
   2: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'ESI-2' },
-  3: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'ESI-3' },
-  4: { bg: 'bg-green-100', text: 'text-green-700', label: 'ESI-4' },
-  5: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'ESI-5' },
+  3: { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', label: 'ESI-3' },
+  4: { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', label: 'ESI-4' },
+  5: { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', label: 'ESI-5' },
 };
 
 /**
@@ -68,13 +68,13 @@ export default function PatientListPanel({
   const displayedPatients = patients.slice(0, maxDisplay);
 
   return (
-    <div className="bg-white rounded-xl shadow">
-      <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+    <div className="bg-surface rounded-xl shadow">
+      <div className="p-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Users className="text-gray-600" size={20} />
-          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <Users className="text-content-muted" size={20} />
+          <h3 className="font-semibold text-content">{title}</h3>
           {!loading && patients.length > 0 && (
-            <span className="bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">
+            <span className="bg-surface-sunken text-content-muted text-xs px-2 py-0.5 rounded-full">
               {patients.length}
             </span>
           )}
@@ -92,15 +92,15 @@ export default function PatientListPanel({
       {loading ? (
         <div className="p-8 text-center">
           <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
-          <p className="text-gray-500">Loading patients...</p>
+          <p className="text-content-muted">Loading patients...</p>
         </div>
       ) : displayedPatients.length > 0 ? (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-border">
           {displayedPatients.map((patient) => (
             <Link
               key={patient.patient_id}
               to={`/patients/${patient.patient_id}`}
-              className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+              className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
             >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
@@ -108,7 +108,7 @@ export default function PatientListPanel({
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="font-medium text-gray-900">{patient.full_name}</p>
+                    <p className="font-medium text-content">{patient.full_name}</p>
                     {showFlags && patient.flags?.fall_risk && (
                       <span title="Fall Risk">
                         <Footprints size={14} className="text-yellow-500" />
@@ -125,7 +125,7 @@ export default function PatientListPanel({
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-content-muted">
                     {patient.room && `${patient.room} • `}
                     {patient.health_id || patient.patient_id}
                   </p>
@@ -134,12 +134,12 @@ export default function PatientListPanel({
 
               <div className="flex items-center gap-3">
                 {patient.blood_type && (
-                  <span className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded">
+                  <span className="text-xs bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded">
                     {patient.blood_type}
                   </span>
                 )}
                 {patient.allergies && patient.allergies.length > 0 && (
-                  <span className="text-xs bg-yellow-50 text-yellow-600 px-2 py-1 rounded flex items-center gap-1">
+                  <span className="text-xs bg-caution-subtle text-caution-subtle-fg px-2 py-1 rounded flex items-center gap-1">
                     <AlertTriangle size={12} />
                     {patient.allergies.length}
                   </span>
@@ -152,13 +152,13 @@ export default function PatientListPanel({
                 {patient.last_vitals?.abnormal && (
                   <Activity size={16} className="text-red-500 animate-pulse" />
                 )}
-                <ArrowRight size={16} className="text-gray-400" />
+                <ArrowRight size={16} className="text-content-muted" />
               </div>
             </Link>
           ))}
         </div>
       ) : (
-        <div className="p-8 text-center text-gray-500">
+        <div className="p-8 text-center text-content-muted">
           <Users className="mx-auto mb-3 text-gray-300" size={48} />
           <p>{emptyMessage}</p>
         </div>

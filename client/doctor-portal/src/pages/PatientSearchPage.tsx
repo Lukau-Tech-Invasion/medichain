@@ -249,14 +249,14 @@ function PatientSearchPage() {
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('docPatientSearch.title')}</h1>
-          <p className="text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-content">{t('docPatientSearch.title')}</h1>
+          <p className="text-content-muted mt-1">
             {t('docPatientSearch.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-            apiConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
           }`}>
             <span className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
             {apiConnected ? t('docPatientSearch.apiConnected') : t('docPatientSearch.apiDisconnected')}
@@ -268,20 +268,20 @@ function PatientSearchPage() {
       <form onSubmit={handleSearch} className="mb-6">
         <div className="flex gap-3">
           <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" size={20} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('docPatientSearch.searchPlaceholder')}
-              className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              className="w-full pl-12 pr-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
             />
           </div>
           <button
             type="button"
             onClick={() => setShowFilters(!showFilters)}
-            className={`px-4 py-3 border rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 ${
-              showFilters ? 'border-primary-500 bg-primary-50' : 'border-gray-200'
+            className={`px-4 py-3 border rounded-lg hover:bg-surface-sunken transition-colors flex items-center gap-2 ${
+              showFilters ? 'border-primary-500 bg-primary-50' : 'border-border'
             }`}
           >
             <Filter size={20} />
@@ -299,14 +299,14 @@ function PatientSearchPage() {
 
       {/* Filters Panel */}
       {showFilters && (
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="mb-6 p-4 bg-surface-sunken rounded-lg border border-border">
           <div className="flex flex-wrap gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('docPatientSearch.bloodType')}</label>
+              <label className="block text-sm font-medium text-content-secondary mb-1">{t('docPatientSearch.bloodType')}</label>
               <select
                 value={filterBloodType}
                 onChange={(e) => setFilterBloodType(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500"
               >
                 <option value="all">{t('docPatientSearch.allBloodTypes')}</option>
                 <option value="A+">A+</option>
@@ -320,11 +320,11 @@ function PatientSearchPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t('docPatientSearch.gender')}</label>
+              <label className="block text-sm font-medium text-content-secondary mb-1">{t('docPatientSearch.gender')}</label>
               <select
                 value={filterGender}
                 onChange={(e) => setFilterGender(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500"
               >
                 <option value="all">{t('docPatientSearch.allGenders')}</option>
                 <option value="male">{t('docPatientSearch.male')}</option>
@@ -338,7 +338,7 @@ function PatientSearchPage() {
                   setFilterBloodType('all');
                   setFilterGender('all');
                 }}
-                className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800"
+                className="px-3 py-2 text-sm text-content-muted hover:text-content-secondary"
               >
                 {t('docPatientSearch.clearFilters')}
               </button>
@@ -348,18 +348,18 @@ function PatientSearchPage() {
       )}
 
       {/* Results */}
-      <div className="bg-white rounded-xl shadow">
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+      <div className="bg-surface rounded-xl shadow">
+        <div className="p-4 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Users className="text-gray-400" size={20} />
-            <span className="font-medium text-gray-700">
+            <Users className="text-content-muted" size={20} />
+            <span className="font-medium text-content-secondary">
               {displayPatients.length} {displayPatients.length !== 1 ? t('docPatientSearch.patients') : t('docPatientSearch.patient')}
               {(filterBloodType !== 'all' || filterGender !== 'all') && (
-                <span className="text-gray-400 ml-1">{t('docPatientSearch.filtered')}</span>
+                <span className="text-content-muted ml-1">{t('docPatientSearch.filtered')}</span>
               )}
             </span>
           </div>
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-content-muted">
             {t('docPatientSearch.totalInSystem', {
               count: totalInSystem ?? patients.length,
             })}
@@ -372,13 +372,13 @@ function PatientSearchPage() {
         </div>
 
         {!loading && !error && displayPatients.length > 0 && (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-border">
             {displayPatients.map((patient) => (
               <Link
                 key={patient.patientId}
                 to={`/patients/${patient.patientId}`}
                 onClick={() => handlePatientClick(patient)}
-                className="block p-4 hover:bg-gray-50 transition-colors"
+                className="block p-4 hover:bg-surface-sunken transition-colors"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
@@ -390,9 +390,9 @@ function PatientSearchPage() {
                       </span>
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900">
+                      <p className="font-medium text-content">
                         {patient.fullName || (
-                          <span className="text-gray-500 italic">
+                          <span className="text-content-muted italic">
                             {t('docPatientSearch.recordUnreadable')}
                           </span>
                         )}
@@ -412,7 +412,7 @@ function PatientSearchPage() {
                           and gender and DOB are independently optional — gender
                           is not always collected, and neither is readable on a
                           record whose PHI could not be decrypted. */}
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-content-muted">
                         {[
                           patient.patientId,
                           patient.gender || null,
@@ -423,20 +423,20 @@ function PatientSearchPage() {
                           .filter(Boolean)
                           .join(' • ')}
                       </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-content-muted mt-0.5">
                         {t('docPatientSearch.healthId', { id: patient.healthId })}
                       </p>
                       
                       {/* Medical Info Tags */}
                       <div className="flex flex-wrap gap-2 mt-2">
                         {patient.allergies.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-critical-subtle text-critical-subtle-fg text-xs rounded-full">
                             <AlertCircle size={12} />
                             {patient.allergies.length} {patient.allergies.length !== 1 ? t('docPatientSearch.allergies') : t('docPatientSearch.allergy')}
                           </span>
                         )}
                         {patient.medications.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-notice-subtle text-notice-subtle-fg text-xs rounded-full">
                             <Pill size={12} />
                             {patient.medications.length} {patient.medications.length !== 1 ? t('docPatientSearch.medications') : t('docPatientSearch.medication')}
                           </span>
@@ -457,7 +457,7 @@ function PatientSearchPage() {
                         <Droplet size={14} className="text-red-500" />
                         <span className="text-sm font-semibold text-critical-subtle-fg">{patient.bloodType}</span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className="text-xs text-content-muted mt-1">
                         {t('docPatientSearch.lastVisit', { date: patient.lastVisit ?? '' })}
                       </p>
                     </div>
@@ -472,7 +472,7 @@ function PatientSearchPage() {
         {loading && (
           <div className="p-12 text-center">
             <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-            <p className="text-gray-500">{t('docPatientSearch.loading')}</p>
+            <p className="text-content-muted">{t('docPatientSearch.loading')}</p>
           </div>
         )}
 
@@ -480,7 +480,7 @@ function PatientSearchPage() {
           <div className="p-12 text-center">
             <Users className="mx-auto mb-3 text-red-300" size={48} />
             <p className="text-red-500">{error}</p>
-            <p className="text-sm text-gray-400 mt-1">
+            <p className="text-sm text-content-muted mt-1">
               {t('docPatientSearch.apiHint')}
             </p>
           </div>
@@ -489,8 +489,8 @@ function PatientSearchPage() {
         {!loading && !error && displayPatients.length === 0 && (
           <div className="p-12 text-center">
             <Users className="mx-auto mb-3 text-gray-300" size={48} />
-            <p className="text-gray-500">{t('docPatientSearch.noneFound')}</p>
-            <p className="text-sm text-gray-400 mt-1">
+            <p className="text-content-muted">{t('docPatientSearch.noneFound')}</p>
+            <p className="text-sm text-content-muted mt-1">
               {t('docPatientSearch.tryDifferent')}
             </p>
           </div>

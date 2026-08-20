@@ -154,6 +154,6 @@ describe('DashboardPage', () => {
     // Lowercase "stat" from the API must still colour as urgent; the previous
     // comparison was against 'STAT' and never matched, so a STAT order was
     // shown in the same neutral grey as a routine one.
-    expect(screen.getByText('stat')).toHaveClass('bg-red-100');
+    expect(screen.getByText('stat')).toHaveClass('bg-critical-subtle');
   });
 });

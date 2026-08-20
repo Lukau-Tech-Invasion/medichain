@@ -62,8 +62,8 @@ function TriagePage() {
       level: 1,
       name: t('docTriage.esi1_name'),
       color: 'bg-red-600',
-      textColor: 'text-red-600',
-      bgLight: 'bg-red-50',
+      textColor: 'text-critical-subtle-fg',
+      bgLight: 'bg-critical-subtle',
       borderColor: 'border-red-500',
       description: t('docTriage.esi1_description'),
       wait: t('docTriage.esi1_wait'),
@@ -84,8 +84,8 @@ function TriagePage() {
       level: 3,
       name: t('docTriage.esi3_name'),
       color: 'bg-yellow-500',
-      textColor: 'text-yellow-600',
-      bgLight: 'bg-yellow-50',
+      textColor: 'text-caution-subtle-fg',
+      bgLight: 'bg-caution-subtle',
       borderColor: 'border-yellow-500',
       description: t('docTriage.esi3_description'),
       wait: t('docTriage.esi3_wait'),
@@ -95,8 +95,8 @@ function TriagePage() {
       level: 4,
       name: t('docTriage.esi4_name'),
       color: 'bg-green-500',
-      textColor: 'text-green-600',
-      bgLight: 'bg-green-50',
+      textColor: 'text-ok-subtle-fg',
+      bgLight: 'bg-ok-subtle',
       borderColor: 'border-green-500',
       description: t('docTriage.esi4_description'),
       wait: t('docTriage.esi4_wait'),
@@ -106,8 +106,8 @@ function TriagePage() {
       level: 5,
       name: t('docTriage.esi5_name'),
       color: 'bg-blue-500',
-      textColor: 'text-blue-600',
-      bgLight: 'bg-blue-50',
+      textColor: 'text-notice-subtle-fg',
+      bgLight: 'bg-notice-subtle',
       borderColor: 'border-blue-500',
       description: t('docTriage.esi5_description'),
       wait: t('docTriage.esi5_wait'),
@@ -314,17 +314,17 @@ function TriagePage() {
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-content flex items-center gap-2">
             <AlertTriangle className="text-orange-500" />
             {t('docTriage.title')}
           </h1>
-          <p className="text-gray-500 mt-1">
+          <p className="text-content-muted mt-1">
             {t('docTriage.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-            apiConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'
           }`}>
             <span className={`w-2 h-2 rounded-full ${apiConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
             {apiConnected ? t('docTriage.apiConnected') : t('docTriage.apiDisconnected')}
@@ -333,13 +333,13 @@ function TriagePage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 mb-6 bg-surface-sunken p-1 rounded-lg w-fit">
         <button
           onClick={() => setActiveTab('new')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'new'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-surface text-content shadow-sm'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           <Plus size={16} className="inline mr-1" />
@@ -349,8 +349,8 @@ function TriagePage() {
           onClick={() => setActiveTab('queue')}
           className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
             activeTab === 'queue'
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-surface text-content shadow-sm'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           <Clock size={16} className="inline mr-1" />
@@ -360,13 +360,13 @@ function TriagePage() {
 
       {/* Alerts */}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+        <div className="mb-6 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-2 text-critical-subtle-fg">
           <AlertCircle size={20} />
           {error}
         </div>
       )}
       {success && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
+        <div className="mb-6 p-4 bg-ok-subtle border border-ok rounded-lg flex items-center gap-2 text-ok-subtle-fg">
           <CheckCircle size={20} />
           {success}
         </div>
@@ -375,13 +375,13 @@ function TriagePage() {
       {activeTab === 'new' ? (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Patient Selection */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <div className="bg-surface rounded-xl shadow p-6">
+            <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
               <User size={20} />
               {t('docTriage.patientSelectionTitle')}
             </h2>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" size={20} />
               <input
                 type="text"
                 value={patientSearch}
@@ -391,10 +391,10 @@ function TriagePage() {
                 }}
                 onFocus={() => setShowPatientDropdown(true)}
                 placeholder={t('docTriage.searchPatientPlaceholder')}
-                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full pl-10 pr-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500"
               />
               {showPatientDropdown && filteredPatients.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto">
+                <div className="absolute z-10 w-full mt-1 bg-surface border border-border rounded-lg shadow-lg max-h-60 overflow-auto">
                   {filteredPatients.slice(0, 10).map((patient) => (
                     <button
                       key={patient.patient_id}
@@ -404,12 +404,12 @@ function TriagePage() {
                         setPatientSearch(patient.full_name);
                         setShowPatientDropdown(false);
                       }}
-                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 ${
+                      className={`w-full text-left px-4 py-3 hover:bg-surface-sunken border-b border-border last:border-0 ${
                         selectedPatientId === patient.patient_id ? 'bg-primary-50' : ''
                       }`}
                     >
-                      <p className="font-medium text-gray-900">{patient.full_name}</p>
-                      <p className="text-sm text-gray-500">
+                      <p className="font-medium text-content">{patient.full_name}</p>
+                      <p className="text-sm text-content-muted">
                         {patient.patient_id} • {t('docTriage.healthIdPrefix', { id: patient.health_id })}
                       </p>
                     </button>
@@ -418,7 +418,7 @@ function TriagePage() {
               )}
             </div>
             {selectedPatientId && (
-              <p className="mt-2 text-sm text-green-600 flex items-center gap-1">
+              <p className="mt-2 text-sm text-ok-subtle-fg flex items-center gap-1">
                 <CheckCircle size={16} />
                 {t('docTriage.patientSelected', { id: selectedPatientId })}
               </p>
@@ -426,8 +426,8 @@ function TriagePage() {
           </div>
 
           {/* ESI Level Selection */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <div className="bg-surface rounded-xl shadow p-6">
+            <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
               <AlertTriangle size={20} />
               {t('docTriage.esiLevelTitle')}
             </h2>
@@ -440,7 +440,7 @@ function TriagePage() {
                   className={`p-4 rounded-lg border-2 text-left transition-all ${
                     selectedESI === esi.level
                       ? `${esi.borderColor} ${esi.bgLight}`
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'border-border hover:border-border-strong'
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-2">
@@ -449,8 +449,8 @@ function TriagePage() {
                     </span>
                     <span className={`font-semibold ${esi.textColor}`}>{esi.name}</span>
                   </div>
-                  <p className="text-xs text-gray-600 mb-1">{esi.description}</p>
-                  <p className="text-xs text-gray-400 flex items-center gap-1">
+                  <p className="text-xs text-content-muted mb-1">{esi.description}</p>
+                  <p className="text-xs text-content-muted flex items-center gap-1">
                     <Clock size={12} />
                     {esi.wait}
                   </p>
@@ -459,7 +459,7 @@ function TriagePage() {
             </div>
             {selectedESI !== null && (
               <div className={`mt-4 p-3 rounded-lg ${ESI_LEVELS[selectedESI - 1].bgLight}`}>
-                <p className="text-sm text-gray-700">
+                <p className="text-sm text-content-secondary">
                   <strong>{t('docTriage.examplesLabel')}</strong> {ESI_LEVELS[selectedESI - 1].examples}
                 </p>
               </div>
@@ -467,14 +467,14 @@ function TriagePage() {
           </div>
 
           {/* Chief Complaint */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-surface rounded-xl shadow p-6">
             {/* A heading is not a label: this required field had no
                 accessible name at all, so a screen reader announced an unnamed
                 text box — unlike every other field on this form, which uses
                 `<label htmlFor>`. Kept as a heading visually, bound properly. */}
             <label
               htmlFor="triage-chief-complaint"
-              className="block text-lg font-semibold text-gray-900 mb-4"
+              className="block text-lg font-semibold text-content mb-4"
             >
               {t('docTriage.chiefComplaintTitle')}
             </label>
@@ -484,18 +484,18 @@ function TriagePage() {
               onChange={(e) => setChiefComplaint(e.target.value)}
               placeholder={t('docTriage.chiefComplaintPlaceholder')}
               rows={3}
-              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500"
               required
             />
           </div>
 
           {/* Vital Signs */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <div className="bg-surface rounded-xl shadow p-6">
+            <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
               <Activity size={20} />
               {t('docTriage.vitalSignsTitle')}
               {hasCriticalVitals() && (
-                <span className="ml-2 px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full animate-pulse">
+                <span className="ml-2 px-2 py-1 bg-critical-subtle text-critical-subtle-fg text-xs font-medium rounded-full animate-pulse">
                   {t('docTriage.criticalValuesDetected')}
                 </span>
               )}
@@ -503,7 +503,7 @@ function TriagePage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {/* Heart Rate */}
               <div>
-                <label htmlFor="triage-heart-rate" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-heart-rate" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Heart size={14} className="text-red-500" />
                   {t('docTriage.heartRateLabel')}
                 </label>
@@ -515,15 +515,15 @@ function TriagePage() {
                   placeholder="60-100"
                   className={`w-full px-3 py-2 border rounded-lg ${
                     vitalSigns.heart_rate && (vitalSigns.heart_rate < 40 || vitalSigns.heart_rate > 150)
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200'
+                      ? 'border-red-500 bg-critical-subtle'
+                      : 'border-border'
                   }`}
                 />
               </div>
               
               {/* Respiratory Rate */}
               <div>
-                <label htmlFor="triage-respiratory-rate" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-respiratory-rate" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Wind size={14} className="text-blue-500" />
                   {t('docTriage.respRateLabel')}
                 </label>
@@ -535,15 +535,15 @@ function TriagePage() {
                   placeholder="12-20"
                   className={`w-full px-3 py-2 border rounded-lg ${
                     vitalSigns.respiratory_rate && (vitalSigns.respiratory_rate < 8 || vitalSigns.respiratory_rate > 35)
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200'
+                      ? 'border-red-500 bg-critical-subtle'
+                      : 'border-border'
                   }`}
                 />
               </div>
               
               {/* Blood Pressure */}
               <div>
-                <label htmlFor="triage-bp-systolic" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-bp-systolic" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Activity size={14} className="text-purple-500" />
                   {t('docTriage.bpSystolicLabel')}
                 </label>
@@ -555,14 +555,14 @@ function TriagePage() {
                   placeholder="90-120"
                   className={`w-full px-3 py-2 border rounded-lg ${
                     vitalSigns.bp_systolic && (vitalSigns.bp_systolic < 80 || vitalSigns.bp_systolic > 220)
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200'
+                      ? 'border-red-500 bg-critical-subtle'
+                      : 'border-border'
                   }`}
                 />
               </div>
               
               <div>
-                <label htmlFor="triage-bp-diastolic" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-bp-diastolic" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.bpDiastolicLabel')}
                 </label>
                 <input
@@ -571,13 +571,13 @@ function TriagePage() {
                   value={vitalSigns.bp_diastolic ?? ''}
                   onChange={(e) => updateVitalSign('bp_diastolic', e.target.value)}
                   placeholder="60-80"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  className="w-full px-3 py-2 border border-border rounded-lg"
                 />
               </div>
               
               {/* Temperature */}
               <div>
-                <label htmlFor="triage-temperature" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-temperature" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Thermometer size={14} className="text-orange-500" />
                   {t('docTriage.temperatureLabel')}
                 </label>
@@ -590,15 +590,15 @@ function TriagePage() {
                   placeholder="36.1-37.2"
                   className={`w-full px-3 py-2 border rounded-lg ${
                     vitalSigns.temperature_celsius && (vitalSigns.temperature_celsius < 35 || vitalSigns.temperature_celsius > 40)
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200'
+                      ? 'border-red-500 bg-critical-subtle'
+                      : 'border-border'
                   }`}
                 />
               </div>
               
               {/* O2 Saturation */}
               <div>
-                <label htmlFor="triage-oxygen-saturation" className="flex text-sm font-medium text-gray-700 mb-1 items-center gap-1">
+                <label htmlFor="triage-oxygen-saturation" className="flex text-sm font-medium text-content-secondary mb-1 items-center gap-1">
                   <Droplet size={14} className="text-cyan-500" />
                   {t('docTriage.o2SatLabel')}
                 </label>
@@ -610,15 +610,15 @@ function TriagePage() {
                   placeholder="95-100"
                   className={`w-full px-3 py-2 border rounded-lg ${
                     vitalSigns.oxygen_saturation && vitalSigns.oxygen_saturation < 90
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200'
+                      ? 'border-red-500 bg-critical-subtle'
+                      : 'border-border'
                   }`}
                 />
               </div>
               
               {/* Pain Scale */}
               <div>
-                <label htmlFor="triage-pain-scale" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-pain-scale" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.painScaleLabel')}
                 </label>
                 <input
@@ -629,13 +629,13 @@ function TriagePage() {
                   value={vitalSigns.pain_scale ?? ''}
                   onChange={(e) => updateVitalSign('pain_scale', e.target.value)}
                   placeholder="0-10"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  className="w-full px-3 py-2 border border-border rounded-lg"
                 />
               </div>
               
               {/* GCS */}
               <div>
-                <label htmlFor="triage-gcs-score" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-gcs-score" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.gcsLabel')}
                 </label>
                 <input
@@ -648,15 +648,15 @@ function TriagePage() {
                   placeholder={t('docTriage.gcsPlaceholder')}
                   className={`w-full px-3 py-2 border rounded-lg ${
                     vitalSigns.gcs_score && vitalSigns.gcs_score < 9
-                      ? 'border-red-500 bg-red-50'
-                      : 'border-gray-200'
+                      ? 'border-red-500 bg-critical-subtle'
+                      : 'border-border'
                   }`}
                 />
               </div>
               
               {/* Blood Glucose */}
               <div>
-                <label htmlFor="triage-blood-glucose" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-blood-glucose" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.bloodGlucoseLabel')}
                 </label>
                 <input
@@ -665,13 +665,13 @@ function TriagePage() {
                   value={vitalSigns.blood_glucose ?? ''}
                   onChange={(e) => updateVitalSign('blood_glucose', e.target.value)}
                   placeholder="70-100"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  className="w-full px-3 py-2 border border-border rounded-lg"
                 />
               </div>
               
               {/* Weight */}
               <div>
-                <label htmlFor="triage-weight" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="triage-weight" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docTriage.weightLabel')}
                 </label>
                 <input
@@ -681,21 +681,21 @@ function TriagePage() {
                   value={vitalSigns.weight_kg ?? ''}
                   onChange={(e) => updateVitalSign('weight_kg', e.target.value)}
                   placeholder={t('docTriage.weightPlaceholder')}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg"
+                  className="w-full px-3 py-2 border border-border rounded-lg"
                 />
               </div>
             </div>
           </div>
 
           {/* Notes */}
-          <div className="bg-white rounded-xl shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('docTriage.notesTitle')}</h2>
+          <div className="bg-surface rounded-xl shadow p-6">
+            <h2 className="text-lg font-semibold text-content mb-4">{t('docTriage.notesTitle')}</h2>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder={t('docTriage.notesPlaceholder')}
               rows={3}
-              className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500"
             />
           </div>
 
@@ -703,7 +703,7 @@ function TriagePage() {
           <div className="flex justify-end gap-4">
             <Link
               to="/dashboard"
-              className="px-6 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              className="px-6 py-3 border border-border rounded-lg hover:bg-surface-sunken transition-colors"
             >
               {t('docTriage.cancel')}
             </Link>
@@ -728,19 +728,19 @@ function TriagePage() {
         </form>
       ) : (
         /* Triage Queue Tab */
-        <div className="bg-white rounded-xl shadow">
-          <div className="p-4 border-b border-gray-100">
-            <h2 className="font-semibold text-gray-900">{t('docTriage.currentQueueTitle')}</h2>
-            <p className="text-sm text-gray-500">{t('docTriage.queueSubtitle')}</p>
+        <div className="bg-surface rounded-xl shadow">
+          <div className="p-4 border-b border-border">
+            <h2 className="font-semibold text-content">{t('docTriage.currentQueueTitle')}</h2>
+            <p className="text-sm text-content-muted">{t('docTriage.queueSubtitle')}</p>
           </div>
 
           {loading ? (
             <div className="p-12 text-center">
               <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-              <p className="text-gray-500">{t('docTriage.loadingQueue')}</p>
+              <p className="text-content-muted">{t('docTriage.loadingQueue')}</p>
             </div>
           ) : triageQueue.length > 0 ? (
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-border">
               {triageQueue
                 .sort((a, b) => {
                   const levelA = typeof a.esi_level === 'object' ? a.esi_level.level : a.esi_level;
@@ -758,18 +758,18 @@ function TriagePage() {
                     <Link
                       key={assessment.assessment_id}
                       to={`/patients/${assessment.patient_id}`}
-                      className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                      className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
                     >
                       <div className="flex items-center gap-4">
                         <span className={`w-10 h-10 rounded-full ${esiConfig?.color || 'bg-gray-500'} text-white flex items-center justify-center font-bold`}>
                           {level}
                         </span>
                         <div>
-                          <p className="font-medium text-gray-900">
+                          <p className="font-medium text-content">
                             {patient?.full_name || assessment.patient_id}
                           </p>
-                          <p className="text-sm text-gray-500">{assessment.chief_complaint}</p>
-                          <p className="text-xs text-gray-400 mt-1">
+                          <p className="text-sm text-content-muted">{assessment.chief_complaint}</p>
+                          <p className="text-xs text-content-muted mt-1">
                             {new Date(assessment.performed_at * 1000).toLocaleTimeString()}
                           </p>
                         </div>
@@ -779,7 +779,7 @@ function TriagePage() {
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${esiConfig?.bgLight} ${esiConfig?.textColor}`}>
                             {t('docTriage.esiBadge', { level, name: esiConfig?.name })}
                           </span>
-                          <p className="text-xs text-gray-400 mt-1">{esiConfig?.wait}</p>
+                          <p className="text-xs text-content-muted mt-1">{esiConfig?.wait}</p>
                         </div>
                         <ChevronRight className="text-gray-300" size={20} />
                       </div>
@@ -790,7 +790,7 @@ function TriagePage() {
           ) : (
             <div className="p-12 text-center">
               <Clock className="mx-auto mb-3 text-gray-300" size={48} />
-              <p className="text-gray-500">{t('docTriage.noPatientsInQueue')}</p>
+              <p className="text-content-muted">{t('docTriage.noPatientsInQueue')}</p>
               <button
                 onClick={() => setActiveTab('new')}
                 className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"

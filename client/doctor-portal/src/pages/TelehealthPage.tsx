@@ -215,11 +215,11 @@ export default function TelehealthPage() {
 
   const statusColor = (status: string) => {
     switch (status) {
-      case 'scheduled': return 'bg-blue-100 text-blue-700';
-      case 'active': return 'bg-green-100 text-green-700';
-      case 'ended': return 'bg-gray-100 text-gray-700';
-      case 'cancelled': return 'bg-red-100 text-red-700';
-      default: return 'bg-gray-100 text-gray-700';
+      case 'scheduled': return 'bg-notice-subtle text-notice-subtle-fg';
+      case 'active': return 'bg-ok-subtle text-ok-subtle-fg';
+      case 'ended': return 'bg-surface-sunken text-content-secondary';
+      case 'cancelled': return 'bg-critical-subtle text-critical-subtle-fg';
+      default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
@@ -247,11 +247,11 @@ export default function TelehealthPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-content flex items-center gap-2">
             <Video className="text-blue-500" size={24} />
             {t('docTelehealth.title')}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">{t('docTelehealth.subtitle')}</p>
+          <p className="text-content-muted text-sm mt-1">{t('docTelehealth.subtitle')}</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -263,15 +263,15 @@ export default function TelehealthPage() {
       </div>
 
       {success && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{success}</div>
+        <div className="mb-4 p-3 bg-ok-subtle border border-ok text-ok-subtle-fg rounded-lg text-sm">{success}</div>
       )}
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
+        <div className="mb-4 p-3 bg-critical-subtle border border-critical text-critical-subtle-fg rounded-lg text-sm">{error}</div>
       )}
 
       {/* Patient Selector */}
-      <div className="bg-white rounded-xl shadow p-4 mb-6">
-        <label htmlFor="telehealth-patient-id" className="block text-sm font-medium text-gray-700 mb-1">
+      <div className="bg-surface rounded-xl shadow p-4 mb-6">
+        <label htmlFor="telehealth-patient-id" className="block text-sm font-medium text-content-secondary mb-1">
           {t('docTelehealth.viewForPatient')}
         </label>
         <div className="flex gap-2">
@@ -285,7 +285,7 @@ export default function TelehealthPage() {
           />
           <button
             onClick={() => fetchSessions(patientId)}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm"
+            className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-surface-sunken text-sm"
           >
             {t('docTelehealth.search')}
           </button>
@@ -293,9 +293,9 @@ export default function TelehealthPage() {
       </div>
 
       {/* Sessions List */}
-      <div className="bg-white rounded-xl shadow mb-6">
+      <div className="bg-surface rounded-xl shadow mb-6">
         <div className="p-4 border-b">
-          <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+          <h2 className="font-semibold text-content flex items-center gap-2">
             <Calendar size={18} />
             {t('docTelehealth.sessions')}
           </h2>
@@ -303,10 +303,10 @@ export default function TelehealthPage() {
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} />
-            <p className="text-gray-500">{t('docTelehealth.loading')}</p>
+            <p className="text-content-muted">{t('docTelehealth.loading')}</p>
           </div>
         ) : sessions.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-content-muted">
             <Video className="mx-auto mb-2 text-gray-300" size={40} />
             <p>{t('docTelehealth.noSessions')}</p>
             {!patientId && <p className="text-sm mt-1">{t('docTelehealth.enterPatientHint')}</p>}
@@ -314,15 +314,15 @@ export default function TelehealthPage() {
         ) : (
           <div className="divide-y">
             {sessions.map((session) => (
-              <div key={session.session_id} className="p-4 flex items-center justify-between hover:bg-gray-50">
+              <div key={session.session_id} className="p-4 flex items-center justify-between hover:bg-surface-sunken">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-gray-900">{sessionTypeLabel(session.session_type)}</span>
+                    <span className="font-medium text-content">{sessionTypeLabel(session.session_type)}</span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(session.status)}`}>
                       {statusLabel(session.status)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-sm text-gray-500">
+                  <div className="flex items-center gap-3 text-sm text-content-muted">
                     <span className="flex items-center gap-1">
                       <User size={13} />
                       {t('docTelehealth.patientLabel', { id: session.patient_id })}
@@ -351,7 +351,7 @@ export default function TelehealthPage() {
                     <button
                       onClick={() => handleEndSession(session.session_id)}
                       disabled={actionLoading === session.session_id}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200 disabled:opacity-50"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-critical-subtle text-critical-subtle-fg text-sm rounded hover:bg-red-200 disabled:opacity-50"
                     >
                       {actionLoading === session.session_id ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} />}
                       {t('docTelehealth.end')}
@@ -366,11 +366,11 @@ export default function TelehealthPage() {
 
       {/* Create Form */}
       {showForm && (
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="font-semibold text-gray-900 mb-4">{t('docTelehealth.scheduleNew')}</h2>
+        <div className="bg-surface rounded-xl shadow p-6">
+          <h2 className="font-semibold text-content mb-4">{t('docTelehealth.scheduleNew')}</h2>
           <form onSubmit={handleCreate} className="max-w-lg space-y-4">
             <div>
-              <label htmlFor="telehealth-form-patient" className="block text-sm font-medium text-gray-700">{t('docTelehealth.patientId')}</label>
+              <label htmlFor="telehealth-form-patient" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.patientId')}</label>
               <input
                 id="telehealth-form-patient"
                 type="text"
@@ -381,7 +381,7 @@ export default function TelehealthPage() {
               />
             </div>
             <div>
-              <label htmlFor="telehealth-session-type" className="block text-sm font-medium text-gray-700">{t('docTelehealth.sessionType')}</label>
+              <label htmlFor="telehealth-session-type" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.sessionType')}</label>
               <select
                 id="telehealth-session-type"
                 value={formData.session_type}
@@ -396,7 +396,7 @@ export default function TelehealthPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="telehealth-date" className="block text-sm font-medium text-gray-700">{t('docTelehealth.date')}</label>
+                <label htmlFor="telehealth-date" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.date')}</label>
                 <input
                   id="telehealth-date"
                   type="date"
@@ -407,7 +407,7 @@ export default function TelehealthPage() {
                 />
               </div>
               <div>
-                <label htmlFor="telehealth-time" className="block text-sm font-medium text-gray-700">{t('docTelehealth.time')}</label>
+                <label htmlFor="telehealth-time" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.time')}</label>
                 <input
                   id="telehealth-time"
                   type="time"
@@ -419,7 +419,7 @@ export default function TelehealthPage() {
               </div>
             </div>
             <div>
-              <label htmlFor="telehealth-duration" className="block text-sm font-medium text-gray-700">{t('docTelehealth.duration')}</label>
+              <label htmlFor="telehealth-duration" className="block text-sm font-medium text-content-secondary">{t('docTelehealth.duration')}</label>
               <input
                 id="telehealth-duration"
                 type="number"
@@ -434,7 +434,7 @@ export default function TelehealthPage() {
               <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
                 {t('docTelehealth.schedule')}
               </button>
-              <button type="button" onClick={() => setShowForm(false)} className="border px-4 py-2 rounded-lg hover:bg-gray-50">
+              <button type="button" onClick={() => setShowForm(false)} className="border px-4 py-2 rounded-lg hover:bg-surface-sunken">
                 {t('docTelehealth.cancel')}
               </button>
             </div>

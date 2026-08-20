@@ -298,13 +298,13 @@ export default function PreOpPage() {
 
   const getAsaColor = (asa: ASAClass) => {
     switch (asa) {
-      case 'I': return 'bg-green-100 text-green-800 border-green-500';
-      case 'II': return 'bg-blue-100 text-blue-800 border-blue-500';
-      case 'III': return 'bg-yellow-100 text-yellow-800 border-yellow-500';
+      case 'I': return 'bg-ok-subtle text-ok-subtle-fg border-green-500';
+      case 'II': return 'bg-notice-subtle text-notice-subtle-fg border-blue-500';
+      case 'III': return 'bg-caution-subtle text-caution-subtle-fg border-yellow-500';
       case 'IV': return 'bg-orange-100 text-orange-800 border-orange-500';
-      case 'V': return 'bg-red-100 text-red-800 border-red-500';
-      case 'VI': return 'bg-gray-100 text-gray-800 border-gray-500';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'V': return 'bg-critical-subtle text-critical-subtle-fg border-red-500';
+      case 'VI': return 'bg-surface-sunken text-content-secondary border-gray-500';
+      default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
@@ -359,13 +359,13 @@ export default function PreOpPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-3 bg-white/20 rounded-full">
+              <div className="p-3 bg-surface/20 rounded-full">
                 <Scissors className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -388,26 +388,26 @@ export default function PreOpPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             {success}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
         )}
 
         {/* Progress Bar */}
-        <div className="bg-white rounded-lg shadow mb-6 p-4">
+        <div className="bg-surface rounded-lg shadow mb-6 p-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-gray-700">{t('docPreOp.checklistProgressLabel')}</h3>
-            <span className="text-sm text-gray-500">{t('docPreOp.itemsCompleteLine', { done: checklistProgress, total: totalChecklistItems })}</span>
+            <h3 className="font-medium text-content-secondary">{t('docPreOp.checklistProgressLabel')}</h3>
+            <span className="text-sm text-content-muted">{t('docPreOp.itemsCompleteLine', { done: checklistProgress, total: totalChecklistItems })}</span>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-3">
+          <div className="w-full bg-surface-sunken rounded-full h-3">
             <div
               className={`h-3 rounded-full transition-all ${
                 checklistProgress === totalChecklistItems ? 'bg-green-500' :
@@ -419,14 +419,14 @@ export default function PreOpPage() {
         </div>
 
         {/* Tabs */}
-        <div className="bg-white rounded-lg shadow mb-6">
+        <div className="bg-surface rounded-lg shadow mb-6">
           <div className="border-b flex">
             <button
               onClick={() => setActiveTab('assessment')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'assessment'
                   ? 'border-b-2 border-indigo-500 text-indigo-600'
-                  : 'text-gray-500'
+                  : 'text-content-muted'
               }`}
             >
               <Stethoscope className="h-5 w-5" />
@@ -437,7 +437,7 @@ export default function PreOpPage() {
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'checklist'
                   ? 'border-b-2 border-indigo-500 text-indigo-600'
-                  : 'text-gray-500'
+                  : 'text-content-muted'
               }`}
             >
               <FileText className="h-5 w-5" />
@@ -448,7 +448,7 @@ export default function PreOpPage() {
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'history'
                   ? 'border-b-2 border-indigo-500 text-indigo-600'
-                  : 'text-gray-500'
+                  : 'text-content-muted'
               }`}
             >
               <History className="h-5 w-5" />
@@ -462,21 +462,21 @@ export default function PreOpPage() {
             {/* Left Column - Patient & Surgery Info */}
             <div className="lg:col-span-1 space-y-4">
               {/* Patient Selection */}
-              <div className="bg-white rounded-lg shadow p-4">
-                <h2 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4">
+                <h2 className="font-bold text-content mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-indigo-500" />
                   {t('docPreOp.selectPatientHeading')}
                 </h2>
                 <div className="relative mb-4">
                   <label htmlFor="preop-search-patients" className="sr-only">{t('docPreOp.searchPatientsSrLabel')}</label>
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
                   <input
                     id="preop-search-patients"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docPreOp.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
                   />
                 </div>
                 <div className="max-h-48 overflow-y-auto space-y-2">
@@ -487,74 +487,74 @@ export default function PreOpPage() {
                       className={`w-full text-left p-3 rounded-lg transition-colors ${
                         selectedPatient?.patient_id === patient.patient_id
                           ? 'bg-indigo-100 border-2 border-indigo-500'
-                          : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                          : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                       }`}
                     >
-                      <p className="font-medium text-gray-900">{patient.full_name}</p>
-                      <p className="text-sm text-gray-500">{patient.patient_id}</p>
+                      <p className="font-medium text-content">{patient.full_name}</p>
+                      <p className="text-sm text-content-muted">{patient.patient_id}</p>
                     </button>
                   ))}
                 </div>
               </div>
 
               {/* Surgery Information */}
-              <div className="bg-white rounded-lg shadow p-4">
-                <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4">
+                <h3 className="font-bold text-content mb-3 flex items-center">
                   <Scissors className="h-5 w-5 mr-2 text-indigo-500" />
                   {t('docPreOp.surgeryDetailsHeading')}
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="preop-scheduled-procedure" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.scheduledProcedureLabel')}</label>
+                    <label htmlFor="preop-scheduled-procedure" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.scheduledProcedureLabel')}</label>
                     <input
                       id="preop-scheduled-procedure"
                       type="text"
                       value={scheduledSurgery}
                       onChange={(e) => setScheduledSurgery(e.target.value)}
                       placeholder={t('docPreOp.scheduledProcedurePh')}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     />
                   </div>
                   <div>
-                    <label htmlFor="preop-surgeon" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.surgeonLabel')}</label>
+                    <label htmlFor="preop-surgeon" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.surgeonLabel')}</label>
                     <input
                       id="preop-surgeon"
                       type="text"
                       value={surgeon}
                       onChange={(e) => setSurgeon(e.target.value)}
                       placeholder={t('docPreOp.surgeonPh')}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label htmlFor="preop-scheduled-date" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.dateLabel')}</label>
+                      <label htmlFor="preop-scheduled-date" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.dateLabel')}</label>
                       <input
                         id="preop-scheduled-date"
                         type="date"
                         value={scheduledDate}
                         onChange={(e) => setScheduledDate(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded"
+                        className="w-full p-2 border border-border-strong rounded"
                       />
                     </div>
                     <div>
-                      <label htmlFor="preop-scheduled-time" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.timeLabel')}</label>
+                      <label htmlFor="preop-scheduled-time" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.timeLabel')}</label>
                       <input
                         id="preop-scheduled-time"
                         type="time"
                         value={scheduledTime}
                         onChange={(e) => setScheduledTime(e.target.value)}
-                        className="w-full p-2 border border-gray-300 rounded"
+                        className="w-full p-2 border border-border-strong rounded"
                       />
                     </div>
                   </div>
                   <div>
-                    <label htmlFor="preop-anesthesia-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.anesthesiaTypeLabel')}</label>
+                    <label htmlFor="preop-anesthesia-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.anesthesiaTypeLabel')}</label>
                     <select
                       id="preop-anesthesia-type"
                       value={anesthesiaType}
                       onChange={(e) => setAnesthesiaType(e.target.value as AnesthesiaType)}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     >
                       {anesthesiaTypes.map(type => (
                         <option key={type.value} value={type.value}>{type.label}</option>
@@ -565,30 +565,30 @@ export default function PreOpPage() {
               </div>
 
               {/* NPO Status */}
-              <div className="bg-white rounded-lg shadow p-4">
-                <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4">
+                <h3 className="font-bold text-content mb-3 flex items-center">
                   <Clock className="h-5 w-5 mr-2 text-indigo-500" />
                   {t('docPreOp.npoStatusHeading')}
                 </h3>
                 <div className="space-y-3">
                   <div>
-                    <label htmlFor="preop-last-solid-food" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.lastSolidFoodLabel')}</label>
+                    <label htmlFor="preop-last-solid-food" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.lastSolidFoodLabel')}</label>
                     <input
                       id="preop-last-solid-food"
                       type="datetime-local"
                       value={npoStatus.lastSolid}
                       onChange={(e) => setNpoStatus(prev => ({ ...prev, lastSolid: e.target.value }))}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     />
                   </div>
                   <div>
-                    <label htmlFor="preop-last-clear-liquid" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.lastClearLiquidLabel')}</label>
+                    <label htmlFor="preop-last-clear-liquid" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.lastClearLiquidLabel')}</label>
                     <input
                       id="preop-last-clear-liquid"
                       type="datetime-local"
                       value={npoStatus.lastClear}
                       onChange={(e) => setNpoStatus(prev => ({ ...prev, lastClear: e.target.value }))}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     />
                   </div>
                   <label htmlFor="preop-npo-compliant" className="flex items-center space-x-2 cursor-pointer">
@@ -597,9 +597,9 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={npoStatus.compliant}
                       onChange={() => setNpoStatus(prev => ({ ...prev, compliant: !prev.compliant }))}
-                      className="rounded border-gray-300 text-green-600"
+                      className="rounded border-border-strong text-ok-subtle-fg"
                     />
-                    <span className={`font-medium ${npoStatus.compliant ? 'text-green-600' : 'text-red-600'}`}>
+                    <span className={`font-medium ${npoStatus.compliant ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg'}`}>
                       {npoStatus.compliant ? t('docPreOp.npoCompliant') : t('docPreOp.npoNotCompliant')}
                     </span>
                   </label>
@@ -610,8 +610,8 @@ export default function PreOpPage() {
             {/* Main Assessment Column */}
             <div className="lg:col-span-2 space-y-6">
               {/* ASA Classification */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h2 className="text-lg font-bold text-content mb-4 flex items-center">
                   <Shield className="h-6 w-6 mr-2 text-indigo-500" />
                   {t('docPreOp.asaHeading')}
                 </h2>
@@ -631,7 +631,7 @@ export default function PreOpPage() {
                       className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
                         asaClass === asa.value
                           ? getAsaColor(asa.value) + ' border-2'
-                          : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                          : 'bg-surface-sunken border-border hover:bg-surface-sunken'
                       }`}
                     >
                       <div className="flex items-center justify-between">
@@ -648,23 +648,23 @@ export default function PreOpPage() {
                     type="checkbox"
                     checked={asaEmergency}
                     onChange={() => setAsaEmergency(!asaEmergency)}
-                    className="rounded border-gray-300 text-red-600"
+                    className="rounded border-border-strong text-critical-subtle-fg"
                   />
-                  <span className="font-medium text-red-600">
+                  <span className="font-medium text-critical-subtle-fg">
                     {t('docPreOp.emergencyCaseCheckbox')}
                   </span>
                 </label>
               </div>
 
               {/* Airway Assessment */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="font-bold text-content mb-4 flex items-center">
                   <Wind className="h-5 w-5 mr-2 text-indigo-500" />
                   {t('docPreOp.airwayAssessmentHeading')}
                 </h3>
 
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('docPreOp.mallampatiLabel')}</label>
+                  <label className="block text-sm font-medium text-content-secondary mb-2">{t('docPreOp.mallampatiLabel')}</label>
                   <div className="grid grid-cols-4 gap-2">
                     {mallampatiClasses.map(mp => (
                       <button
@@ -674,7 +674,7 @@ export default function PreOpPage() {
                         className={`p-3 rounded-lg border-2 text-center ${
                           airwayAssessment.mallampati === mp.value
                             ? 'bg-indigo-100 border-indigo-500 text-indigo-800'
-                            : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                            : 'bg-surface-sunken border-border hover:bg-surface-sunken'
                         }`}
                       >
                         <p className="font-bold">{mp.label}</p>
@@ -686,12 +686,12 @@ export default function PreOpPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="preop-mouth-opening" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.mouthOpeningLabel')}</label>
+                    <label htmlFor="preop-mouth-opening" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.mouthOpeningLabel')}</label>
                     <select
                       id="preop-mouth-opening"
                       value={airwayAssessment.mouthOpening}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, mouthOpening: e.target.value }))}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     >
                       <option value=">3cm">{t('docPreOp.mouthOpening_normal')}</option>
                       <option value="2-3cm">{t('docPreOp.mouthOpening_limited')}</option>
@@ -699,12 +699,12 @@ export default function PreOpPage() {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="preop-thyromental-distance" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.thyromentalLabel')}</label>
+                    <label htmlFor="preop-thyromental-distance" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.thyromentalLabel')}</label>
                     <select
                       id="preop-thyromental-distance"
                       value={airwayAssessment.thyromental}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, thyromental: e.target.value }))}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     >
                       <option value=">6cm">{t('docPreOp.thyromental_normal')}</option>
                       <option value="6-6.5cm">{t('docPreOp.thyromental_borderline')}</option>
@@ -712,12 +712,12 @@ export default function PreOpPage() {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="preop-neck-mobility" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.neckMobilityLabel')}</label>
+                    <label htmlFor="preop-neck-mobility" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.neckMobilityLabel')}</label>
                     <select
                       id="preop-neck-mobility"
                       value={airwayAssessment.neckMobility}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, neckMobility: e.target.value }))}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     >
                       <option value="full">{t('docPreOp.neckMobility_full')}</option>
                       <option value="limited">{t('docPreOp.neckMobility_limited')}</option>
@@ -725,12 +725,12 @@ export default function PreOpPage() {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="preop-dentition" className="block text-sm font-medium text-gray-700 mb-1">{t('docPreOp.dentitionLabel')}</label>
+                    <label htmlFor="preop-dentition" className="block text-sm font-medium text-content-secondary mb-1">{t('docPreOp.dentitionLabel')}</label>
                     <select
                       id="preop-dentition"
                       value={airwayAssessment.dentition}
                       onChange={(e) => setAirwayAssessment(prev => ({ ...prev, dentition: e.target.value }))}
-                      className="w-full p-2 border border-gray-300 rounded"
+                      className="w-full p-2 border border-border-strong rounded"
                     >
                       <option value="intact">{t('docPreOp.dentition_intact')}</option>
                       <option value="loose">{t('docPreOp.dentition_loose')}</option>
@@ -747,7 +747,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.beardPresent}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, beardPresent: !prev.beardPresent }))}
-                      className="rounded border-gray-300 text-indigo-600"
+                      className="rounded border-border-strong text-indigo-600"
                     />
                     <span className="text-sm">{t('docPreOp.beardPresentCheckbox')}</span>
                   </label>
@@ -757,7 +757,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.obeseNeck}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, obeseNeck: !prev.obeseNeck }))}
-                      className="rounded border-gray-300 text-indigo-600"
+                      className="rounded border-border-strong text-indigo-600"
                     />
                     <span className="text-sm">{t('docPreOp.obeseNeckCheckbox')}</span>
                   </label>
@@ -767,17 +767,17 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.difficultyPredicted}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, difficultyPredicted: !prev.difficultyPredicted }))}
-                      className="rounded border-gray-300 text-red-600"
+                      className="rounded border-border-strong text-critical-subtle-fg"
                     />
-                    <span className="text-sm text-red-600 font-medium">{t('docPreOp.difficultAirwayCheckbox')}</span>
+                    <span className="text-sm text-critical-subtle-fg font-medium">{t('docPreOp.difficultAirwayCheckbox')}</span>
                   </label>
                 </div>
               </div>
 
               {/* Medical History & Allergies */}
               <div className="grid grid-cols-2 gap-6">
-                <div className="bg-white rounded-lg shadow p-4">
-                  <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <div className="bg-surface rounded-lg shadow p-4">
+                  <h3 className="font-bold text-content mb-3 flex items-center">
                     <Heart className="h-5 w-5 mr-2 text-red-500" />
                     {t('docPreOp.medicalHistoryHeading')}
                   </h3>
@@ -789,7 +789,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={medicalHistory.includes(condition)}
                           onChange={() => toggleMedicalHistory(condition)}
-                          className="rounded border-gray-300 text-indigo-600"
+                          className="rounded border-border-strong text-indigo-600"
                         />
                         <span className="text-sm">{condition}</span>
                       </label>
@@ -797,8 +797,8 @@ export default function PreOpPage() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-lg shadow p-4">
-                  <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <div className="bg-surface rounded-lg shadow p-4">
+                  <h3 className="font-bold text-content mb-3 flex items-center">
                     <AlertTriangle className="h-5 w-5 mr-2 text-yellow-500" />
                     {t('docPreOp.allergiesHeading')}
                   </h3>
@@ -810,7 +810,7 @@ export default function PreOpPage() {
                       value={newAllergy}
                       onChange={(e) => setNewAllergy(e.target.value)}
                       placeholder={t('docPreOp.addAllergyPh')}
-                      className="flex-1 p-2 border border-gray-300 rounded text-sm"
+                      className="flex-1 p-2 border border-border-strong rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addAllergy()}
                     />
                     <button
@@ -825,13 +825,13 @@ export default function PreOpPage() {
                     {allergies.map(allergy => (
                       <span
                         key={allergy}
-                        className="inline-flex items-center px-2 py-1 bg-red-100 text-red-800 rounded-full text-sm"
+                        className="inline-flex items-center px-2 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-sm"
                       >
                         {allergy}
                         <button
                           type="button"
                           onClick={() => setAllergies(prev => prev.filter(a => a !== allergy))}
-                          className="ml-1 text-red-600 hover:text-red-800"
+                          className="ml-1 text-critical-subtle-fg hover:text-critical-subtle-fg"
                           aria-label={`Remove ${allergy}`}
                         >
                           <X className="h-3 w-3" />
@@ -839,7 +839,7 @@ export default function PreOpPage() {
                       </span>
                     ))}
                     {allergies.length === 0 && (
-                      <span className="text-gray-400 text-sm">{t('docPreOp.nkda')}</span>
+                      <span className="text-content-muted text-sm">{t('docPreOp.nkda')}</span>
                     )}
                   </div>
                 </div>
@@ -847,8 +847,8 @@ export default function PreOpPage() {
 
               {/* Medications */}
               <div className="grid grid-cols-2 gap-6">
-                <div className="bg-white rounded-lg shadow p-4">
-                  <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <div className="bg-surface rounded-lg shadow p-4">
+                  <h3 className="font-bold text-content mb-3 flex items-center">
                     <Pill className="h-5 w-5 mr-2 text-blue-500" />
                     {t('docPreOp.currentMedicationsHeading')}
                   </h3>
@@ -860,7 +860,7 @@ export default function PreOpPage() {
                       value={newMedication}
                       onChange={(e) => setNewMedication(e.target.value)}
                       placeholder={t('docPreOp.addMedicationPh')}
-                      className="flex-1 p-2 border border-gray-300 rounded text-sm"
+                      className="flex-1 p-2 border border-border-strong rounded text-sm"
                       onKeyPress={(e) => e.key === 'Enter' && addMedication()}
                     />
                     <button
@@ -875,13 +875,13 @@ export default function PreOpPage() {
                     {currentMedications.map(med => (
                       <span
                         key={med}
-                        className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm"
+                        className="inline-flex items-center px-2 py-1 bg-notice-subtle text-notice-subtle-fg rounded text-sm"
                       >
                         {med}
                         <button
                           type="button"
                           onClick={() => setCurrentMedications(prev => prev.filter(m => m !== med))}
-                          className="ml-1 text-blue-600 hover:text-blue-800"
+                          className="ml-1 text-notice-subtle-fg hover:text-notice-subtle-fg"
                           aria-label={`Remove ${med}`}
                         >
                           <X className="h-3 w-3" />
@@ -891,8 +891,8 @@ export default function PreOpPage() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-lg shadow p-4">
-                  <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <div className="bg-surface rounded-lg shadow p-4">
+                  <h3 className="font-bold text-content mb-3 flex items-center">
                     <AlertCircle className="h-5 w-5 mr-2 text-orange-500" />
                     {t('docPreOp.medicationsToHoldHeading')}
                   </h3>
@@ -904,7 +904,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={holdMedications.includes(med)}
                           onChange={() => toggleHoldMedication(med)}
-                          className="rounded border-gray-300 text-orange-600"
+                          className="rounded border-border-strong text-orange-600"
                         />
                         <span className="text-sm">{med}</span>
                       </label>
@@ -915,8 +915,8 @@ export default function PreOpPage() {
 
               {/* Labs & Consents */}
               <div className="grid grid-cols-2 gap-6">
-                <div className="bg-white rounded-lg shadow p-4">
-                  <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <div className="bg-surface rounded-lg shadow p-4">
+                  <h3 className="font-bold text-content mb-3 flex items-center">
                     <Activity className="h-5 w-5 mr-2 text-green-500" />
                     {t('docPreOp.labsReviewedHeading')}
                   </h3>
@@ -929,7 +929,7 @@ export default function PreOpPage() {
                         className={`px-3 py-1 rounded-full text-sm ${
                           labsReviewed.includes(lab)
                             ? 'bg-green-500 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                         }`}
                       >
                         {lab}
@@ -938,8 +938,8 @@ export default function PreOpPage() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-lg shadow p-4">
-                  <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+                <div className="bg-surface rounded-lg shadow p-4">
+                  <h3 className="font-bold text-content mb-3 flex items-center">
                     <FileText className="h-5 w-5 mr-2 text-purple-500" />
                     {t('docPreOp.consentsHeading')}
                   </h3>
@@ -955,7 +955,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={consents[key as keyof typeof consents]}
                           onChange={() => setConsents(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
-                          className="rounded border-gray-300 text-purple-600"
+                          className="rounded border-border-strong text-purple-600"
                         />
                         <span className="text-sm">{label}</span>
                       </label>
@@ -965,15 +965,15 @@ export default function PreOpPage() {
               </div>
 
               {/* Notes */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <label htmlFor="preop-additional-notes" className="font-bold text-gray-900 mb-4 block">{t('docPreOp.additionalNotesLabel')}</label>
+              <div className="bg-surface rounded-lg shadow p-6">
+                <label htmlFor="preop-additional-notes" className="font-bold text-content mb-4 block">{t('docPreOp.additionalNotesLabel')}</label>
                 <textarea
                   id="preop-additional-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder={t('docPreOp.additionalNotesPh')}
                   rows={4}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
+                  className="w-full p-3 border border-border-strong rounded-lg"
                 />
               </div>
 
@@ -1002,15 +1002,15 @@ export default function PreOpPage() {
         )}
 
         {activeTab === 'checklist' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-content mb-6 flex items-center">
               <FileText className="h-6 w-6 mr-2 text-indigo-500" />
               {t('docPreOp.preOpChecklistHeading')}
             </h2>
 
-            <div className="mb-4 p-3 bg-blue-50 rounded-lg flex items-start">
+            <div className="mb-4 p-3 bg-notice-subtle rounded-lg flex items-start">
               <Info className="h-5 w-5 mr-2 text-blue-500 flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-blue-700">
+              <p className="text-sm text-notice-subtle-fg">
                 {t('docPreOp.checklistInfoBanner')}
               </p>
             </div>
@@ -1025,10 +1025,10 @@ export default function PreOpPage() {
                     htmlFor={`preop-checklist-${key}`}
                     className={`flex items-center p-3 rounded-lg cursor-pointer border-2 transition-all ${
                       preOpChecklist[key]
-                        ? 'bg-green-50 border-green-500'
+                        ? 'bg-ok-subtle border-green-500'
                         : isCritical
-                          ? 'bg-red-50 border-red-300'
-                          : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                          ? 'bg-critical-subtle border-critical'
+                          : 'bg-surface-sunken border-border hover:bg-surface-sunken'
                     }`}
                   >
                     <input
@@ -1036,9 +1036,9 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={preOpChecklist[key]}
                       onChange={() => setPreOpChecklist(prev => ({ ...prev, [key]: !prev[key] }))}
-                      className="rounded border-gray-300 text-green-600 mr-3"
+                      className="rounded border-border-strong text-ok-subtle-fg mr-3"
                     />
-                    <span className={`flex-1 ${preOpChecklist[key] ? 'line-through text-green-700' : ''}`}>
+                    <span className={`flex-1 ${preOpChecklist[key] ? 'line-through text-ok-subtle-fg' : ''}`}>
                       {label}
                     </span>
                     {isCritical && !preOpChecklist[key] && (
@@ -1075,19 +1075,19 @@ export default function PreOpPage() {
         )}
 
         {activeTab === 'history' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-content mb-6 flex items-center">
               <History className="h-6 w-6 mr-2 text-indigo-500" />
               {t('docPreOp.assessmentHistoryHeading')}
             </h2>
             {!selectedPatient ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-content-muted">
                 <p className="text-sm">{t('docPreOp.selectPatientForHistory')}</p>
               </div>
             ) : recordsLoading ? (
-              <div className="text-center py-8 text-gray-500">{t('docPreOp.loadingRecords')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docPreOp.loadingRecords')}</div>
             ) : recentRecords.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-content-muted">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>{t('docPreOp.noHistoryAvailable')}</p>
                 <p className="text-sm mt-1">{t('docPreOp.noHistoryHint')}</p>
@@ -1095,17 +1095,17 @@ export default function PreOpPage() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-surface-sunken">
                     <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.tableId')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.tableSurgery')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.tableAsaClass')}</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docPreOp.dateLabel')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.tableId')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.tableSurgery')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.tableAsaClass')}</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docPreOp.dateLabel')}</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-border">
                     {recentRecords.map((rec) => (
-                      <tr key={rec.id} className="hover:bg-gray-50">
+                      <tr key={rec.id} className="hover:bg-surface-sunken">
                         <td className="px-4 py-2 font-mono text-xs">{rec.id}</td>
                         <td className="px-4 py-2">{rec.scheduled_surgery || rec.surgery || 'N/A'}</td>
                         <td className="px-4 py-2">{rec.asa_class || 'N/A'}</td>

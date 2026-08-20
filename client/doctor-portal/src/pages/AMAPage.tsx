@@ -216,10 +216,10 @@ const AMAPage: React.FC = () => {
 
   const getStatusBadge = (status: AMAStatus) => {
     const styles = {
-      'draft': 'bg-gray-100 text-gray-700',
-      'pending-signatures': 'bg-yellow-100 text-yellow-700',
-      'completed': 'bg-green-100 text-green-700',
-      'voided': 'bg-red-100 text-red-700'
+      'draft': 'bg-surface-sunken text-content-secondary',
+      'pending-signatures': 'bg-caution-subtle text-caution-subtle-fg',
+      'completed': 'bg-ok-subtle text-ok-subtle-fg',
+      'voided': 'bg-critical-subtle text-critical-subtle-fg'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
@@ -230,10 +230,10 @@ const AMAPage: React.FC = () => {
 
   const getRiskBadge = (level: RiskLevel) => {
     const styles = {
-      'low': 'bg-green-100 text-green-700',
-      'moderate': 'bg-yellow-100 text-yellow-700',
+      'low': 'bg-ok-subtle text-ok-subtle-fg',
+      'moderate': 'bg-caution-subtle text-caution-subtle-fg',
       'high': 'bg-orange-100 text-orange-700',
-      'critical': 'bg-red-100 text-red-700'
+      'critical': 'bg-critical-subtle text-critical-subtle-fg'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${styles[level]}`}>
@@ -262,7 +262,7 @@ const AMAPage: React.FC = () => {
   const readyForSignatures = allRisksAcknowledged && hasCapacity;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-red-600 to-orange-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -275,17 +275,17 @@ const AMAPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-red-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docAMA.loading')}</p>
+          <Loader2 className="w-8 h-8 text-critical-subtle-fg animate-spin mb-2" />
+          <p className="text-content-muted">{t('docAMA.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docAMA.errorHint')}</p>
           </div>
         </div>
@@ -295,7 +295,7 @@ const AMAPage: React.FC = () => {
       {!loading && !error && (
         <>
           {/* Tabs */}
-          <div className="bg-white border-b sticky top-0 z-10">
+          <div className="bg-surface border-b sticky top-0 z-10">
             <div className="flex">
               {(['list', 'new'] as const).map(tab => (
                 <button
@@ -313,8 +313,8 @@ const AMAPage: React.FC = () => {
                   }}
                   className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
                     activeTab === tab
-                      ? 'text-red-600 border-b-2 border-red-600'
-                      : 'text-gray-500 hover:text-gray-700'
+                      ? 'text-critical-subtle-fg border-b-2 border-red-600'
+                      : 'text-content-muted hover:text-content-secondary'
                   }`}
                 >
                   {tab === 'list' ? t('docAMA.tabRecords') : t('docAMA.tabNew')}
@@ -330,19 +330,19 @@ const AMAPage: React.FC = () => {
                 {/* Search and Filter */}
                 <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
                     <input
                       type="text"
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder={t('docAMA.searchPh')}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                      className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                     />
                   </div>
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value as AMAStatus | 'all')}
-                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                    className="px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                   >
                     <option value="all">{t('docAMA.filterAll')}</option>
                 <option value="draft">{t('docAMA.status_draft')}</option>
@@ -353,9 +353,9 @@ const AMAPage: React.FC = () => {
             </div>
 
             {/* Records List */}
-            <div className="bg-white rounded-lg shadow divide-y">
+            <div className="bg-surface rounded-lg shadow divide-y">
               {filteredRecords.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
+                <div className="p-8 text-center text-content-muted">
                   <FileWarning className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                   <p>{t('docAMA.noRecords')}</p>
                 </div>
@@ -363,7 +363,7 @@ const AMAPage: React.FC = () => {
                 filteredRecords.map(record => (
                   <div
                     key={record.id}
-                    className="p-4 hover:bg-gray-50 cursor-pointer"
+                    className="p-4 hover:bg-surface-sunken cursor-pointer"
                     onClick={() => {
                       setSelectedRecord(record);
                       setActiveTab('view');
@@ -372,20 +372,20 @@ const AMAPage: React.FC = () => {
                     <div className="flex items-start justify-between">
                       <div className="flex items-start gap-3">
                         <div className={`p-2 rounded-full ${
-                          record.riskLevel === 'critical' ? 'bg-red-100' :
+                          record.riskLevel === 'critical' ? 'bg-critical-subtle' :
                           record.riskLevel === 'high' ? 'bg-orange-100' :
-                          'bg-yellow-100'
+                          'bg-caution-subtle'
                         }`}>
                           <AlertTriangle className={`w-5 h-5 ${
-                            record.riskLevel === 'critical' ? 'text-red-600' :
+                            record.riskLevel === 'critical' ? 'text-critical-subtle-fg' :
                             record.riskLevel === 'high' ? 'text-orange-600' :
-                            'text-yellow-600'
+                            'text-caution-subtle-fg'
                           }`} />
                         </div>
                         <div>
-                          <h3 className="font-medium text-gray-900">{record.patientName}</h3>
-                          <p className="text-sm text-gray-500">{t('docAMA.mrnLine', { mrn: record.mrn, id: record.id })}</p>
-                          <p className="text-sm text-gray-600 mt-1">{record.diagnosis}</p>
+                          <h3 className="font-medium text-content">{record.patientName}</h3>
+                          <p className="text-sm text-content-muted">{t('docAMA.mrnLine', { mrn: record.mrn, id: record.id })}</p>
+                          <p className="text-sm text-content-muted mt-1">{record.diagnosis}</p>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2">
@@ -393,7 +393,7 @@ const AMAPage: React.FC = () => {
                         {getRiskBadge(record.riskLevel)}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                    <div className="flex items-center gap-4 mt-3 text-xs text-content-muted">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
                         {record.dateCreated.toLocaleDateString()}
@@ -403,13 +403,13 @@ const AMAPage: React.FC = () => {
                         {record.provider}
                       </span>
                       <div className="flex items-center gap-2">
-                        <span className={`flex items-center gap-1 ${record.patientSigned ? 'text-green-600' : 'text-gray-400'}`}>
+                        <span className={`flex items-center gap-1 ${record.patientSigned ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
                           <UserCheck className="w-3 h-3" /> {t('docAMA.sigPatient')}
                         </span>
-                        <span className={`flex items-center gap-1 ${record.witnessSigned ? 'text-green-600' : 'text-gray-400'}`}>
+                        <span className={`flex items-center gap-1 ${record.witnessSigned ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
                           <Users className="w-3 h-3" /> {t('docAMA.sigWitness')}
                         </span>
-                        <span className={`flex items-center gap-1 ${record.providerSigned ? 'text-green-600' : 'text-gray-400'}`}>
+                        <span className={`flex items-center gap-1 ${record.providerSigned ? 'text-ok-subtle-fg' : 'text-content-muted'}`}>
                           <Pen className="w-3 h-3" /> {t('docAMA.sigProvider')}
                         </span>
                       </div>
@@ -429,51 +429,51 @@ const AMAPage: React.FC = () => {
                 setSelectedRecord(null);
                 setActiveTab('list');
               }}
-              className="text-red-600 hover:text-red-700 text-sm font-medium"
+              className="text-critical-subtle-fg hover:text-critical-subtle-fg text-sm font-medium"
             >
               {t('docAMA.backToRecords')}
             </button>
 
             {/* Header Card */}
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-surface rounded-lg shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <h2 className="text-xl font-bold text-gray-900">{selectedRecord.patientName}</h2>
+                    <h2 className="text-xl font-bold text-content">{selectedRecord.patientName}</h2>
                     {getStatusBadge(selectedRecord.status)}
                   </div>
-                  <p className="text-gray-500">{t('docAMA.mrnLine', { mrn: selectedRecord.mrn, id: selectedRecord.id })}</p>
+                  <p className="text-content-muted">{t('docAMA.mrnLine', { mrn: selectedRecord.mrn, id: selectedRecord.id })}</p>
                 </div>
                 {getRiskBadge(selectedRecord.riskLevel)}
               </div>
 
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-gray-500">{t('docAMA.lblDateCreated')}</p>
+                  <p className="text-content-muted">{t('docAMA.lblDateCreated')}</p>
                   <p className="font-medium">{selectedRecord.dateCreated.toLocaleString()}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">{t('docAMA.lblProvider')}</p>
+                  <p className="text-content-muted">{t('docAMA.lblProvider')}</p>
                   <p className="font-medium">{selectedRecord.provider}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-gray-500">{t('docAMA.lblDiagnosis')}</p>
+                  <p className="text-content-muted">{t('docAMA.lblDiagnosis')}</p>
                   <p className="font-medium">{selectedRecord.diagnosis}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-gray-500">{t('docAMA.lblRecommendedTreatment')}</p>
+                  <p className="text-content-muted">{t('docAMA.lblRecommendedTreatment')}</p>
                   <p className="font-medium">{selectedRecord.recommendedTreatment}</p>
                 </div>
               </div>
             </div>
 
             {/* Signature Status */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="font-semibold text-gray-900 mb-4">{t('docAMA.signatureStatusTitle')}</h3>
+            <div className="bg-surface rounded-lg shadow p-6">
+              <h3 className="font-semibold text-content mb-4">{t('docAMA.signatureStatusTitle')}</h3>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
                   <div className="flex items-center gap-3">
-                    <UserCheck className="w-5 h-5 text-gray-600" />
+                    <UserCheck className="w-5 h-5 text-content-muted" />
                     <span>{t('docAMA.lblPatientSignature')}</span>
                   </div>
                   {selectedRecord.patientSigned ? (
@@ -482,9 +482,9 @@ const AMAPage: React.FC = () => {
                     <XCircle className="w-6 h-6 text-gray-300" />
                   )}
                 </div>
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
                   <div className="flex items-center gap-3">
-                    <Users className="w-5 h-5 text-gray-600" />
+                    <Users className="w-5 h-5 text-content-muted" />
                     <span>{t('docAMA.lblWitnessSignature')} {selectedRecord.witnessName && `(${selectedRecord.witnessName})`}</span>
                   </div>
                   {selectedRecord.witnessSigned ? (
@@ -493,9 +493,9 @@ const AMAPage: React.FC = () => {
                     <XCircle className="w-6 h-6 text-gray-300" />
                   )}
                 </div>
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
                   <div className="flex items-center gap-3">
-                    <Pen className="w-5 h-5 text-gray-600" />
+                    <Pen className="w-5 h-5 text-content-muted" />
                     <span>{t('docAMA.lblProviderSignature')}</span>
                   </div>
                   {selectedRecord.providerSigned ? (
@@ -509,9 +509,9 @@ const AMAPage: React.FC = () => {
 
             {/* Patient Statement */}
             {selectedRecord.patientStatement && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-semibold text-gray-900 mb-2">{t('docAMA.patientStatementTitle')}</h3>
-                <p className="text-gray-700 italic">"{selectedRecord.patientStatement}"</p>
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="font-semibold text-content mb-2">{t('docAMA.patientStatementTitle')}</h3>
+                <p className="text-content-secondary italic">"{selectedRecord.patientStatement}"</p>
               </div>
             )}
 
@@ -522,7 +522,7 @@ const AMAPage: React.FC = () => {
                 {t('docAMA.printDocument')}
               </button>
               {selectedRecord.status === 'pending-signatures' && (
-                <button className="flex-1 py-3 border border-red-600 text-red-600 rounded-lg font-semibold">
+                <button className="flex-1 py-3 border border-red-600 text-critical-subtle-fg rounded-lg font-semibold">
                   {t('docAMA.collectSignatures')}
                 </button>
               )}
@@ -534,26 +534,26 @@ const AMAPage: React.FC = () => {
         {activeTab === 'new' && (
           <div className="space-y-4">
             {/* Progress Steps */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <div className="flex items-center justify-between">
                 {[1, 2, 3, 4].map(step => (
                   <div key={step} className="flex items-center">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold ${
                       formStep >= step
                         ? 'bg-red-600 text-white'
-                        : 'bg-gray-200 text-gray-500'
+                        : 'bg-surface-sunken text-content-muted'
                     }`}>
                       {step}
                     </div>
                     {step < 4 && (
                       <div className={`w-12 sm:w-20 h-1 ${
-                        formStep > step ? 'bg-red-600' : 'bg-gray-200'
+                        formStep > step ? 'bg-red-600' : 'bg-surface-sunken'
                       }`} />
                     )}
                   </div>
                 ))}
               </div>
-              <div className="flex justify-between mt-2 text-xs text-gray-500">
+              <div className="flex justify-between mt-2 text-xs text-content-muted">
                 <span>{t('docAMA.stepPatientInfo')}</span>
                 <span>{t('docAMA.stepMedicalDetails')}</span>
                 <span>{t('docAMA.stepRiskDisclosure')}</span>
@@ -563,11 +563,11 @@ const AMAPage: React.FC = () => {
 
             {/* Step 1: Patient Info */}
             {formStep === 1 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAMA.patientInfoTitle')}</h3>
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-content mb-4">{t('docAMA.patientInfoTitle')}</h3>
                 <div className="space-y-4">
                   <div>
-                    <label htmlFor="ama-patient-select" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-patient-select" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.selectPatientLabel')}
                     </label>
                     <select
@@ -579,7 +579,7 @@ const AMAPage: React.FC = () => {
                           setPatientName(p.full_name);
                         }
                       }}
-                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                      className="w-full border border-border-strong rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     >
                       <option value="">{t('docAMA.selectExistingPatient')}</option>
                       {availablePatients.map(p => (
@@ -588,7 +588,7 @@ const AMAPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="ama-patient-id" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-patient-id" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.patientIdLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -597,11 +597,11 @@ const AMAPage: React.FC = () => {
                       value={patientId}
                       onChange={(e) => setPatientId(e.target.value)}
                       placeholder={t('docAMA.patientIdPh')}
-                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                      className="w-full border border-border-strong rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="ama-patient-name" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-patient-name" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.patientNameLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -610,11 +610,11 @@ const AMAPage: React.FC = () => {
                       value={patientName}
                       onChange={(e) => setPatientName(e.target.value)}
                       placeholder={t('docAMA.patientNamePh')}
-                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                      className="w-full border border-border-strong rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="ama-mrn" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-mrn" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.mrnLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -623,7 +623,7 @@ const AMAPage: React.FC = () => {
                       value={mrn}
                       onChange={(e) => setMrn(e.target.value)}
                       placeholder={t('docAMA.mrnPh')}
-                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                      className="w-full border border-border-strong rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                 </div>
@@ -633,7 +633,7 @@ const AMAPage: React.FC = () => {
                   className={`w-full mt-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                     patientId && patientName && mrn
                       ? 'bg-red-600 text-white hover:bg-red-700'
-                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                   }`}
                 >
                   {t('docAMA.continueBtn')}
@@ -644,11 +644,11 @@ const AMAPage: React.FC = () => {
 
             {/* Step 2: Medical Details */}
             {formStep === 2 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAMA.medicalDetailsTitle')}</h3>
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-content mb-4">{t('docAMA.medicalDetailsTitle')}</h3>
                 <div className="space-y-4">
                   <div>
-                    <label htmlFor="ama-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-diagnosis" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.diagnosisLabel')} <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -657,11 +657,11 @@ const AMAPage: React.FC = () => {
                       value={diagnosis}
                       onChange={(e) => setDiagnosis(e.target.value)}
                       placeholder={t('docAMA.diagnosisPh')}
-                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                      className="w-full border border-border-strong rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="ama-recommended-treatment" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="ama-recommended-treatment" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.recommendedTreatmentLabel')} <span className="text-red-500">*</span>
                     </label>
                     <textarea
@@ -670,11 +670,11 @@ const AMAPage: React.FC = () => {
                       onChange={(e) => setRecommendedTreatment(e.target.value)}
                       rows={3}
                       placeholder={t('docAMA.recommendedTreatmentPh')}
-                      className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                      className="w-full border border-border-strong rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docAMA.riskLevelLabel')} <span className="text-red-500">*</span>
                     </label>
                     <div className="grid grid-cols-2 gap-3">
@@ -684,11 +684,11 @@ const AMAPage: React.FC = () => {
                           onClick={() => setRiskLevel(level)}
                           className={`py-2 px-4 rounded-lg border-2 capitalize font-medium ${
                             riskLevel === level
-                              ? level === 'critical' ? 'border-red-500 bg-red-50 text-red-700' :
+                              ? level === 'critical' ? 'border-red-500 bg-critical-subtle text-critical-subtle-fg' :
                                 level === 'high' ? 'border-orange-500 bg-orange-50 text-orange-700' :
-                                level === 'moderate' ? 'border-yellow-500 bg-yellow-50 text-yellow-700' :
-                                'border-green-500 bg-green-50 text-green-700'
-                              : 'border-gray-200 hover:border-gray-300'
+                                level === 'moderate' ? 'border-yellow-500 bg-caution-subtle text-caution-subtle-fg' :
+                                'border-green-500 bg-ok-subtle text-ok-subtle-fg'
+                              : 'border-border hover:border-border-strong'
                           }`}
                         >
                           {t(`docAMA.level_${level}`)}
@@ -700,7 +700,7 @@ const AMAPage: React.FC = () => {
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setFormStep(1)}
-                    className="flex-1 py-3 border border-gray-300 rounded-lg font-semibold"
+                    className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
@@ -710,7 +710,7 @@ const AMAPage: React.FC = () => {
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                       diagnosis && recommendedTreatment
                         ? 'bg-red-600 text-white hover:bg-red-700'
-                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                     }`}
                   >
                     {t('docAMA.continueBtn')}
@@ -722,20 +722,20 @@ const AMAPage: React.FC = () => {
 
             {/* Step 3: Risk Disclosure */}
             {formStep === 3 && (
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">{t('docAMA.riskDisclosureTitle')}</h3>
+                  <AlertTriangle className="w-6 h-6 text-critical-subtle-fg" />
+                  <h3 className="text-lg font-semibold text-content">{t('docAMA.riskDisclosureTitle')}</h3>
                 </div>
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-sm text-content-muted mb-4">
                   {t('docAMA.riskDisclosureIntro')}
                 </p>
 
                 {/* Capacity assessment — precedes the risk disclosures because
                     acknowledging risks means nothing if the patient could not
                     weigh them. */}
-                <fieldset className="mb-4 p-4 border border-amber-300 bg-amber-50 rounded-lg">
-                  <legend className="px-1 text-sm font-semibold text-amber-900">
+                <fieldset className="mb-4 p-4 border border-caution bg-caution-subtle rounded-lg">
+                  <legend className="px-1 text-sm font-semibold text-caution-subtle-fg">
                     {t('docAMA.capacityHeading')}
                   </legend>
                   <label htmlFor="ama-has-capacity" className="flex items-start gap-2 cursor-pointer">
@@ -744,9 +744,9 @@ const AMAPage: React.FC = () => {
                       type="checkbox"
                       checked={hasCapacity}
                       onChange={() => setHasCapacity(!hasCapacity)}
-                      className="mt-1 rounded border-gray-300 text-red-600"
+                      className="mt-1 rounded border-border-strong text-critical-subtle-fg"
                     />
-                    <span className="text-sm font-medium text-gray-900">
+                    <span className="text-sm font-medium text-content">
                       {t('docAMA.capacityLabel')}
                     </span>
                   </label>
@@ -759,7 +759,7 @@ const AMAPage: React.FC = () => {
                     onChange={(e) => setCapacityBasis(e.target.value)}
                     rows={2}
                     placeholder={t('docAMA.capacityBasisPh')}
-                    className="mt-2 w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-red-500"
+                    className="mt-2 w-full border border-border-strong rounded-lg p-2 text-sm focus:ring-2 focus:ring-red-500"
                   />
                 </fieldset>
 
@@ -770,26 +770,26 @@ const AMAPage: React.FC = () => {
                       onClick={() => handleRiskAcknowledge(risk.id)}
                       className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                         risk.acknowledged
-                          ? 'border-green-500 bg-green-50'
-                          : 'border-gray-200 hover:border-gray-300'
+                          ? 'border-green-500 bg-ok-subtle'
+                          : 'border-border hover:border-border-strong'
                       }`}
                     >
                       <div className="flex items-start gap-3">
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                          risk.acknowledged ? 'bg-green-500' : 'bg-gray-200'
+                          risk.acknowledged ? 'bg-green-500' : 'bg-surface-sunken'
                         }`}>
                           {risk.acknowledged && <CheckCircle className="w-4 h-4 text-white" />}
                         </div>
                         <div className="flex-1">
-                          <span className="text-xs text-gray-500">{risk.category}</span>
-                          <p className="text-gray-900">{risk.risk}</p>
+                          <span className="text-xs text-content-muted">{risk.category}</span>
+                          <p className="text-content">{risk.risk}</p>
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="mt-4">
-                  <label htmlFor="ama-patient-statement" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="ama-patient-statement" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docAMA.patientStatementLabel')}
                   </label>
                   <textarea
@@ -798,13 +798,13 @@ const AMAPage: React.FC = () => {
                     onChange={(e) => setPatientStatement(e.target.value)}
                     rows={3}
                     placeholder={t('docAMA.patientStatementPh')}
-                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-red-500"
+                    className="w-full border border-border-strong rounded-lg p-3 focus:ring-2 focus:ring-red-500"
                   />
                 </div>
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setFormStep(2)}
-                    className="flex-1 py-3 border border-gray-300 rounded-lg font-semibold"
+                    className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
@@ -814,7 +814,7 @@ const AMAPage: React.FC = () => {
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                       readyForSignatures
                         ? 'bg-red-600 text-white hover:bg-red-700'
-                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                     }`}
                   >
                     {t('docAMA.continueToSignatures')}
@@ -826,29 +826,29 @@ const AMAPage: React.FC = () => {
 
             {/* Step 4: Signatures */}
             {formStep === 4 && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docAMA.collectSignaturesTitle')}</h3>
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-content mb-4">{t('docAMA.collectSignaturesTitle')}</h3>
 
                 <div className="space-y-4">
                   {/* Patient Signature */}
-                  <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg">
+                  <div className="p-4 border-2 border-dashed border-border-strong rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <UserCheck className="w-5 h-5 text-gray-600" />
+                        <UserCheck className="w-5 h-5 text-content-muted" />
                         <span className="font-medium">{t('docAMA.lblPatientSignature')}</span>
                       </div>
                       <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
-                    <div className="h-24 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
-                      <p className="text-gray-400">{t('docAMA.tapToCaptureSignature')}</p>
+                    <div className="h-24 bg-surface-sunken rounded border border-border flex items-center justify-center">
+                      <p className="text-content-muted">{t('docAMA.tapToCaptureSignature')}</p>
                     </div>
                   </div>
 
                   {/* Witness */}
-                  <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg">
+                  <div className="p-4 border-2 border-dashed border-border-strong rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Users className="w-5 h-5 text-gray-600" />
+                        <Users className="w-5 h-5 text-content-muted" />
                         <span className="font-medium">{t('docAMA.lblWitnessSignature')}</span>
                       </div>
                       <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
@@ -860,35 +860,35 @@ const AMAPage: React.FC = () => {
                       value={witnessName}
                       onChange={(e) => setWitnessName(e.target.value)}
                       placeholder={t('docAMA.witnessNamePh')}
-                      className="w-full border border-gray-300 rounded-lg p-2 mb-2 focus:ring-2 focus:ring-red-500"
+                      className="w-full border border-border-strong rounded-lg p-2 mb-2 focus:ring-2 focus:ring-red-500"
                     />
-                    <div className="h-24 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
-                      <p className="text-gray-400">{t('docAMA.tapToCaptureSignature')}</p>
+                    <div className="h-24 bg-surface-sunken rounded border border-border flex items-center justify-center">
+                      <p className="text-content-muted">{t('docAMA.tapToCaptureSignature')}</p>
                     </div>
                   </div>
 
                   {/* Provider */}
-                  <div className="p-4 border-2 border-dashed border-gray-300 rounded-lg">
+                  <div className="p-4 border-2 border-dashed border-border-strong rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <Pen className="w-5 h-5 text-gray-600" />
+                        <Pen className="w-5 h-5 text-content-muted" />
                         <span className="font-medium">{t('docAMA.lblProviderSignature')}</span>
                       </div>
                       <span className="text-red-500 text-sm">{t('docAMA.requiredLabel')}</span>
                     </div>
-                    <div className="h-24 bg-gray-50 rounded border border-gray-200 flex items-center justify-center">
-                      <p className="text-gray-400">{t('docAMA.tapToCaptureSignature')}</p>
+                    <div className="h-24 bg-surface-sunken rounded border border-border flex items-center justify-center">
+                      <p className="text-content-muted">{t('docAMA.tapToCaptureSignature')}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Legal Notice */}
-                <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
+                <div className="mt-4 p-4 bg-caution-subtle rounded-lg">
                   <div className="flex items-start gap-2">
-                    <Shield className="w-5 h-5 text-yellow-600 mt-0.5" />
+                    <Shield className="w-5 h-5 text-caution-subtle-fg mt-0.5" />
                     <div>
-                      <p className="font-medium text-yellow-900">{t('docAMA.legalNoticeTitle')}</p>
-                      <p className="text-sm text-yellow-700 mt-1">
+                      <p className="font-medium text-caution-subtle-fg">{t('docAMA.legalNoticeTitle')}</p>
+                      <p className="text-sm text-caution-subtle-fg mt-1">
                         {t('docAMA.legalNoticeText')}
                       </p>
                     </div>
@@ -898,7 +898,7 @@ const AMAPage: React.FC = () => {
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setFormStep(3)}
-                    className="flex-1 py-3 border border-gray-300 rounded-lg font-semibold"
+                    className="flex-1 py-3 border border-border-strong rounded-lg font-semibold"
                   >
                     {t('docAMA.backBtn')}
                   </button>
@@ -915,12 +915,12 @@ const AMAPage: React.FC = () => {
             )}
 
             {/* Warning Banner */}
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="bg-critical-subtle border border-critical rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-critical-subtle-fg mt-0.5" />
                 <div>
-                  <p className="font-medium text-red-900">{t('docAMA.importantDocTitle')}</p>
-                  <p className="text-sm text-red-700 mt-1">
+                  <p className="font-medium text-critical-subtle-fg">{t('docAMA.importantDocTitle')}</p>
+                  <p className="text-sm text-critical-subtle-fg mt-1">
                     {t('docAMA.importantDocText')}
                   </p>
                 </div>

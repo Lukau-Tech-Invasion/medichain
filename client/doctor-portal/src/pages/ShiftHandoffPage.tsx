@@ -376,13 +376,13 @@ export default function ShiftHandoffPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-3 bg-white/20 rounded-full">
+              <div className="p-3 bg-surface/20 rounded-full">
                 <ArrowRightLeft className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -398,28 +398,28 @@ export default function ShiftHandoffPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             {success}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
         )}
 
         {/* Tabs */}
-        <div className="bg-white rounded-lg shadow mb-6">
+        <div className="bg-surface rounded-lg shadow mb-6">
           <div className="border-b flex">
             <button
               onClick={() => setActiveTab('handoff')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'handoff' 
                   ? 'border-b-2 border-purple-500 text-purple-600' 
-                  : 'text-gray-500'
+                  : 'text-content-muted'
               }`}
             >
               <FileText className="h-5 w-5" />
@@ -430,7 +430,7 @@ export default function ShiftHandoffPage() {
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'history'
                   ? 'border-b-2 border-purple-500 text-purple-600'
-                  : 'text-gray-500'
+                  : 'text-content-muted'
               }`}
             >
               <History className="h-5 w-5" />
@@ -443,20 +443,20 @@ export default function ShiftHandoffPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Handoff Details */}
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow p-4">
-                <h2 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4">
+                <h2 className="font-bold text-content mb-4 flex items-center">
                   <Clock className="h-5 w-5 mr-2 text-purple-500" />
                   {t('docShiftHandoff.handoffDetailsTitle')}
                 </h2>
 
                 <div className="space-y-4">
                   <div>
-                    <label htmlFor="handoff-shift-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docShiftHandoff.shiftTypeLabel')}</label>
+                    <label htmlFor="handoff-shift-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.shiftTypeLabel')}</label>
                     <select
                       id="handoff-shift-type"
                       value={handoff.shiftType}
                       onChange={(e) => setHandoff({ ...handoff, shiftType: e.target.value as ShiftType })}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      className="w-full p-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
                     >
                       {Object.entries(shiftTypes).map(([value, { label }]) => (
                         <option key={value} value={value}>{label}</option>
@@ -466,34 +466,34 @@ export default function ShiftHandoffPage() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label htmlFor="handoff-date" className="block text-sm font-medium text-gray-700 mb-1">{t('docShiftHandoff.dateLabel')}</label>
+                      <label htmlFor="handoff-date" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.dateLabel')}</label>
                       <input
                         id="handoff-date"
                         type="date"
                         value={handoff.handoffDate}
                         onChange={(e) => setHandoff({ ...handoff, handoffDate: e.target.value })}
-                        className="w-full p-2 border border-gray-300 rounded-lg"
+                        className="w-full p-2 border border-border-strong rounded-lg"
                       />
                     </div>
                     <div>
-                      <label htmlFor="handoff-time" className="block text-sm font-medium text-gray-700 mb-1">{t('docShiftHandoff.timeLabel')}</label>
+                      <label htmlFor="handoff-time" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.timeLabel')}</label>
                       <input
                         id="handoff-time"
                         type="time"
                         value={handoff.handoffTime}
                         onChange={(e) => setHandoff({ ...handoff, handoffTime: e.target.value })}
-                        className="w-full p-2 border border-gray-300 rounded-lg"
+                        className="w-full p-2 border border-border-strong rounded-lg"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label htmlFor="handoff-unit" className="block text-sm font-medium text-gray-700 mb-1">{t('docShiftHandoff.unitLabel')}</label>
+                    <label htmlFor="handoff-unit" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.unitLabel')}</label>
                     <select
                       id="handoff-unit"
                       value={handoff.unit}
                       onChange={(e) => setHandoff({ ...handoff, unit: e.target.value })}
-                      className="w-full p-2 border border-gray-300 rounded-lg"
+                      className="w-full p-2 border border-border-strong rounded-lg"
                     >
                       {units.map(u => (
                         <option key={u} value={u}>{t(`docShiftHandoff.unit_${UNIT_KEYS[u]}`)}</option>
@@ -502,57 +502,57 @@ export default function ShiftHandoffPage() {
                   </div>
 
                   <div>
-                    <label htmlFor="handoff-outgoing-nurse" className="block text-sm font-medium text-gray-700 mb-1">{t('docShiftHandoff.outgoingNurseLabel')}</label>
+                    <label htmlFor="handoff-outgoing-nurse" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.outgoingNurseLabel')}</label>
                     <input
                       id="handoff-outgoing-nurse"
                       type="text"
                       value={handoff.outgoingNurse}
                       onChange={(e) => setHandoff({ ...handoff, outgoingNurse: e.target.value })}
-                      className="w-full p-2 border border-gray-300 rounded-lg bg-gray-50"
+                      className="w-full p-2 border border-border-strong rounded-lg bg-surface-sunken"
                       readOnly
                     />
                   </div>
 
                   <div>
-                    <label htmlFor="handoff-incoming-nurse" className="block text-sm font-medium text-gray-700 mb-1">{t('docShiftHandoff.incomingNurseLabel')}</label>
+                    <label htmlFor="handoff-incoming-nurse" className="block text-sm font-medium text-content-secondary mb-1">{t('docShiftHandoff.incomingNurseLabel')}</label>
                     <input
                       id="handoff-incoming-nurse"
                       type="text"
                       value={handoff.incomingNurse}
                       onChange={(e) => setHandoff({ ...handoff, incomingNurse: e.target.value })}
                       placeholder={t('docShiftHandoff.incomingNursePlaceholder')}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                      className="w-full p-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
                     />
                   </div>
                 </div>
               </div>
 
               {/* Patient Summary */}
-              <div className="bg-white rounded-lg shadow p-4 mt-4">
-                <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4 mt-4">
+                <h3 className="font-bold text-content mb-3 flex items-center">
                   <Users className="h-5 w-5 mr-2 text-purple-500" />
                   {t('docShiftHandoff.patientSummaryTitle')}
                 </h3>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docShiftHandoff.totalPatients')}</span>
+                    <span className="text-content-muted">{t('docShiftHandoff.totalPatients')}</span>
                     <span className="font-bold">{patientHandoffs.length}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docShiftHandoff.criticalLabel')}</span>
-                    <span className="font-bold text-red-600">
+                    <span className="text-content-muted">{t('docShiftHandoff.criticalLabel')}</span>
+                    <span className="font-bold text-critical-subtle-fg">
                       {patientHandoffs.filter(p => p.priority === 'critical').length}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docShiftHandoff.urgentLabel')}</span>
-                    <span className="font-bold text-yellow-600">
+                    <span className="text-content-muted">{t('docShiftHandoff.urgentLabel')}</span>
+                    <span className="font-bold text-caution-subtle-fg">
                       {patientHandoffs.filter(p => p.priority === 'urgent').length}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docShiftHandoff.routineLabel')}</span>
-                    <span className="font-bold text-green-600">
+                    <span className="text-content-muted">{t('docShiftHandoff.routineLabel')}</span>
+                    <span className="font-bold text-ok-subtle-fg">
                       {patientHandoffs.filter(p => p.priority === 'routine').length}
                     </span>
                   </div>
@@ -572,24 +572,24 @@ export default function ShiftHandoffPage() {
             {/* Patient Handoffs */}
             <div className="lg:col-span-2">
               {showAddPatient && (
-                <div className="bg-white rounded-lg shadow p-4 mb-6">
+                <div className="bg-surface rounded-lg shadow p-4 mb-6">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-gray-900">{t('docShiftHandoff.selectPatientTitle')}</h3>
+                    <h3 className="font-bold text-content">{t('docShiftHandoff.selectPatientTitle')}</h3>
                     <button
                       onClick={() => setShowAddPatient(false)}
-                      className="text-gray-500 hover:text-gray-700"
+                      className="text-content-muted hover:text-content-secondary"
                     >
                       ×
                     </button>
                   </div>
                   <div className="relative mb-4">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
                     <input
                       type="text"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       placeholder={t('docShiftHandoff.searchPatientsPlaceholder')}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+                      className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
                     />
                   </div>
                   <div className="max-h-48 overflow-y-auto space-y-2 mb-4">
@@ -602,11 +602,11 @@ export default function ShiftHandoffPage() {
                           className={`w-full text-left p-3 rounded-lg transition-colors ${
                             selectedPatientId === patient.patient_id
                               ? 'bg-purple-100 border-2 border-purple-500'
-                              : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                              : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                           }`}
                         >
-                          <p className="font-medium text-gray-900">{patient.full_name}</p>
-                          <p className="text-sm text-gray-500">{patient.patient_id}</p>
+                          <p className="font-medium text-content">{patient.full_name}</p>
+                          <p className="text-sm text-content-muted">{patient.patient_id}</p>
                         </button>
                       ))
                     }
@@ -616,23 +616,23 @@ export default function ShiftHandoffPage() {
                     <div className="border-t pt-4 space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label htmlFor="handoff-new-patient-room" className="block text-sm font-medium text-gray-700">{t('docShiftHandoff.roomLabel')}</label>
+                          <label htmlFor="handoff-new-patient-room" className="block text-sm font-medium text-content-secondary">{t('docShiftHandoff.roomLabel')}</label>
                           <input
                             id="handoff-new-patient-room"
                             type="text"
                             value={newPatientHandoff.room}
                             onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, room: e.target.value })}
                             placeholder={t('docShiftHandoff.roomPlaceholder')}
-                            className="w-full p-2 border border-gray-300 rounded"
+                            className="w-full p-2 border border-border-strong rounded"
                           />
                         </div>
                         <div>
-                          <label htmlFor="handoff-new-patient-priority" className="block text-sm font-medium text-gray-700">{t('docShiftHandoff.priorityLabel')}</label>
+                          <label htmlFor="handoff-new-patient-priority" className="block text-sm font-medium text-content-secondary">{t('docShiftHandoff.priorityLabel')}</label>
                           <select
                             id="handoff-new-patient-priority"
                             value={newPatientHandoff.priority}
                             onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, priority: e.target.value as Priority })}
-                            className="w-full p-2 border border-gray-300 rounded"
+                            className="w-full p-2 border border-border-strong rounded"
                           >
                             <option value="routine">{t('docShiftHandoff.priority_routine')}</option>
                             <option value="urgent">{t('docShiftHandoff.priority_urgent')}</option>
@@ -641,14 +641,14 @@ export default function ShiftHandoffPage() {
                         </div>
                       </div>
                       <div>
-                        <label htmlFor="handoff-new-patient-diagnosis" className="block text-sm font-medium text-gray-700">{t('docShiftHandoff.diagnosisLabel')}</label>
+                        <label htmlFor="handoff-new-patient-diagnosis" className="block text-sm font-medium text-content-secondary">{t('docShiftHandoff.diagnosisLabel')}</label>
                         <input
                           id="handoff-new-patient-diagnosis"
                           type="text"
                           value={newPatientHandoff.diagnosis}
                           onChange={(e) => setNewPatientHandoff({ ...newPatientHandoff, diagnosis: e.target.value })}
                           placeholder={t('docShiftHandoff.diagnosisPlaceholder')}
-                          className="w-full p-2 border border-gray-300 rounded"
+                          className="w-full p-2 border border-border-strong rounded"
                         />
                       </div>
                       <button
@@ -668,38 +668,38 @@ export default function ShiftHandoffPage() {
               {/* Patient Handoff Cards */}
               <div className="space-y-4">
                 {patientHandoffs.map(patient => (
-                  <div key={patient.patientId} className="bg-white rounded-lg shadow overflow-hidden">
+                  <div key={patient.patientId} className="bg-surface rounded-lg shadow overflow-hidden">
                     {/* Patient Header */}
                     <div
                       className={`p-4 cursor-pointer ${
-                        patient.priority === 'critical' ? 'bg-red-50 border-l-4 border-red-500' :
-                        patient.priority === 'urgent' ? 'bg-yellow-50 border-l-4 border-yellow-500' :
-                        'bg-green-50 border-l-4 border-green-500'
+                        patient.priority === 'critical' ? 'bg-critical-subtle border-l-4 border-red-500' :
+                        patient.priority === 'urgent' ? 'bg-caution-subtle border-l-4 border-yellow-500' :
+                        'bg-ok-subtle border-l-4 border-green-500'
                       }`}
                       onClick={() => setExpandedPatient(expandedPatient === patient.patientId ? null : patient.patientId)}
                     >
                       <div className="flex justify-between items-start">
                         <div>
                           <div className="flex items-center space-x-3">
-                            <h3 className="font-bold text-gray-900">{patient.patientName}</h3>
-                            <span className="text-sm text-gray-500">{t('docShiftHandoff.roomPrefix', { room: patient.room || t('docShiftHandoff.roomTBD') })}</span>
+                            <h3 className="font-bold text-content">{patient.patientName}</h3>
+                            <span className="text-sm text-content-muted">{t('docShiftHandoff.roomPrefix', { room: patient.room || t('docShiftHandoff.roomTBD') })}</span>
                             <span className={`px-2 py-0.5 rounded text-xs ${getPriorityColor(patient.priority)}`}>
                               {t(`docShiftHandoff.priorityBadge_${patient.priority}`)}
                             </span>
                           </div>
-                          <p className="text-sm text-gray-600">{patient.diagnosis || t('docShiftHandoff.diagnosisPending')}</p>
-                          <div className="flex items-center space-x-3 mt-1 text-xs text-gray-500">
+                          <p className="text-sm text-content-muted">{patient.diagnosis || t('docShiftHandoff.diagnosisPending')}</p>
+                          <div className="flex items-center space-x-3 mt-1 text-xs text-content-muted">
                             <span>{t('docShiftHandoff.codePrefix', { status: t(`docShiftHandoff.codeStatus_${CODE_STATUS_KEYS[patient.codeStatus]}`) })}</span>
                             {patient.isolation && <span className="inline-flex items-center gap-1 text-orange-600"><AlertTriangle size={12} aria-hidden="true" /> {patient.isolation}</span>}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <span className="text-gray-400">
+                          <span className="text-content-muted">
                             {expandedPatient === patient.patientId ? '▼' : '▶'}
                           </span>
                           <button
                             onClick={(e) => { e.stopPropagation(); removePatientFromHandoff(patient.patientId); }}
-                            className="text-red-500 hover:text-red-700 p-1"
+                            className="text-red-500 hover:text-critical-subtle-fg p-1"
                           >
                             ×
                           </button>
@@ -767,12 +767,12 @@ export default function ShiftHandoffPage() {
                         {/* Quick Info Grid */}
                         <div className="grid grid-cols-3 gap-3">
                           <div>
-                            <label htmlFor={`handoff-code-status-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.codeStatusLabel')}</label>
+                            <label htmlFor={`handoff-code-status-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.codeStatusLabel')}</label>
                             <select
                               id={`handoff-code-status-${patient.patientId}`}
                               value={patient.codeStatus}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { codeStatus: e.target.value })}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             >
                               {codeStatuses.map(s => (
                                 <option key={s} value={s}>{t(`docShiftHandoff.codeStatus_${CODE_STATUS_KEYS[s]}`)}</option>
@@ -780,100 +780,100 @@ export default function ShiftHandoffPage() {
                             </select>
                           </div>
                           <div>
-                            <label htmlFor={`handoff-iv-access-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.ivAccessLabel')}</label>
+                            <label htmlFor={`handoff-iv-access-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.ivAccessLabel')}</label>
                             <input
                               id={`handoff-iv-access-${patient.patientId}`}
                               type="text"
                               value={patient.ivAccess}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { ivAccess: e.target.value })}
                               placeholder={t('docShiftHandoff.ivAccessPlaceholder')}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             />
                           </div>
                           <div>
-                            <label htmlFor={`handoff-diet-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.dietLabel')}</label>
+                            <label htmlFor={`handoff-diet-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.dietLabel')}</label>
                             <input
                               id={`handoff-diet-${patient.patientId}`}
                               type="text"
                               value={patient.diet}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { diet: e.target.value })}
                               placeholder={t('docShiftHandoff.dietPlaceholder')}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             />
                           </div>
                           <div>
-                            <label htmlFor={`handoff-activity-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.activityLabel')}</label>
+                            <label htmlFor={`handoff-activity-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.activityLabel')}</label>
                             <input
                               id={`handoff-activity-${patient.patientId}`}
                               type="text"
                               value={patient.activity}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { activity: e.target.value })}
                               placeholder={t('docShiftHandoff.activityPlaceholder')}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             />
                           </div>
                           <div>
-                            <label htmlFor={`handoff-pending-labs-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.pendingLabsLabel')}</label>
+                            <label htmlFor={`handoff-pending-labs-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.pendingLabsLabel')}</label>
                             <input
                               id={`handoff-pending-labs-${patient.patientId}`}
                               type="text"
                               value={patient.pendingLabs}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingLabs: e.target.value })}
                               placeholder={t('docShiftHandoff.pendingLabsPlaceholder')}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             />
                           </div>
                           <div>
-                            <label htmlFor={`handoff-pending-tests-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.pendingTestsLabel')}</label>
+                            <label htmlFor={`handoff-pending-tests-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.pendingTestsLabel')}</label>
                             <input
                               id={`handoff-pending-tests-${patient.patientId}`}
                               type="text"
                               value={patient.pendingTests}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingTests: e.target.value })}
                               placeholder={t('docShiftHandoff.pendingTestsPlaceholder')}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             />
                           </div>
                         </div>
 
                         {/* Medications */}
-                        <div className="bg-blue-50 rounded-lg p-3">
-                          <h5 className="font-medium text-blue-800 mb-2 flex items-center">
+                        <div className="bg-notice-subtle rounded-lg p-3">
+                          <h5 className="font-medium text-notice-subtle-fg mb-2 flex items-center">
                             <Pill className="h-4 w-4 mr-2" />
                             {t('docShiftHandoff.medicationsTitle')}
                           </h5>
                           <div className="grid grid-cols-3 gap-2 text-sm">
                             <div>
-                              <label htmlFor={`handoff-meds-scheduled-${patient.patientId}`} className="block text-xs text-blue-600">{t('docShiftHandoff.scheduledLabel')}</label>
+                              <label htmlFor={`handoff-meds-scheduled-${patient.patientId}`} className="block text-xs text-notice-subtle-fg">{t('docShiftHandoff.scheduledLabel')}</label>
                               <input
                                 id={`handoff-meds-scheduled-${patient.patientId}`}
                                 type="text"
                                 value={patient.medications.scheduled}
                                 onChange={(e) => updatePatientMeds(patient.patientId, 'scheduled', e.target.value)}
                                 placeholder={t('docShiftHandoff.scheduledPlaceholder')}
-                                className="w-full p-1 border border-blue-200 rounded"
+                                className="w-full p-1 border border-notice rounded"
                               />
                             </div>
                             <div>
-                              <label htmlFor={`handoff-meds-prn-${patient.patientId}`} className="block text-xs text-blue-600">{t('docShiftHandoff.prnLabel')}</label>
+                              <label htmlFor={`handoff-meds-prn-${patient.patientId}`} className="block text-xs text-notice-subtle-fg">{t('docShiftHandoff.prnLabel')}</label>
                               <input
                                 id={`handoff-meds-prn-${patient.patientId}`}
                                 type="text"
                                 value={patient.medications.prn}
                                 onChange={(e) => updatePatientMeds(patient.patientId, 'prn', e.target.value)}
                                 placeholder={t('docShiftHandoff.prnPlaceholder')}
-                                className="w-full p-1 border border-blue-200 rounded"
+                                className="w-full p-1 border border-notice rounded"
                               />
                             </div>
                             <div>
-                              <label htmlFor={`handoff-meds-drips-${patient.patientId}`} className="block text-xs text-blue-600">{t('docShiftHandoff.dripsLabel')}</label>
+                              <label htmlFor={`handoff-meds-drips-${patient.patientId}`} className="block text-xs text-notice-subtle-fg">{t('docShiftHandoff.dripsLabel')}</label>
                               <input
                                 id={`handoff-meds-drips-${patient.patientId}`}
                                 type="text"
                                 value={patient.medications.drips}
                                 onChange={(e) => updatePatientMeds(patient.patientId, 'drips', e.target.value)}
                                 placeholder={t('docShiftHandoff.dripsPlaceholder')}
-                                className="w-full p-1 border border-blue-200 rounded"
+                                className="w-full p-1 border border-notice rounded"
                               />
                             </div>
                           </div>
@@ -906,38 +906,38 @@ export default function ShiftHandoffPage() {
                         {/* Additional Notes */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label htmlFor={`handoff-pending-orders-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.pendingOrdersLabel')}</label>
+                            <label htmlFor={`handoff-pending-orders-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.pendingOrdersLabel')}</label>
                             <input
                               id={`handoff-pending-orders-${patient.patientId}`}
                               type="text"
                               value={patient.pendingOrders}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { pendingOrders: e.target.value })}
                               placeholder={t('docShiftHandoff.pendingOrdersPlaceholder')}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             />
                           </div>
                           <div>
-                            <label htmlFor={`handoff-family-updates-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.familyUpdatesLabel')}</label>
+                            <label htmlFor={`handoff-family-updates-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.familyUpdatesLabel')}</label>
                             <input
                               id={`handoff-family-updates-${patient.patientId}`}
                               type="text"
                               value={patient.familyUpdates}
                               onChange={(e) => updatePatientHandoff(patient.patientId, { familyUpdates: e.target.value })}
                               placeholder={t('docShiftHandoff.familyUpdatesPlaceholder')}
-                              className="w-full p-2 border border-gray-300 rounded text-sm"
+                              className="w-full p-2 border border-border-strong rounded text-sm"
                             />
                           </div>
                         </div>
 
                         <div>
-                          <label htmlFor={`handoff-additional-notes-${patient.patientId}`} className="block text-xs font-medium text-gray-600">{t('docShiftHandoff.additionalNotesLabel')}</label>
+                          <label htmlFor={`handoff-additional-notes-${patient.patientId}`} className="block text-xs font-medium text-content-muted">{t('docShiftHandoff.additionalNotesLabel')}</label>
                           <textarea
                             id={`handoff-additional-notes-${patient.patientId}`}
                             value={patient.additionalNotes}
                             onChange={(e) => updatePatientHandoff(patient.patientId, { additionalNotes: e.target.value })}
                             placeholder={t('docShiftHandoff.additionalNotesPlaceholder')}
                             rows={2}
-                            className="w-full p-2 border border-gray-300 rounded text-sm"
+                            className="w-full p-2 border border-border-strong rounded text-sm"
                           />
                         </div>
                       </div>
@@ -946,10 +946,10 @@ export default function ShiftHandoffPage() {
                 ))}
 
                 {patientHandoffs.length === 0 && !showAddPatient && (
-                  <div className="bg-white rounded-lg shadow p-12 text-center">
+                  <div className="bg-surface rounded-lg shadow p-12 text-center">
                     <ArrowRightLeft className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                    <h2 className="text-xl font-bold text-gray-700 mb-2">{t('docShiftHandoff.noPatientsTitle')}</h2>
-                    <p className="text-gray-500 mb-4">{t('docShiftHandoff.noPatientsDesc')}</p>
+                    <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docShiftHandoff.noPatientsTitle')}</h2>
+                    <p className="text-content-muted mb-4">{t('docShiftHandoff.noPatientsDesc')}</p>
                     <button
                       onClick={() => setShowAddPatient(true)}
                       className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700"
@@ -987,15 +987,15 @@ export default function ShiftHandoffPage() {
         )}
 
         {activeTab === 'history' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-content mb-6 flex items-center">
               <History className="h-6 w-6 mr-2 text-purple-500" />
               {t('docShiftHandoff.handoffHistoryTitle')}
             </h2>
             {historyLoading ? (
-              <div className="text-center py-8 text-gray-500">{t('docShiftHandoff.loadingHistory')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docShiftHandoff.loadingHistory')}</div>
             ) : handoffHistory.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-content-muted">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>{t('docShiftHandoff.noHistoryAvailable')}</p>
                 <p className="text-sm mt-1">{t('docShiftHandoff.noHistoryHint')}</p>
@@ -1007,7 +1007,7 @@ export default function ShiftHandoffPage() {
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="font-bold">{shiftTypes[h.shiftType].label}</p>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-content-muted">
                           {t('docShiftHandoff.dateTimeUnit', { date: h.handoffDate, time: h.handoffTime, unit: h.unit })}
                         </p>
                         <p className="text-sm">
@@ -1015,15 +1015,15 @@ export default function ShiftHandoffPage() {
                         </p>
                       </div>
                       <span className={`px-3 py-1 rounded text-sm ${
-                        h.status === 'acknowledged' ? 'bg-green-100 text-green-700' :
-                        h.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
-                        h.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-gray-100 text-gray-700'
+                        h.status === 'acknowledged' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                        h.status === 'accepted' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                        h.status === 'pending' ? 'bg-caution-subtle text-caution-subtle-fg' :
+                        'bg-surface-sunken text-content-secondary'
                       }`}>
                         {t(`docShiftHandoff.status_${h.status}`)}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600 mt-2">{t('docShiftHandoff.patientsCount', { count: h.patients.length })}</p>
+                    <p className="text-sm text-content-muted mt-2">{t('docShiftHandoff.patientsCount', { count: h.patients.length })}</p>
                   </div>
                 ))}
               </div>

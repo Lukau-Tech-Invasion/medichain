@@ -257,19 +257,19 @@ export function MedicationsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('medications.pageTitle')}</h1>
-          <p className="text-neutral-500">{t('medications.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('medications.pageTitle')}</h1>
+          <p className="text-content-muted">{t('medications.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? t('common.live') : t('common.demo')}
           </span>
           <button
             onClick={loadMedications}
-            className="p-2 text-neutral-500 hover:bg-neutral-100 rounded-lg"
+            className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg"
           >
             <RefreshCw className="w-5 h-5" />
           </button>
@@ -289,15 +289,15 @@ export function MedicationsPage() {
         </div>
         
         <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white/10 rounded-xl p-3 text-center">
+          <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{reminders.length}</div>
             <div className="text-xs text-white/70">{t('medications.totalDoses')}</div>
           </div>
-          <div className="bg-white/10 rounded-xl p-3 text-center">
+          <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold">{completedReminders.length}</div>
             <div className="text-xs text-white/70">{t('medications.taken')}</div>
           </div>
-          <div className="bg-white/10 rounded-xl p-3 text-center">
+          <div className="bg-surface/10 rounded-xl p-3 text-center">
             <div className="text-2xl font-bold text-yellow-300">{pendingReminders.length}</div>
             <div className="text-xs text-white/70">{t('medications.pending')}</div>
           </div>
@@ -305,7 +305,7 @@ export function MedicationsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-neutral-200">
+      <div className="flex gap-2 border-b border-border">
         {(['current', 'reminders', 'history'] as const).map(tab => (
           <button
             key={tab}
@@ -313,7 +313,7 @@ export function MedicationsPage() {
             className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
               activeTab === tab
                 ? 'border-primary-500 text-primary-600'
-                : 'border-transparent text-neutral-500 hover:text-neutral-700'
+                : 'border-transparent text-content-muted hover:text-content-secondary'
             }`}
           >
             {tab === 'current' ? t('medications.tabCurrent') : tab === 'reminders' ? t('medications.tabSchedule') : t('medications.tabHistory')}
@@ -327,7 +327,7 @@ export function MedicationsPage() {
           {/* Pending */}
           {pendingReminders.length > 0 && (
             <div className="space-y-3">
-              <h3 className="font-medium text-neutral-700 flex items-center gap-2">
+              <h3 className="font-medium text-content-secondary flex items-center gap-2">
                 <Clock className="w-4 h-4" /> {t('medications.upcoming')}
               </h3>
               {pendingReminders.map(reminder => (
@@ -337,8 +337,8 @@ export function MedicationsPage() {
                       <Pill className="w-6 h-6 text-primary-600" />
                     </div>
                     <div>
-                      <p className="font-medium text-neutral-900">{reminder.medicationName}</p>
-                      <p className="text-sm text-neutral-500">{reminder.dosage} • {reminder.scheduledTime}</p>
+                      <p className="font-medium text-content">{reminder.medicationName}</p>
+                      <p className="text-sm text-content-muted">{reminder.dosage} • {reminder.scheduledTime}</p>
                     </div>
                   </div>
                   <button
@@ -355,18 +355,18 @@ export function MedicationsPage() {
           {/* Completed */}
           {completedReminders.length > 0 && (
             <div className="space-y-3">
-              <h3 className="font-medium text-neutral-700 flex items-center gap-2">
+              <h3 className="font-medium text-content-secondary flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-green-500" /> {t('medications.completed')}
               </h3>
               {completedReminders.map(reminder => (
                 <div key={reminder.id} className="patient-card flex items-center justify-between opacity-75">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                      <CheckCircle className="w-6 h-6 text-green-600" />
+                    <div className="w-12 h-12 bg-ok-subtle rounded-xl flex items-center justify-center">
+                      <CheckCircle className="w-6 h-6 text-ok-subtle-fg" />
                     </div>
                     <div>
-                      <p className="font-medium text-neutral-900 line-through">{reminder.medicationName}</p>
-                      <p className="text-sm text-neutral-500">{reminder.dosage} • {t('medications.takenAt', { time: reminder.takenAt || '' })}</p>
+                      <p className="font-medium text-content line-through">{reminder.medicationName}</p>
+                      <p className="text-sm text-content-muted">{reminder.dosage} • {t('medications.takenAt', { time: reminder.takenAt || '' })}</p>
                     </div>
                   </div>
                 </div>
@@ -377,7 +377,7 @@ export function MedicationsPage() {
           {reminders.length === 0 && (
             <div className="text-center py-12">
               <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">{t('medications.noneToday')}</p>
+              <p className="text-content-muted">{t('medications.noneToday')}</p>
             </div>
           )}
         </div>
@@ -393,40 +393,40 @@ export function MedicationsPage() {
                     <Pill className="w-6 h-6 text-primary-600" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-neutral-900">{med.name}</h3>
-                    <p className="text-sm text-neutral-500">{med.dosage} • {med.frequency}</p>
+                    <h3 className="font-semibold text-content">{med.name}</h3>
+                    <p className="text-sm text-content-muted">{med.dosage} • {med.frequency}</p>
                     {med.status && (
                       <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                        med.status === 'active' ? 'bg-green-100 text-green-700' :
-                        med.status === 'completed' ? 'bg-neutral-100 text-neutral-600' :
-                        'bg-yellow-100 text-yellow-700'
+                        med.status === 'active' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                        med.status === 'completed' ? 'bg-surface-sunken text-content-muted' :
+                        'bg-caution-subtle text-caution-subtle-fg'
                       }`}>{statusLabel(med.status)}</span>
                     )}
                   </div>
                 </div>
-                <ChevronRight className="w-5 h-5 text-neutral-400" />
+                <ChevronRight className="w-5 h-5 text-content-muted" />
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-3">
-                <div className="bg-neutral-50 rounded-lg p-3">
-                  <p className="text-xs text-neutral-500">{t('medications.prescribedBy')}</p>
-                  <p className="text-sm font-medium text-neutral-900">{med.prescribedBy}</p>
+                <div className="bg-surface-sunken rounded-lg p-3">
+                  <p className="text-xs text-content-muted">{t('medications.prescribedBy')}</p>
+                  <p className="text-sm font-medium text-content">{med.prescribedBy}</p>
                 </div>
-                <div className="bg-neutral-50 rounded-lg p-3">
-                  <p className="text-xs text-neutral-500">{t('medications.refillsRemaining')}</p>
-                  <p className={`flex items-center gap-1 text-sm font-medium ${med.refillsRemaining <= 1 ? 'text-emergency-600' : 'text-neutral-900'}`}>
+                <div className="bg-surface-sunken rounded-lg p-3">
+                  <p className="text-xs text-content-muted">{t('medications.refillsRemaining')}</p>
+                  <p className={`flex items-center gap-1 text-sm font-medium ${med.refillsRemaining <= 1 ? 'text-emergency-600' : 'text-content'}`}>
                     {med.refillsRemaining}
                     {med.refillsRemaining <= 1 && <AlertTriangle className="w-4 h-4" aria-label={t('medications.lowRefills')} />}
                   </p>
                 </div>
               </div>
 
-              <p className="text-sm text-neutral-600 mb-3">
+              <p className="text-sm text-content-muted mb-3">
                 <span className="font-medium">{t('medications.instructionsLabel')}</span> {med.instructions}
               </p>
 
               {med.sideEffects.length > 0 && (
-                <div className="flex items-start gap-2 text-sm text-yellow-700 bg-yellow-50 rounded-lg p-3">
+                <div className="flex items-start gap-2 text-sm text-caution-subtle-fg bg-caution-subtle rounded-lg p-3">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <div>
                     <span className="font-medium">{t('medications.sideEffectsLabel')}</span>{' '}
@@ -436,7 +436,7 @@ export function MedicationsPage() {
               )}
 
               {med.interactions.length > 0 && (
-                <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-lg p-3 mt-2">
+                <div className="flex items-start gap-2 text-sm text-critical-subtle-fg bg-critical-subtle rounded-lg p-3 mt-2">
                   <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                   <div>
                     <span className="font-medium">{t('medications.interactionsLabel')}</span>{' '}
@@ -457,7 +457,7 @@ export function MedicationsPage() {
           {medications.length === 0 && (
             <div className="text-center py-12">
               <Pill className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">{t('medications.noneActive')}</p>
+              <p className="text-content-muted">{t('medications.noneActive')}</p>
             </div>
           )}
         </div>
@@ -467,10 +467,10 @@ export function MedicationsPage() {
         <div className="space-y-4">
           <div className="patient-card">
             <div className="flex items-center gap-3 mb-4">
-              <Calendar className="w-5 h-5 text-neutral-500" />
-              <h3 className="font-medium text-neutral-900">{t('medications.historyTitle')}</h3>
+              <Calendar className="w-5 h-5 text-content-muted" />
+              <h3 className="font-medium text-content">{t('medications.historyTitle')}</h3>
             </div>
-            <p className="text-sm text-neutral-500 text-center py-8">
+            <p className="text-sm text-content-muted text-center py-8">
               {t('medications.historyEmpty')}
             </p>
           </div>

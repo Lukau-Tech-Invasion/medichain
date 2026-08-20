@@ -107,7 +107,7 @@ export default function MessagesPage() {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-content flex items-center gap-2">
             <MessageSquare className="text-blue-500" size={24} />
             {t('docMessages.title')}
             {unreadCount > 0 && (
@@ -116,12 +116,12 @@ export default function MessagesPage() {
               </span>
             )}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">{t('docMessages.subtitle')}</p>
+          <p className="text-content-muted text-sm mt-1">{t('docMessages.subtitle')}</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={fetchMessages}
-            className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
+            className="flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-surface-sunken text-sm"
           >
             <RefreshCw size={14} />
             {t('docMessages.refresh')}
@@ -137,25 +137,25 @@ export default function MessagesPage() {
       </div>
 
       {success && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{success}</div>
+        <div className="mb-4 p-3 bg-ok-subtle border border-ok text-ok-subtle-fg rounded-lg text-sm">{success}</div>
       )}
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
+        <div className="mb-4 p-3 bg-critical-subtle border border-critical text-critical-subtle-fg rounded-lg text-sm">{error}</div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Inbox */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow">
+        <div className="lg:col-span-2 bg-surface rounded-xl shadow">
           <div className="p-4 border-b">
-            <h2 className="font-semibold text-gray-900">{t('docMessages.inbox')}</h2>
+            <h2 className="font-semibold text-content">{t('docMessages.inbox')}</h2>
           </div>
           {loading ? (
             <div className="p-8 text-center">
               <Loader2 className="mx-auto animate-spin text-blue-500 mb-2" size={32} />
-              <p className="text-gray-500">{t('docMessages.loading')}</p>
+              <p className="text-content-muted">{t('docMessages.loading')}</p>
             </div>
           ) : messages.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-content-muted">
               <MessageSquare className="mx-auto mb-2 text-gray-300" size={40} />
               <p>{t('docMessages.none')}</p>
             </div>
@@ -165,7 +165,7 @@ export default function MessagesPage() {
                 <button
                   key={msg.message_id}
                   onClick={() => { setSelectedMessage(msg); setShowReply(false); }}
-                  className={`w-full text-left p-4 hover:bg-gray-50 transition-colors ${selectedMessage?.message_id === msg.message_id ? 'bg-blue-50' : ''}`}
+                  className={`w-full text-left p-4 hover:bg-surface-sunken transition-colors ${selectedMessage?.message_id === msg.message_id ? 'bg-notice-subtle' : ''}`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2 min-w-0">
@@ -173,17 +173,17 @@ export default function MessagesPage() {
                         <span className="flex-shrink-0 w-2 h-2 bg-blue-500 rounded-full mt-1"></span>
                       )}
                       <div className="min-w-0">
-                        <p className={`font-medium text-gray-900 truncate ${!msg.read ? 'font-semibold' : ''}`}>
+                        <p className={`font-medium text-content truncate ${!msg.read ? 'font-semibold' : ''}`}>
                           {msg.subject || t('docMessages.noSubject')}
                         </p>
-                        <p className="text-sm text-gray-500 flex items-center gap-1">
+                        <p className="text-sm text-content-muted flex items-center gap-1">
                           <User size={12} />
                           {t('docMessages.fromLabel')} {msg.sender_id === user?.walletAddress ? t('docMessages.you') : msg.sender_id}
                         </p>
-                        <p className="text-xs text-gray-400 truncate mt-0.5">{msg.body}</p>
+                        <p className="text-xs text-content-muted truncate mt-0.5">{msg.body}</p>
                       </div>
                     </div>
-                    <span className="text-xs text-gray-400 ml-2 flex-shrink-0">
+                    <span className="text-xs text-content-muted ml-2 flex-shrink-0">
                       {new Date(msg.sent_at * 1000).toLocaleDateString()}
                     </span>
                   </div>
@@ -194,18 +194,18 @@ export default function MessagesPage() {
         </div>
 
         {/* Message Detail / Compose */}
-        <div className="bg-white rounded-xl shadow">
+        <div className="bg-surface rounded-xl shadow">
           {selectedMessage && !showReply ? (
             <div className="p-4">
               <div className="border-b pb-3 mb-3">
-                <h3 className="font-semibold text-gray-900">{selectedMessage.subject || t('docMessages.noSubject')}</h3>
-                <p className="text-sm text-gray-500 mt-1">
+                <h3 className="font-semibold text-content">{selectedMessage.subject || t('docMessages.noSubject')}</h3>
+                <p className="text-sm text-content-muted mt-1">
                   {t('docMessages.fromLabel')} {selectedMessage.sender_id}<br />
                   {t('docMessages.toLabel')} {selectedMessage.recipient_id}<br />
                   {new Date(selectedMessage.sent_at * 1000).toLocaleString()}
                 </p>
               </div>
-              <p className="text-gray-700 text-sm whitespace-pre-wrap">{selectedMessage.body}</p>
+              <p className="text-content-secondary text-sm whitespace-pre-wrap">{selectedMessage.body}</p>
               <button
                 onClick={() => {
                   setShowReply(true);
@@ -215,7 +215,7 @@ export default function MessagesPage() {
                     body: '',
                   });
                 }}
-                className="mt-4 w-full flex items-center justify-center gap-2 border rounded-lg px-3 py-2 text-sm hover:bg-gray-50"
+                className="mt-4 w-full flex items-center justify-center gap-2 border rounded-lg px-3 py-2 text-sm hover:bg-surface-sunken"
               >
                 <Send size={14} />
                 {t('docMessages.reply')}
@@ -223,12 +223,12 @@ export default function MessagesPage() {
             </div>
           ) : showReply ? (
             <div className="p-4">
-              <h3 className="font-semibold text-gray-900 mb-4">
+              <h3 className="font-semibold text-content mb-4">
                 {selectedMessage ? t('docMessages.reply') : t('docMessages.newMessage')}
               </h3>
               <form onSubmit={handleSend} className="space-y-3">
                 <div>
-                  <label htmlFor="msg-recipient" className="block text-xs font-medium text-gray-700 mb-1">{t('docMessages.toUserId')}</label>
+                  <label htmlFor="msg-recipient" className="block text-xs font-medium text-content-secondary mb-1">{t('docMessages.toUserId')}</label>
                   <input
                     id="msg-recipient"
                     type="text"
@@ -240,7 +240,7 @@ export default function MessagesPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="msg-subject" className="block text-xs font-medium text-gray-700 mb-1">{t('docMessages.subject')}</label>
+                  <label htmlFor="msg-subject" className="block text-xs font-medium text-content-secondary mb-1">{t('docMessages.subject')}</label>
                   <input
                     id="msg-subject"
                     type="text"
@@ -251,7 +251,7 @@ export default function MessagesPage() {
                   />
                 </div>
                 <div>
-                  <label htmlFor="msg-body" className="block text-xs font-medium text-gray-700 mb-1">{t('docMessages.message')}</label>
+                  <label htmlFor="msg-body" className="block text-xs font-medium text-content-secondary mb-1">{t('docMessages.message')}</label>
                   <textarea
                     id="msg-body"
                     value={sendForm.body}
@@ -274,7 +274,7 @@ export default function MessagesPage() {
                   <button
                     type="button"
                     onClick={() => { setShowReply(false); setSendForm({ recipient_id: '', subject: '', body: '' }); }}
-                    className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                    className="px-3 py-2 border rounded text-sm hover:bg-surface-sunken"
                   >
                     {t('docMessages.cancel')}
                   </button>
@@ -282,7 +282,7 @@ export default function MessagesPage() {
               </form>
             </div>
           ) : (
-            <div className="p-8 text-center text-gray-400">
+            <div className="p-8 text-center text-content-muted">
               <MessageSquare size={40} className="mx-auto mb-2 text-gray-200" />
               <p className="text-sm">{t('docMessages.emptyLine1')}<br />{t('docMessages.emptyLine2')}</p>
             </div>

@@ -198,12 +198,12 @@ export function SymptomTrackerPage() {
 
   const getSeverityColor = (severity: number) => {
     switch (severity) {
-      case 1: return 'bg-green-100 text-green-700';
-      case 2: return 'bg-blue-100 text-blue-700';
-      case 3: return 'bg-yellow-100 text-yellow-700';
+      case 1: return 'bg-ok-subtle text-ok-subtle-fg';
+      case 2: return 'bg-notice-subtle text-notice-subtle-fg';
+      case 3: return 'bg-caution-subtle text-caution-subtle-fg';
       case 4: return 'bg-orange-100 text-orange-700';
-      case 5: return 'bg-red-100 text-red-700';
-      default: return 'bg-neutral-100 text-neutral-700';
+      case 5: return 'bg-critical-subtle text-critical-subtle-fg';
+      default: return 'bg-surface-sunken text-content-secondary';
     }
   };
 
@@ -270,12 +270,12 @@ export function SymptomTrackerPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('symptomTracker.title')}</h1>
-          <p className="text-neutral-500">{t('symptomTracker.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('symptomTracker.title')}</h1>
+          <p className="text-content-muted">{t('symptomTracker.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-            apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+            apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
           }`}>
             {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {apiConnected ? t('common.live') : t('common.demo')}
@@ -287,15 +287,15 @@ export function SymptomTrackerPage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="patient-card text-center">
           <div className="text-2xl font-bold text-primary-600">{todayEntries.length}</div>
-          <div className="text-xs text-neutral-500">{t('symptomTracker.statToday')}</div>
+          <div className="text-xs text-content-muted">{t('symptomTracker.statToday')}</div>
         </div>
         <div className="patient-card text-center">
           <div className="text-2xl font-bold text-primary-600">{weekEntries.length}</div>
-          <div className="text-xs text-neutral-500">{t('symptomTracker.thisWeek')}</div>
+          <div className="text-xs text-content-muted">{t('symptomTracker.thisWeek')}</div>
         </div>
         <div className="patient-card text-center">
           <div className="text-2xl font-bold text-primary-600">{averageSeverity}</div>
-          <div className="text-xs text-neutral-500">{t('symptomTracker.avgSeverity')}</div>
+          <div className="text-xs text-content-muted">{t('symptomTracker.avgSeverity')}</div>
         </div>
       </div>
 
@@ -310,8 +310,8 @@ export function SymptomTrackerPage() {
 
       {/* Recent Entries */}
       <div>
-        <h2 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-neutral-500" />
+        <h2 className="font-semibold text-content mb-4 flex items-center gap-2">
+          <Clock className="w-5 h-5 text-content-muted" />
           {t('symptomTracker.recentEntries')}
         </h2>
 
@@ -324,8 +324,8 @@ export function SymptomTrackerPage() {
                     {getCategoryIcon(entry.category)}
                   </div>
                   <div>
-                    <h3 className="font-medium text-neutral-900">{entry.symptom}</h3>
-                    <p className="text-sm text-neutral-500">{formatTime(entry.timestamp)}</p>
+                    <h3 className="font-medium text-content">{entry.symptom}</h3>
+                    <p className="text-sm text-content-muted">{formatTime(entry.timestamp)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -334,7 +334,7 @@ export function SymptomTrackerPage() {
                   </span>
                   <button
                     onClick={() => deleteEntry(entry.id)}
-                    className="p-1 text-neutral-400 hover:text-red-500 transition-colors"
+                    className="p-1 text-content-muted hover:text-red-500 transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -342,13 +342,13 @@ export function SymptomTrackerPage() {
               </div>
 
               {entry.duration && (
-                <p className="text-sm text-neutral-600 mb-2">
+                <p className="text-sm text-content-muted mb-2">
                   <span className="font-medium">{t('symptomTracker.durationLabel')}</span> {entry.duration}
                 </p>
               )}
 
               {entry.notes && (
-                <p className="text-sm text-neutral-500 mb-2">{entry.notes}</p>
+                <p className="text-sm text-content-muted mb-2">{entry.notes}</p>
               )}
 
               {entry.triggers && entry.triggers.length > 0 && (
@@ -364,7 +364,7 @@ export function SymptomTrackerPage() {
               {entry.relievedBy && entry.relievedBy.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {entry.relievedBy.map((relief, idx) => (
-                    <span key={idx} className="px-2 py-0.5 bg-green-50 text-green-700 rounded text-xs">
+                    <span key={idx} className="px-2 py-0.5 bg-ok-subtle text-ok-subtle-fg rounded text-xs">
                       ✓ {relief}
                     </span>
                   ))}
@@ -376,8 +376,8 @@ export function SymptomTrackerPage() {
           {entries.length === 0 && (
             <div className="text-center py-12">
               <Activity className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-neutral-500">{t('symptomTracker.noneLogged')}</p>
-              <p className="text-sm text-neutral-400">{t('symptomTracker.noneHint')}</p>
+              <p className="text-content-muted">{t('symptomTracker.noneLogged')}</p>
+              <p className="text-sm text-content-muted">{t('symptomTracker.noneHint')}</p>
             </div>
           )}
         </div>
@@ -386,12 +386,12 @@ export function SymptomTrackerPage() {
       {/* Insights */}
       {entries.length >= 3 && (
         <div className="patient-card">
-          <h3 className="font-semibold text-neutral-900 mb-3 flex items-center gap-2">
+          <h3 className="font-semibold text-content mb-3 flex items-center gap-2">
             <TrendingUp className="w-5 h-5 text-primary-500" />
             {t('symptomTracker.insights')}
           </h3>
           <div className="space-y-2 text-sm">
-            <p className="text-neutral-600">
+            <p className="text-content-muted">
               • {t('symptomTracker.mostCommon')} <span className="font-medium">{
                 Object.entries(entries.reduce((acc, e) => {
                   acc[e.symptom] = (acc[e.symptom] || 0) + 1;
@@ -400,7 +400,7 @@ export function SymptomTrackerPage() {
                   .sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A'
               }</span>
             </p>
-            <p className="text-neutral-600">
+            <p className="text-content-muted">
               • {t('symptomTracker.totalEntries')} <span className="font-medium">{entries.length}</span>
             </p>
           </div>
@@ -413,17 +413,17 @@ export function SymptomTrackerPage() {
       {/* Add Symptom Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-end md:items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-t-2xl md:rounded-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white p-4 border-b border-neutral-200">
+          <div className="bg-surface rounded-t-2xl md:rounded-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface p-4 border-b border-border">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-neutral-900">{t('symptomTracker.logSymptom')}</h2>
+                <h2 className="text-lg font-semibold text-content">{t('symptomTracker.logSymptom')}</h2>
                 <button
                   onClick={() => {
                     setShowAddModal(false);
                     setSelectedCategory(null);
                     setNewEntry({ severity: 3, timestamp: new Date().toISOString() });
                   }}
-                  className="p-2 hover:bg-neutral-100 rounded-lg text-neutral-500"
+                  className="p-2 hover:bg-surface-sunken rounded-lg text-content-muted"
                   aria-label={t('common.close')}
                 >
                   <X className="w-5 h-5" aria-hidden="true" />
@@ -442,12 +442,12 @@ export function SymptomTrackerPage() {
                         setSelectedCategory(category.id);
                         setNewEntry(prev => ({ ...prev, category: category.id }));
                       }}
-                      className="p-4 border-2 border-neutral-200 rounded-xl hover:border-primary-300 transition-colors text-left"
+                      className="p-4 border-2 border-border rounded-xl hover:border-primary-300 transition-colors text-left"
                     >
                       <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center text-primary-600 mb-2">
                         {category.icon}
                       </div>
-                      <div className="font-medium text-neutral-900">{category.name}</div>
+                      <div className="font-medium text-content">{category.name}</div>
                     </button>
                   ))}
                 </div>
@@ -455,7 +455,7 @@ export function SymptomTrackerPage() {
                 <>
                   {/* Symptom Selection */}
                   <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label className="block text-sm font-medium text-content-secondary mb-2">
                       {t('symptomTracker.selectSymptom')}
                     </label>
                     <div className="grid grid-cols-2 gap-2">
@@ -466,7 +466,7 @@ export function SymptomTrackerPage() {
                           className={`p-3 border-2 rounded-lg text-sm font-medium transition-colors ${
                             newEntry.symptom === symptom
                               ? 'border-primary-500 bg-primary-50 text-primary-700'
-                              : 'border-neutral-200 hover:border-primary-300'
+                              : 'border-border hover:border-primary-300'
                           }`}
                         >
                           {symptom}
@@ -477,7 +477,7 @@ export function SymptomTrackerPage() {
 
                   {/* Severity */}
                   <div>
-                    <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label className="block text-sm font-medium text-content-secondary mb-2">
                       {t('symptomTracker.severityLabel', { label: getSeverityLabel(newEntry.severity || 3) })}
                     </label>
                     <div className="flex gap-2">
@@ -488,7 +488,7 @@ export function SymptomTrackerPage() {
                           className={`flex-1 py-3 rounded-lg font-medium transition-colors ${
                             newEntry.severity === level
                               ? getSeverityColor(level)
-                              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                              : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
                           }`}
                         >
                           {level}
@@ -499,7 +499,7 @@ export function SymptomTrackerPage() {
 
                   {/* Duration */}
                   <div>
-                    <label htmlFor="symptom-duration" className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label htmlFor="symptom-duration" className="block text-sm font-medium text-content-secondary mb-2">
                       {t('symptomTracker.durationOptional')}
                     </label>
                     <input
@@ -508,13 +508,13 @@ export function SymptomTrackerPage() {
                       value={newEntry.duration || ''}
                       onChange={(e) => setNewEntry(prev => ({ ...prev, duration: e.target.value }))}
                       placeholder={t('symptomTracker.durationPlaceholder')}
-                      className="w-full px-4 py-2 border border-neutral-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
                     />
                   </div>
 
                   {/* Notes */}
                   <div>
-                    <label htmlFor="symptom-notes" className="block text-sm font-medium text-neutral-700 mb-2">
+                    <label htmlFor="symptom-notes" className="block text-sm font-medium text-content-secondary mb-2">
                       {t('symptomTracker.notesOptional')}
                     </label>
                     <textarea
@@ -523,7 +523,7 @@ export function SymptomTrackerPage() {
                       onChange={(e) => setNewEntry(prev => ({ ...prev, notes: e.target.value }))}
                       placeholder={t('symptomTracker.notesPlaceholder')}
                       rows={3}
-                      className="w-full px-4 py-2 border border-neutral-200 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
+                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
                     />
                   </div>
 
@@ -531,7 +531,7 @@ export function SymptomTrackerPage() {
                   <div className="flex gap-3 pt-2">
                     <button
                       onClick={() => setSelectedCategory(null)}
-                      className="flex-1 py-3 border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50"
+                      className="flex-1 py-3 border border-border-strong text-content-secondary rounded-lg font-medium hover:bg-surface-sunken"
                     >
                       {t('common.back')}
                     </button>

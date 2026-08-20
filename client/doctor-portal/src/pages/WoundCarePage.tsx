@@ -304,12 +304,12 @@ const WoundCarePage: React.FC = () => {
 
   const getStatusBadge = (status: WoundStatus) => {
     const styles: Record<WoundStatus, { bg: string; text: string; icon: React.ReactNode }> = {
-      'new': { bg: 'bg-blue-100', text: 'text-blue-700', icon: <Plus className="w-3 h-3" /> },
-      'healing': { bg: 'bg-green-100', text: 'text-green-700', icon: <TrendingDown className="w-3 h-3" /> },
-      'stable': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Minus className="w-3 h-3" /> },
-      'deteriorating': { bg: 'bg-red-100', text: 'text-red-700', icon: <TrendingUp className="w-3 h-3" /> },
-      'healed': { bg: 'bg-emerald-100', text: 'text-emerald-700', icon: <CheckCircle className="w-3 h-3" /> },
-      'infected': { bg: 'bg-red-200', text: 'text-red-800', icon: <AlertTriangle className="w-3 h-3" /> }
+      'new': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', icon: <Plus className="w-3 h-3" /> },
+      'healing': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <TrendingDown className="w-3 h-3" /> },
+      'stable': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Minus className="w-3 h-3" /> },
+      'deteriorating': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <TrendingUp className="w-3 h-3" /> },
+      'healed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
+      'infected': { bg: 'bg-red-200', text: 'text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
     const s = styles[status];
     const statusLabels: Record<WoundStatus, string> = {
@@ -346,9 +346,9 @@ const WoundCarePage: React.FC = () => {
     const latest = measurements[measurements.length - 1].area;
     const previous = measurements[measurements.length - 2].area;
     const change = ((latest - previous) / previous) * 100;
-    if (change < -5) return { icon: <TrendingDown className="w-4 h-4 text-green-500" />, text: t('docWoundCare.trendImproving'), color: 'text-green-600' };
-    if (change > 5) return { icon: <TrendingUp className="w-4 h-4 text-red-500" />, text: t('docWoundCare.trendWorsening'), color: 'text-red-600' };
-    return { icon: <Minus className="w-4 h-4 text-yellow-500" />, text: t('docWoundCare.trendStable'), color: 'text-yellow-600' };
+    if (change < -5) return { icon: <TrendingDown className="w-4 h-4 text-green-500" />, text: t('docWoundCare.trendImproving'), color: 'text-ok-subtle-fg' };
+    if (change > 5) return { icon: <TrendingUp className="w-4 h-4 text-red-500" />, text: t('docWoundCare.trendWorsening'), color: 'text-critical-subtle-fg' };
+    return { icon: <Minus className="w-4 h-4 text-yellow-500" />, text: t('docWoundCare.trendStable'), color: 'text-caution-subtle-fg' };
   };
 
   const filteredWounds = wounds.filter(w =>
@@ -358,7 +358,7 @@ const WoundCarePage: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-rose-600 to-pink-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -371,17 +371,17 @@ const WoundCarePage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-rose-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docWoundCare.loading')}</p>
+          <Loader2 className="w-8 h-8 text-critical-subtle-fg animate-spin mb-2" />
+          <p className="text-content-muted">{t('docWoundCare.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docWoundCare.errApiHint')}</p>
           </div>
         </div>
@@ -392,29 +392,29 @@ const WoundCarePage: React.FC = () => {
         <>
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-gray-800">{wounds.length}</p>
-              <p className="text-xs text-gray-500">{t('docWoundCare.activeWounds')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-content-secondary">{wounds.length}</p>
+              <p className="text-xs text-content-muted">{t('docWoundCare.activeWounds')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{wounds.filter(w => w.status === 'healing').length}</p>
-              <p className="text-xs text-gray-500">{t('docWoundCare.healing')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-ok-subtle-fg">{wounds.filter(w => w.status === 'healing').length}</p>
+              <p className="text-xs text-content-muted">{t('docWoundCare.healing')}</p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-red-600">{wounds.filter(w => w.status === 'deteriorating' || w.status === 'infected').length}</p>
-              <p className="text-xs text-gray-500">{t('docWoundCare.needsAttention')}</p>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <p className="text-2xl font-bold text-critical-subtle-fg">{wounds.filter(w => w.status === 'deteriorating' || w.status === 'infected').length}</p>
+              <p className="text-xs text-content-muted">{t('docWoundCare.needsAttention')}</p>
             </div>
           </div>
 
           {/* Tabs */}
-          <div className="bg-white border-b">
+          <div className="bg-surface border-b">
             <div className="flex">
               {(['wounds', 'assess', 'tracking'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize ${
-                    activeTab === tab ? 'text-rose-700 border-b-2 border-rose-700' : 'text-gray-500'
+                    activeTab === tab ? 'text-critical-subtle-fg border-b-2 border-rose-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'wounds' ? t('docWoundCare.tabAllWounds') : tab === 'assess' ? t('docWoundCare.tabNewAssessment') : t('docWoundCare.tabHealingTrends')}
@@ -427,7 +427,7 @@ const WoundCarePage: React.FC = () => {
       {activeTab === 'wounds' && (
         <div className="p-4">
           <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
             <input
               type="text"
               value={searchQuery}
@@ -445,7 +445,7 @@ const WoundCarePage: React.FC = () => {
                 <div
                   key={wound.id}
                   onClick={() => setSelectedWound(wound)}
-                  className={`bg-white rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
+                  className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                     wound.status === 'deteriorating' || wound.status === 'infected' ? 'border-l-4 border-l-red-500' : ''
                   }`}
                 >
@@ -453,26 +453,26 @@ const WoundCarePage: React.FC = () => {
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold">{patientLabel(wound.patientId)}</h3>
-                        <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
+                        <span className="text-xs bg-surface-sunken px-2 py-0.5 rounded">
                           {getWoundTypeLabel(wound.woundType)}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500">{t('docWoundCare.mrnLocation', { mrn: wound.mrn, location: wound.location })}</p>
+                      <p className="text-sm text-content-muted">{t('docWoundCare.mrnLocation', { mrn: wound.mrn, location: wound.location })}</p>
                     </div>
                     {getStatusBadge(wound.status)}
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="bg-gray-50 rounded p-2 text-center">
-                      <Ruler className="w-4 h-4 mx-auto text-gray-400 mb-1" />
+                    <div className="bg-surface-sunken rounded p-2 text-center">
+                      <Ruler className="w-4 h-4 mx-auto text-content-muted mb-1" />
                       <p className="text-sm font-semibold">{latestMeasurement.area.toFixed(1)} cm²</p>
-                      <p className="text-xs text-gray-500">{t('docWoundCare.area')}</p>
+                      <p className="text-xs text-content-muted">{t('docWoundCare.area')}</p>
                     </div>
-                    <div className="bg-gray-50 rounded p-2 text-center">
+                    <div className="bg-surface-sunken rounded p-2 text-center">
                       <p className="text-sm font-semibold">{wound.stage !== 'n/a' ? wound.stage?.replace('-', ' ') : '—'}</p>
-                      <p className="text-xs text-gray-500">{t('docWoundCare.stage')}</p>
+                      <p className="text-xs text-content-muted">{t('docWoundCare.stage')}</p>
                     </div>
-                    <div className="bg-gray-50 rounded p-2 text-center">
+                    <div className="bg-surface-sunken rounded p-2 text-center">
                       {trend && (
                         <>
                           <div className="flex justify-center">{trend.icon}</div>
@@ -482,7 +482,7 @@ const WoundCarePage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-xs text-gray-500">
+                  <div className="flex items-center justify-between text-xs text-content-muted">
                     <div className="flex items-center gap-1">
                       <User className="w-3 h-3" />
                       <span>{providerName(wound.assessedBy)}</span>
@@ -502,7 +502,7 @@ const WoundCarePage: React.FC = () => {
       {/* Assessment Tab */}
       {activeTab === 'assess' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docWoundCare.newAssessment')}</h2>
 
             <div className="space-y-4">
@@ -579,7 +579,7 @@ const WoundCarePage: React.FC = () => {
                 <label className="block text-sm font-medium mb-2">{t('docWoundCare.tissueType')}</label>
                 <div className="flex flex-wrap gap-2">
                   {[t('docWoundCare.tsGranulation'), t('docWoundCare.tsEpithelial'), t('docWoundCare.tsSlough'), t('docWoundCare.tsEschar'), t('docWoundCare.tsNecrotic')].map(tissue => (
-                    <label key={tissue} className="flex items-center gap-1 bg-gray-100 px-3 py-1 rounded-full text-sm">
+                    <label key={tissue} className="flex items-center gap-1 bg-surface-sunken px-3 py-1 rounded-full text-sm">
                       <input type="checkbox" className="w-4 h-4"
                         checked={form.tissueTypes.includes(tissue)} onChange={() => toggleTissue(tissue)} />
                       <span>{tissue}</span>
@@ -591,9 +591,9 @@ const WoundCarePage: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">{t('docWoundCare.photoUpload')}</label>
                 <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                  <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-500">{t('docWoundCare.tapToUpload')}</p>
-                  <p className="text-xs text-gray-400 mt-1">{t('docWoundCare.includeRuler')}</p>
+                  <Upload className="w-8 h-8 mx-auto text-content-muted mb-2" />
+                  <p className="text-sm text-content-muted">{t('docWoundCare.tapToUpload')}</p>
+                  <p className="text-xs text-content-muted mt-1">{t('docWoundCare.includeRuler')}</p>
                 </div>
               </div>
 
@@ -604,7 +604,7 @@ const WoundCarePage: React.FC = () => {
               </div>
 
               {saveMessage && (
-                <p className="text-sm text-center text-gray-700" role="status">{saveMessage}</p>
+                <p className="text-sm text-center text-content-secondary" role="status">{saveMessage}</p>
               )}
               <button
                 onClick={saveAssessment}
@@ -621,7 +621,7 @@ const WoundCarePage: React.FC = () => {
       {/* Tracking Tab */}
       {activeTab === 'tracking' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docWoundCare.healingProgress')}</h2>
             <div className="space-y-4">
               {wounds.map(wound => {
@@ -635,7 +635,7 @@ const WoundCarePage: React.FC = () => {
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h3 className="font-medium">{patientLabel(wound.patientId)}</h3>
-                        <p className="text-sm text-gray-500">{wound.location}</p>
+                        <p className="text-sm text-content-muted">{wound.location}</p>
                       </div>
                       {trend && (
                         <div className={`flex items-center gap-1 ${trend.color}`}>
@@ -647,10 +647,10 @@ const WoundCarePage: React.FC = () => {
 
                     <div className="mb-3">
                       <div className="flex justify-between text-sm mb-1">
-                        <span className="text-gray-500">{t('docWoundCare.healingProgress')}</span>
+                        <span className="text-content-muted">{t('docWoundCare.healingProgress')}</span>
                         <span className="font-medium">{Math.max(0, healingPercent).toFixed(0)}%</span>
                       </div>
-                      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-2 bg-surface-sunken rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-green-500 rounded-full transition-all"
                           style={{ width: `${Math.max(0, Math.min(100, healingPercent))}%` }}
@@ -660,15 +660,15 @@ const WoundCarePage: React.FC = () => {
 
                     <div className="grid grid-cols-3 gap-2 text-center text-xs">
                       <div>
-                        <p className="text-gray-500">{t('docWoundCare.initial')}</p>
+                        <p className="text-content-muted">{t('docWoundCare.initial')}</p>
                         <p className="font-semibold">{firstArea.toFixed(1)} cm²</p>
                       </div>
                       <div>
-                        <p className="text-gray-500">{t('docWoundCare.current')}</p>
+                        <p className="text-content-muted">{t('docWoundCare.current')}</p>
                         <p className="font-semibold">{latestArea.toFixed(1)} cm²</p>
                       </div>
                       <div>
-                        <p className="text-gray-500">{t('docWoundCare.days')}</p>
+                        <p className="text-content-muted">{t('docWoundCare.days')}</p>
                         <p className="font-semibold">{Math.round((new Date().getTime() - wound.discoveredDate.getTime()) / (1000 * 60 * 60 * 24))}</p>
                       </div>
                     </div>
@@ -685,13 +685,13 @@ const WoundCarePage: React.FC = () => {
       {/* Wound Detail Modal */}
       {selectedWound && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{patientLabel(selectedWound.patientId)}</h2>
-                <p className="text-sm text-gray-500">{selectedWound.location} • {getWoundTypeLabel(selectedWound.woundType)}</p>
+                <p className="text-sm text-content-muted">{selectedWound.location} • {getWoundTypeLabel(selectedWound.woundType)}</p>
               </div>
-              <button onClick={() => setSelectedWound(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+              <button onClick={() => setSelectedWound(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
@@ -704,12 +704,12 @@ const WoundCarePage: React.FC = () => {
                 )}
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-medium mb-2">{t('docWoundCare.measurementsHistory')}</h3>
                 <div className="space-y-2">
                   {selectedWound.measurements.slice().reverse().map((m, idx) => (
                     <div key={idx} className="flex justify-between text-sm">
-                      <span className="text-gray-500">{m.date.toLocaleDateString()}</span>
+                      <span className="text-content-muted">{m.date.toLocaleDateString()}</span>
                       <span>{m.length} × {m.width} × {m.depth} cm ({m.area.toFixed(1)} cm²)</span>
                     </div>
                   ))}
@@ -717,34 +717,34 @@ const WoundCarePage: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-500">{t('docWoundCare.exudate')}</p>
+                <div className="bg-surface-sunken rounded-lg p-3">
+                  <p className="text-sm text-content-muted">{t('docWoundCare.exudate')}</p>
                   <p className="font-medium capitalize">{selectedWound.exudate}</p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-500">{t('docWoundCare.painLevel')}</p>
+                <div className="bg-surface-sunken rounded-lg p-3">
+                  <p className="text-sm text-content-muted">{t('docWoundCare.painLevel')}</p>
                   <p className="font-medium">{t('docWoundCare.painValue', { value: selectedWound.painLevel })}</p>
                 </div>
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-4">
-                <p className="text-sm text-gray-500 mb-1">{t('docWoundCare.tissueTypes')}</p>
+              <div className="bg-surface-sunken rounded-lg p-4">
+                <p className="text-sm text-content-muted mb-1">{t('docWoundCare.tissueTypes')}</p>
                 <div className="flex flex-wrap gap-1">
                   {selectedWound.tissue.map((t, idx) => (
-                    <span key={idx} className="bg-white border px-2 py-0.5 rounded text-sm capitalize">{t}</span>
+                    <span key={idx} className="bg-surface border px-2 py-0.5 rounded text-sm capitalize">{t}</span>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-blue-50 rounded-lg p-4">
-                <p className="text-sm text-blue-600 font-medium mb-1">{t('docWoundCare.currentDressing')}</p>
+              <div className="bg-notice-subtle rounded-lg p-4">
+                <p className="text-sm text-notice-subtle-fg font-medium mb-1">{t('docWoundCare.currentDressing')}</p>
                 <p className="text-sm">{selectedWound.dressing}</p>
                 <p className="text-xs text-blue-500 mt-1">{t('docWoundCare.changeFreq', { freq: selectedWound.frequency })}</p>
               </div>
 
               {selectedWound.notes && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-500 mb-1">{t('docWoundCare.notes')}</p>
+                <div className="bg-surface-sunken rounded-lg p-4">
+                  <p className="text-sm text-content-muted mb-1">{t('docWoundCare.notes')}</p>
                   <p className="text-sm">{selectedWound.notes}</p>
                 </div>
               )}
