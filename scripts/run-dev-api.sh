@@ -14,6 +14,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Refuse to start a second instance. Two of these race for sqlx's migration
+# advisory lock and the later one blocks indefinitely on `pg_advisory_lock`,
+# which presents as "the API never comes up" with no error anywhere.
+if command -v tasklist >/dev/null 2>&1; then
+  if tasklist //FI "IMAGENAME eq medichain-api.exe" 2>/dev/null | grep -qi medichain-api; then
+    echo "medichain-api.exe is already running — stop it first:" >&2
+    echo "  taskkill //F //IM medichain-api.exe" >&2
+    exit 1
+  fi
+fi
+
 export IS_DEMO=true
 export REQUIRE_SIGNATURES=false
 export BLOCKCHAIN_ENABLED=false

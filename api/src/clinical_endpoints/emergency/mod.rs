@@ -1,5 +1,5 @@
 pub use super::*;
-use chrono::{DateTime, NaiveDate};
+use chrono::DateTime;
 use serde_json::Value;
 
 mod assessments;
@@ -292,16 +292,8 @@ fn json_label<T: serde::Serialize>(value: &T) -> String {
     }
 }
 
-fn parse_date_or_today(value: &str) -> NaiveDate {
-    NaiveDate::parse_from_str(value, "%Y-%m-%d").unwrap_or_else(|_| Utc::now().date_naive())
-}
-
 fn timestamp_to_datetime(value: i64) -> DateTime<Utc> {
     DateTime::<Utc>::from_timestamp(value, 0).unwrap_or_else(Utc::now)
-}
-
-fn timestamp_to_date(value: i64) -> NaiveDate {
-    timestamp_to_datetime(value).date_naive()
 }
 
 fn access_log_entity(
@@ -472,101 +464,6 @@ fn ems_handoff_entity(handoff: &EMSHandoff, data: Value) -> EmsHandoffEntity {
         verbal_report_complete: true,
         ems_documentation_received: false,
         notes: handoff.notes.clone(),
-        created_at: now,
-        updated_at: now,
-        data,
-    }
-}
-
-fn medication_record_entity(
-    id: String,
-    record: &MedicationAdministrationRecord,
-    documented_by: String,
-    data: Value,
-) -> MedicationRecordEntity {
-    let now = Utc::now();
-    MedicationRecordEntity {
-        id,
-        patient_id: record.patient_id.clone(),
-        record_date: parse_date_or_today(&record.date),
-        scheduled_medications: json_value(&record.scheduled_medications),
-        prn_medications: json_value(&record.prn_medications),
-        infusions: json_value(&record.infusions),
-        completion_status: None,
-        completion_percentage: None,
-        primary_nurse: Some(documented_by),
-        created_at: now,
-        updated_at: now,
-        facility_id: None,
-        is_active: true,
-        data,
-    }
-}
-
-fn iv_assessment_entity(assessment: &IVSiteAssessment, data: Value) -> IVAssessmentEntity {
-    let now = Utc::now();
-    IVAssessmentEntity {
-        id: assessment.assessment_id.clone(),
-        patient_id: assessment.patient_id.clone(),
-        site_id: assessment.line_id.clone(),
-        site_location: assessment.insertion_site.clone(),
-        catheter_type: Some(json_label(&assessment.line_type)),
-        catheter_gauge: Some(assessment.catheter_size.clone()),
-        insertion_date: Some(timestamp_to_date(assessment.insertion_time)),
-        patency: None,
-        site_appearance: assessment.site_assessment.notes.clone(),
-        infiltration_grade: None,
-        phlebitis_grade: assessment.site_assessment.vip_score.map(i32::from),
-        current_infusions: Some(json_value(&assessment.current_infusions)),
-        dressing_intact: Some(assessment.site_assessment.dressing_intact),
-        dressing_change_due: NaiveDate::parse_from_str(&assessment.dressing_date, "%Y-%m-%d").ok(),
-        pain_level: None,
-        notes: assessment.site_assessment.notes.clone(),
-        actions_taken: None,
-        site_discontinued: Some(false),
-        discontinuation_reason: None,
-        assessed_by: assessment.assessed_by.clone(),
-        assessed_at: timestamp_to_datetime(assessment.assessed_at),
-        created_at: now,
-        updated_at: now,
-        facility_id: None,
-        data,
-    }
-}
-
-fn shift_handoff_entity(handoff: &ShiftHandoff, data: Value) -> ShiftHandoffEntity {
-    let now = Utc::now();
-    ShiftHandoffEntity {
-        id: handoff.handoff_id.clone(),
-        patient_id: handoff.patient_id.clone(),
-        outgoing_provider_id: handoff.from_nurse.clone(),
-        incoming_provider_id: handoff.to_nurse.clone(),
-        handoff_datetime: timestamp_to_datetime(handoff.handoff_time),
-        handoff_type: "shift".to_string(),
-        location_from: Some(handoff.situation.room_bed.clone()),
-        location_to: None,
-        situation: json_value(&handoff.situation).to_string(),
-        background: json_value(&handoff.background).to_string(),
-        assessment: json_value(&handoff.assessment).to_string(),
-        recommendation: json_value(&handoff.recommendation).to_string(),
-        pending_tasks: json_value(&handoff.pending_tasks),
-        pending_results: Some(json_value(&handoff.assessment.pending_labs)),
-        pending_consults: None,
-        critical_values: None,
-        code_status: Some(handoff.situation.code_status.clone()),
-        isolation_precautions: handoff.situation.isolation.as_ref().map(json_value),
-        fall_risk_level: Some(handoff.safety_checks.fall_risk_level.clone()),
-        skin_integrity_issues: None,
-        iv_access: Some(json_value(&handoff.assessment.iv_access)),
-        drains_tubes: None,
-        family_concerns: handoff.recommendation.family_concerns.clone(),
-        anticipated_disposition: handoff.recommendation.expected_discharge.clone(),
-        contingency_plans: Some(json_value(&handoff.recommendation.watch_for).to_string()),
-        questions_asked: handoff.questions.as_ref().map(json_value),
-        read_back_confirmed: handoff.acknowledged,
-        acknowledged_by_incoming: handoff.acknowledged,
-        acknowledged_at: handoff.acknowledged.then_some(now),
-        handoff_tool_used: Some("SBAR".to_string()),
         created_at: now,
         updated_at: now,
         data,
