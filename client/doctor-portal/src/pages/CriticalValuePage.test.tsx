@@ -68,8 +68,15 @@ describe('CriticalValuePage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Critical Value Reporting/i)).toBeInTheDocument();
-      expect(screen.getByText(/Potassium/i)).toBeInTheDocument();
-      expect(screen.getByText(/6.5/i)).toBeInTheDocument();
+      // The value and its unit, matched together on the element that carries
+      // them. This was `/6.5/i`, where the unescaped `.` is a regex wildcard —
+      // so it also matched "6:5" inside the rendered timestamp and the query
+      // failed with "found multiple elements" only during the minutes of the
+      // day whose clock digits happen to line up (16:53:53 is one). A test that
+      // depends on the wall clock is not a test; it is a coin flip with a
+      // slow period.
+      expect(screen.getByText(/Potassium/)).toBeInTheDocument();
+      expect(screen.getByText(/6\.5\s*mmol\/L/)).toBeInTheDocument();
     });
   });
 

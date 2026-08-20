@@ -468,6 +468,15 @@ function SettingsPage() {
                       </button>
                     ))}
                   </div>
+                  {/* Dark and system are honest about their state rather than
+                      silently degrading. The dark palette covers only a few
+                      screens so far; choosing it should be a decision, not
+                      something a dark OS does to a clinician on first load. */}
+                  {settings.display.theme !== 'light' && (
+                    <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                      {t('docSettings.themeDarkIncomplete')}
+                    </p>
+                  )}
                 </div>
 
                 <div className="py-3 border-b border-gray-100">

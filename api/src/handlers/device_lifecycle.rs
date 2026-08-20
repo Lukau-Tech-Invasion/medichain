@@ -90,13 +90,20 @@ pub async fn revoke_managed_device(
         .revoke(&path.into_inner(), body.reason.clone(), Utc::now())
     {
         Ok(device) => {
-            let _ = data.audit_outbox.record(
-                "managed_device_revoked".into(),
-                "managed_device".into(),
-                device.id.clone(),
-                serde_json::json!({"organization_id": device.organization_id}),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "managed_device_revoked".into(),
+                    "managed_device".into(),
+                    device.id.clone(),
+                    serde_json::json!({"organization_id": device.organization_id}),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(device)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {

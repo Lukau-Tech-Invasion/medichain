@@ -51,13 +51,20 @@ async fn require_registry_reader(
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
     }
-    let _ = data.audit_outbox.record(
-        "registry_bulk_read".into(),
-        "clinical_registry".into(),
-        http_req.path().to_string(),
-        serde_json::json!({ "accessor_id": user_id, "accessor_role": user.role.to_string() }),
-        Utc::now(),
-    );
+    if let Err(error) = data
+        .audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
+            "registry_bulk_read".into(),
+            "clinical_registry".into(),
+            http_req.path().to_string(),
+            serde_json::json!({ "accessor_id": user_id, "accessor_role": user.role.to_string() }),
+            Utc::now(),
+        )
+        .await
+    {
+        log::error!("audit outbox write failed: {error}");
+    }
     Ok(())
 }
 

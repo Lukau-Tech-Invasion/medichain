@@ -160,13 +160,20 @@ pub async fn create_patient_access_request(
         .await
     {
         Ok(request) => {
-            let _ = data.audit_outbox.record(
-                "access_request_created".into(),
-                "access_request".into(),
-                request.id.clone(),
-                serde_json::json!({"provider_id": request.provider_id}),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "access_request_created".into(),
+                    "access_request".into(),
+                    request.id.clone(),
+                    serde_json::json!({"provider_id": request.provider_id}),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Created().json(serde_json::json!({ "request": request }))
         }
         Err(e) => transition_error(e),
@@ -206,13 +213,20 @@ pub async fn approve_access_request(
         .await
     {
         Ok((request, grant)) => {
-            let _ = data.audit_outbox.record(
-                "access_request_approved".into(),
-                "access_grant".into(),
-                grant.id.clone(),
-                serde_json::json!({"request_id": request.id, "provider_id": grant.provider_id}),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "access_request_approved".into(),
+                    "access_grant".into(),
+                    grant.id.clone(),
+                    serde_json::json!({"request_id": request.id, "provider_id": grant.provider_id}),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(serde_json::json!({ "request": request, "grant": grant }))
         }
         Err(e) => transition_error(e),
@@ -248,13 +262,20 @@ pub async fn deny_access_request(
     }
     match data.patient_access.deny_request(&request_id).await {
         Ok(request) => {
-            let _ = data.audit_outbox.record(
-                "access_request_denied".into(),
-                "access_request".into(),
-                request.id.clone(),
-                serde_json::json!({"provider_id": request.provider_id}),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "access_request_denied".into(),
+                    "access_request".into(),
+                    request.id.clone(),
+                    serde_json::json!({"provider_id": request.provider_id}),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(serde_json::json!({ "request": request }))
         }
         Err(e) => transition_error(e),
@@ -294,13 +315,20 @@ pub async fn revoke_access_grant(
         .await
     {
         Ok(grant) => {
-            let _ = data.audit_outbox.record(
-                "access_grant_revoked".into(),
-                "access_grant".into(),
-                grant.id.clone(),
-                serde_json::json!({"provider_id": grant.provider_id}),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "access_grant_revoked".into(),
+                    "access_grant".into(),
+                    grant.id.clone(),
+                    serde_json::json!({"provider_id": grant.provider_id}),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(serde_json::json!({ "grant": grant }))
         }
         Err(e) => transition_error(e),

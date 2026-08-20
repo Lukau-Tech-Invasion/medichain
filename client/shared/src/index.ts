@@ -73,4 +73,4 @@ export * from './components/EmergencyBanner';
 export * from './components/ErrorBoundary';
 export * from './components/RestrictedSection';
 export * from './components/JitsiMeetComponent';
-
+export * from './utils/contrast';

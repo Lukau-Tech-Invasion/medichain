@@ -69,13 +69,28 @@ function MetricRow({
   hint?: string;
   urgent?: boolean;
 }) {
-  const tone = value == null ? 'bg-gray-50' : urgent ? 'bg-red-50' : 'bg-green-50';
-  const text = value == null ? 'text-gray-400' : urgent ? 'text-red-700' : 'text-green-700';
+  // `text-gray-400` on `bg-gray-50` measures 2.43:1 — WCAG AA wants 4.5:1 for
+  // normal text. It was used here for the unmeasured rows and the em dash, on
+  // the theory that absent data should recede. Absent data should be *legible*
+  // and unemphasised; those are not the same thing, and greying it to the point
+  // of illegibility is how a reader mistakes "not measured" for "nothing here".
+  // `gray-600` on `gray-50` measures 7.0:1 and still reads as secondary.
+  const tone = value == null ? 'bg-gray-100' : urgent ? 'bg-red-50' : 'bg-green-50';
+  const text = value == null ? 'text-gray-600' : urgent ? 'text-red-800' : 'text-green-800';
+  // Urgency must not be carried by hue alone: red-on-pale-red is invisible to a
+  // reader with deuteranopia or protanopia, and this row is the most
+  // time-critical number on the page. The icon and the border give it two more
+  // channels, so it survives being printed, dimmed, or seen by someone who does
+  // not perceive the red at all.
+  const edge = urgent ? 'border-l-4 border-red-700' : 'border-l-4 border-transparent';
   return (
-    <div className={`flex items-center justify-between p-3 rounded-lg ${tone}`}>
-      <span className="text-sm text-gray-700">
-        {label}
-        {hint && <span className="block text-xs text-gray-500">{hint}</span>}
+    <div className={`flex items-center justify-between p-3 rounded-lg ${tone} ${edge}`}>
+      <span className="text-sm text-gray-800">
+        <span className="inline-flex items-center gap-1.5">
+          {urgent && <AlertCircle className="w-4 h-4 text-red-800 shrink-0" aria-hidden="true" />}
+          {label}
+        </span>
+        {hint && <span className="block text-xs text-gray-600">{hint}</span>}
       </span>
       <span className={`text-lg font-bold ${text}`}>{value ?? '—'}</span>
     </div>
@@ -717,11 +732,11 @@ const AnalyticsPage: React.FC = () => {
           <p className="text-sm text-gray-600 mb-3">{t('docAnalytics.unmeasuredHint')}</p>
           <ul className="space-y-2">
             {(operations?.unmeasured ?? []).map((key) => (
-              <li key={key} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm text-gray-700">
+              <li key={key} className="flex items-center justify-between p-3 bg-gray-100 rounded-lg">
+                <span className="text-sm text-gray-800">
                   {t(`docAnalytics.unmeasured_${key}`)}
                 </span>
-                <span className="text-sm text-gray-400">{t('docAnalytics.notMeasured')}</span>
+                <span className="text-sm text-gray-600">{t('docAnalytics.notMeasured')}</span>
               </li>
             ))}
           </ul>

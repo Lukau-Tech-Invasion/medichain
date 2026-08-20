@@ -2471,3 +2471,86 @@ async fn test_pg_user_directory_lists_deactivated_accounts() {
 
     pool.close().await;
 }
+
+/// The audit outbox must survive a restart.
+///
+/// `AuditOutbox::record` writes to an in-process `RwLock<HashMap>` and nothing
+/// else. `record_durable` writes the same event *and* persists it to
+/// `audit_outbox_events`. Until 2026-08-20 every one of the 14 call sites --
+/// emergency break-glass grants, access-control changes, RBAC changes, device
+/// lifecycle, identity claims, mobile record access -- called `record`, and
+/// discarded the result with `let _ =`.
+///
+/// So the audit outbox was entirely in-process: those events vanished on every
+/// deploy, and a failed write told nobody. `record_durable` already existed,
+/// fully written and correct, with **zero callers**. This test exists so that
+/// cannot silently become true again.
+#[tokio::test]
+async fn test_pg_audit_outbox_event_survives_a_restart() {
+    let pool = get_test_pool().await;
+    let outbox = crate::audit_outbox::AuditOutbox::new();
+
+    let aggregate_id = format!("grant-{}", uuid::Uuid::new_v4());
+    let event = outbox
+        .record_durable(
+            Some(&pool),
+            "emergency_grant_issued".to_string(),
+            "emergency_grant".to_string(),
+            aggregate_id.clone(),
+            serde_json::json!({ "organization_id": "ORG-TEST", "device_id": "DEV-TEST" }),
+            chrono::Utc::now(),
+        )
+        .await
+        .expect("durable audit write must succeed against a live schema");
+
+    // A brand-new outbox stands in for the process after a restart: its
+    // in-memory map is empty, so anything readable now came from PostgreSQL.
+    let after_restart = crate::audit_outbox::AuditOutbox::new();
+    assert!(
+        after_restart.pending().is_empty(),
+        "a fresh outbox starts empty -- otherwise this test proves nothing"
+    );
+
+    let (event_type, aggregate_type, payload_hash): (String, String, String) = sqlx::query_as(
+        "SELECT event_type, aggregate_type, payload_hash
+         FROM audit_outbox_events WHERE id = $1",
+    )
+    .bind(&event.id)
+    .fetch_one(&pool)
+    .await
+    .expect("the event must be readable from PostgreSQL after the process is gone");
+
+    assert_eq!(event_type, "emergency_grant_issued");
+    assert_eq!(aggregate_type, "emergency_grant");
+    assert_eq!(
+        payload_hash, event.payload_hash,
+        "the persisted hash must match the recorded one, or the row cannot          evidence what was actually audited"
+    );
+
+    pool.close().await;
+}
+
+/// A malformed event is refused rather than silently recorded.
+#[tokio::test]
+async fn test_pg_audit_outbox_rejects_an_event_with_no_identity() {
+    let pool = get_test_pool().await;
+    let outbox = crate::audit_outbox::AuditOutbox::new();
+
+    let result = outbox
+        .record_durable(
+            Some(&pool),
+            String::new(),
+            "emergency_grant".to_string(),
+            "some-id".to_string(),
+            serde_json::json!({}),
+            chrono::Utc::now(),
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "an audit event with no type has no evidentiary value and must be refused"
+    );
+
+    pool.close().await;
+}

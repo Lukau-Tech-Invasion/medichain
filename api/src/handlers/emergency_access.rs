@@ -168,13 +168,20 @@ pub async fn grant_bound_emergency_access(
             )
         }
     };
-    let _ = data.audit_outbox.record(
+    if let Err(error) = data
+        .audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
         "emergency_grant_issued".into(),
         "emergency_grant".into(),
         grant.id.clone(),
         serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
         Utc::now(),
-    );
+        )
+        .await
+    {
+        log::error!("audit outbox write failed: {error}");
+    }
 
     // HZ-003: record the break-glass disclosure at field granularity, and check
     // the off-chain capsule against its commitment. The generic audit row above

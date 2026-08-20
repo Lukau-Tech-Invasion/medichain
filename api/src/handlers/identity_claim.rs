@@ -145,13 +145,20 @@ pub async fn claim_medical_identity(
         });
     }
 
-    let _ = data.audit_outbox.record(
-        "medical_identity_claimed".into(),
-        "patient".into(),
-        body.patient_id.clone(),
-        serde_json::json!({ "claimed_by": current_user_id }),
-        Utc::now(),
-    );
+    if let Err(error) = data
+        .audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
+            "medical_identity_claimed".into(),
+            "patient".into(),
+            body.patient_id.clone(),
+            serde_json::json!({ "claimed_by": current_user_id }),
+            Utc::now(),
+        )
+        .await
+    {
+        log::error!("audit outbox write failed: {error}");
+    }
 
     HttpResponse::Ok().json(ClaimIdentityResponse {
         success: true,

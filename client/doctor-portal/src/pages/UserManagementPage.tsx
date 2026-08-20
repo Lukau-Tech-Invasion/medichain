@@ -456,22 +456,39 @@ const UserManagementPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-4 mb-4 bg-purple-50 rounded-lg p-4">
-                  <div>
+                {/* `grid-cols-4` was fixed at every breakpoint and the cells
+                    had no `min-w-0`. A wallet address is 48 unbreakable
+                    characters, and a grid track cannot shrink below its
+                    content's intrinsic width without `min-w-0` — so the first
+                    column pushed past its share and the four values rendered
+                    on top of each other. `break-all` lets the address wrap,
+                    `min-w-0` lets the track shrink, and the column count now
+                    steps down on narrow viewports instead of cramming four
+                    columns into a phone. */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 bg-purple-50 rounded-lg p-4">
+                  <div className="min-w-0">
                     <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.userIdLabel')}</p>
-                    <p className="font-semibold text-gray-900">{systemUser.userId}</p>
+                    {/* Monospaced and selectable: this is an identifier someone
+                        copies, and proportional type makes a transposed
+                        character in an SS58 address genuinely hard to spot. */}
+                    <p
+                      className="font-mono text-xs text-gray-900 break-all select-all"
+                      title={systemUser.userId}
+                    >
+                      {systemUser.userId}
+                    </p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.departmentLabel')}</p>
-                    <p className="text-sm text-gray-900">{systemUser.department || t('docUserManagement.notAssigned')}</p>
+                    <p className="text-sm text-gray-900 break-words">{systemUser.department || t('docUserManagement.notAssigned')}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.licenseNumberLabel')}</p>
-                    <p className="text-sm text-gray-900">{systemUser.licenseNumber || t('docUserManagement.na')}</p>
+                    <p className="text-sm text-gray-900 break-words">{systemUser.licenseNumber || t('docUserManagement.na')}</p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.specializationLabel')}</p>
-                    <p className="text-sm text-gray-900">{systemUser.specialization || t('docUserManagement.na')}</p>
+                    <p className="text-sm text-gray-900 break-words">{systemUser.specialization || t('docUserManagement.na')}</p>
                   </div>
                 </div>
 

@@ -435,6 +435,162 @@ codebase today". That stopped being true on 2026-08-11, when the node began
 building and producing a real dev chain. The ignore may still be defensible; the
 stated reason for it is not.
 
+## 2026-08-20 — the recurring "unreadable UI" reports were one setting, not many bugs
+
+Dark mode has been reported as a scatter of unrelated readability complaints
+across several sessions. It is one line.
+
+`themeStore.ts` defaulted to `theme: 'system'`, and it correctly applies the
+`dark` class to `<html>` when the operating system asks for it. What does not
+exist is the dark theme:
+
+| surface | pages with any `dark:` variant |
+|---|---|
+| doctor-portal pages | **4 of 152** |
+| shared components | 3 of 13 |
+| patient-app pages | **0 of 53** |
+
+So every user whose OS is set to dark — a large share of them — was handed a
+dark shell wrapped around light-only content on first load, without ever
+opening Settings: pale grey labels on near-white cards floating in a dark page,
+on clinical screens. Nobody chose it, which is exactly why it kept being
+reported as random rather than as a setting.
+
+Fixed by defaulting to the theme that actually exists (`'light'`) and labelling
+the Settings control honestly, so choosing dark is an informed decision rather
+than something that happens to a clinician. The toggle still works; real dark
+mode is now a scheduled piece of work rather than an implied promise.
+
+### The contrast defects underneath it were real in light mode too
+
+Measured, not eyeballed. The analytics operational panel — added the *same day*,
+in the change that replaced fabricated KPIs with honest ones — used
+`text-gray-400` on `bg-gray-50` for the "No data source" label and for the em
+dash standing in for an absent metric: **2.43:1**, against WCAG 2.2 AA's 4.5:1.
+It does not clear even the 3:1 large-text bar, so no font-size argument rescues
+it. Absent data should be *unemphasised*, not *illegible*; conflating the two is
+how a reader mistakes "not measured" for "nothing is wrong here".
+
+Urgency on "Unacknowledged critical values" — the most time-critical number on
+that page — was carried by `text-red-700` alone. Hue as the only channel is
+invisible to a reader with deuteranopia or protanopia. It now also carries an
+icon and a left border.
+
+**The gate that stops this recurring:** `client/shared/src/utils/contrast.ts`
+(WCAG relative-luminance arithmetic) plus a test that asserts every pairing used
+on a clinical surface clears AA — *and* pins the failing combinations as
+failing, so a future "tidy the palette back to lighter greys" reintroduces the
+defect loudly instead of silently.
+
+Note what caught this: a screenshot, not a test suite. The placeholder audit
+read `BEHAVIOURAL 0` throughout, and every automated gate was green.
+
+### A layout defect on the same screens
+
+`UserManagementPage` rendered its detail block as `grid-cols-4`, fixed at every
+breakpoint, with no `min-w-0` on the cells. A CSS Grid track cannot shrink below
+its content's intrinsic width without `min-w-0`, and an SS58 wallet address is
+48 unbreakable characters — so the first column pushed past its share and all
+four values rendered on top of each other. Now responsive, with `break-all` and
+a monospaced face (a transposed character in a proportional-type address is
+genuinely hard to spot).
+
+### Related finding: `client/shared` has no test runner
+
+It holds credential derivation, the keystore envelope and 130+ API functions,
+and its `package.json` defines only `lint` and `typecheck`. Any test placed
+there silently never runs — which is why the contrast test lives in
+`doctor-portal` and imports the utility from `shared`. Adding a runner to
+`shared` is worth doing on its own merits.
+
+## 2026-08-20 — CLOSED: the audit outbox was entirely in-process
+
+`AuditOutbox::record` writes to an in-process `RwLock<HashMap>` and nothing
+else. `AuditOutbox::record_durable` writes the same event **and** persists it to
+`audit_outbox_events`. It was written, correct, complete — and had **zero
+callers**.
+
+All 14 call sites used `record`, every one of them discarding the result with
+`let _ =`:
+
+| surface | sites |
+|---|---|
+| access-control changes | 4 |
+| RBAC changes | 3 |
+| emergency grants | 2 |
+| emergency break-glass access | 1 |
+| device lifecycle | 1 |
+| identity claims | 1 |
+| mobile record access | 1 |
+| registries | 1 |
+
+So every one of those audit events lived only in process memory: **gone on every
+deploy or restart**, with a failed write reported to nobody. For break-glass
+emergency access — the single most audit-sensitive operation in this product —
+the outbox event did not survive the process that created it.
+
+This is the project's signature defect class (a successful write no reader can
+see) sitting in the audit path, and it hid the same way the others did: the
+method name reads like it persists, the call compiles, nothing errors, and the
+in-memory copy makes it look correct for the lifetime of the process you are
+testing in.
+
+Closed by rewiring all 14 sites to `record_durable(data.db_pool.as_ref(), …)`
+and surfacing failures via `log::error!` instead of discarding them. Pinned by
+`test_pg_audit_outbox_event_survives_a_restart`, which persists an event, builds
+a **fresh** outbox to stand in for the process after a restart, asserts that
+fresh instance is empty, and then reads the event back out of PostgreSQL — so
+the test cannot pass on the in-memory copy. A second test asserts a malformed
+event is refused rather than silently recorded.
+
+**Note on a correction:** an earlier read of this session assumed `audit_outbox`
+was an alternative to writing `access_logs`, and that the new telehealth-join
+audit should have gone through it. That was wrong. `access_logs` is the
+queryable access trail and is the correct home for the join row; the outbox is a
+separate privacy-minimised event stream for chain anchoring and delivery. They
+are complementary. The real defect was durability, not routing.
+
+## 2026-08-20 — a gate that asks the narrower authorization question
+
+`check-endpoint-auth.py` asks *"is there an authorization decision in this
+handler"*. It cannot see a decision that is present and too permissive. It
+counted the telehealth recording endpoint as properly authorized at tier 3 while
+`is_healthcare_provider()` — true for Pharmacist and LabTechnician — was letting
+a pharmacist start recording a patient's consultation.
+
+`scripts/check-write-authorization.py` asks the question that would have caught
+it: **does a state-changing handler rely only on the widest clinical
+predicate?** A read gated on "any clinical staff" is usually fine. A write gated
+on it is a claim that a pharmacist, a lab technician, a nurse and a doctor
+should all be able to perform that action — sometimes true, but it needs to have
+been *decided* rather than inherited.
+
+Findings on first run: 49 reads on the broad predicate (fine), and **23 writes**.
+Thirteen were reviewed and accepted with a written reason (drug-interaction
+checks — where a pharmacist is the *most* appropriate caller, not the least;
+insurance and scheduling actions that carry no clinical authority; sample
+history, where a LabTechnician is the intended caller). Seven more were already
+narrowing elsewhere in the handler.
+
+**Three are escalated, not accepted.** They are printed on every run and moving
+one out requires writing down an answer:
+
+| endpoint | the question |
+|---|---|
+| `POST /api/emergency-access` | Break-glass bypasses consent to reveal the emergency capsule. Only the treating roles, or any clinical staff? Paramedics map to `Nurse` here. |
+| `POST /api/emergency/nfc-token` | Mints the one-time break-glass token. Must be answered *together* with the above or the two will drift apart. |
+| `POST /api/nfc/generate` | Issues a patient identity credential. Identity issuance is usually a registration authority, not a clinical role. |
+
+These are clinical-policy calls, and narrowing authorization silently can break
+a legitimate workflow just as surely as leaving it wide can permit a wrong one.
+The escalation list exists so the risk is *known* rather than either quietly
+accepted or quietly changed.
+
+**Design note:** the script separates `REVIEWED` (decided, with the reason
+recorded beside it) from `ESCALATED` (deliberately surfaced, awaiting a
+decision). Only handlers in neither list fail the build. An allowlist without
+reasons becomes a place to hide things, which is why every entry carries one.
+
 ## How this list was produced
 
 Mostly by the compiler, which is the point. `cargo check`'s dead-code warnings

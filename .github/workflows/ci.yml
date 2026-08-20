@@ -39,6 +39,16 @@ jobs:
             - name: Every endpoint has an auth decision
               run: python scripts/check-endpoint-auth.py
 
+            # The gate above asks "is there an authorization decision here". It
+            # cannot see a decision that is present and too permissive — it
+            # counted the telehealth recording endpoint as properly authorized
+            # while `is_healthcare_provider()` was letting a pharmacist start
+            # recording a patient's consultation. This one asks the narrower
+            # question: does a state-changing handler rely on the widest
+            # clinical predicate, and was that deliberate?
+            - name: State-changing handlers narrow beyond "any clinical staff"
+              run: python scripts/check-write-authorization.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================

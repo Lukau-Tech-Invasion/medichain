@@ -381,18 +381,25 @@ pub async fn verify_guardian_relationship(
         .await
     {
         Ok(created) => {
-            let _ = data.audit_outbox.record(
-                "guardian_relationship_verified".into(),
-                "guardian_relationship".into(),
-                created.id.clone(),
-                serde_json::json!({
-                    "guardian_wallet": created.guardian_wallet,
-                    "ward_patient_id": created.ward_patient_id,
-                    "permissions": created.permissions,
-                    "verified_by": created.verified_by,
-                }),
-                now,
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "guardian_relationship_verified".into(),
+                    "guardian_relationship".into(),
+                    created.id.clone(),
+                    serde_json::json!({
+                        "guardian_wallet": created.guardian_wallet,
+                        "ward_patient_id": created.ward_patient_id,
+                        "permissions": created.permissions,
+                        "verified_by": created.verified_by,
+                    }),
+                    now,
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Created().json(created)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
@@ -459,16 +466,23 @@ pub async fn update_guardian_permissions(
         .await
     {
         Ok(updated) => {
-            let _ = data.audit_outbox.record(
-                "guardian_relationship_permissions_updated".into(),
-                "guardian_relationship".into(),
-                updated.id.clone(),
-                serde_json::json!({
-                    "updated_by": current_user_id,
-                    "permissions": permissions,
-                }),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "guardian_relationship_permissions_updated".into(),
+                    "guardian_relationship".into(),
+                    updated.id.clone(),
+                    serde_json::json!({
+                        "updated_by": current_user_id,
+                        "permissions": permissions,
+                    }),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(updated)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
@@ -546,16 +560,23 @@ pub async fn revoke_guardian_relationship(
         .await
     {
         Ok(()) => {
-            let _ = data.audit_outbox.record(
-                "guardian_relationship_revoked".into(),
-                "guardian_relationship".into(),
-                body.relationship_id.clone(),
-                serde_json::json!({
-                    "revoked_by": current_user_id,
-                    "reason": body.reason,
-                }),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "guardian_relationship_revoked".into(),
+                    "guardian_relationship".into(),
+                    body.relationship_id.clone(),
+                    serde_json::json!({
+                        "revoked_by": current_user_id,
+                        "reason": body.reason,
+                    }),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(serde_json::json!({ "success": true }))
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {

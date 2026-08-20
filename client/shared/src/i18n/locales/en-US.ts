@@ -2572,6 +2572,8 @@ const en_US: TranslationRecord = {
     themeLight: 'Light',
     themeDark: 'Dark',
     themeSystem: 'System',
+    themeDarkIncomplete:
+      'Dark mode is still being rolled out — most clinical screens are light-only, so parts of the interface will be hard to read. Light is recommended until it is complete.',
     language: 'Language',
     languageDesc: 'Select your preferred language',
     langEnglish: 'English',

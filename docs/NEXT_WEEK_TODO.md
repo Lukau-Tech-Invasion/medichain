@@ -232,6 +232,12 @@ supply a provider choice, credentials, or physical hardware.
 ---
 
 ## Process / external dependencies (track, not blocking)
+- [ ] **Decide break-glass role scope** (3 endpoints, surfaced by
+      `scripts/check-write-authorization.py`). `POST /api/emergency-access` and
+      `POST /api/emergency/nfc-token` currently admit Pharmacist and
+      LabTechnician; `POST /api/nfc/generate` issues an identity credential to
+      any clinical role. Answer the first two together. Not a code task — a
+      clinical-policy decision that then becomes a one-line predicate change.
 - [ ] Annual penetration-testing framework (HIPAA 2025) — schedule + scope (11.3)
 - [x] Snyk scanning in CI — **wired** in `.github/workflows/ci.yml` (`snyk` job, Rust + frontend, `--severity-threshold=high`). Deliberately opt-in: it runs when the `SNYK_ENABLED` repo *variable* is `"true"` and the `SNYK_TOKEN` secret is set, so adding the token alone cannot start failing builds before the severity threshold and project scope are agreed. `cargo audit` already runs unconditionally in the same workflow. Nothing further to build; this is now an account action. (11.2)
 - [x] Pin exact dependency versions — already covered by the committed `Cargo.lock` (standard Rust mechanism); see IMPLEMENTATION_PLAN.md 11.2 note (11.2)
