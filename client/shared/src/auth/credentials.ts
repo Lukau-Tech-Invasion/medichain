@@ -45,7 +45,9 @@
 import { u8aToHex, hexToU8a, stringToU8a } from '@polkadot/util';
 
 /** Bump when the envelope or derivation changes; `openKeystore` refuses others. */
-export const KEYSTORE_VERSION = 1;
+export const KEYSTORE_VERSION = 2;
+/** Versions `openKeystore` still accepts. v1 held a mini-secret only. */
+const SUPPORTED_KEYSTORE_VERSIONS = [1, 2];
 
 /**
  * PBKDF2 cost. OWASP's 2023 floor for PBKDF2-HMAC-SHA512 is 210,000; this runs
@@ -63,8 +65,24 @@ export interface EncryptedKeystore {
   v: number;
   /** Base64 AES-GCM nonce. */
   iv: string;
-  /** Base64 ciphertext of the 32-byte mini-secret. */
+  /**
+   * Base64 ciphertext of the account secret: a 32-byte mini-secret (`kind:
+   * 'seed'`) or a 64-byte sr25519 secret key (`kind: 'secretKey'`).
+   */
   ct: string;
+  /**
+   * Which secret `ct` holds. Absent means `'seed'`, so v1 keystores written
+   * before this field existed still open.
+   *
+   * v1 could only store a mini-secret, which meant only accounts derived
+   * *directly* from a seed could be enrolled. A wallet using a derivation path
+   * — `//Alice`, or the `//hospital//dr-mbeki` style a Polkadot extension
+   * produces — has no mini-secret that reproduces it, so those clinicians could
+   * not use credential sign-in at all. There was no error explaining that;
+   * enrolment appeared to succeed and the account it unlocked was simply a
+   * different one.
+   */
+  kind?: 'seed' | 'secretKey';
   /** The address this keystore unlocks, so a wrong-account mix-up is caught. */
   address: string;
 }
@@ -180,25 +198,31 @@ async function aesKey(raw: Uint8Array, usage: KeyUsage[]): Promise<CryptoKey> {
   return subtle().importKey('raw', bytes(raw), { name: 'AES-GCM' }, false, usage);
 }
 
-/** Seal a 32-byte sr25519 mini-secret under the keystore key. */
+/** Seal an sr25519 account secret under the keystore key. */
 export async function createKeystore(
-  miniSecret: Uint8Array,
+  secret: Uint8Array,
   address: string,
   keystoreKey: Uint8Array
 ): Promise<string> {
-  if (miniSecret.length !== 32) {
-    throw new Error('A sr25519 mini-secret must be 32 bytes');
-  }
+  // 32 bytes is a mini-secret (an account derived straight from a seed);
+  // 64 bytes is a full sr25519 secret key, which is the only way to carry an
+  // account that came from a derivation path.
+  const kind: 'seed' | 'secretKey' =
+    secret.length === 32 ? 'seed' : secret.length === 64 ? 'secretKey' : (() => {
+      throw new Error('A sr25519 secret must be a 32-byte mini-secret or a 64-byte secret key');
+    })();
+
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
   const ct = await subtle().encrypt(
     { name: 'AES-GCM', iv },
     await aesKey(keystoreKey, ['encrypt']),
-    bytes(miniSecret)
+    bytes(secret)
   );
   const envelope: EncryptedKeystore = {
     v: KEYSTORE_VERSION,
     iv: b64(iv),
     ct: b64(new Uint8Array(ct)),
+    kind,
     address,
   };
   return JSON.stringify(envelope);
@@ -218,7 +242,10 @@ export async function openKeystore(
   } catch {
     throw new Error('Stored credentials are unreadable. Ask an administrator to re-enrol you.');
   }
-  if (envelope.v !== KEYSTORE_VERSION) {
+  // v1 keystores stay openable. They hold a mini-secret and carry no `kind`,
+  // which is exactly what the default below assumes — an existing clinician
+  // must not be locked out by a format bump.
+  if (!SUPPORTED_KEYSTORE_VERSIONS.includes(envelope.v)) {
     throw new Error(
       `Stored credentials use format v${envelope.v}, which this version cannot open.`
     );
@@ -229,6 +256,8 @@ export async function openKeystore(
       await aesKey(keystoreKey, ['decrypt']),
       bytes(unb64(envelope.ct))
     );
+    // The name stays `miniSecret` for callers, but a v2 `secretKey` envelope
+    // returns 64 bytes; `signerFromSecret` distinguishes them by length.
     return { miniSecret: new Uint8Array(pt), address: envelope.address };
   } catch {
     throw new Error('Incorrect password.');
@@ -242,15 +271,38 @@ export async function openKeystore(
  * `verify_wallet_signature_bound` checks. Note this differs from the extension
  * path, which signs an `<Bytes>`-wrapped payload.
  */
-export async function signerFromSecret(miniSecret: Uint8Array): Promise<WalletSigner> {
-  const { cryptoWaitReady, sr25519PairFromSeed, sr25519Sign, encodeAddress } = await import(
-    '@polkadot/util-crypto'
-  );
+export async function signerFromSecret(
+  secret: Uint8Array,
+  /**
+   * Required for a 64-byte secret key. sr25519 signing needs both halves of the
+   * keypair, and a secret key alone does not yield its public half — but the
+   * keystore already records the address, which decodes straight back to it.
+   */
+  address?: string
+): Promise<WalletSigner> {
+  const {
+    cryptoWaitReady, sr25519PairFromSeed, sr25519Sign, encodeAddress, decodeAddress,
+  } = await import('@polkadot/util-crypto');
   await cryptoWaitReady();
-  const pair = sr25519PairFromSeed(miniSecret);
-  const address = encodeAddress(pair.publicKey, 42);
+
+  // 32 bytes is a seed to expand. 64 bytes is already the secret key of an
+  // account that came from a derivation path; expanding *that* through
+  // `sr25519PairFromSeed` yields a different account entirely, which is the bug
+  // this branch exists to prevent.
+  let pair: { publicKey: Uint8Array; secretKey: Uint8Array };
+  if (secret.length === 32) {
+    pair = sr25519PairFromSeed(secret);
+  } else if (secret.length === 64) {
+    if (!address) {
+      throw new Error('A 64-byte sr25519 secret key needs its address to recover the public key');
+    }
+    pair = { publicKey: decodeAddress(address), secretKey: secret };
+  } else {
+    throw new Error('A sr25519 secret must be a 32-byte mini-secret or a 64-byte secret key');
+  }
+
   return {
-    address,
+    address: encodeAddress(pair.publicKey, 42),
     async sign(message: string): Promise<string> {
       return u8aToHex(sr25519Sign(stringToU8a(message), pair));
     },

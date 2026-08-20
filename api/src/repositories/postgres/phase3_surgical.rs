@@ -259,6 +259,20 @@ impl PgOperativeNoteRepository {
 
 #[async_trait]
 impl OperativeNoteRepository for PgOperativeNoteRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<OperativeNoteEntity>> {
+        let rows = sqlx::query_as::<_, OperativeNoteEntity>(
+            "SELECT * FROM operative_notes ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, note: OperativeNoteEntity) -> RepositoryResult<OperativeNoteEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO operative_notes (
@@ -404,6 +418,10 @@ impl OperativeNoteRepository for PgOperativeNoteRepository {
         qb.push(", post_op_orders = ")
             .push_bind(&note.post_op_orders);
         qb.push(", record_json = ").push_bind(&note.data);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&note.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&note.id);
         qb.push(" RETURNING *");
@@ -802,6 +820,20 @@ impl PgIntubationRecordRepository {
 
 #[async_trait]
 impl IntubationRecordRepository for PgIntubationRecordRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<IntubationRecordEntity>> {
+        let rows = sqlx::query_as::<_, IntubationRecordEntity>(
+            "SELECT * FROM intubation_records ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         record: IntubationRecordEntity,
@@ -924,6 +956,10 @@ impl IntubationRecordRepository for PgIntubationRecordRepository {
             .push_bind(&record.verification_methods);
         qb.push(", post_intubation_vitals = ")
             .push_bind(&record.post_intubation_vitals);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&record.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&record.id);
         qb.push(" RETURNING *");
@@ -955,6 +991,20 @@ impl PgLacerationRepairRepository {
 
 #[async_trait]
 impl LacerationRepairRepository for PgLacerationRepairRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<LacerationRepairEntity>> {
+        let rows = sqlx::query_as::<_, LacerationRepairEntity>(
+            "SELECT * FROM laceration_repairs ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         repair: LacerationRepairEntity,
@@ -1086,6 +1136,10 @@ impl LacerationRepairRepository for PgLacerationRepairRepository {
             .push_bind(repair.follow_up_date);
         qb.push(", suture_removal_date = ")
             .push_bind(repair.suture_removal_date);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&repair.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&repair.id);
         qb.push(" RETURNING *");
@@ -1241,6 +1295,10 @@ impl SplintCastRecordRepository for PgSplintCastRecordRepository {
         qb.push(", follow_up_provider = ")
             .push_bind(&record.follow_up_provider);
         qb.push(", removal_date = ").push_bind(record.removal_date);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&record.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&record.id);
         qb.push(" RETURNING *");

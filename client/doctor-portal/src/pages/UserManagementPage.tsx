@@ -52,20 +52,13 @@ const UserManagementPage: React.FC = () => {
   // This section is administrator-only server-side; without this the page
   // received a correct 403 and then rendered nothing, which reads as a fault
   // rather than a permissions boundary.
-  const { user: restrictedCheckUser } = useAuthStore();
-  const isAdministrator = restrictedCheckUser?.role === 'Admin';
-  if (!isAdministrator) {
-    return (
-      <RestrictedSection
-        title="User management"
-        audience="administrators"
-        currentRole={restrictedCheckUser?.role}
-      />
-    );
-  }
-
+  // Administrator-only, gated after the hooks rather than before them:
+  // returning early above meant a non-administrator render ran a dozen fewer
+  // hooks, and React throws "Rendered fewer hooks than expected" the moment the
+  // role changes without a remount.
+  const { user } = useAuthStore();
+  const isAdministrator = user?.role === 'Admin';
   const { t } = useTranslation();
-  const { user: _user } = useAuthStore();
   const { showSuccess, showError, showWarning } = useToastActions();
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -148,8 +141,11 @@ const UserManagementPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    // Skip the request, not the hook: a non-administrator would otherwise
+    // spend a call to be told 403 on a screen they cannot see.
+    if (!isAdministrator) return;
     fetchUsers();
-  }, [fetchUsers]);
+  }, [fetchUsers, isAdministrator]);
 
   const handleCreateUser = async () => {
     if (!newUser.walletAddress || !newUser.name || !newUser.email || !newUser.phone) {
@@ -301,6 +297,18 @@ const UserManagementPage: React.FC = () => {
 
     return availablePermissions.filter((p) => rolePermissionIds[role].includes(p.id));
   };
+
+  // Safe here: every hook above has already run, so the hook count is identical
+  // for an administrator and for anyone else.
+  if (!isAdministrator) {
+    return (
+      <RestrictedSection
+        title="User management"
+        audience="administrators"
+        currentRole={user?.role}
+      />
+    );
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto">

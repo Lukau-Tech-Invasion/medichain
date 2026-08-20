@@ -489,8 +489,7 @@ pub fn resolve_attributed_provider(
     let Some(target) = target else {
         return Err(HttpResponse::BadRequest().json(crate::ErrorResponse {
             success: false,
-            error: "The named provider is not a registered, active healthcare provider"
-                .to_string(),
+            error: "The named provider is not a registered, active healthcare provider".to_string(),
             code: "UNKNOWN_PROVIDER".to_string(),
         }));
     };
@@ -735,8 +734,16 @@ mod attributed_provider_tests {
     fn an_admin_may_schedule_for_a_colleague_and_the_real_actor_is_retained() {
         let s = state();
         let r = resolve_attributed_provider(&s, &req_as("admin"), Some("doc-b")).unwrap();
-        assert_eq!(r.provider_id(), "doc-b", "record is attributed to the colleague");
-        assert_eq!(r.actor_id(), "admin", "audit still names who actually filed it");
+        assert_eq!(
+            r.provider_id(),
+            "doc-b",
+            "record is attributed to the colleague"
+        );
+        assert_eq!(
+            r.actor_id(),
+            "admin",
+            "audit still names who actually filed it"
+        );
     }
 
     /// A patient choosing whom to see is legitimate — `provider_id` is a target

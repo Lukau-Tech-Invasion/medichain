@@ -124,3 +124,8 @@ client/playwright-report/
 client/**/*.png
 *.png
 fix-results.tsv
+
+# Browser-test identity fixtures: throwaway synthetic credentials and
+# recovery phrases. Regenerate with scripts/seed-browser-test-fixtures.ts;
+# never commit them.
+.browser-test/

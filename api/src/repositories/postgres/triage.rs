@@ -85,8 +85,9 @@ impl TriageAssessmentRepository for PgTriageAssessmentRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<TriageAssessmentEntity> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new(format!("SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE id = "));
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE id = "
+        ));
         qb.push_bind(id);
 
         let assessment = qb
@@ -110,8 +111,9 @@ impl TriageAssessmentRepository for PgTriageAssessmentRepository {
             .fetch_one(&self.pool)
             .await?;
 
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new(format!("SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE patient_id = "));
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE patient_id = "
+        ));
         qb.push_bind(patient_id);
         qb.push(" ORDER BY triage_time DESC LIMIT ");
         qb.push_bind(pagination.limit() as i64);
@@ -130,8 +132,9 @@ impl TriageAssessmentRepository for PgTriageAssessmentRepository {
         &self,
         patient_id: &str,
     ) -> RepositoryResult<Option<TriageAssessmentEntity>> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new(format!("SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE patient_id = "));
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE patient_id = "
+        ));
         qb.push_bind(patient_id);
         qb.push(" ORDER BY triage_time DESC LIMIT 1");
 
@@ -211,8 +214,9 @@ impl TriageAssessmentRepository for PgTriageAssessmentRepository {
     async fn get_ed_dashboard(&self) -> RepositoryResult<Vec<TriageAssessmentEntity>> {
         let cutoff = Utc::now() - Duration::hours(24);
 
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new(format!("SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE triage_time >= "));
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {TRIAGE_COLUMNS} FROM triage_assessments WHERE triage_time >= "
+        ));
         qb.push_bind(cutoff);
         qb.push(" ORDER BY esi_level ASC, triage_time DESC LIMIT 200");
 

@@ -331,27 +331,65 @@ export async function getAccessLogs(patientId: string): Promise<AccessLogsRespon
  * Get all users (Admin only)
  * Returns empty array if API returns error or unexpected format
  */
+/** One page of `/api/users`, plus the pagination block it returns. */
+interface UsersPage {
+  users?: User[];
+  data?: User[];
+  pagination?: { page: number; total_pages: number; total_items: number };
+}
+
+/**
+ * Every user in the deployment.
+ *
+ * `/api/users` paginates at 20 per page. This used to request page 1 and
+ * discard the `pagination` block entirely, so User Management rendered the
+ * first 20 of 101 users under the heading "All Users" — an administrator could
+ * not reach, search, deactivate or suspend the other 81, and nothing on the
+ * screen suggested they existed.
+ *
+ * Pages are followed to exhaustion with a hard ceiling: this is an
+ * administrative screen over a bounded staff directory, not a patient register,
+ * and a runaway loop against a paginated endpoint is worse than a truncated
+ * list. If the ceiling is ever hit, that is logged rather than passed off as
+ * the complete set.
+ */
 export async function getUsers(): Promise<User[]> {
-  try {
-    const response = await getApiClient().get<User[] | { users?: User[]; data?: User[] } | null>('/api/users');
-    
-    // Handle various response formats defensively
-    if (Array.isArray(response)) {
-      return response;
-    }
-    
-    // Handle wrapped response formats
+  const PAGE_SIZE = 100;
+  const MAX_PAGES = 50;
+
+  const rowsOf = (response: User[] | UsersPage | null): User[] => {
+    if (Array.isArray(response)) return response;
     if (response && typeof response === 'object') {
-      if ('users' in response && Array.isArray(response.users)) {
-        return response.users;
-      }
-      if ('data' in response && Array.isArray(response.data)) {
-        return response.data;
-      }
+      if (Array.isArray(response.users)) return response.users;
+      if (Array.isArray(response.data)) return response.data;
     }
-    
     console.warn('[MediChain] Unexpected users API response format:', response);
     return [];
+  };
+
+  try {
+    const all: User[] = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const response = await getApiClient().get<User[] | UsersPage | null>(
+        `/api/users?page=${page}&limit=${PAGE_SIZE}`
+      );
+      const rows = rowsOf(response);
+      all.push(...rows);
+
+      // A bare array means the endpoint is not paginating; one request is all
+      // there is. Otherwise stop once the server says there is no further page,
+      // or once a page comes back short.
+      if (Array.isArray(response) || rows.length < PAGE_SIZE) break;
+      const totalPages = (response as UsersPage)?.pagination?.total_pages;
+      if (typeof totalPages === 'number' && page >= totalPages) break;
+
+      if (page === MAX_PAGES) {
+        console.warn(
+          `[MediChain] getUsers stopped at the ${MAX_PAGES}-page ceiling; the list is truncated.`
+        );
+      }
+    }
+    return all;
   } catch (error) {
     console.error('[MediChain] Failed to fetch users:', error);
     return [];
@@ -814,9 +852,20 @@ export async function downloadMedicalRecord(
   return getApiClient().post('/api/records/download', data);
 }
 
+/**
+ * A patient's encrypted document references.
+ *
+ * Returns the bare array, not the `{patient_id, records, total}` envelope the
+ * endpoint sends: `ApiClient.request` normalises any response carrying a
+ * `records` array down to that array (see "Response Normalization" in
+ * `client.ts`). The declared type used to describe the wire shape instead, so
+ * every caller that destructured `{ records }` got `undefined` and threw on the
+ * first array method — with no type error, because the annotation was simply
+ * wrong.
+ */
 export async function getPatientRecords(
   patientId: string
-): Promise<{ patient_id: string; records: MedicalRecordReference[]; total: number }> {
+): Promise<MedicalRecordReference[]> {
   return getApiClient().get(`/api/records/${patientId}`);
 }
 
@@ -1318,6 +1367,26 @@ export async function getHp(hpId: string): Promise<HistoryAndPhysical> {
 
 export async function createConsult(data: unknown): Promise<ConsultCreateResult> {
   return getApiClient().post('/api/clinical/consult', data);
+}
+
+/**
+ * Record a consultant's response, completing the consultation.
+ *
+ * The response is the answer the requesting clinician is waiting on. Until
+ * this existed the portal kept it in local state only, so a specialist's
+ * assessment survived exactly as long as the browser tab.
+ */
+export async function respondToConsult(
+  consultId: string,
+  body: { assessment: string; recommendations: string; follow_up?: string }
+): Promise<{
+  success: boolean;
+  consult_id: string;
+  status: string | null;
+  completed_at: string | null;
+  consulting_provider: string;
+}> {
+  return getApiClient().put(`/api/clinical/consult/${consultId}/response`, body);
 }
 
 export async function getConsult(consultId: string): Promise<ConsultationNote> {

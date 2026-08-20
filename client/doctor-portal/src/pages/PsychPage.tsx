@@ -69,6 +69,100 @@ const riskLevelColors: Record<RiskLevel, string> = {
   imminent: 'bg-red-100 text-red-700'
 };
 
+/** Coerce a stored risk level onto the union the badge colours are keyed by. */
+function toRiskLevel(value: unknown): RiskLevel {
+  const level = String(value ?? '').toLowerCase();
+  return (['none', 'low', 'moderate', 'high', 'imminent'] as const).includes(level as RiskLevel)
+    ? (level as RiskLevel)
+    : 'none';
+}
+
+/**
+ * Map one stored assessment onto the shape the History tab renders.
+ *
+ * The endpoint returns the record exactly as it was submitted — nested and
+ * snake_case (`suicide_risk`, `homicidal_risk`, …). The previous mapper spread
+ * the raw item and renamed four scalars, so `suicideRisk` stayed `undefined`
+ * and the very first row threw on `a.suicideRisk.riskLevel`. React unmounts on
+ * a render throw, so the tab showed nothing at all — indistinguishable from
+ * "this patient has no assessments", for a patient who did.
+ *
+ * The stored `risk_level` is also capitalised on the way out ("Low"), so it is
+ * normalised here rather than being used as a key directly.
+ */
+function toStoredAssessment(patients: Array<{ patient_id: string; full_name: string }>) {
+  return (raw: unknown): PsychAssessment => {
+    const item = raw as Record<string, any>;
+    const suicide = item.suicide_risk ?? {};
+    const homicide = item.homicidal_risk ?? {};
+    const mse = item.mental_status ?? {};
+    const asList = (value: unknown): string[] =>
+      Array.isArray(value)
+        ? value.map(String)
+        : typeof value === 'string' && value.trim()
+          ? value.split(',').map((s) => s.trim()).filter(Boolean)
+          : [];
+    const legal = String(item.legal_status?.admission_type ?? 'voluntary').toLowerCase();
+    return {
+      historyOfPresentIllness: item.history_of_present_illness ?? '',
+      psychiatricHistory: asList(item.psych_history?.diagnoses),
+      substanceUse: (item.substance_use?.substances ?? []).map((s: any) => ({
+        substance: s.substance ?? '',
+        frequency: s.frequency ?? '',
+        lastUse: s.last_use ?? s.lastUse ?? '',
+      })),
+      medications: asList(item.psych_medications),
+      mentalStatusExam: {
+        appearance: mse.appearance ?? '',
+        behavior: mse.behavior ?? '',
+        speech: mse.speech ?? '',
+        mood: mse.mood ?? '',
+        affect: mse.affect ?? '',
+        thoughtProcess: mse.thought_process ?? '',
+        // Stored as a joined string; split back so the tags render as tags.
+        thoughtContent: asList(mse.thought_content),
+        perceptions: asList(mse.perceptions),
+        cognition: mse.cognition ?? '',
+        insight: mse.insight ?? '',
+        judgment: mse.judgment ?? '',
+      },
+      legalStatus: (['voluntary', 'involuntary', '5150', '5250', 'conservatorship'] as const).includes(
+        legal as LegalStatus
+      )
+        ? (legal as LegalStatus)
+        : 'voluntary',
+      diagnoses: asList(item.diagnoses),
+      safetyPlan: asList(item.safety_plan),
+      notes: item.notes ?? '',
+      id: item.assessment_id,
+      patientId: item.patient_id,
+      chiefComplaint: item.chief_complaint,
+      assessedBy: item.assessed_by,
+      assessedAt: new Date((item.assessed_at ?? 0) * 1000).toISOString(),
+      disposition: item.disposition,
+      patientName:
+        patients.find((patient) => patient.patient_id === item.patient_id)?.full_name ||
+        item.patient_id,
+      suicideRisk: {
+        ideation: Boolean(suicide.ideation),
+        plan: Boolean(suicide.plan),
+        intent: Boolean(suicide.intent),
+        means: Boolean(suicide.access_to_means),
+        priorAttempts: Number(suicide.attempt_count ?? 0),
+        recentAttempt: Boolean(suicide.recent_attempt_details),
+        riskLevel: toRiskLevel(suicide.risk_level),
+      },
+      homicideRisk: {
+        ideation: Boolean(homicide.ideation),
+        target: Boolean(homicide.target_identified),
+        plan: Boolean(homicide.plan),
+        means: Boolean(homicide.access_to_weapons),
+        riskLevel: toRiskLevel(homicide.risk_level),
+      },
+    };
+  };
+}
+
 const psychiatricDiagnoses = [
   'Major Depressive Disorder', 'Bipolar I Disorder', 'Bipolar II Disorder',
   'Generalized Anxiety Disorder', 'Panic Disorder', 'PTSD',
@@ -137,16 +231,7 @@ const PsychPage: React.FC = () => {
     if (!selectedPatient) return;
     getPsychForPatient(selectedPatient)
       .then(({ assessments: saved }) => {
-        setAssessments(saved.map((item: any) => ({
-          ...item,
-          id: item.assessment_id,
-          patientId: item.patient_id,
-          chiefComplaint: item.chief_complaint,
-          assessedBy: item.assessed_by,
-          assessedAt: new Date(item.assessed_at * 1000).toISOString(),
-          disposition: item.disposition,
-          patientName: patients.find((patient) => patient.patient_id === item.patient_id)?.full_name || item.patient_id,
-        })));
+        setAssessments(saved.map(toStoredAssessment(patients)));
       })
       .catch((err) => console.error('Failed to load psychiatric assessments:', err));
   }, [selectedPatient, patients]);

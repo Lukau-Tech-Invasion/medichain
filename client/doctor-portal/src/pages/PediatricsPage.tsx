@@ -244,6 +244,10 @@ const PediatricsPage: React.FC = () => {
           category: (selectedPatient?.ageGroup || 'infant').charAt(0).toUpperCase() + (selectedPatient?.ageGroup || 'infant').slice(1)
         },
         weight_kg: parseFloat(assessmentForm.weightKg) || 0,
+        // Collected by the form but previously never sent, so a child's
+        // height and the clinician's notes were discarded on save.
+        length_cm: parseFloat(assessmentForm.heightCm) || null,
+        notes: assessmentForm.notes,
         weight_method: 'Measured',
         vital_signs: {
           heart_rate: parseInt(assessmentForm.heartRate) || 0,
@@ -277,7 +281,6 @@ const PediatricsPage: React.FC = () => {
           notes: ''
         },
         guardian_present: true,
-        assessed_by: 'Current Doctor',
         assessed_at: Date.now()
       };
 

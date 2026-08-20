@@ -475,45 +475,51 @@ pub async fn list_users(
         });
     }
 
-    // Collect users first, then release the lock before async operations
-    let users_snapshot: Vec<User> = {
-        let users = data.users.read().unwrap();
-        users.values().cloned().collect()
-    };
+    // The administrator's user directory is read from the DATABASE, not from
+    // `data.users`.
+    //
+    // `data.users` is the *authorization cache*, hydrated by
+    // `load_demo_users_from_db` with `WHERE is_active = true AND status =
+    // 'active'` — correct for authorization, since a deactivated account must
+    // not authorize anything. But serving the admin directory from it made
+    // deactivation a **one-way door**: the moment an admin deactivated someone,
+    // that person left the only list the admin can see. The "Inactive" status
+    // filter could never match a row, the Reactivate control in
+    // `UserManagementPage.tsx` was unreachable dead UI, and undoing a mistaken
+    // deactivation required direct SQL against production.
+    //
+    // Two different questions were being answered by one collection: "who may
+    // act right now" and "who exists and in what state". Only the first belongs
+    // in the cache.
+    let user_list: Vec<User> = match &data.db_pool {
+        Some(pool) => {
+            let rows = sqlx::query_as::<_, crate::models::DbUserWithProfile>(
+                "SELECT u.*, p.department, p.specialty, p.license_number
+                 FROM users u
+                 LEFT JOIN user_profiles p ON p.user_id = u.id
+                 ORDER BY u.created_at DESC",
+            )
+            .fetch_all(pool)
+            .await;
 
-    let mut user_list: Vec<User> = Vec::new();
-
-    // Fetch profile data for each user if database is available
-    if let Some(pool) = &data.db_pool {
-        for user in users_snapshot {
-            let mut user_with_profile = user.clone();
-
-            // Try to get profile data from database
-            let profile_result: Result<Option<crate::models::user::DbUserProfile>, _> =
-                sqlx::query_as(
-                    r#"
-                SELECT up.* FROM user_profiles up
-                INNER JOIN users u ON up.user_id = u.id
-                WHERE u.wallet_address = $1
-                "#,
-                )
-                .bind(&user.wallet_address)
-                .fetch_optional(pool)
-                .await;
-
-            if let Ok(Some(profile)) = profile_result {
-                user_with_profile.phone = profile.phone;
-                user_with_profile.department = profile.department;
-                user_with_profile.specialty = profile.specialty;
-                user_with_profile.license_number = profile.license_number;
+            match rows {
+                Ok(rows) => rows.into_iter().map(user_from_db_row).collect(),
+                Err(e) => {
+                    log::error!("list_users: user directory unavailable: {e}");
+                    return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                        success: false,
+                        error: "The user directory could not be read".to_string(),
+                        code: "USER_DIRECTORY_UNAVAILABLE".to_string(),
+                    });
+                }
             }
-
-            user_list.push(user_with_profile);
         }
-    } else {
-        // No database, just return users as-is
-        user_list = users_snapshot;
-    }
+        // No database: the in-process cache is all there is. It holds only
+        // active users, so a deactivated account is genuinely unrecoverable in
+        // this mode — which is a property of running without persistence, not
+        // something this handler can paper over.
+        None => data.users.read().unwrap().values().cloned().collect(),
+    };
 
     let (paginated_users, pagination) = paginate(&user_list, query.page, query.limit);
 
@@ -521,6 +527,42 @@ pub async fn list_users(
         data: paginated_users,
         pagination,
     })
+}
+
+/// Map a joined `users` + `user_profiles` row onto the API's `User` shape.
+///
+/// Kept separate from `AppState::load_demo_users_from_db`'s mapping on purpose:
+/// that one builds the authorization cache and is only ever fed active rows,
+/// whereas this one must faithfully carry `status` through so an administrator
+/// can see and act on inactive, suspended and pending accounts.
+fn user_from_db_row(row: crate::models::DbUserWithProfile) -> User {
+    let db = row.user;
+    User {
+        wallet_address: db.wallet_address,
+        username: db.username,
+        name: db.name.unwrap_or_else(|| "Unknown".to_string()),
+        role: match db.role.as_str() {
+            "Admin" => Role::Admin,
+            "Doctor" => Role::Doctor,
+            "Nurse" => Role::Nurse,
+            "LabTechnician" => Role::LabTechnician,
+            "Pharmacist" => Role::Pharmacist,
+            _ => Role::Patient,
+        },
+        created_at: db.created_at,
+        created_by: db.created_by,
+        linked_patient_id: db.linked_patient_id,
+        email: db.email,
+        phone: None,
+        department: row.department,
+        specialty: row.specialty,
+        license_number: row.license_number,
+        // `status` is authoritative — `is_active` alone cannot express
+        // `suspended` or `pending`, and reading it back through the boolean is
+        // what silently promoted both to `active` on restart (H1 / D-1).
+        status: db.status,
+        last_login: db.last_login_at,
+    }
 }
 
 /// Get a single user by wallet address with full profile (Admin only)
@@ -705,19 +747,50 @@ pub async fn update_user_profile(
         }
     }
 
-    let existing = match data
+    // Look in the authorization cache first, then fall back to the database.
+    //
+    // The cache holds only accounts that were active at the last hydration, so
+    // a cache-only lookup made **reactivation impossible after a restart**: an
+    // administrator could see the inactive account in the directory (which now
+    // reads from the database) and press Reactivate, and this handler would
+    // answer 404 USER_NOT_FOUND for a user plainly sitting in the `users`
+    // table. Managing an account is precisely the operation you need when the
+    // account is *not* active, so this lookup must not be limited to active
+    // ones.
+    let cached = data
         .users
         .read()
         .ok()
-        .and_then(|users| users.get(&wallet_address).cloned())
-    {
+        .and_then(|users| users.get(&wallet_address).cloned());
+
+    let existing = match cached {
         Some(user) => user,
         None => {
-            return HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: "User not found".to_string(),
-                code: "USER_NOT_FOUND".to_string(),
-            });
+            let from_db = match &data.db_pool {
+                Some(pool) => sqlx::query_as::<_, crate::models::DbUserWithProfile>(
+                    "SELECT u.*, p.department, p.specialty, p.license_number
+                     FROM users u
+                     LEFT JOIN user_profiles p ON p.user_id = u.id
+                     WHERE u.wallet_address = $1",
+                )
+                .bind(&wallet_address)
+                .fetch_optional(pool)
+                .await
+                .unwrap_or(None)
+                .map(user_from_db_row),
+                None => None,
+            };
+
+            match from_db {
+                Some(user) => user,
+                None => {
+                    return HttpResponse::NotFound().json(ErrorResponse {
+                        success: false,
+                        error: "User not found".to_string(),
+                        code: "USER_NOT_FOUND".to_string(),
+                    });
+                }
+            }
         }
     };
 

@@ -2007,11 +2007,22 @@ async fn test_pg_appointment_round_trip_survives_restart() {
     seed_appointment_fks(&pool, &provider, &filed_by, "PAT-APPT-RESTART").await;
 
     let repo = crate::repositories::postgres::PgAppointmentRepository::new(pool.clone());
-    repo.create(entity).await.expect("appointment insert failed");
+    repo.create(entity)
+        .await
+        .expect("appointment insert failed");
 
-    let fetched = repo.get_by_id(&id).await.expect("appointment lost on restart");
-    assert_eq!(fetched.provider_id, provider, "provider must survive as a wallet address");
-    assert_eq!(fetched.created_by, filed_by, "the real actor must be retained");
+    let fetched = repo
+        .get_by_id(&id)
+        .await
+        .expect("appointment lost on restart");
+    assert_eq!(
+        fetched.provider_id, provider,
+        "provider must survive as a wallet address"
+    );
+    assert_eq!(
+        fetched.created_by, filed_by,
+        "the real actor must be retained"
+    );
     assert_eq!(fetched.status, "checked_in");
     assert_eq!(fetched.visit_type.as_deref(), Some("telehealth"));
 
@@ -2038,8 +2049,15 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
     seed_appointment_fks(&pool, provider, provider, "PAT-APPT-STATUS").await;
 
     for status in [
-        S::Scheduled, S::Confirmed, S::CheckedIn, S::InProgress, S::Completed,
-        S::NoShow, S::Cancelled, S::Rescheduled, S::Waitlisted,
+        S::Scheduled,
+        S::Confirmed,
+        S::CheckedIn,
+        S::InProgress,
+        S::Completed,
+        S::NoShow,
+        S::Cancelled,
+        S::Rescheduled,
+        S::Waitlisted,
     ] {
         let stored = crate::types::appt_status_storage_str(&status);
         let id = format!("APT-STATUS-{}", uuid::Uuid::new_v4());
@@ -2052,16 +2070,28 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
             scheduled_datetime: now,
             duration_minutes: 15,
             status: stored.to_string(),
-            location: None, room: None, reason_for_visit: None,
-            visit_type: Some("in_person".into()), priority: None,
-            recurring: false, recurrence_pattern: None, parent_appointment_id: None,
-            insurance_verified: false, copay_amount: None, copay_collected: false,
-            reminder_sent: false, reminder_sent_at: None,
-            check_in_time: None, check_out_time: None,
-            cancelled_at: None, cancellation_reason: None, cancelled_by: None,
+            location: None,
+            room: None,
+            reason_for_visit: None,
+            visit_type: Some("in_person".into()),
+            priority: None,
+            recurring: false,
+            recurrence_pattern: None,
+            parent_appointment_id: None,
+            insurance_verified: false,
+            copay_amount: None,
+            copay_collected: false,
+            reminder_sent: false,
+            reminder_sent_at: None,
+            check_in_time: None,
+            check_out_time: None,
+            cancelled_at: None,
+            cancellation_reason: None,
+            cancelled_by: None,
             notes: None,
             created_by: "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".into(),
-            created_at: now, updated_at: now,
+            created_at: now,
+            updated_at: now,
             data: serde_json::json!({}),
         };
         repo.create(entity)
@@ -2073,5 +2103,371 @@ async fn test_pg_every_appointment_status_is_accepted_by_the_schema() {
             .await
             .ok();
     }
+    pool.close().await;
+}
+
+/// A consultant's answer must survive a restart, and must be visible through
+/// the JSON blob the read handler serves — not only through the typed columns.
+///
+/// `PgConsultationNoteRepository::update` did not bind `data`, so the column
+/// kept whatever the consult was *created* with for the rest of its life.
+/// `get_consult` serves exactly that column, so a consult could be answered —
+/// status, findings and recommendations all written and returned as success —
+/// and still read back as an unanswered request to every clinician who opened
+/// it. The write went to Postgres; the reader never saw it.
+#[tokio::test]
+
+async fn test_pg_consult_response_survives_restart_and_is_visible_in_the_read_blob() {
+    use crate::repositories::postgres::PgConsultationNoteRepository;
+    use crate::repositories::traits::{ConsultationNoteEntity, ConsultationNoteRepository};
+
+    let pool = get_test_pool().await;
+
+    let patient_id = format!("TEST-PAT-CONSULT-{}", Utc::now().timestamp_millis());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .expect("failed to create the patient the consult hangs off");
+
+    let consult_id = format!("CON-{}", Utc::now().timestamp_millis());
+    let now = Utc::now();
+    let requested = ConsultationNoteEntity {
+        id: consult_id.clone(),
+        patient_id: patient_id.clone(),
+        consultation_type: "cardiology".to_string(),
+        requesting_provider: "5EDDoctorWallet".to_string(),
+        consulting_provider: String::new(),
+        reason_for_consultation: "Chest pain on exertion".to_string(),
+        clinical_question: Some("Is this stable angina?".to_string()),
+        pertinent_history: None,
+        examination_findings: None,
+        recommendations: String::new(),
+        follow_up_plan: None,
+        urgency: Some("urgent".to_string()),
+        // `requested` is the status every new consult is created with. The
+        // CHECK constraint used to reject it outright, so this write is also
+        // the regression test for `20260820000001_consult_status_vocabulary`.
+        status: Some("requested".to_string()),
+        requested_at: now,
+        completed_at: None,
+        created_at: now,
+        updated_at: now,
+        facility_id: None,
+        is_active: true,
+        data: serde_json::json!({
+            "patient_id": patient_id,
+            "status": "requested",
+            "reason_for_consultation": "Chest pain on exertion"
+        }),
+    };
+
+    let repo = PgConsultationNoteRepository::new(pool.clone());
+    repo.create(requested)
+        .await
+        .expect("a consult must be creatable with status 'requested'");
+
+    // The specialist answers, exactly as `respond_to_consult` does: typed
+    // columns and the read blob kept in step.
+    let mut answered = repo
+        .get_by_id(&consult_id)
+        .await
+        .expect("consult should be readable");
+    let completed_at = Utc::now();
+    answered.examination_findings = Some("No acute ischaemia; troponin negative.".to_string());
+    answered.recommendations = "Outpatient stress test; aspirin 75mg daily.".to_string();
+    answered.follow_up_plan = Some("Cardiology clinic in 2 weeks".to_string());
+    answered.consulting_provider = "5EDCardiologistWallet".to_string();
+    answered.status = Some("completed".to_string());
+    answered.completed_at = Some(completed_at);
+    if let Some(blob) = answered.data.as_object_mut() {
+        blob.insert("status".into(), serde_json::json!("completed"));
+        blob.insert(
+            "examination_findings".into(),
+            serde_json::json!("No acute ischaemia; troponin negative."),
+        );
+        blob.insert(
+            "recommendations".into(),
+            serde_json::json!("Outpatient stress test; aspirin 75mg daily."),
+        );
+        blob.insert(
+            "consulting_provider".into(),
+            serde_json::json!("5EDCardiologistWallet"),
+        );
+    }
+    repo.update(answered).await.expect("response must persist");
+
+    // Simulate a restart: a brand-new repository instance over the same
+    // database, matching the convention the other durability tests use.
+    let restarted = PgConsultationNoteRepository::new(pool.clone());
+    let reloaded = restarted
+        .get_by_id(&consult_id)
+        .await
+        .expect("the consult must survive a restart");
+
+    assert_eq!(reloaded.status.as_deref(), Some("completed"));
+    assert_eq!(
+        reloaded.recommendations,
+        "Outpatient stress test; aspirin 75mg daily."
+    );
+    assert_eq!(reloaded.consulting_provider, "5EDCardiologistWallet");
+    assert!(reloaded.completed_at.is_some());
+
+    // The blob the read handler serves must agree with the columns. This is the
+    // assertion that fails without the `data = ` bind in `update`.
+    assert_eq!(
+        reloaded.data.get("status").and_then(|v| v.as_str()),
+        Some("completed"),
+        "the JSON blob `get_consult` serves still reports the consult as unanswered"
+    );
+    assert_eq!(
+        reloaded
+            .data
+            .get("recommendations")
+            .and_then(|v| v.as_str()),
+        Some("Outpatient stress test; aspirin 75mg daily.")
+    );
+}
+
+/// One organisation per instance is a load-bearing security boundary
+/// (ADR-0007): the clinician worklists and `/api/platform/list/*` registries are
+/// deployment-wide, so a second organisation sharing this database would read
+/// the first one's records with no error anywhere.
+#[tokio::test]
+async fn test_pg_startup_refuses_a_multi_organisation_database() {
+    let pool = get_test_pool().await;
+
+    // A fresh schema has no organisations: nothing to conflict, so boot.
+    assert!(
+        crate::startup::validate_single_organisation(&pool)
+            .await
+            .is_ok(),
+        "an empty organisations table must not block startup"
+    );
+
+    let insert = |id: &str, name: &str| {
+        let pool = pool.clone();
+        let id = id.to_string();
+        let name = name.to_string();
+        async move {
+            sqlx::query(
+                "INSERT INTO organizations (id, name, is_active) VALUES ($1, $2, true) \
+                 ON CONFLICT (id) DO NOTHING",
+            )
+            .bind(id)
+            .bind(name)
+            .execute(&pool)
+            .await
+        }
+    };
+
+    // One organisation is the supported configuration.
+    if insert("ORG-SOLO", "Solo Hospital").await.is_err() {
+        // The federation tables are not present in this schema; the check is
+        // designed to stay quiet in that case rather than block boot, and the
+        // assertion above already covers it.
+        return;
+    }
+    assert!(
+        crate::startup::validate_single_organisation(&pool)
+            .await
+            .is_ok(),
+        "a single active organisation is the supported configuration"
+    );
+
+    // Two is a misconfiguration that must stop the process, not warn.
+    insert("ORG-SECOND", "Second Hospital")
+        .await
+        .expect("second organisation should insert");
+    let refused = crate::startup::validate_single_organisation(&pool).await;
+    let message = refused.expect_err("two active organisations must refuse startup");
+    assert!(
+        message.contains("2 active organisations"),
+        "the operator needs to be told how many were found, got: {message}"
+    );
+}
+
+/// A pathology specimen must be accessionable with the workflow status the lab
+/// screen actually uses, and without a `specimen_collections` row existing.
+///
+/// Two separate defects met here, and both were PostgreSQL-only:
+///
+/// 1. The status CHECK allowed only the *report* lifecycle
+///    (`pending|preliminary|final|amended|corrected`), while the screen tracks a
+///    *specimen* through `received → grossing → … → addendum`. Every accession
+///    was rejected.
+/// 2. `specimen_id` is a foreign key into `specimen_collections` — the physical
+///    sample the lab logged in — not the accession number. Binding the
+///    accession there violated the key on every insert.
+///
+/// Neither could fail in the in-memory backend, which enforces no CHECK
+/// constraints and no foreign keys.
+#[tokio::test]
+async fn test_pg_pathology_specimen_accessions_with_a_workflow_status() {
+    use crate::repositories::postgres::PgPathologyReportRepository;
+    use crate::repositories::traits::{PathologyReportEntity, PathologyReportRepository};
+
+    let pool = get_test_pool().await;
+
+    let patient_id = format!("TEST-PAT-PATH-{}", Utc::now().timestamp_millis());
+    PgPatientRepository::new(pool.clone())
+        .create(create_test_patient(&patient_id))
+        .await
+        .expect("failed to create the patient the specimen belongs to");
+
+    let accession = format!("S26-{}", Utc::now().timestamp_millis());
+    let now = Utc::now();
+    let specimen = PathologyReportEntity {
+        id: accession.clone(),
+        patient_id: patient_id.clone(),
+        // Left unset: the lab has not logged a collection record for this
+        // accession, which is the ordinary case at booking-in time.
+        specimen_id: None,
+        ordering_provider_id: "5EDDoctorWallet".to_string(),
+        pathologist_id: "5EDPathologistWallet".to_string(),
+        specimen_type: "biopsy".to_string(),
+        specimen_source: "Left breast".to_string(),
+        collection_date: now,
+        received_date: now,
+        report_date: now,
+        clinical_history: Some("Palpable mass, 2cm upper outer quadrant".to_string()),
+        gross_description: String::new(),
+        microscopic_description: String::new(),
+        special_stains: None,
+        immunohistochemistry: None,
+        molecular_studies: None,
+        diagnosis: String::new(),
+        staging: None,
+        tnm_classification: None,
+        margin_status: None,
+        lymph_node_status: None,
+        comments: None,
+        addendum: None,
+        addendum_datetime: None,
+        addendum_by: None,
+        // The state the screen submits. Rejected by the old constraint.
+        status: "grossing".to_string(),
+        synoptic_report: None,
+        created_at: now,
+        updated_at: now,
+        data: serde_json::json!({
+            "specimenId": accession,
+            "priority": "urgent",
+            "fixative": "10% formalin",
+            "container": "Formalin pot",
+            "laterality": "left",
+            "slides": ["A1 H&E", "A2 H&E"]
+        }),
+    };
+
+    let repo = PgPathologyReportRepository::new(pool.clone());
+    repo.create(specimen)
+        .await
+        .expect("a specimen must accession with a laboratory workflow status");
+
+    // Simulate a restart: a new repository over the same database.
+    let reloaded = PgPathologyReportRepository::new(pool.clone())
+        .get_by_id(&accession)
+        .await
+        .expect("the specimen must survive a restart");
+
+    assert_eq!(reloaded.status, "grossing");
+    assert_eq!(reloaded.specimen_source, "Left breast");
+    // The tracking fields the typed columns have no home for must come back
+    // through the blob the worklist reads.
+    assert_eq!(
+        reloaded.data.get("fixative").and_then(|v| v.as_str()),
+        Some("10% formalin")
+    );
+    assert_eq!(
+        reloaded
+            .data
+            .get("slides")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len()),
+        Some(2)
+    );
+
+    // The rest of the laboratory workflow must also be storable, or a specimen
+    // gets stuck partway through.
+    for state in [
+        "received",
+        "processing",
+        "embedding",
+        "cutting",
+        "staining",
+        "prelim",
+    ] {
+        let mut moved = reloaded.clone();
+        moved.status = state.to_string();
+        repo.update(moved)
+            .await
+            .unwrap_or_else(|e| panic!("status '{state}' must be storable: {e}"));
+    }
+}
+
+/// An administrator must be able to find, and undo, a deactivation.
+///
+/// `GET /api/users` used to serve the admin directory from `AppState.users` —
+/// the *authorization* cache, hydrated with `WHERE is_active = true AND status
+/// = 'active'`. Correct for deciding who may act; wrong for deciding who
+/// exists. The consequence was that deactivating an account removed it from the
+/// only list an administrator can see: the "Inactive" filter could never match
+/// a row, the Reactivate control was unreachable, and undoing a mistaken
+/// deactivation meant hand-written SQL against production.
+///
+/// This pins the query the directory now runs: every account comes back
+/// regardless of status, carrying the `status` an administrator has to act on.
+#[tokio::test]
+async fn test_pg_user_directory_lists_deactivated_accounts() {
+    let pool = get_test_pool().await;
+
+    // `valid_wallet` requires an SS58-shaped address: `5`-prefixed and at least
+    // 45 characters. A short fixture is rejected before the test can say
+    // anything, so build one the constraint accepts.
+    let ss58 = |tag: &str| {
+        let raw = format!("5{tag}{}", uuid::Uuid::new_v4().simple());
+        format!("{raw:5<48}")
+    };
+    let active = ss58("Act");
+    let gone = ss58("Gone");
+
+    for (wallet, is_active, status) in [(&active, true, "active"), (&gone, false, "inactive")] {
+        sqlx::query(
+            "INSERT INTO users (id, wallet_address, role, name, is_active, status)
+             VALUES ($1, $2, 'Doctor', 'Directory Fixture', $3, $4)",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(wallet)
+        .bind(is_active)
+        .bind(status)
+        .execute(&pool)
+        .await
+        .unwrap_or_else(|e| panic!("fixture {wallet} must insert: {e}"));
+    }
+
+    // The directory query, exactly as `list_users` runs it.
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT u.wallet_address, u.status
+         FROM users u
+         LEFT JOIN user_profiles p ON p.user_id = u.id
+         ORDER BY u.created_at DESC",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("directory query runs");
+
+    let found: std::collections::HashMap<String, String> = rows.into_iter().collect();
+
+    assert_eq!(
+        found.get(&active).map(String::as_str),
+        Some("active"),
+        "an active account is listed"
+    );
+    assert_eq!(
+        found.get(&gone).map(String::as_str),
+        Some("inactive"),
+        "a DEACTIVATED account must still be listed, and must carry its status --          otherwise deactivation is a one-way door with no path back through the product"
+    );
+
     pool.close().await;
 }

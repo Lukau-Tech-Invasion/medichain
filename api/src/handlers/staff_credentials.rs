@@ -172,7 +172,10 @@ pub async fn staff_login(
     };
 
     if is_locked_out(&identifier) {
-        log::warn!("STAFF_LOGIN_LOCKED_OUT identifier_hash={}", hash_id(&identifier));
+        log::warn!(
+            "STAFF_LOGIN_LOCKED_OUT identifier_hash={}",
+            hash_id(&identifier)
+        );
         return HttpResponse::TooManyRequests().json(ErrorResponse {
             success: false,
             error: "Too many failed sign-in attempts. Try again later.".to_string(),
@@ -180,27 +183,28 @@ pub async fn staff_login(
         });
     }
 
-    let row: Option<CredentialRow> = sqlx::query_as::<_, (String, Option<String>, Option<String>, String)>(
-        r#"
+    let row: Option<CredentialRow> =
+        sqlx::query_as::<_, (String, Option<String>, Option<String>, String)>(
+            r#"
         SELECT wallet_address, credential_verifier, encrypted_keystore, status
         FROM users
         WHERE (lower(login_id) = $1 OR lower(email) = $1)
         LIMIT 1
         "#,
-    )
-    .bind(&identifier)
-    .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten()
-    .and_then(|(wallet, verifier, keystore, status)| {
-        Some(CredentialRow {
-            wallet_address: wallet,
-            credential_verifier: verifier?,
-            encrypted_keystore: keystore?,
-            status,
-        })
-    });
+        )
+        .bind(&identifier)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|(wallet, verifier, keystore, status)| {
+            Some(CredentialRow {
+                wallet_address: wallet,
+                credential_verifier: verifier?,
+                encrypted_keystore: keystore?,
+                status,
+            })
+        });
 
     // Always verify something, so an unknown identifier costs the same Argon2id
     // work as a known one. `verify_secret` is constant-time internally.
@@ -212,13 +216,19 @@ pub async fn staff_login(
 
     let Some(row) = row else {
         record_failure(&identifier);
-        log::warn!("STAFF_LOGIN_UNKNOWN identifier_hash={}", hash_id(&identifier));
+        log::warn!(
+            "STAFF_LOGIN_UNKNOWN identifier_hash={}",
+            hash_id(&identifier)
+        );
         return invalid_credentials();
     };
 
     if !proof_ok {
         record_failure(&identifier);
-        log::warn!("STAFF_LOGIN_FAILED identifier_hash={}", hash_id(&identifier));
+        log::warn!(
+            "STAFF_LOGIN_FAILED identifier_hash={}",
+            hash_id(&identifier)
+        );
         return invalid_credentials();
     }
 
@@ -436,7 +446,10 @@ mod tests {
             assert!(!is_locked_out(id), "should not lock before the limit");
         }
         record_failure(id);
-        assert!(is_locked_out(id), "should lock on the {MAX_FAILED_ATTEMPTS}th failure");
+        assert!(
+            is_locked_out(id),
+            "should lock on the {MAX_FAILED_ATTEMPTS}th failure"
+        );
     }
 
     #[test]
@@ -468,7 +481,10 @@ mod tests {
     fn the_timing_equaliser_is_a_real_verifier_that_nothing_matches() {
         let dummy = timing_equaliser();
         assert!(dummy.starts_with("$argon2id$"), "got {dummy}");
-        assert!(!medichain_crypto::password::verify_secret("any proof", dummy));
+        assert!(!medichain_crypto::password::verify_secret(
+            "any proof",
+            dummy
+        ));
     }
 
     #[test]

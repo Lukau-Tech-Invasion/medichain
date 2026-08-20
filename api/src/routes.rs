@@ -296,6 +296,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_hp)
         .service(clinical_endpoints::list_hps)
         .service(clinical_endpoints::create_consult)
+        .service(clinical_endpoints::respond_to_consult)
         .service(clinical_endpoints::get_consult)
         .service(clinical_endpoints::create_progress_note)
         .service(clinical_endpoints::get_progress_note)
@@ -484,6 +485,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_patient_analytics)
         .service(clinical_endpoints::get_appointment_analytics)
         .service(clinical_endpoints::get_quality_metrics)
+        .service(clinical_endpoints::get_operational_metrics)
         // Phase 32: Multi-language Support endpoints
         .service(clinical_endpoints::get_supported_languages)
         .service(clinical_endpoints::set_language_preference)

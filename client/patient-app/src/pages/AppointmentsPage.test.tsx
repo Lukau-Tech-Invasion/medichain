@@ -9,9 +9,16 @@ vi.mock('../store/authStore', () => ({
   usePatientAuthStore: vi.fn(),
 }));
 
+const getProvidersMock = vi.fn().mockResolvedValue({
+  success: true,
+  providers: [{ provider_id: 'DOC-001', name: 'Dr Test Provider', specialty: 'General' }],
+  count: 1,
+});
+
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   setAppointmentStatus: vi.fn().mockResolvedValue({ success: true }),
+  getProviders: (...args: unknown[]) => getProvidersMock(...args),
 }));
 
 // Mock fetch
@@ -53,6 +60,11 @@ describe('AppointmentsPage (Patient)', () => {
                 appointment_id: 'app1',
                 type: 'in-person',
                 status: 'scheduled',
+                // A booking is a proposal until both sides agree, so Confirm
+                // and Decline only render for the side whose turn it is. This
+                // fixture predated two-sided confirmation and left the field
+                // absent, which maps to null — nobody's turn, no buttons.
+                awaiting_confirmation_from: 'patient',
                 provider_name: 'Dr. Jones',
                 specialty: 'Cardiology',
                 scheduled_date: new Date(Date.now() + 7 * 864e5).toISOString().split('T')[0],
@@ -169,13 +181,22 @@ describe('AppointmentsPage (Patient)', () => {
     });
 
     /**
-     * Booking has no patient-facing flow yet. It must say so rather than look
-     * available - an enabled button that does nothing is the defect.
+     * Booking used to have no patient-facing screen, so the tile was disabled
+     * on purpose (WF-012) and this test asserted that. The flow now exists: the
+     * tile opens a real booking panel that loads bookable providers. Asserting
+     * the old disabled state would now be asserting that a shipped feature is
+     * missing.
      */
-    it('marks booking unavailable instead of pretending', async () => {
+    it('opens the booking flow and offers real providers', async () => {
       renderPage();
       const book = await screen.findByRole('button', { name: /Book|Call your clinic/i });
-      expect(book).toBeDisabled();
+      expect(book).toBeEnabled();
+
+      fireEvent.click(book);
+
+      // The panel loads the bookable provider directory rather than presenting
+      // a form that cannot be submitted against anyone.
+      await waitFor(() => expect(getProvidersMock).toHaveBeenCalled());
     });
 
     /**

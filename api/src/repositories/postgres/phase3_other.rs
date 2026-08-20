@@ -741,6 +741,20 @@ impl PgCrossmatchRecordRepository {
 
 #[async_trait]
 impl CrossmatchRecordRepository for PgCrossmatchRecordRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>> {
+        let rows = sqlx::query_as::<_, CrossmatchRecordEntity>(
+            "SELECT * FROM crossmatch_records ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         record: CrossmatchRecordEntity,
@@ -910,6 +924,20 @@ impl PgTransfusionRecordRepository {
 
 #[async_trait]
 impl TransfusionRecordRepository for PgTransfusionRecordRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<TransfusionRecordEntity>> {
+        let rows = sqlx::query_as::<_, TransfusionRecordEntity>(
+            "SELECT * FROM transfusion_records ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         record: TransfusionRecordEntity,

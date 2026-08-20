@@ -144,11 +144,9 @@ pub fn telemetry_snapshot() -> TelemetrySnapshot {
     }
 
     TelemetrySnapshot {
-        avg_latency_ms: (latency_count > 0)
-            .then(|| (latency_sum / latency_count as f64) * 1000.0),
-        availability_percent: (total_requests > 0).then(|| {
-            ((total_requests - server_errors) as f64 / total_requests as f64) * 100.0
-        }),
+        avg_latency_ms: (latency_count > 0).then(|| (latency_sum / latency_count as f64) * 1000.0),
+        availability_percent: (total_requests > 0)
+            .then(|| ((total_requests - server_errors) as f64 / total_requests as f64) * 100.0),
         total_requests,
         server_errors,
     }

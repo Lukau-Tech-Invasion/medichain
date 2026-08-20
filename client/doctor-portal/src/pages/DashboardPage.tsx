@@ -45,14 +45,26 @@ interface LabSubmission {
   results?: Record<string, unknown>;
 }
 
+/**
+ * Mirrors `CriticalValueEntity`. The previous shape declared `critical_reason`
+ * and `reported_at`, neither of which the API sends: the reason rendered as an
+ * empty string after a stray "-", and `new Date(undefined)` printed
+ * "Invalid Date" next to a potassium of 6.9.
+ */
 interface CriticalValue {
   id: string;
   patient_id: string;
   test_name: string;
   value: string;
-  critical_reason: string;
-  reported_at: string;
-  acknowledged: boolean;
+  unit: string | null;
+  severity: string | null;
+  critical_low: string | null;
+  critical_high: string | null;
+  reference_low: string | null;
+  reference_high: string | null;
+  created_at: string;
+  notified_at: string | null;
+  acknowledged_at: string | null;
 }
 
 interface CodeBlueRecord {
@@ -68,13 +80,21 @@ interface CodeBlueRecord {
   outcome?: string | { toString: () => string };
 }
 
+/**
+ * Mirrors `PhysicianOrderEntity`. The previous shape declared `order_id`,
+ * `description` and `ordered_at`; the API sends `id`, `order_details` and
+ * `order_datetime`, so every order rendered as "lab:" with no text, an
+ * "Invalid Date", and — because `key` was undefined for all of them — React
+ * could not tell two orders apart.
+ */
 interface PhysicianOrder {
-  order_id: string;
+  id: string;
   patient_id: string;
   order_type: string;
-  description: string;
+  order_details: { text?: string } | null;
+  indication: string | null;
   priority: string;
-  ordered_at: string;
+  order_datetime: string;
   status: string;
 }
 
@@ -107,9 +127,38 @@ interface DashboardResponse {
 }
 
 /**
+ * Format a timestamp, or return an em dash.
+ *
+ * `new Date(undefined).toLocaleString()` renders the literal string
+ * "Invalid Date", which on a clinical dashboard sits where a time should be and
+ * looks like a data-integrity fault rather than a missing field. An absent
+ * timestamp should read as absent.
+ */
+function formatWhen(value: string | null | undefined): string {
+  if (!value) return '—';
+  const when = new Date(value);
+  return Number.isNaN(when.getTime()) ? '—' : when.toLocaleString();
+}
+
+/** The breached limit, so a critical value is interpretable without the LIS. */
+function criticalRange(cv: CriticalValue): string {
+  if (cv.critical_high) return `critical > ${cv.critical_high}`;
+  if (cv.critical_low) return `critical < ${cv.critical_low}`;
+  if (cv.reference_low && cv.reference_high) {
+    return `ref ${cv.reference_low}–${cv.reference_high}`;
+  }
+  return '';
+}
+
+/** The order's clinical text, which lives in `order_details.text`. */
+function orderText(order: PhysicianOrder): string {
+  return order.order_details?.text?.trim() || order.indication?.trim() || '';
+}
+
+/**
  * Stat card component
  */
-function StatCard({ 
+function StatCard({
   icon, 
   label, 
   value, 
@@ -383,12 +432,19 @@ function DashboardPage() {
               >
                 <div>
                   <p className="font-medium text-gray-900">{cv.test_name}</p>
-                  <p className="text-sm text-red-600 font-mono">{cv.value} - {cv.critical_reason}</p>
+                  {/* The unit and the breached limit are what make the number
+                      mean anything — 6.9 is unremarkable in one assay and
+                      life-threatening in another. Both were dropped. */}
+                  <p className="text-sm text-red-600 font-mono">
+                    {cv.value}
+                    {cv.unit ? ` ${cv.unit}` : ''}
+                    {criticalRange(cv) ? ` · ${criticalRange(cv)}` : ''}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-gray-600">{t('docDashboard.patientLabel', { id: cv.patient_id })}</p>
                   <p className="text-xs text-gray-500">
-                    {new Date(cv.reported_at).toLocaleString()}
+                    {formatWhen(cv.notified_at ?? cv.created_at)}
                   </p>
                 </div>
               </div>
@@ -508,23 +564,29 @@ function DashboardPage() {
           <div className="divide-y divide-purple-200 max-h-64 overflow-y-auto">
             {dashboard.active_orders.slice(0, 10).map((order) => (
               <div
-                key={order.order_id}
+                key={order.id}
                 className="flex items-center justify-between p-4"
               >
                 <div>
-                  <p className="font-medium text-gray-900">{order.order_type}: {order.description}</p>
+                  <p className="font-medium text-gray-900">
+                    {order.order_type}
+                    {orderText(order) ? `: ${orderText(order)}` : ''}
+                  </p>
                   <p className="text-sm text-gray-600">{t('docDashboard.patientLabel', { id: order.patient_id })}</p>
                 </div>
                 <div className="text-right">
+                  {/* The API sends lowercase priorities ("stat", "urgent"), so
+                      these comparisons never matched and a STAT order rendered
+                      in the same neutral grey as a routine one. */}
                   <span className={`text-xs px-2 py-1 rounded ${
-                    order.priority === 'STAT' ? 'bg-red-100 text-red-700' :
-                    order.priority === 'Urgent' ? 'bg-orange-100 text-orange-700' :
+                    order.priority?.toLowerCase() === 'stat' ? 'bg-red-100 text-red-700' :
+                    order.priority?.toLowerCase() === 'urgent' ? 'bg-orange-100 text-orange-700' :
                     'bg-gray-100 text-gray-700'
                   }`}>
                     {order.priority}
                   </span>
                   <p className="text-xs text-gray-500 mt-1">
-                    {new Date(order.ordered_at).toLocaleString()}
+                    {formatWhen(order.order_datetime)}
                   </p>
                 </div>
               </div>

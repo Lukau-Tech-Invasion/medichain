@@ -241,6 +241,20 @@ impl PgImmunizationScheduleRepository {
 
 #[async_trait]
 impl ImmunizationScheduleRepository for PgImmunizationScheduleRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationScheduleEntity>> {
+        let rows = sqlx::query_as::<_, ImmunizationScheduleEntity>(
+            "SELECT * FROM immunization_schedules ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         schedule: ImmunizationScheduleEntity,
@@ -473,8 +487,9 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
     }
 
     async fn get_by_id(&self, id: &str) -> RepositoryResult<VaccineInventoryEntity> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new(format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE id = "));
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE id = "
+        ));
         qb.push_bind(id);
 
         let inventory = qb
@@ -489,8 +504,9 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
         &self,
         facility_id: &str,
     ) -> RepositoryResult<Vec<VaccineInventoryEntity>> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new(format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE facility_id = "));
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE facility_id = "
+        ));
         qb.push_bind(facility_id);
         qb.push(" ORDER BY expiration_date ASC");
 
@@ -507,8 +523,9 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
         facility_id: &str,
         vaccine_type: &str,
     ) -> RepositoryResult<Vec<VaccineInventoryEntity>> {
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new(format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE facility_id = "));
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory WHERE facility_id = "
+        ));
         qb.push_bind(facility_id);
         qb.push(" AND vaccine_type = ");
         qb.push_bind(vaccine_type);
@@ -576,11 +593,11 @@ impl VaccineInventoryRepository for PgVaccineInventoryRepository {
     }
 
     async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<VaccineInventoryEntity>> {
-        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            format!("SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(format!(
+            "SELECT {VACCINE_INVENTORY_COLUMNS} FROM vaccine_inventory
              WHERE status = 'available' 
-             AND expiration_date <= CURRENT_DATE + "),
-        );
+             AND expiration_date <= CURRENT_DATE + "
+        ));
         qb.push_bind(days);
         qb.push("::INTEGER ORDER BY expiration_date ASC");
 

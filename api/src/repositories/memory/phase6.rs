@@ -1226,6 +1226,73 @@ impl MemoryComplianceReportRepository {
 
 #[async_trait]
 impl ComplianceReportRepository for MemoryComplianceReportRepository {
+    /// Reports for one compliance framework.
+    ///
+    /// The entity carries no dedicated `framework` column, so `report_type` is
+    /// the framework discriminator — the same proxy the PostgreSQL backend
+    /// uses, kept identical so the two cannot disagree about what a framework
+    /// filter returns.
+    async fn get_by_framework(
+        &self,
+        framework: &str,
+    ) -> RepositoryResult<Vec<ComplianceReportEntity>> {
+        let records = self.records.read().unwrap();
+        Ok(records
+            .values()
+            .filter(|r| r.report_type == framework)
+            .cloned()
+            .collect())
+    }
+
+    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<ComplianceReportEntity>> {
+        let records = self.records.read().unwrap();
+        Ok(records
+            .values()
+            .filter(|r| r.status.as_deref() == Some(status))
+            .cloned()
+            .collect())
+    }
+
+    /// Reports whose reporting period ends within `days`.
+    ///
+    /// A negative or zero window returns nothing rather than everything: "due
+    /// in the next 0 days" is an empty question, and returning the whole table
+    /// for it would be the opposite of what the caller asked.
+    async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>> {
+        if days <= 0 {
+            return Ok(Vec::new());
+        }
+        let today = chrono::Utc::now().date_naive();
+        let horizon = today + chrono::Duration::days(days as i64);
+        let records = self.records.read().unwrap();
+        Ok(records
+            .values()
+            .filter(|r| r.reporting_period_end >= today && r.reporting_period_end <= horizon)
+            .cloned()
+            .collect())
+    }
+
+    /// Reports generated within the last `days`, newest first.
+    async fn get_recent(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>> {
+        if days <= 0 {
+            return Ok(Vec::new());
+        }
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+        let records = self.records.read().unwrap();
+        let mut items: Vec<ComplianceReportEntity> = records
+            .values()
+            .filter(|r| {
+                r.generated_at
+                    .or(r.created_at)
+                    .map(|t| t >= cutoff)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        items.sort_by_key(|r| std::cmp::Reverse(r.generated_at.or(r.created_at)));
+        Ok(items)
+    }
+
     async fn create(
         &self,
         report: ComplianceReportEntity,
@@ -1332,6 +1399,26 @@ impl MemoryDataRetentionPolicyRepository {
 
 #[async_trait]
 impl DataRetentionPolicyRepository for MemoryDataRetentionPolicyRepository {
+    /// Policies in force today.
+    ///
+    /// Mirrors the PostgreSQL predicate: active, already effective, and not
+    /// past its end date.
+    async fn get_due_for_execution(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
+        let today = chrono::Utc::now().date_naive();
+        let records = self.records.read().unwrap();
+        let mut items: Vec<DataRetentionPolicyEntity> = records
+            .values()
+            .filter(|p| {
+                p.is_active.unwrap_or(false)
+                    && p.effective_date <= today
+                    && p.end_date.map(|d| d > today).unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+        items.sort_by(|a, b| a.policy_name.cmp(&b.policy_name));
+        Ok(items)
+    }
+
     async fn create(
         &self,
         policy: DataRetentionPolicyEntity,
@@ -1431,6 +1518,31 @@ impl MemoryRetentionJobRunRepository {
 
 #[async_trait]
 impl RetentionJobRunRepository for MemoryRetentionJobRunRepository {
+    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
+        let records = self.records.read().unwrap();
+        let mut items: Vec<RetentionJobRunEntity> = records
+            .values()
+            .filter(|r| r.status.as_deref() == Some(status))
+            .cloned()
+            .collect();
+        items.sort_by_key(|r| std::cmp::Reverse(r.started_at));
+        Ok(items)
+    }
+
+    /// Runs that started and have not finished.
+    ///
+    /// Keyed on `completed_at` being absent rather than on a status string, so
+    /// a run that died without updating its status is still reported as
+    /// outstanding instead of silently disappearing from the queue.
+    async fn get_in_progress(&self) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
+        let records = self.records.read().unwrap();
+        Ok(records
+            .values()
+            .filter(|r| r.started_at.is_some() && r.completed_at.is_none())
+            .cloned()
+            .collect())
+    }
+
     async fn create(&self, job: RetentionJobRunEntity) -> RepositoryResult<RetentionJobRunEntity> {
         let mut records = self.records.write().unwrap();
         records.insert(job.id.clone(), job.clone());

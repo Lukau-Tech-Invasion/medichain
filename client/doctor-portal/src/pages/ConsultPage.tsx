@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getPatients, listConsults, createConsult, useTranslation } from '@medichain/shared';
+import { getPatients, listConsults, createConsult, respondToConsult, useTranslation, lookupOr, componentOr } from '@medichain/shared';
 import { useToastActions } from '../components/Toast';
 import type { PatientProfile } from '@medichain/shared';
 import { useAuthStore } from '../store/authStore';
@@ -15,6 +15,7 @@ import {
   FileText,
   Activity,
   AlertCircle,
+  HelpCircle,
 } from 'lucide-react';
 
 type ConsultSpecialty =
@@ -91,6 +92,7 @@ const ConsultPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<ConsultStatus | 'all'>('all');
   const [specialtyFilter, setSpecialtyFilter] = useState<ConsultSpecialty | 'all'>('all');
   const [selectedConsult, setSelectedConsult] = useState<string>('');
+  const [isRespondingBusy, setIsRespondingBusy] = useState(false);
 
   const [newConsult, setNewConsult] = useState({
     patientId: '',
@@ -199,73 +201,89 @@ const ConsultPage: React.FC = () => {
     showSuccess(t('docConsult.successRequested', { id: consult.consultId }));
   };
 
-  const handleRespondToConsult = () => {
+  const handleRespondToConsult = async () => {
     if (!selectedConsult || !consultResponse.assessment || !consultResponse.recommendations) {
       showWarning(t('docConsult.errorRequiredResponseFields'));
       return;
     }
 
-    const updatedConsults = consults.map((c) => {
-      if (c.consultId === selectedConsult) {
-        return {
-          ...c,
-          status: 'completed' as ConsultStatus,
-          response: {
-            responseId: `RESP-${String(consults.length + 1).padStart(3, '0')}`,
-            respondedBy: `${user?.userId || 'USER-001'} (${user?.userId || 'Consultant'})`,
-            respondedAt: new Date().toISOString(),
-            assessment: consultResponse.assessment,
-            recommendations: consultResponse.recommendations,
-            followUp: consultResponse.followUp || undefined,
-          },
-        };
-      }
-      return c;
-    });
+    // This used to mutate the local array and announce success without calling
+    // the API — there was no endpoint to call. A specialist could write the
+    // assessment the requesting clinician was waiting on, see it confirmed, and
+    // lose it on reload while the consult still showed as outstanding to
+    // everyone else. Persist first; only then update what is on screen.
+    setIsRespondingBusy(true);
+    try {
+      await respondToConsult(selectedConsult, {
+        assessment: consultResponse.assessment,
+        recommendations: consultResponse.recommendations,
+        follow_up: consultResponse.followUp || undefined,
+      });
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docConsult.errorResponseFailed'));
+      setIsRespondingBusy(false);
+      return;
+    }
 
-    setConsults(updatedConsults);
     setConsultResponse({
       assessment: '',
       recommendations: '',
       followUp: '',
     });
     setSelectedConsult('');
+    setIsRespondingBusy(false);
     showSuccess(t('docConsult.successResponseSubmitted'));
+    // Re-read so the list shows what the server stored, including the
+    // server-assigned responder and completion time.
+    fetchConsults();
   };
 
-  const getStatusBadge = (status: ConsultStatus) => {
-    const badges = {
-      requested: 'bg-yellow-100 text-yellow-800',
-      acknowledged: 'bg-blue-100 text-blue-800',
-      'in-progress': 'bg-purple-100 text-purple-800',
-      completed: 'bg-green-100 text-green-800',
-      declined: 'bg-red-100 text-red-800',
-      cancelled: 'bg-gray-100 text-gray-800',
-    };
-    return badges[status];
-  };
+  // `status` and `urgency` are unions in TypeScript but plain strings on the
+  // wire — the list is asserted with `as`, never validated — so these lookups
+  // must be total. An unmapped status used to return `undefined`, and rendering
+  // `undefined` as a JSX element throws "Element type is invalid", which
+  // unmounts the whole consult list rather than just the badge.
+  const getStatusBadge = (status: ConsultStatus) =>
+    lookupOr(
+      {
+        requested: 'bg-yellow-100 text-yellow-800',
+        acknowledged: 'bg-blue-100 text-blue-800',
+        'in-progress': 'bg-purple-100 text-purple-800',
+        completed: 'bg-green-100 text-green-800',
+        declined: 'bg-red-100 text-red-800',
+        cancelled: 'bg-gray-100 text-gray-800',
+      },
+      status,
+      'bg-gray-100 text-gray-800'
+    );
 
-  const getStatusIcon = (status: ConsultStatus) => {
-    const icons = {
-      requested: Clock,
-      acknowledged: AlertCircle,
-      'in-progress': Activity,
-      completed: CheckCircle,
-      declined: XCircle,
-      cancelled: XCircle,
-    };
-    return icons[status];
-  };
+  const getStatusIcon = (status: ConsultStatus) =>
+    componentOr(
+      {
+        requested: Clock,
+        acknowledged: AlertCircle,
+        'in-progress': Activity,
+        completed: CheckCircle,
+        declined: XCircle,
+        cancelled: XCircle,
+      },
+      status,
+      // A neutral marker: an unrecognised status is "something we cannot
+      // characterise", which is closer to a query than to a completion.
+      HelpCircle
+    );
 
-  const getUrgencyBadge = (urgency: ConsultUrgency) => {
-    const badges = {
-      routine: 'bg-gray-100 text-gray-800',
-      urgent: 'bg-orange-100 text-orange-800',
-      emergent: 'bg-red-100 text-red-800',
-      stat: 'bg-red-200 text-red-900',
-    };
-    return badges[urgency];
-  };
+  const getUrgencyBadge = (urgency: ConsultUrgency) =>
+    lookupOr(
+      {
+        routine: 'bg-gray-100 text-gray-800',
+        urgent: 'bg-orange-100 text-orange-800',
+        emergent: 'bg-red-100 text-red-800',
+        stat: 'bg-red-200 text-red-900',
+      },
+      urgency,
+      'bg-gray-100 text-gray-800'
+    );
 
   const formatSpecialty = (specialty: string) => {
     return t(`docConsult.specialty_${specialty}`);
@@ -623,10 +641,13 @@ const ConsultPage: React.FC = () => {
                 <div className="flex gap-3">
                   <button
                     onClick={handleRespondToConsult}
-                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2"
+                    disabled={isRespondingBusy}
+                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <Send className="w-4 h-4" />
-                    {t('docConsult.submitResponseBtn')}
+                    {isRespondingBusy
+                      ? t('docConsult.submittingResponse')
+                      : t('docConsult.submitResponseBtn')}
                   </button>
                   <button
                     onClick={() => {

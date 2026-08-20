@@ -222,18 +222,13 @@ pub async fn book_appointment(
     // this work removes — better to refuse the booking than to create one that
     // cannot be attended.
     if appointment.is_telehealth {
-        let scheduled_start = appointment
-            .scheduled_time
-            .unwrap_or_else(|| {
-                // No explicit epoch was supplied, so derive one from the date
-                // and time the booking actually carries. The join window is
-                // measured against this, so it must not silently become "now".
-                crate::types::appt_to_datetime(
-                    &appointment.scheduled_date,
-                    &appointment.start_time,
-                )
+        let scheduled_start = appointment.scheduled_time.unwrap_or_else(|| {
+            // No explicit epoch was supplied, so derive one from the date
+            // and time the booking actually carries. The join window is
+            // measured against this, so it must not silently become "now".
+            crate::types::appt_to_datetime(&appointment.scheduled_date, &appointment.start_time)
                 .timestamp()
-            });
+        });
         match crate::clinical_endpoints::provision_session(
             &data,
             &appointment.patient_id,
@@ -575,8 +570,8 @@ pub async fn check_in_appointment(
     // portal's Check in button always returned 403 (docs/WORKFLOW_AUDIT.md,
     // WF-007).
     let is_patient = current_user_id == appointment.patient_id;
-    let is_clinical_staff = crate::get_user(&data, &current_user_id)
-        .is_some_and(|u| u.role.is_healthcare_provider());
+    let is_clinical_staff =
+        crate::get_user(&data, &current_user_id).is_some_and(|u| u.role.is_healthcare_provider());
     if !is_patient && !is_clinical_staff {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
@@ -797,8 +792,11 @@ pub async fn transition_appointment(
     // below was unreachable and every patient got "you are not a party to this
     // appointment" on their own booking. `caller_owns_patient_record` is the
     // function that actually bridges the two namespaces.
-    let is_patient =
-        crate::support::caller_owns_patient_record(&data, &caller.wallet_address, &appointment.patient_id);
+    let is_patient = crate::support::caller_owns_patient_record(
+        &data,
+        &caller.wallet_address,
+        &appointment.patient_id,
+    );
     let is_admin = caller.role.is_admin();
     if !is_provider_of_record && !is_patient && !is_admin {
         return HttpResponse::Forbidden().json(ErrorResponse {
@@ -818,7 +816,6 @@ pub async fn transition_appointment(
             code: "FORBIDDEN_TRANSITION".to_string(),
         });
     }
-
 
     if appointment.status == target {
         // Idempotent: re-sending the current status is a no-op rather than an
@@ -1117,8 +1114,13 @@ mod appointment_transition_tests {
     fn terminal_states_never_move_again() {
         for terminal in [S::Completed, S::Cancelled, S::NoShow, S::Rescheduled] {
             for target in [
-                S::Scheduled, S::Confirmed, S::CheckedIn, S::InProgress,
-                S::Completed, S::Cancelled, S::NoShow,
+                S::Scheduled,
+                S::Confirmed,
+                S::CheckedIn,
+                S::InProgress,
+                S::Completed,
+                S::Cancelled,
+                S::NoShow,
             ] {
                 assert!(
                     !is_valid_transition(&terminal, &target),
@@ -1150,8 +1152,15 @@ mod appointment_transition_tests {
     #[test]
     fn the_stored_spelling_round_trips_through_the_strict_parser() {
         for status in [
-            S::Scheduled, S::Confirmed, S::CheckedIn, S::InProgress, S::Completed,
-            S::NoShow, S::Cancelled, S::Rescheduled, S::Waitlisted,
+            S::Scheduled,
+            S::Confirmed,
+            S::CheckedIn,
+            S::InProgress,
+            S::Completed,
+            S::NoShow,
+            S::Cancelled,
+            S::Rescheduled,
+            S::Waitlisted,
         ] {
             let stored = appt_status_storage_str(&status);
             let parsed = appt_parse_status_strict(stored)
@@ -1182,7 +1191,10 @@ mod appointment_type_tests {
     /// vocabulary must map to the types it names, not silently to FollowUp.
     #[test]
     fn the_doctor_portals_own_option_values_all_map_correctly() {
-        assert_eq!(parse_appointment_type("consultation"), Some(T::Consultation));
+        assert_eq!(
+            parse_appointment_type("consultation"),
+            Some(T::Consultation)
+        );
         assert_eq!(parse_appointment_type("follow-up"), Some(T::FollowUp));
         assert_eq!(parse_appointment_type("procedure"), Some(T::Procedure));
         assert_eq!(parse_appointment_type("screening"), Some(T::AnnualExam));
@@ -1211,7 +1223,11 @@ mod appointment_type_tests {
     #[test]
     fn separators_and_case_do_not_change_the_meaning() {
         for spelling in ["follow up", "Follow-Up", "FOLLOW_UP", "followUp"] {
-            assert_eq!(parse_appointment_type(spelling), Some(T::FollowUp), "{spelling}");
+            assert_eq!(
+                parse_appointment_type(spelling),
+                Some(T::FollowUp),
+                "{spelling}"
+            );
         }
     }
 

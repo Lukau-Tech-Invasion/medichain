@@ -153,9 +153,9 @@ fn dashboard_patient(
             content_available: false,
         };
     };
-    let contact = p.emergency_info.emergency_contacts.first().map(|c| {
-        serde_json::json!({ "name": c.name, "phone": c.phone, "relationship": c.relationship })
-    });
+    let contact = p.emergency_info.emergency_contacts.first().map(
+        |c| serde_json::json!({ "name": c.name, "phone": c.phone, "relationship": c.relationship }),
+    );
     DashboardPatient {
         patient_id: p.patient_id.clone(),
         health_id: entity.health_id.clone(),
@@ -163,7 +163,12 @@ fn dashboard_patient(
         date_of_birth: p.date_of_birth.clone(),
         gender: p.gender.clone().unwrap_or_default(),
         blood_type: Some(p.emergency_info.blood_type.to_string()),
-        allergies: p.emergency_info.allergies.iter().map(|a| a.name.clone()).collect(),
+        allergies: p
+            .emergency_info
+            .allergies
+            .iter()
+            .map(|a| a.name.clone())
+            .collect(),
         current_medications: p.emergency_info.current_medications.clone(),
         medical_conditions: p.emergency_info.chronic_conditions.clone(),
         emergency_contact: contact,
@@ -224,7 +229,12 @@ pub async fn doctor_dashboard(data: web::Data<AppState>, http_req: HttpRequest) 
         .await
         .unwrap_or_default();
 
-    let code_blues = data.repositories.code_blue.list_all().await.unwrap_or_default();
+    let code_blues = data
+        .repositories
+        .code_blue
+        .list_all()
+        .await
+        .unwrap_or_default();
 
     let active_orders = data
         .repositories
@@ -406,9 +416,17 @@ pub async fn lab_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -> 
             "time_in_lab": submission.order_date.format("%Y-%m-%d %H:%M").to_string(),
         }));
     }
-    let approved_count = submissions.iter().filter(|s| s.status == "approved").count();
+    let approved_count = submissions
+        .iter()
+        .filter(|s| s.status == "approved")
+        .count();
 
-    let qc_records = data.repositories.lab_qc_records.list_all().await.unwrap_or_default();
+    let qc_records = data
+        .repositories
+        .lab_qc_records
+        .list_all()
+        .await
+        .unwrap_or_default();
     let rejections = data
         .repositories
         .specimen_rejections
@@ -551,7 +569,10 @@ pub async fn admin_dashboard(data: web::Data<AppState>, http_req: HttpRequest) -
         .await
         .unwrap_or_default();
     let labs_pending = submissions.iter().filter(|s| s.status == "pending").count();
-    let labs_approved = submissions.iter().filter(|s| s.status == "approved").count();
+    let labs_approved = submissions
+        .iter()
+        .filter(|s| s.status == "approved")
+        .count();
 
     // This used to report `status: "healthy", peers: 4, best_block: 12450,
     // finalized_block: 12445` as literals — an administrator's node-health
@@ -637,13 +658,19 @@ pub async fn pharmacist_dashboard(
     // under `medication`, so passing it through raw threw on
     // `rx.medication_name.toLowerCase()` and took the page down.
     let text = |v: &serde_json::Value, key: &str| {
-        v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
+        v.get(key)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
     };
     let list: Vec<serde_json::Value> = records
         .iter()
         .map(|r| {
             let v = &r.data;
-            let med = v.get("medication").cloned().unwrap_or(serde_json::Value::Null);
+            let med = v
+                .get("medication")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             serde_json::json!({
                 "prescription_id": text(v, "prescription_id"),
                 "patient_id": text(v, "patient_id"),
@@ -663,11 +690,17 @@ pub async fn pharmacist_dashboard(
         })
         .collect();
     let status_of = |v: &serde_json::Value| {
-        v.get("status").and_then(|s| s.as_str()).unwrap_or("").to_string()
+        v.get("status")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string()
     };
     // Only a transmitted prescription has reached the pharmacy; a draft sitting
     // in a prescriber's screen is not pharmacy work.
-    let pending_fill = list.iter().filter(|v| status_of(v) == "Transmitted").count();
+    let pending_fill = list
+        .iter()
+        .filter(|v| status_of(v) == "Transmitted")
+        .count();
     let in_progress = list.iter().filter(|v| status_of(v) == "Filling").count();
     let completed_today = list.iter().filter(|v| status_of(v) == "Filled").count();
 

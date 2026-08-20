@@ -398,6 +398,49 @@ pub async fn join_telehealth_session(
             .await;
     }
 
+    // Entering a patient's live consultation is an access to their care, and
+    // it was the one telehealth event that left no trace: recording-start and
+    // recording-stop both audited, joining did not. A provider could sit in a
+    // patient's video visit and the access trail would show nothing — in a
+    // system whose central claim is a tamper-evident record of who reached a
+    // patient, that is the entry an auditor would look for first.
+    {
+        let joined_at = chrono::Utc::now();
+        let accessor_role = if is_provider {
+            crate::support::get_user(&data, &current_user_id)
+                .map(|u| u.role.to_string())
+                .unwrap_or_else(|| "Doctor".to_string())
+        } else {
+            "Patient".to_string()
+        };
+        let log = crate::repositories::traits::AccessLogEntity {
+            id: uuid::Uuid::new_v4().to_string(),
+            accessor_id: current_user_id.clone(),
+            accessor_role,
+            patient_id: Some(session.patient_id.clone()),
+            resource_type: "telehealth_session".to_string(),
+            resource_id: Some(session_id.clone()),
+            // MUST be a value `access_logs_action_check` accepts. The first
+            // draft of this used "joined", which the constraint rejects — the
+            // insert would have failed on PostgreSQL and, because this write
+            // only logs its error, the audit row would have been silently lost
+            // while the join succeeded. That is the exact bug this block exists
+            // to fix, reintroduced one layer down. The in-memory backend
+            // enforces no CHECK constraint, so it would have looked fine here.
+            action: TELEHEALTH_JOIN_ACTION.to_string(),
+            access_reason: Some("telehealth consultation".to_string()),
+            is_emergency_access: false,
+            ip_address: None,
+            user_agent: None,
+            blockchain_tx_hash: None,
+            accessed_at: joined_at,
+            facility_id: None,
+        };
+        if let Err(e) = data.repositories.access_logs.create(log).await {
+            log::error!("telehealth join audit write failed for {session_id}: {e}");
+        }
+    }
+
     // Phase 1: issue Jitsi IFrame-API credentials (domain, room, JWT) mapped to
     // the caller's role. `jitsi` is null for providers that don't support JWT.
     let role_str = if is_provider {
@@ -507,7 +550,19 @@ pub const TELEHEALTH_EVENT_TYPES: &[&str] = &[
     "participant-joined",
     "participant-left",
     "error",
+    // Written by `join_telehealth_session` when a participant enters the room.
+    // Listed here so `test_pg_telehealth_event_types_are_all_accepted_by_the_schema`
+    // proves the schema accepts it, rather than a paramedic-hours discovery
+    // that telehealth joins stopped being audited on PostgreSQL.
+    TELEHEALTH_JOIN_ACTION,
 ];
+
+/// The `access_logs.action` value recorded when someone joins a consultation.
+///
+/// Constrained by `access_logs_action_check` in the schema, so it cannot be an
+/// arbitrary string. Kept as a named constant so the writer and the vocabulary
+/// test above can never disagree about which value that is.
+pub const TELEHEALTH_JOIN_ACTION: &str = "conference-joined";
 
 #[derive(serde::Deserialize)]
 pub struct TelehealthEventRequest {
@@ -606,14 +661,23 @@ pub async fn telehealth_recording(
         Err(resp) => return resp,
     };
 
-    // Only a healthcare provider (moderator) may control recording.
+    // Only a session moderator may control recording.
+    //
+    // This used to ask `is_healthcare_provider()`, which is true for
+    // Pharmacist and LabTechnician as well — so a pharmacist could start
+    // recording a patient's consultation. Meanwhile `role_is_moderator` in
+    // `crate::telehealth` (the mapping that decides the Jitsi JWT's moderator
+    // claim) already excluded Pharmacist. Two definitions of "moderator" in one
+    // feature, and the security-relevant gate happened to use the wider one.
+    // There is now exactly one definition, so the room's moderator claim and
+    // the API's recording gate cannot drift apart again.
     let is_moderator = crate::support::get_user(&data, &actor)
-        .map(|u| u.role.is_healthcare_provider())
+        .map(|u| crate::telehealth::role_is_moderator(&u.role.to_string()))
         .unwrap_or(false);
     if !is_moderator {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Only the provider can control recording".to_string(),
+            error: "Only a session moderator can control recording".to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
@@ -680,7 +744,12 @@ pub async fn telehealth_recording(
     let log = crate::repositories::traits::AccessLogEntity {
         id: uuid::Uuid::new_v4().to_string(),
         accessor_id: actor.clone(),
-        accessor_role: "moderator".to_string(),
+        // The caller's actual role, not the literal "moderator". Audit
+        // consumers filter and group by role, and "moderator" is not one —
+        // these rows silently fell outside every role-based audit query.
+        accessor_role: crate::support::get_user(&data, &actor)
+            .map(|u| u.role.to_string())
+            .unwrap_or_else(|| "Doctor".to_string()),
         patient_id: Some(session.patient_id.clone()),
         resource_type: "telehealth_recording".to_string(),
         resource_id: Some(session_id.clone()),
@@ -693,7 +762,9 @@ pub async fn telehealth_recording(
         accessed_at: now,
         facility_id: None,
     };
-    let _ = data.repositories.access_logs.create(log).await;
+    if let Err(e) = data.repositories.access_logs.create(log).await {
+        log::error!("telehealth {action} audit write failed for {session_id}: {e}");
+    }
     data.ws_manager.push_event(crate::websocket::PushEvent {
         event_type: "telehealth".to_string(),
         patient_id: Some(session.patient_id.clone()),
@@ -1042,21 +1113,33 @@ mod join_window_tests {
     #[test]
     fn the_room_is_open_around_the_appointment() {
         assert!(within_join_window(START, START), "at the scheduled minute");
-        assert!(within_join_window(START, START - JOIN_OPENS_BEFORE_SECS + 1));
-        assert!(within_join_window(START, START + JOIN_CLOSES_AFTER_SECS - 1));
+        assert!(within_join_window(
+            START,
+            START - JOIN_OPENS_BEFORE_SECS + 1
+        ));
+        assert!(within_join_window(
+            START,
+            START + JOIN_CLOSES_AFTER_SECS - 1
+        ));
     }
 
     /// A link is a private clinical space, not a permanent address. Booking an
     /// appointment must not make its room reachable from that moment on.
     #[test]
     fn the_room_is_shut_well_before_the_appointment() {
-        assert!(!within_join_window(START, START - JOIN_OPENS_BEFORE_SECS - 1));
+        assert!(!within_join_window(
+            START,
+            START - JOIN_OPENS_BEFORE_SECS - 1
+        ));
         assert!(!within_join_window(START, START - 7 * 24 * 3600));
     }
 
     #[test]
     fn the_room_does_not_stay_open_forever_afterwards() {
-        assert!(!within_join_window(START, START + JOIN_CLOSES_AFTER_SECS + 1));
+        assert!(!within_join_window(
+            START,
+            START + JOIN_CLOSES_AFTER_SECS + 1
+        ));
         assert!(!within_join_window(START, START + 30 * 24 * 3600));
     }
 
@@ -1066,5 +1149,79 @@ mod join_window_tests {
     fn the_window_boundaries_are_inclusive() {
         assert!(within_join_window(START, START - JOIN_OPENS_BEFORE_SECS));
         assert!(within_join_window(START, START + JOIN_CLOSES_AFTER_SECS));
+    }
+}
+
+/// Who may control recording of a consultation.
+///
+/// The handler asks `role_is_moderator(&user.role.to_string())`. That
+/// composition — `Role`'s `Display` feeding the Jitsi moderator mapping — is
+/// what these tests pin, because the defect they cover lived exactly there:
+/// the gate used to ask `is_healthcare_provider()`, which is *true* for
+/// Pharmacist, while the JWT's moderator claim said otherwise. The room and the
+/// API disagreed about who the moderator was.
+#[cfg(test)]
+mod recording_authority_tests {
+    use crate::telehealth::role_is_moderator;
+    use crate::Role;
+
+    fn may_control_recording(role: &Role) -> bool {
+        role_is_moderator(&role.to_string())
+    }
+
+    #[test]
+    fn a_pharmacist_cannot_start_recording_a_consultation() {
+        assert!(
+            !may_control_recording(&Role::Pharmacist),
+            "a pharmacist is not a moderator of a clinical consultation"
+        );
+    }
+
+    #[test]
+    fn a_patient_cannot_start_recording_their_own_consultation() {
+        assert!(!may_control_recording(&Role::Patient));
+    }
+
+    #[test]
+    fn the_treating_clinicians_can_control_recording() {
+        assert!(may_control_recording(&Role::Doctor));
+        assert!(may_control_recording(&Role::Nurse));
+        assert!(may_control_recording(&Role::Admin));
+    }
+
+    /// Every `Role` is decided deliberately, so adding a variant to the enum
+    /// forces a decision here rather than silently inheriting a default.
+    #[test]
+    fn every_role_has_an_explicit_recording_decision() {
+        for (role, expected) in [
+            (Role::Admin, true),
+            (Role::Doctor, true),
+            (Role::Nurse, true),
+            (Role::LabTechnician, true),
+            (Role::Pharmacist, false),
+            (Role::Patient, false),
+        ] {
+            assert_eq!(
+                may_control_recording(&role),
+                expected,
+                "recording authority for {role}"
+            );
+        }
+    }
+
+    /// The regression itself: `is_healthcare_provider()` is a wider set than
+    /// the moderator set, and using it as the recording gate is what let a
+    /// pharmacist in. If the two ever become identical this test is the place
+    /// that says the distinction was intentional.
+    #[test]
+    fn healthcare_provider_is_deliberately_wider_than_moderator() {
+        assert!(
+            Role::Pharmacist.is_healthcare_provider(),
+            "a pharmacist is still a healthcare provider"
+        );
+        assert!(
+            !may_control_recording(&Role::Pharmacist),
+            "but that does not make them a session moderator"
+        );
     }
 }

@@ -313,8 +313,22 @@ pub fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Convert hex string to bytes
+/// Convert hex string to bytes.
+///
+/// An optional `0x`/`0X` prefix is accepted. That is the canonical Substrate
+/// and polkadot-js encoding — `u8aToHex` emits it by default — and rejecting it
+/// silently broke every signature produced by the browser: the sr25519
+/// signature was valid, the key was right, and verification failed at the hex
+/// decoder with `InvalidSignatureFormat`, which the API reports as the generic
+/// "Signature verification failed". Demo deployments hid it because they fall
+/// back to header identity; with `REQUIRE_SIGNATURES=true` it made the whole
+/// credential sign-in path unusable.
 pub fn from_hex(hex: &str) -> Result<Vec<u8>, CryptoError> {
+    let hex = hex
+        .strip_prefix("0x")
+        .or_else(|| hex.strip_prefix("0X"))
+        .unwrap_or(hex);
+
     if !hex.len().is_multiple_of(2) {
         return Err(CryptoError::DecryptionFailed);
     }
@@ -436,6 +450,26 @@ mod tests {
 
         assert_eq!(hex, "deadbeef");
         assert_eq!(original, restored);
+    }
+
+    /// polkadot-js `u8aToHex` prefixes with `0x` by default, so every signature
+    /// the browser produces arrives prefixed. Rejecting it here failed
+    /// verification at the decoder, which the API surfaces as the generic
+    /// "Signature verification failed" — a valid signature reported as forged.
+    #[test]
+    fn from_hex_accepts_the_substrate_0x_prefix() {
+        let expected = vec![0xde, 0xad, 0xbe, 0xef];
+        assert_eq!(from_hex("0xdeadbeef").unwrap(), expected);
+        assert_eq!(from_hex("0Xdeadbeef").unwrap(), expected);
+        assert_eq!(from_hex("deadbeef").unwrap(), expected);
+    }
+
+    #[test]
+    fn from_hex_still_rejects_non_hex_content() {
+        // The prefix is stripped, not treated as permission to accept garbage.
+        assert!(from_hex("0xzz").is_err());
+        assert!(from_hex("0xabc").is_err());
+        assert!(from_hex("nothex").is_err());
     }
 
     #[test]
@@ -753,6 +787,33 @@ pub mod signature {
             let invalid = "invalid_address";
             let result = decode_ss58_to_pubkey(invalid);
             assert!(result.is_err());
+        }
+
+        /// The browser signs with polkadot-js, whose `u8aToHex` emits a `0x`
+        /// prefix. This asserts the wire format the frontend actually sends
+        /// verifies — the prefixed form used to fail at the hex decoder, so a
+        /// correctly signed login was rejected as a bad signature and the
+        /// credential sign-in path could never obtain a JWT.
+        #[test]
+        fn wallet_signature_verifies_with_or_without_the_0x_prefix() {
+            use sp_core::{sr25519, Pair};
+
+            // Alice: the well-known development identity, and the address the
+            // other tests in this module already use.
+            let pair = sr25519::Pair::from_string("//Alice", None).expect("dev key");
+            let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+            // Fixed timestamp, passed as "now" too, so drift is zero and the
+            // test cannot fail on clock skew.
+            let timestamp = 1_704_067_200i64;
+            let message = create_sign_message(timestamp, wallet);
+            let unprefixed = crate::to_hex(&pair.sign(message.as_bytes()).0);
+
+            for candidate in [unprefixed.clone(), format!("0x{unprefixed}")] {
+                assert!(
+                    verify_wallet_signature(&candidate, &message, wallet, timestamp).is_ok(),
+                    "signature form {candidate} must verify"
+                );
+            }
         }
 
         #[test]

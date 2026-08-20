@@ -545,7 +545,12 @@ async fn download_wound(
     caller_id: &str,
     wound_id: &str,
 ) -> HttpResponse {
-    let wound = match data.repositories.wound_assessments.get_by_id(wound_id).await {
+    let wound = match data
+        .repositories
+        .wound_assessments
+        .get_by_id(wound_id)
+        .await
+    {
         Ok(wound) => wound,
         Err(e) => {
             log::error!("wound assessment {wound_id} lookup failed: {e}");
@@ -556,7 +561,8 @@ async fn download_wound(
         return access_denied();
     }
     let cm = |v: &Option<rust_decimal::Decimal>| {
-        v.map(|d| format!("{d} cm")).unwrap_or_else(|| "-".to_string())
+        v.map(|d| format!("{d} cm"))
+            .unwrap_or_else(|| "-".to_string())
     };
     let some = |v: &Option<String>| v.clone().unwrap_or_else(|| "-".to_string());
     let mut body = format!("Wound assessment {wound_id}\n\n");
@@ -603,10 +609,14 @@ async fn download_vitals(
         return access_denied();
     }
     let num = |value: Option<i32>| {
-        value.map(|n| n.to_string()).unwrap_or_else(|| "-".to_string())
+        value
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "-".to_string())
     };
     let dec = |value: Option<f64>| {
-        value.map(|n| format!("{n:.1}")).unwrap_or_else(|| "-".to_string())
+        value
+            .map(|n| format!("{n:.1}"))
+            .unwrap_or_else(|| "-".to_string())
     };
     let bp = match (v.blood_pressure_systolic, v.blood_pressure_diastolic) {
         (Some(s), Some(d)) => format!("{s}/{d}"),
@@ -702,24 +712,39 @@ async fn download_soap_note(
     body.push_str(&format!("Patient:    {patient_id}\n"));
     body.push_str(&format!("Author:     {}\n", text(&v, "author_id")));
     body.push_str(&format!("Encounter:  {}\n", text(&v, "encounter_type")));
-    body.push_str(&format!("Recorded:   {}\n", timestamp_text(&v, "created_at")));
+    body.push_str(&format!(
+        "Recorded:   {}\n",
+        timestamp_text(&v, "created_at")
+    ));
     body.push_str(&format!("Status:     {}\n\n", text(&v, "status")));
 
     body.push_str("SUBJECTIVE\n");
-    body.push_str(&format!("  Chief complaint: {}\n", text(&s, "chief_complaint")));
+    body.push_str(&format!(
+        "  Chief complaint: {}\n",
+        text(&s, "chief_complaint")
+    ));
     body.push_str(&format!(
         "  History:         {}\n",
         text(&s, "history_of_present_illness")
     ));
-    body.push_str(&format!("  Duration:        {}\n\n", text(&s, "symptom_duration")));
+    body.push_str(&format!(
+        "  Duration:        {}\n\n",
+        text(&s, "symptom_duration")
+    ));
 
     body.push_str("OBJECTIVE\n");
     body.push_str(&format!(
         "  Appearance:      {}\n",
         text(&o, "general_appearance")
     ));
-    body.push_str(&format!("  Exam:            {}\n", text(&o, "physical_exam")));
-    body.push_str(&format!("  Labs:            {}\n\n", text(&o, "lab_results")));
+    body.push_str(&format!(
+        "  Exam:            {}\n",
+        text(&o, "physical_exam")
+    ));
+    body.push_str(&format!(
+        "  Labs:            {}\n\n",
+        text(&o, "lab_results")
+    ));
 
     body.push_str("ASSESSMENT\n");
     // A diagnosis is a structured object ({description, icd10_code, status}),
@@ -749,10 +774,16 @@ async fn download_soap_note(
         body.push_str(&format!("  Also:            {}\n", secondary.join(", ")));
     }
     body.push_str(&format!("  Severity:        {}\n", text(&a, "severity")));
-    body.push_str(&format!("  Summary:         {}\n\n", text(&a, "clinical_summary")));
+    body.push_str(&format!(
+        "  Summary:         {}\n\n",
+        text(&a, "clinical_summary")
+    ));
 
     body.push_str("PLAN\n");
-    body.push_str(&format!("  Treatment:       {}\n", text(&pl, "treatment_plan")));
+    body.push_str(&format!(
+        "  Treatment:       {}\n",
+        text(&pl, "treatment_plan")
+    ));
     body.push_str(&format!("  Follow-up:       {}\n", text(&pl, "follow_up")));
     body.push_str(&format!(
         "  Education:       {}\n",
@@ -883,15 +914,28 @@ async fn download_triage(
         "Critical vitals:   {}\n",
         if a.is_critical { "YES" } else { "no" }
     ));
-    body.push_str(&format!("Isolation:         {}\n", if a.requires_isolation { "required" } else { "not required" }));
+    body.push_str(&format!(
+        "Isolation:         {}\n",
+        if a.requires_isolation {
+            "required"
+        } else {
+            "not required"
+        }
+    ));
     body.push_str(&format!("\nChief complaint:   {}\n", a.chief_complaint));
 
     body.push_str("\nVITALS\n");
     body.push_str(&format!("  Heart rate:       {}\n", num(a.heart_rate)));
-    body.push_str(&format!("  Respiratory rate: {}\n", num(a.respiratory_rate)));
+    body.push_str(&format!(
+        "  Respiratory rate: {}\n",
+        num(a.respiratory_rate)
+    ));
     body.push_str(&format!("  Blood pressure:   {bp}\n"));
     body.push_str(&format!("  Temperature:      {} C\n", dec(a.temperature)));
-    body.push_str(&format!("  O2 saturation:    {}\n", num(a.oxygen_saturation)));
+    body.push_str(&format!(
+        "  O2 saturation:    {}\n",
+        num(a.oxygen_saturation)
+    ));
     body.push_str(&format!("  Pain scale:       {}\n", num(a.pain_scale)));
     body.push_str(&format!("  GCS score:        {}\n", num(a.gcs_score)));
     body.push_str(&format!("  Blood glucose:    {}\n", num(a.blood_glucose)));
@@ -917,10 +961,7 @@ async fn download_triage(
 /// file, and a wall of JSON is not a lab result they can read. Values, units and
 /// reference ranges are kept together so an out-of-range figure is interpretable
 /// away from the app.
-async fn download_lab_result(
-    data: &web::Data<AppState>,
-    submission_id: &str,
-) -> HttpResponse {
+async fn download_lab_result(data: &web::Data<AppState>, submission_id: &str) -> HttpResponse {
     let record = match data
         .repositories
         .lab_result_submissions
@@ -945,18 +986,17 @@ async fn download_lab_result(
         }
     };
 
-    let submission: LabResultSubmission =
-        match serde_json::from_value(record.data) {
-            Ok(submission) => submission,
-            Err(e) => {
-                log::error!("lab result {submission_id} did not parse: {e}");
-                return HttpResponse::InternalServerError().json(ErrorResponse {
-                    success: false,
-                    error: "Lab result could not be read".to_string(),
-                    code: "REPO_ERROR".to_string(),
-                });
-            }
-        };
+    let submission: LabResultSubmission = match serde_json::from_value(record.data) {
+        Ok(submission) => submission,
+        Err(e) => {
+            log::error!("lab result {submission_id} did not parse: {e}");
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Lab result could not be read".to_string(),
+                code: "REPO_ERROR".to_string(),
+            });
+        }
+    };
 
     let mut report = String::new();
     report.push_str(&format!("Lab report: {}\n", submission.test_name));
@@ -1032,7 +1072,8 @@ pub async fn download_medical_record_by_hash(
         return download_soap_note(&data, &current_user, &current_user_id, note_id).await;
     }
     if let Some(prescription_id) = content_hash.strip_prefix("rx-") {
-        return download_prescription(&data, &current_user, &current_user_id, prescription_id).await;
+        return download_prescription(&data, &current_user, &current_user_id, prescription_id)
+            .await;
     }
     if let Some(hp_id) = content_hash.strip_prefix("hp-") {
         return download_history_physical(&data, &current_user, &current_user_id, hp_id).await;

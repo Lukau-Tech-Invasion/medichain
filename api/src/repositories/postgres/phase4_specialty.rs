@@ -159,6 +159,10 @@ impl BurnAssessmentRepository for PgBurnAssessmentRepository {
         qb.push(", burn_center_notified = ")
             .push_bind(assessment.burn_center_notified);
         qb.push(", notes = ").push_bind(&assessment.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&assessment.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&assessment.id);
         qb.push(" RETURNING *");
@@ -347,6 +351,10 @@ impl PsychiatricAssessmentRepository for PgPsychiatricAssessmentRepository {
         qb.push(", one_to_one_observation = ")
             .push_bind(assessment.one_to_one_observation);
         qb.push(", notes = ").push_bind(&assessment.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&assessment.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&assessment.id);
         qb.push(" RETURNING *");
@@ -549,6 +557,10 @@ impl ToxicologyAssessmentRepository for PgToxicologyAssessmentRepository {
         qb.push(", icu_admission = ")
             .push_bind(assessment.icu_admission);
         qb.push(", notes = ").push_bind(&assessment.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&assessment.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&assessment.id);
         qb.push(" RETURNING *");
@@ -731,6 +743,10 @@ impl PediatricAssessmentRepository for PgPediatricAssessmentRepository {
         qb.push(", cps_notified = ")
             .push_bind(assessment.cps_notified);
         qb.push(", notes = ").push_bind(&assessment.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&assessment.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&assessment.id);
         qb.push(" RETURNING *");
@@ -933,6 +949,10 @@ impl ObstetricEmergencyRepository for PgObstetricEmergencyRepository {
             .push_bind(emergency.nicu_notified);
         qb.push(", or_notified = ").push_bind(emergency.or_notified);
         qb.push(", notes = ").push_bind(&emergency.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&emergency.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&emergency.id);
         qb.push(" RETURNING *");

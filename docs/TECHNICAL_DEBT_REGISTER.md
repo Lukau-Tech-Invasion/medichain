@@ -17,9 +17,423 @@
 >
 > This file remains the record: add new debt here as it is discovered.
 
-Last updated: 2026-07-31.
+Last updated: 2026-08-20.
 
 ---
+
+## 2026-08-20 — three silent-write classes found and closed
+
+All three shared a shape: the write returns success, the reader sees the old
+value, and nothing anywhere reports an error. That is the most expensive kind of
+bug this project has, because every surface says the feature works.
+
+### 1. `update()` dropped the `data` column that the read path serves — 17 repositories
+
+Many clinical handlers persist to typed columns but *read back* `entity.data`,
+the JSON blob the record was filed with. 61 of 75 PostgreSQL `update()` bodies
+never bound `data`; in **17** of them the read path serves it, so an update was
+invisible to every reader:
+
+`ama_discharges`, `burn_assessments`, `chain_of_custody`,
+`discharge_instructions`, `discharge_summaries`, `intubation_records`,
+`lab_qc_records`, `laceration_repairs`, `mci_records`, `obstetric_emergencies`,
+`operative_notes`, `pediatric_assessments`, `physician_orders`,
+`psychiatric_assessments`, `specimen_collections`, `splint_cast_records`,
+`toxicology_assessments`, plus `consultation_notes` (found first, fixed
+separately).
+
+All now write `data`. The remaining 44 are records whose readers use the typed
+columns, so the omission is not observable — left alone deliberately rather than
+changed in bulk.
+
+**Detector:** cross-reference each `impl <Trait> for Pg*`'s `update()` against
+handlers that read `repositories.<field>.get_by_id(...).data`.
+
+### 2b. Request types that model the finished artefact, not the form
+
+`POST /api/surgical/pathology` took the typed `PathologyReport` — accession
+number, special stains, IHC, molecular studies, synoptic cancer dataset. The
+pathology screen accessions a *specimen*, which exists long before any of that:
+who collected it, from where, in what fixative, and where it sits in the
+grossing/processing/staining workflow. Every accession was rejected with a
+deserialization error naming a status variant the page has never used, so a
+specimen could not be booked into the lab at all.
+
+Fixed with a `CreatePathologyRequest` DTO that accepts the accession and keeps
+the report fields optional, plus
+`20260820000002_pathology_specimen_workflow_status.sql` widening the status
+CHECK to hold both lifecycles.
+
+Same shape as the MAR and consult defects. **When a form cannot save, check
+whether the request type models the end state rather than the step the user is
+on** — the typed struct is usually right about the finished artefact and wrong
+about the moment of capture.
+
+### 2e. Fabricated KPIs the placeholder audit could not see
+
+`AnalyticsPage.tsx` rendered three panels of hardcoded numbers — 94% patient
+satisfaction, 89% discharge efficiency, a 32-minute ED wait, 45-minute lab
+turnaround, 112% ED overcapacity, "2 ventilators left", "-5 staff" — plus a
+table of five invented incidents with fixed times ("Mass casualty incident
+alert", 14:32). None came from the API.
+
+Two things made this the worst instance in the codebase:
+
+1. It is the screen an executive reads **to decide where to send staff**.
+2. The genuine counts beside it read `0`, so the fabricated half looked like the
+   working half and the real half looked broken.
+
+**`scripts/placeholder-audit.py` could not detect it.** The detector greps for
+`TODO|FIXME|mock|placeholder|simulated|hardcoded|unimplemented`; a bare `94%` in
+JSX matches none of them. Keyword scanning finds placeholders that *announce
+themselves* and is blind to invented data that does not. The audit reporting
+`BEHAVIOURAL 0` was true and insufficient — this was found by opening the page.
+
+Replaced by `GET /api/platform/analytics/operations`, which counts what exists
+(radiology queue, pending lab submissions, median lab turnaround, unacknowledged
+critical values, mean patient-satisfaction rating with its response count) and
+returns an `unmeasured` list naming what it deliberately does not estimate: bed
+availability, ED wait and capacity, ventilators, staffing, medication stock.
+There is no bed, roster or inventory model to derive those from. The activity
+table now shows the real unacknowledged critical values.
+
+**The lesson for the next sweep:** a clean keyword audit is not evidence that a
+screen tells the truth. Numbers that look plausible are exactly the ones no
+grep will find.
+
+### 2d. The credential keystore could not carry a derivation-path account
+
+`KEYSTORE_VERSION = 1` stored a 32-byte mini-secret and rebuilt the account with
+`sr25519PairFromSeed`. That only reproduces accounts derived **straight from a
+seed**. An account from a derivation path — `//Alice`, or the
+`//hospital//dr-mbeki` shape a Polkadot extension produces — has no mini-secret
+that yields it, so enrolment appeared to succeed and then unlocked a *different
+account*. The address check in `loginWithCredentials` turned that into "your
+stored key does not match this account", with nothing explaining why.
+
+So credential sign-in silently supported only accounts the app itself had
+generated. Any clinician arriving with an existing extension account was locked
+out of the humane login path and pushed back to the wallet extension.
+
+Fixed by `KEYSTORE_VERSION = 2`: the envelope carries a 32-byte mini-secret or a
+64-byte secret key, tagged with `kind`; `signerFromSecret` takes the address to
+recover the public half for the latter. v1 envelopes still open (absent `kind`
+means `seed`). Covered by
+`client/doctor-portal/src/store/credentialKeystore.test.ts`.
+
+**Also added, not weakened:** `startup::validate_no_privileged_dev_accounts`
+refuses to boot a non-demo instance where a well-known Substrate development
+account holds a privileged role. `blockchain.rs` guarded the chain signer
+against Alice; nothing guarded the `users` table, where `//Alice` was seeded as
+an active `Admin` — a published key with full administrative authority.
+
+### 2c. An identifier bound to the wrong foreign key
+
+`pathology_reports.specimen_id` is a foreign key into `specimen_collections` —
+the *physical sample* the lab logged in. The pathology screen's `specimenId` is
+the *accession* the report is filed under. Binding one to the other violated the
+key on every insert, so even after the DTO above accepted the request, the write
+still failed.
+
+Two lessons, both cheap to apply:
+
+- **A column named for a concept is not always that concept.** `specimen_id`
+  next to an accession called `specimenId` reads like a match and is not one.
+  Check what a FK actually references before binding to it.
+- **Nullable FKs want `None`, not `""`.** The neighbouring
+  `specimen_rejections.specimen_id` is `NOT NULL REFERENCES specimen_collections`
+  and was read with `unwrap_or_default()`, so a missing value became the empty
+  string and surfaced as a bare 500 `DATABASE_ERROR`. It now validates the field
+  and checks the specimen exists, returning `MISSING_FIELD` or
+  `SPECIMEN_NOT_FOUND`. A required reference is worth enforcing; it is not worth
+  reporting as an internal error.
+
+Neither could fail against the in-memory backend, which enforces no foreign
+keys — the same blind spot as the CHECK constraints below.
+
+### 2. CHECK constraints narrower than the workflow — `consultation_notes`
+
+The portal's consult lifecycle is
+`requested → acknowledged → in-progress → completed | declined | cancelled`,
+while the constraint allowed only `pending | in_progress | completed |
+cancelled`. **Four of six statuses were rejected**, including `requested` —
+which every new consult is created with. Requesting a consult therefore failed
+outright on PostgreSQL while succeeding in the in-memory backend, which enforces
+no constraints.
+
+Fixed by `20260820000001_consult_status_vocabulary.sql`. This is the same class
+as the five widened in `20260811000001`; it is worth sweeping the remaining
+enum-backed columns for it.
+
+### 3. Trait defaults that make a missing implementation compile — CLOSED
+
+`traits.rs` gave methods a default body returning
+`NotImplemented("<method> not implemented")`. A backend that did not override one
+still satisfied the trait, so the gap was invisible to `cargo check`, to clippy,
+and to any test run against the memory backend — and showed up only in
+production. 63 methods carried such a default; 24 were not overridden by both
+backends, and 5 were reachable from live handlers (lab QC, blood-bank, specimen
+collection and specimen rejection registries all returned
+`list_all not implemented` on Postgres).
+
+**Closed by writing the 19 missing implementations and then deleting all 65
+default bodies**, so every method is now *required*. `cargo check` refuses a
+backend that omits one, which turns a class of production-only runtime failure
+into a compile error.
+
+Declare new repository methods with a `;` and no body. Do not reintroduce a
+defaulted `NotImplemented` body "for now" — that is exactly the shape that hid
+five production-only failures.
+
+### Also fixed
+
+- **`from_hex` rejected the `0x` prefix** that `u8aToHex` emits, so every
+  browser-produced sr25519 signature failed at the hex decoder and was reported
+  as `SIGNATURE_VERIFICATION_FAILED`. Credential sign-in could never obtain a
+  JWT; demo mode hid it behind the `X-User-Id` fallback.
+- **Conditional React hooks on the three admin pages.** The
+  "restricted to administrators" gate was placed *above* the hooks, so a
+  non-administrator render ran up to a dozen fewer hooks than an administrator
+  render — React throws "Rendered fewer hooks than expected" the moment the role
+  changes without a remount. All 33 `react-hooks/rules-of-hooks` errors are gone.
+- **Unmapped enum → `undefined` component** (previously deferred, see below).
+  `lookupOr` / `componentOr` in `client/shared/src/utils/enumLookup.ts` make the
+  lookup total; `ConsultPage` uses them.
+
+---
+
+### 2f. The analytics dashboard read four API shapes that do not exist
+
+`AnalyticsPage.tsx` mapped its four headline tiles from `data.patient_metrics`,
+`data.appointment_metrics`, `data.cds_metrics` and `data.financial_metrics`,
+plus `data.department_metrics[]` and `data.patient_flow[]` for the two charts
+below them. `GET /api/platform/analytics/dashboard` has never returned any of
+those keys — it returns a flat `metrics` object. Every lookup was `undefined`,
+every `|| 0` fallback fired, and the page told an administrator the hospital had
+**0 patients, 0 appointments, 0 alerts** against a database holding 7 active
+patients and 63 appointments.
+
+Two things kept it alive:
+
+* **A wrong field name renders as a confident zero, not an error.** The tiles
+  looked exactly like working tiles. This sat directly beneath the twelve
+  fabricated KPIs of §2e, so the page had invented numbers on top and false
+  zeros underneath.
+* **The test asserted the same fabricated contract.** `AnalyticsPage.test.tsx`
+  mocked `patient_metrics`/`appointment_metrics`/`cds_metrics` too, so the test
+  and the bug agreed with each other and three assertions passed green.
+
+Fixed by reading the real endpoints (`dashboard` for patients/records,
+`appointments` for volume and telehealth share, `quality` for alert counts) and
+rewriting the test's mocks from **real captured responses**. The new test names
+each figure so a tile can only display it by reading the field the API sends.
+
+Two related honesty fixes went in with it:
+
+* `GET /api/platform/analytics/appointments` now **honours `start_date`/
+  `end_date`**. The period selector ("Today / This Week / This Month / This
+  Year") previously posted a range the handler bound to `_query` and ignored, so
+  every period rendered identical figures. A control that visibly changes
+  nothing is worse than no control.
+* **Department Performance** and **Patient Flow (24h)** now state that they have
+  no data source, instead of rendering an empty chart. Bed occupancy, wait
+  times, staffing and hourly admissions need a bed, roster and encounter-flow
+  model this deployment does not have. An empty chart reads as "no activity" —
+  a far more reassuring claim than "not measured".
+
+A third honesty fix landed with these: the period buttons meant **trailing
+windows**, not calendar periods. `getDateRange` returned `[N days ago, today]`
+for every option, so "This Year" meant the last 365 days, and -- far worse --
+`endDate` was always *today*, which excluded **every appointment scheduled in
+the future**. On a booking dashboard that is the wrong half of the data: "This
+Year" reported 17 appointments against 44 in the calendar year, under a label
+promising the year. Now calendar periods (week starts Monday; month and year run
+to their real last day), built from local date parts rather than
+`toISOString()`, which shifts the day backwards for any timezone east of UTC and
+would hand a SAST clinic yesterday's figures for the first two hours of every
+morning. Pinned by a test asserting the request URL carries
+`start_date=YYYY-01-01` and `end_date=YYYY-12-31`.
+
+**Lesson, and it is the same one as §2e:** a frontend test whose fixtures were
+written from the frontend's own assumptions cannot detect a contract mismatch.
+Mock bodies belong in the test *copied from a real response*, not invented
+alongside the code that consumes them.
+
+## 2026-08-20 — CLOSED: deactivating a user was a one-way door
+
+`GET /api/users` — the administrator's User Management directory — was served
+from `AppState.users`. That collection is the **authorization cache**, hydrated
+by `load_demo_users_from_db` with `WHERE is_active = true AND status =
+'active'`. Filtering to active accounts is exactly right for deciding *who may
+act*; it is exactly wrong for deciding *who exists*. One collection was
+answering two different questions.
+
+The consequences, all in the admin workflow:
+
+* A deactivated account vanished from the only list an administrator can see.
+* The page's **"Inactive" status filter could never match a row**.
+* The **Reactivate** control (`UserManagementPage.tsx:524`) was unreachable dead
+  UI — no listed user could ever have `status === 'inactive'`.
+* `PUT /api/users/{wallet}` also resolved the target from the cache, so even
+  reaching it by hand answered **404 USER_NOT_FOUND** for an account plainly
+  sitting in the `users` table. Managing an account is precisely what you need
+  when it is *not* active.
+* Net effect: **undoing a mistaken deactivation required hand-written SQL
+  against production.**
+
+Fixed by separating the two concerns. The directory query now reads the `users`
+table directly (all statuses, ordered by creation), and the update handler falls
+back to the database when the cache misses. The authorization cache is
+unchanged and still active-only.
+
+**Explicitly NOT a bug, checked while here:** authorization itself is sound.
+`support::get_user` filters `status == "active"`, so a deactivated account stops
+authorizing the moment its status changes — it does not linger until the next
+restart. Only the *management* surface was broken, not the gate.
+
+**It was also an N+1.** The old handler looped over the cached users and ran a
+separate `SELECT ... FROM user_profiles WHERE u.wallet_address = $1` for *each*
+one — 101 sequential round-trips to load one page of a directory that shows 20
+rows. The replacement is a single `LEFT JOIN`, so the cost is now one query
+regardless of directory size. Worth noting that the N+1 was invisible for the
+same reason the one-way door was: nobody could see past page 1, so nobody
+noticed the page doing a hundred queries to render twenty rows.
+
+Pinned by `test_pg_user_directory_lists_deactivated_accounts`
+(`api/src/repositories/postgres/tests.rs`), which runs the directory query
+against a seeded inactive account and asserts it comes back carrying its status.
+
+**The general shape, worth remembering:** a cache built for one purpose gets
+reused as a data source for another, and the filter that made it correct for the
+first purpose becomes an invisible bug in the second. Ask what a collection was
+*hydrated for* before reading from it.
+
+## 2026-08-20 — OPEN, NEEDS AN OWNER DECISION: the node binary links GPL-3.0-only code while declaring MIT
+
+**This is the one item in this file with a legal rather than an engineering
+consequence, and it is not something an implementer should decide alone.**
+
+### The facts, measured not assumed
+
+`blockchain/Cargo.toml` declares `license = "MIT"` at workspace level and both
+`blockchain/node` and `blockchain/runtime` inherit it via `license.workspace =
+true`. Resolving the lockfile against the local registry cache on 2026-08-20:
+
+| graph | GPL **with** Classpath exception (linking permitted) | **strict** GPL-3.0-only, no exception, no permissive alternative |
+|---|---|---|
+| `medichain-runtime` (the WASM runtime with MediChain's 3 pallets) | 4 | **0** |
+| `medichain-node` (the node binary) | 48 | **17** |
+
+The runtime is clean — MIT is accurate there. The node is not. The 17 are
+`polkadot-core-primitives`, `polkadot-node-metrics`,
+`polkadot-node-network-protocol`, `polkadot-node-primitives`,
+`polkadot-node-subsystem-types`, `polkadot-overseer`,
+`polkadot-parachain-primitives`, `polkadot-primitives`,
+`polkadot-runtime-metrics`, `polkadot-runtime-parachains`,
+`polkadot-statement-table`, `staging-xcm`, `staging-xcm-builder`,
+`staging-xcm-executor`, `tracing-gum`, `tracing-gum-proc-macro`,
+`xcm-procedural`.
+
+### All 17 arrive through exactly one dependency
+
+Shortest paths from `medichain-node`, computed from `blockchain/Cargo.lock`:
+
+```
+polkadot-primitives          <- frame-benchmarking-cli
+staging-xcm                  <- frame-benchmarking-cli -> cumulus-primitives-core
+polkadot-runtime-parachains  <- frame-benchmarking-cli -> frame-storage-access-test-runtime
+                                -> cumulus-pallet-parachain-system
+tracing-gum                  <- frame-benchmarking-cli -> cumulus-client-parachain-inherent
+                                -> cumulus-relay-chain-interface -> polkadot-overseer
+```
+
+Every one runs through **`frame-benchmarking-cli`**, which `blockchain/node/Cargo.toml`
+lists as an unconditional dependency. It pulls the entire Cumulus / parachain /
+XCM stack into a **solo chain that has no parachain and no XCM**, and it is the
+reason a release build of this node needs roughly 20 GB (see the note in
+`.github/workflows/blockchain-node-release.yml`).
+
+### Why it has not bitten yet
+
+GPL obligations attach on **distribution**, not on internal use, and this node
+is not distributed today:
+
+* `blockchain-node-release.yml` uploads the binary as a **workflow artifact**
+  scoped to the run, and says in its own header that promoting a build to a real
+  release is "a separate, deliberate" step that has not been taken.
+* `CLAUDE.md` records that production points at an external node via
+  `SUBSTRATE_WS_URL`, and that `blockchain/node/` is not in the production
+  Compose profile.
+* `publish = false`, so it never reaches crates.io.
+
+So this is a latent problem, not a live breach. It becomes live the moment
+anyone promotes that artifact to a release, ships the binary to a hospital
+partner, or hands it to the cloud-infrastructure partner as a deliverable.
+
+### The two ways out — owner's call
+
+**Option A — remove the dependency (recommended).** Make
+`frame-benchmarking-cli` `optional = true` and activate it only under the
+existing `runtime-benchmarks` feature, gating `mod benchmarking`, the
+`Subcommand::Benchmark` variant and its `command.rs` arm behind the same `cfg`.
+All 17 strict-GPL crates leave the default graph, the binary becomes
+MIT-consistent, and the build shrinks enormously.
+
+*Cost, stated plainly:* `medichain-node benchmark …` disappears from a default
+build. `benchmark pallet` and `benchmark storage` already refuse to run without
+`--features runtime-benchmarks` (`command.rs:136`), so nothing is lost there —
+but `benchmark block`, `overhead`, `extrinsic` and `machine` **do** work in a
+default build today and would then require the feature flag. That is a removal
+of working functionality, which under this project's rule 7 needs explicit
+sign-off before it is done.
+
+**Option B — keep the dependency and correct the label.** Set
+`blockchain/node/Cargo.toml` to `license = "GPL-3.0-only"` (overriding the
+workspace inherit; the runtime and pallets stay MIT, which the table above
+shows is accurate). Nothing about the build changes; the metadata simply stops
+being wrong, and any future distribution carries the obligations it actually
+carries.
+
+**Doing neither is the only option that is actually unsafe**, because the
+current state is a binary whose declared licence does not match what it links.
+
+### What was done in the meantime
+
+Nothing that presumes the decision. A supply-chain gate was added so this can
+never again go unobserved: see the next entry.
+
+---
+
+## 2026-08-20 — CLOSED: the blockchain workspace had no supply-chain scanning at all
+
+`cargo-deny` ran only from the repository root, so it saw only the root
+workspace. `blockchain/` is a **separate** cargo workspace with its own
+`Cargo.lock`, which meant its **1171 locked dependencies — the whole Substrate
+networking, consensus and crypto stack, including the code that signs blocks —
+had no advisory, licence, or source scanning whatsoever**, while the API's much
+smaller tree was fully covered. This is precisely the workspace-scoping trap
+`.github/workflows/ci.yml` already documents for the test job; the supply-chain
+job had the same hole and nobody had noticed because the job was green.
+
+Closed by adding `blockchain/deny.toml` and two steps to the `supply-chain` job:
+
+* **`sources` — enforced.** Verified clean at the time of writing: 1166 packages
+  resolve from the crates.io registry, **zero** from any git source, and there is
+  no reference anywhere to the pre-monorepo `paritytech/substrate` repository. A
+  git or vendored source appearing in the tree that builds the block-signing node
+  is exactly the supply-chain entry point worth blocking on.
+* **`licenses` + `advisories` + `bans` — report-only.** The licence allow-list
+  was derived offline from 1074 of the 1171 locked packages (97 were not in the
+  local registry cache), so it is a discovery gate until a full CI run confirms
+  it is complete. Advisories match the root workspace's report-only posture: the
+  Substrate tree carries upstream advisories this project cannot patch.
+
+Note also a stale justification found in the **root** `deny.toml`: the ignore for
+`RUSTSEC-2022-0061` (parity-wasm) is reasoned as "MediChain's Substrate node
+(`node/`) is a stub — no pallet WASM is actually compiled or executed by this
+codebase today". That stopped being true on 2026-08-11, when the node began
+building and producing a real dev chain. The ignore may still be defensible; the
+stated reason for it is not.
 
 ## How this list was produced
 
@@ -486,7 +900,15 @@ hiding Hausa, which is fully translated. The endpoint now returns exactly the
 six locales that have bundles, using the full BCP 47 tags the client switches
 on rather than bare subtags it would have had to guess at.
 
-### Unmapped enum values render `undefined` as a component
+### Unmapped enum values render `undefined` as a component — CLOSED 2026-08-20
+
+Closed with `lookupOr` / `componentOr` in
+`client/shared/src/utils/enumLookup.ts`, used by `ConsultPage`'s status icon and
+both badge maps. A repository-wide scan for the same shape — a map of components
+indexed by a runtime value — found this to be the only live instance, so the
+"appears on several pages" note below was an over-estimate.
+
+The original write-up, for the reasoning:
 
 Found 2026-08-11 while repairing `ConsultPage.test.tsx`. `ConsultPage.tsx`
 looks an icon up by status:

@@ -348,6 +348,10 @@ impl MciRecordRepository for PgMciRecordRepository {
             .push_bind(record.family_reunification_completed);
         qb.push(", patient_tracking_updated = ")
             .push_bind(record.patient_tracking_updated);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&record.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&record.id);
         qb.push(" RETURNING *");
@@ -551,6 +555,10 @@ impl ChainOfCustodyRepository for PgChainOfCustodyRepository {
         qb.push(", release_datetime = ")
             .push_bind(record.release_datetime);
         qb.push(", notes = ").push_bind(&record.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&record.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&record.id);
         qb.push(" RETURNING *");

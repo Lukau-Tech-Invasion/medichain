@@ -16,7 +16,21 @@
 
 # Default 8090, not 8080: 8080 is the IPFS gateway's port (docker-compose), and
 # run-synthetic-local.sh moves the API off it so encrypted-record downloads work.
+# :8090 is correct and deliberate: this suite is meant to run against the
+# dedicated, freshly built, in-memory server that `scripts/run-synthetic-local.sh`
+# starts on that port (it also exports the bootstrap key below). It is NOT the
+# Docker stack — that is nginx on :80, backed by PostgreSQL and shared data.
+#
+# The hazard is a *stale* process squatting on :8090. On 2026-08-20 a debug
+# binary seven hours older than the code under test was still listening; it
+# answers /health cheerfully and 404s every route added since, which reads
+# exactly like a broken route registration. The preflight below refuses to run
+# against a server that is not this suite's own.
 BASE=${BASE:-http://127.0.0.1:8090}
+
+# Overridable so the suite can be pointed at a server started with a different
+# key; the default matches scripts/run-synthetic-local.sh.
+BOOTSTRAP_KEY=${MEDICHAIN_BOOTSTRAP_KEY:-synthetic-test-bootstrap-key-2026}
 PASS=0; FAIL=0
 RESULTS=()
 
@@ -85,6 +99,25 @@ code_bearer() {
   curl -s -m 20 -o /tmp/mc_body -w '%{http_code}' -X "$m"     -H "Authorization: Bearer $tok" "$BASE$p"
 }
 
+# code_bearer_timed METHOD PATH TOKEN — same as code_bearer, but also records
+# the server round-trip in milliseconds into $LAST_MS. The 3-second NFC promise
+# in docs/PERFORMANCE_BUDGETS.md allocates 400 ms (p95) to this server segment,
+# and until now nothing anywhere measured it: the budget was a document, not a
+# check. This makes the product's headline claim falsifiable by the suite.
+# The elapsed time is written to a FILE, deliberately, not to a variable.
+# Callers use `sc=$(code_bearer_timed ...)`, and command substitution runs the
+# function in a subshell — a variable assigned inside it is discarded when that
+# subshell exits. The first version of this helper set `LAST_MS` and every
+# sample read back as 0, which is how a latency check can silently measure
+# nothing at all while looking like it ran. `last_ms` reads what survived.
+code_bearer_timed() {
+  local m="$1" p="$2" tok="$3" out
+  out=$(curl -s -m 20 -o /tmp/mc_body -w '%{http_code} %{time_total}' -X "$m"     -H "Authorization: Bearer $tok" "$BASE$p")
+  printf '%s' "${out#* }" | awk '{printf "%.0f", $1 * 1000}' > /tmp/mc_ms
+  printf '%s' "${out%% *}"
+}
+last_ms() { cat /tmp/mc_ms 2>/dev/null || echo 0; }
+
 # code_device METHOD PATH TOKEN DEVICE_ID — the lock screen is bound to the
 # patient's own handset, so its capability token is presented together with the
 # device that was issued it.
@@ -119,7 +152,19 @@ check "metrics REFUSE an unauthenticated caller" 401 "$(code GET /api/metrics)"
 
 # ---------------------------------------------------------------------------
 say "1. Bootstrap + accounts (synthetic)"
-c=$(code POST /api/auth/bootstrap "{\"wallet_address\":\"$ADMIN\",\"name\":\"Synthetic Admin\",\"username\":\"admin\",\"secret_key\":\"synthetic-test-bootstrap-key-2026\"}")
+c=$(code POST /api/auth/bootstrap "{\"wallet_address\":\"$ADMIN\",\"name\":\"Synthetic Admin\",\"username\":\"admin\",\"secret_key\":\"$BOOTSTRAP_KEY\"}")
+# A rejected key means this is not the server this suite starts — almost always
+# a stale process on :8090, or the Docker stack answering by accident. Say so
+# and stop, rather than emitting 200 confusing failures against the wrong build.
+if [ "$c" = "403" ]; then
+  printf '[31mABORT[0m the server on %s rejected the bootstrap key.
+' "$BASE"
+  printf '      This suite expects the server started by scripts/run-synthetic-local.sh.
+'
+  printf '      A stale process may be holding the port -- check what is listening before rerunning.
+'
+  exit 2
+fi
 check_setup "bootstrap first admin" "$c" "$(body)"
 
 c=$(code POST /api/auth/register "{\"wallet_address\":\"$DOCTOR\",\"name\":\"Dr Synthetic\",\"username\":\"drsyn\",\"role\":\"Doctor\"}" "$ADMIN")
@@ -591,7 +636,14 @@ if [ -n "$PAT_COND" ]; then
   # An approved device is also required, and a freshly enrolled device is not
   # yet approved: it has no key until its first rotation, and `can_access`
   # demands `current_key_id.is_some()`. Enrol then rotate.
-  code POST /api/devices/enroll     '{"organization_id":"ORG-SYNTH","device_name":"Synthetic Responder Tablet","device_type":"tablet","hardware_fingerprint":"SYNTH-FP-0001","platform":"android"}'     "$ADMIN" >/dev/null
+  # The fingerprint must be unique per run. It was the fixed literal
+  # `SYNTH-FP-0001`, and enrolment correctly refuses a duplicate with 400
+  # DEVICE_ENROLLMENT_REJECTED -- so the suite passed once against a fresh
+  # server and then failed section 17 on every later run against the same one,
+  # with a misleading 404 from the rotate call (the device id was simply empty).
+  # Exactly the non-idempotency already fixed for the appointment slots below.
+  DEVICE_TAG=$(date +%s)-$$
+  code POST /api/devices/enroll     "{\"organization_id\":\"ORG-SYNTH\",\"device_name\":\"Synthetic Responder Tablet\",\"device_type\":\"tablet\",\"hardware_fingerprint\":\"SYNTH-FP-$DEVICE_TAG\",\"platform\":\"android\"}"     "$ADMIN" >/dev/null
   SYNTH_DEVICE=$(jget id)
   c=$(code POST "/api/devices/$SYNTH_DEVICE/rotate" '{"key_id":"KEY-SYNTH-0001"}' "$ADMIN")
   check "responder device is enrolled and keyed" 200 "$c" "$(body)"
@@ -604,6 +656,28 @@ if [ -n "$PAT_COND" ]; then
   COND_TOK=$(jget token)
   c=$(code_bearer GET "/api/medical-id/$PAT_COND/emergency" "$COND_TOK")
   check "emergency card readable with a valid token" 200 "$c" "$(body)"
+
+  # The 3-second promise, measured rather than asserted in prose.
+  # docs/PERFORMANCE_BUDGETS.md §1 gives this server segment 400 ms (p95); the
+  # rest of the budget is NFC read, network and render. Break-glass tokens are
+  # single-spend, so each sample mints a fresh one and times only the read.
+  # Five samples on a local stack is a smoke measurement, NOT a production p95 —
+  # it catches an order-of-magnitude regression (an N+1 or a missing index),
+  # which is the failure this budget actually exists to prevent.
+  EMERGENCY_BUDGET_MS=400
+  WORST_MS=0
+  SAMPLES=0
+  for _ in 1 2 3 4 5; do
+    code POST /api/emergency/nfc-token       "{\"patient_id\":\"$PAT_COND\",\"nfc_hash\":\"$COND_HASH\",\"device_id\":\"$SYNTH_DEVICE\",\"reason_code\":\"unconscious_patient\"}"       "$DOCTOR" >/dev/null
+    SAMPLE_TOK=$(jget token)
+    [ -n "$SAMPLE_TOK" ] || continue
+    sc=$(code_bearer_timed GET "/api/medical-id/$PAT_COND/emergency" "$SAMPLE_TOK")
+    [ "$sc" = "200" ] || continue
+    ms=$(last_ms)
+    SAMPLES=$((SAMPLES + 1))
+    [ "$ms" -gt "$WORST_MS" ] && WORST_MS=$ms
+  done
+  check "emergency card read stays inside its ${EMERGENCY_BUDGET_MS}ms budget (worst of ${SAMPLES}, ${WORST_MS}ms)" yes     "$( [ "$SAMPLES" -gt 0 ] && [ "$WORST_MS" -le "$EMERGENCY_BUDGET_MS" ] && echo yes || echo no )"     "${SAMPLES} sample(s); worst observed ${WORST_MS}ms against a ${EMERGENCY_BUDGET_MS}ms budget"
   check "emergency card lists the patient's real medication" yes \
     "$(body | grep -q 'Warfarin' && echo yes || echo no)" "$(body)"
   check "emergency card lists the patient's real condition" yes \
@@ -720,40 +794,79 @@ import json, sys
 print(json.dumps({"login_id": sys.argv[1], "auth_proof": sys.argv[2],
                   "encrypted_keystore": sys.argv[3]}))' "$LOGIN_ID" "$AUTH_PROOF" "$KEYSTORE")
 
-check "enrolment is authenticated by the wallet that owns the key" 200 \
-  "$(code POST /api/auth/credentials "$ENROL_BODY" "$DOCTOR")" "$(body)"
+# Credential enrolment and staff sign-in are backed by the `staff_credentials`
+# table, so they return 503 CREDENTIAL_LOGIN_UNAVAILABLE on an in-memory
+# deployment. `scripts/run-synthetic-local.sh` deliberately unsets DATABASE_URL,
+# which means these six assertions could never pass under this suite's own
+# documented runner -- they reported six red lines every run, for a feature
+# working exactly as designed. Six permanent failures are worse than no
+# coverage: they train the reader to ignore the failure list.
+#
+# So: probe once, then either run the section for real or skip it out loud.
+ENROL_CODE=$(code POST /api/auth/credentials "$ENROL_BODY" "$DOCTOR")
+if [ "$ENROL_CODE" = "503" ]; then
+  printf '  \033[33mSKIP\033[0m %-62s %s\n' \
+    "credential sign-in needs the database-backed deployment" "503"
+  printf '       run with MEDICHAIN_STORAGE=postgres + DATABASE_URL to exercise section 19\n'
+else
+  check "enrolment is authenticated by the wallet that owns the key" 200 \
+    "$ENROL_CODE" "$(body)"
 
-LOGIN_BODY=$(python -c '
+  LOGIN_BODY=$(python -c '
 import json, sys
 print(json.dumps({"identifier": sys.argv[1], "auth_proof": sys.argv[2]}))' "$LOGIN_ID" "$AUTH_PROOF")
-check "sign in with an employee id, no wallet address typed" 200 \
-  "$(code POST /api/auth/staff/login "$LOGIN_BODY")" "$(body)"
-check "  the wallet is resolved server-side, not supplied" "$DOCTOR" "$(jget wallet_address)"
-check "  the encrypted keystore comes back for the client to open" "true" \
-  "$([ -n "$(jget encrypted_keystore)" ] && echo true || echo false)"
+  check "sign in with an employee id, no wallet address typed" 200 \
+    "$(code POST /api/auth/staff/login "$LOGIN_BODY")" "$(body)"
+  check "  the wallet is resolved server-side, not supplied" "$DOCTOR" "$(jget wallet_address)"
+  check "  the encrypted keystore comes back for the client to open" "true" \
+    "$([ -n "$(jget encrypted_keystore)" ] && echo true || echo false)"
 
-BAD_BODY=$(python -c '
+  BAD_BODY=$(python -c '
 import json, sys
 print(json.dumps({"identifier": sys.argv[1], "auth_proof": sys.argv[2]}))' "$LOGIN_ID" "$WRONG_PROOF")
-check "a wrong password is refused" 401 "$(code POST /api/auth/staff/login "$BAD_BODY")"
-WRONG_ID_BODY=$(python -c '
+  check "a wrong password is refused" 401 "$(code POST /api/auth/staff/login "$BAD_BODY")"
+  WRONG_ID_BODY=$(python -c '
 import json, sys
 print(json.dumps({"identifier": "no.such.person", "auth_proof": sys.argv[1]}))' "$AUTH_PROOF")
-check "an unknown identifier is refused identically (no enumeration)" 401 \
-  "$(code POST /api/auth/staff/login "$WRONG_ID_BODY")"
+  check "an unknown identifier is refused identically (no enumeration)" 401 \
+    "$(code POST /api/auth/staff/login "$WRONG_ID_BODY")"
+fi
 
 # ---------------------------------------------------------------------------
 say "20. Appointment lifecycle persists and advances (WF-005/WF-008/WF-009/WF-030)"
 
-APPT_DATE=$(date -u -d '+3 days' +%Y-%m-%d 2>/dev/null || date -u -v+3d +%Y-%m-%d)
-# Slot times are derived from RUN_TAG, not fixed. book_appointment_atomic
-# rejects an overlapping booking (correctly), so fixed times made the suite
-# pass once and then 409 on every later run against the same database.
-SLOT_BASE=$(( RUN_TAG % 8 ))
-T1=$(printf '%02d:05' $(( 8 + SLOT_BASE )))
-T2=$(printf '%02d:35' $(( 8 + SLOT_BASE )))
-T3=$(printf '%02d:05' $(( 16 + (RUN_TAG % 4) )))
-T4=$(printf '%02d:35' $(( 16 + (RUN_TAG % 4) )))
+# Both the DATE and the minute are derived from RUN_TAG, not just the hour.
+#
+# `book_appointment_atomic` correctly refuses an overlapping booking, so fixed
+# times made the suite pass once and then 409 on every later run against the
+# same database. The first fix varied only the hour via `RUN_TAG % 8` on a fixed
+# `+3 days` date -- eight slots in total, on one day, which collides again as
+# soon as the suite is run more than a handful of times against a persistent
+# deployment. Varying the day (3-30 days out) and the minute as well gives
+# ~28 x 12 distinct slots, so a repeat run is a fresh slot in practice.
+# `$RANDOM` as well as the clock: a purely time-derived slot collides
+# *periodically* -- two runs whose RUN_TAGs happen to share a residue land on
+# the same day and minute, which is exactly what a repeat run tends to do.
+# Mixing in randomness makes a collision improbable rather than cyclic.
+SLOT_SEED=$(( RUN_TAG + RANDOM ))
+APPT_DAY_OFFSET=$(( 3 + SLOT_SEED % 28 ))
+APPT_DATE=$(date -u -d "+${APPT_DAY_OFFSET} days" +%Y-%m-%d 2>/dev/null   || date -u -v+${APPT_DAY_OFFSET}d +%Y-%m-%d)
+SLOT_BASE=$(( SLOT_SEED % 8 ))
+# Constrained to 0-25 so the paired slot is always exactly +30 minutes and both
+# stay inside the hour. A wider range needed a wraparound, and a wrapped second
+# slot could land 29 minutes from the first -- overlapping a 30-minute
+# appointment with itself, which the booker then correctly refused.
+SLOT_MIN=$(( (SLOT_SEED / 8) % 6 * 5 ))
+T1=$(printf '%02d:%02d' $(( 8 + SLOT_BASE )) "$SLOT_MIN")
+T2=$(printf '%02d:%02d' $(( 8 + SLOT_BASE )) $(( SLOT_MIN + 30 )))
+# The afternoon pair gets its OWN slice of the seed. Sharing `SLOT_MIN` with
+# the morning pair and varying only the hour left just 4 x 12 = 48 distinct
+# afternoon slots against the morning's ~1000, so section 22 was the one that
+# kept colliding on repeat runs while section 20 passed.
+PM_HOUR=$(( 14 + (SLOT_SEED / 48) % 6 ))
+PM_MIN=$(( (SLOT_SEED / 288) % 6 * 5 ))
+T3=$(printf '%02d:%02d' "$PM_HOUR" "$PM_MIN")
+T4=$(printf '%02d:%02d' "$PM_HOUR" $(( PM_MIN + 30 )))
 # The patient this harness created for itself, not a PostgreSQL demo seed:
 # PAT-001-DEMO does not exist on the in-memory backend.
 APPT_PATIENT="$PAT_ADULT"

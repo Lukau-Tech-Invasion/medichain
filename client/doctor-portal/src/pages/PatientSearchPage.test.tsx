@@ -10,6 +10,15 @@ vi.mock('../store', () => ({
 }));
 
 describe('PatientSearchPage', () => {
+  // Mirrors `PatientProfile` in `api/src/types/domain.rs`: blood type,
+  // allergies, medications and conditions all live under `emergency_info`, not
+  // at the top level. This fixture had them flat, so `emergency_info?.blood_type`
+  // read back undefined, every patient's blood type became "Unknown", and the
+  // blood-type filter matched nobody — a working filter looking broken.
+  //
+  // `blood_type` is the wire format too: `BloodType` serializes through its
+  // `Display` impl, so the JSON carries "A+"/"O+" rather than the Rust variant
+  // names `APositive`/`OPositive`.
   const mockPatients = [
     {
       patient_id: 'PAT-001',
@@ -18,10 +27,12 @@ describe('PatientSearchPage', () => {
       date_of_birth: '1980-01-01',
       gender: 'Male',
       national_id: 'NAT-001',
-      blood_type: 'OPositive',
-      allergies: ['Peanuts'],
-      current_medications: [],
-      medical_conditions: [],
+      emergency_info: {
+        blood_type: 'O+',
+        allergies: [{ name: 'Peanuts' }],
+        current_medications: [],
+        chronic_conditions: [],
+      },
     },
     {
       patient_id: 'PAT-002',
@@ -30,10 +41,12 @@ describe('PatientSearchPage', () => {
       date_of_birth: '1990-05-15',
       gender: 'Female',
       national_id: 'NAT-002',
-      blood_type: 'APositive',
-      allergies: [],
-      current_medications: ['Insulin'],
-      medical_conditions: ['Diabetes'],
+      emergency_info: {
+        blood_type: 'A+',
+        allergies: [],
+        current_medications: ['Insulin'],
+        chronic_conditions: ['Diabetes'],
+      },
     }
   ];
 

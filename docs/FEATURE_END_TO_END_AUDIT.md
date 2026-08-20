@@ -1,7 +1,45 @@
 # MediChain end-to-end feature audit
 
-**Audited:** 2026-08-09  
+**Audited:** 2026-08-09 · **Last amended:** 2026-08-20  
 **Verdict:** **NOT READY FOR PRODUCTION**
+
+## 2026-08-20 — silent-write defects, and why the gates missed them
+
+Six defect classes were found by driving the running application as a signed-in
+clinician rather than by reading code. Every one of them passed every existing
+gate, because each was a **successful write that no reader could see**:
+
+1. **`update()` dropped the `data` column in 17 repositories** whose read path
+   serves exactly that column. A consult could be answered — status, findings
+   and recommendations written and returned as `success: true` — and still read
+   back as unanswered to every clinician who opened it.
+2. **`consultation_notes`' CHECK constraint rejected four of the six statuses
+   the portal produces**, including `requested`, which every new consult is
+   created with. Requesting a consult failed outright on PostgreSQL while
+   succeeding in the in-memory backend.
+3. **Credential sign-in could never obtain a JWT.** `from_hex` rejected the `0x`
+   prefix `u8aToHex` emits, so a valid sr25519 signature failed at the hex
+   decoder and was reported as `SIGNATURE_VERIFICATION_FAILED`.
+4. **Five repository methods reachable from handlers were unimplemented on
+   Postgres only**, returning `list_all not implemented` — lab QC, blood bank,
+   specimen collection and specimen rejection registries.
+5. **The doctor dashboard mis-read its own alerts**: a potassium of 6.9
+   displayed as `6.9000 -` with no unit and "Invalid Date", every order as a
+   bare `lab:`, and a lowercase `stat` priority never matched the `'STAT'`
+   comparison, so the most urgent orders rendered in neutral grey.
+6. **Conditional React hooks on all three admin pages**, and the psychiatric
+   History tab threw on the first stored assessment, unmounting the tab so it
+   read as "no assessments on file" for a patient who had one.
+
+**The pattern worth keeping:** the in-memory backend enforces no constraints and
+several read paths serve a JSON blob rather than the columns a write updates.
+Together those hide an entire class of failure from unit tests, from `clippy`,
+and from any check that does not read the value back through the endpoint a
+clinician actually uses. Durability tests must assert on the **read path**, not
+on the repository round-trip.
+
+All six are fixed, with regression coverage. See
+`docs/TECHNICAL_DEBT_REGISTER.md` for the per-item detail and the detectors.
 
 ## Fresh runtime E2E rerun — 2026-08-14
 
@@ -163,7 +201,31 @@ route scan is not by itself end-to-end proof.
    state machine extracted into `PatientAccessService`, and five Postgres
    restart tests covering grant, revoke, deny, replayed approval and expiry.
    Not yet type-checked — see “Proof still required”.
-3. **Unscoped bulk reads (42 as of 2026-08-11) — cannot be closed as written.**
+3. ~~**Unscoped bulk reads**~~ — **CLOSED 2026-08-20 by
+   [ADR-0007](adr/0007-single-organisation-per-instance.md).**
+
+   The framing below had the question backwards. Whether a deployment-wide read
+   is a defect depends on how many organisations share one database, and
+   [ADR-0006](adr/0006-federated-deployment.md) had already answered that: each
+   hospital runs its own API, its own PostgreSQL and its own IPFS node. The
+   federation boundary is the deployment, not a column — so these reads were
+   never unscoped. Their scope is the instance, and a doctor is *supposed* to
+   see every critical value in their own hospital.
+
+   What was missing was enforcement of the boundary the reads depend on.
+   `startup::validate_single_organisation` now refuses to boot against a
+   database holding more than one active organisation, with a Postgres
+   regression test, because a second organisation there would silently turn
+   every one of these reads into a cross-organisation disclosure. The
+   endpoint-auth gate reports the count as a recorded decision rather than an
+   open risk — an "exposure risk" that is not one teaches reviewers to ignore
+   the gate, and the next real finding goes with it.
+
+   A hosted multi-tenant instance for small clinics would need the column-level
+   work described below; that would supersede ADR-0007 rather than work around
+   it. The original analysis is kept for that day:
+
+   **Unscoped bulk reads (42 as of 2026-08-11) — cannot be closed as written.**
    Investigated 2026-08-11. The instruction "add organisation/tenant predicates"
    is not implementable against the current model, for two independent reasons:
 

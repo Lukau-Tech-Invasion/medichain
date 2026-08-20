@@ -389,9 +389,9 @@ pub async fn get_emergency_medical_id(
 
         // CRITICAL MEDICATIONS / CONDITIONS
         //
-        // These returned hardcoded empty vectors with a "Phase 2 repository"
-        // TODO. On a paramedic-facing emergency card an empty `conditions`
-        // array does not read as "not retrieved" — it reads as "no known
+        // These returned hardcoded empty vectors, deferred to a "Phase 2
+        // repository". On a paramedic-facing emergency card an empty
+        // `conditions` array does not read as "not retrieved" — it reads as "no known
         // conditions", which is the most dangerous thing this screen could say
         // if the patient is diabetic, epileptic or anticoagulated. The data was
         // already reachable: `patient_conditions_and_meds` (used by the CDS
@@ -608,8 +608,8 @@ pub async fn get_lockscreen_medical_id(
 
     // Lock screen format - maximum simplicity, high contrast
     let lockscreen_profile = crate::patient_entity_to_profile(&patient, &data.encryption_keyring);
-    let lockscreen_contact = primary_emergency_contact_json(&data, &patient_id, &lockscreen_profile)
-        .await;
+    let lockscreen_contact =
+        primary_emergency_contact_json(&data, &patient_id, &lockscreen_profile).await;
 
     let lockscreen_data = serde_json::json!({
         "format": "lockscreen",

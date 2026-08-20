@@ -341,6 +341,21 @@ async fn main() -> std::io::Result<()> {
     }
     let app_state = web::Data::new(state);
 
+    // The federation boundary is the deployment, not a column (ADR-0007), so a
+    // second organisation in this database would silently widen every
+    // deployment-wide read into a cross-organisation disclosure.
+    if let Some(pool) = app_state.db_pool.as_ref() {
+        startup::validate_single_organisation(pool)
+            .await
+            .map_err(std::io::Error::other)?;
+        // A published development key holding an Admin role is an open door,
+        // and nothing else checks for it — `blockchain.rs` guards only the
+        // chain signer.
+        startup::validate_no_privileged_dev_accounts(pool, crate::support::is_demo_mode())
+            .await
+            .map_err(std::io::Error::other)?;
+    }
+
     // Load demo users from database into in-memory cache
     if app_state.db_pool.is_some() {
         println!("  [INFO] Loading demo users from database...");

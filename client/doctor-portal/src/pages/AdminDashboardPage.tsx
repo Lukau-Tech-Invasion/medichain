@@ -73,13 +73,23 @@ interface LabSubmissions {
   approved: number;
 }
 
+/**
+ * Mirrors `AccessLogEntity`. The previous shape declared `access_id`,
+ * `access_type`, `timestamp` and `reason`; the API sends `id`, `action`,
+ * `accessed_at` and `access_reason`. Every row in the audit table therefore
+ * rendered an empty Action, an empty Type and the literal "Invalid Date" — on
+ * the one screen whose entire job is showing who touched which record and when.
+ */
 interface AccessLog {
-  access_id: string;
+  id: string;
   accessor_id: string;
-  patient_id: string;
-  access_type: string;
-  timestamp: string;
-  reason?: string;
+  accessor_role: string;
+  patient_id: string | null;
+  action: string;
+  resource_type: string;
+  accessed_at: string;
+  is_emergency_access: boolean;
+  access_reason?: string | null;
 }
 
 interface AdminDashboardData {
@@ -100,22 +110,43 @@ interface SystemStatus {
   message?: string | null;
 }
 
-export default function AdminDashboardPage() {
-  // This section is administrator-only server-side; without this the page
-  // received a correct 403 and then rendered nothing, which reads as a fault
-  // rather than a permissions boundary.
-  const { user: restrictedCheckUser } = useAuthStore();
-  const isAdministrator = restrictedCheckUser?.role === 'Admin';
-  if (!isAdministrator) {
-    return (
-      <RestrictedSection
-        title="System administration"
-        audience="administrators"
-        currentRole={restrictedCheckUser?.role}
-      />
-    );
-  }
+/**
+ * Format a timestamp, or an em dash.
+ *
+ * `new Date(undefined).toLocaleString()` renders the literal "Invalid Date",
+ * which on an audit trail looks like corrupted evidence rather than a missing
+ * field.
+ */
+function formatWhen(value: string | null | undefined): string {
+  if (!value) return '—';
+  const when = new Date(value);
+  return Number.isNaN(when.getTime()) ? '—' : when.toLocaleString();
+}
 
+/** Clock time, or an em dash. Same reasoning as `formatWhen`. */
+function formatClock(value: string | null | undefined): string {
+  if (!value) return '—';
+  const when = new Date(value);
+  return Number.isNaN(when.getTime()) ? '—' : when.toLocaleTimeString();
+}
+
+/** Shorten an identifier without printing a bare "..." for an absent one. */
+function truncateId(value: string | null | undefined): string {
+  if (!value) return '—';
+  return value.length > 12 ? `${value.slice(0, 12)}…` : value;
+}
+
+export default function AdminDashboardPage() {
+  // This section is administrator-only server-side; without the gate below the
+  // page received a correct 403 and then rendered nothing, which reads as a
+  // fault rather than a permissions boundary.
+  //
+  // The gate is placed after the hooks, not before them: returning early above
+  // meant a non-administrator render ran six fewer hooks, and React throws
+  // "Rendered fewer hooks than expected" as soon as the role changes without a
+  // remount.
+  const { user } = useAuthStore();
+  const isAdministrator = user?.role === 'Admin';
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<AdminDashboardData | null>(null);
@@ -125,9 +156,12 @@ export default function AdminDashboardPage() {
   const [lastHealthCheck, setLastHealthCheck] = useState<string>(new Date().toISOString());
 
   useEffect(() => {
+    // Skip the work, not the hook: a non-administrator would otherwise spend
+    // two requests to be told 403 on a screen they cannot see.
+    if (!isAdministrator) return;
     loadDashboard();
     loadHealthStatus();
-  }, []);
+  }, [isAdministrator]);
 
   const loadHealthStatus = async () => {
     try {
@@ -141,7 +175,9 @@ export default function AdminDashboardPage() {
         message: svc.message,
       }));
       setSystemStatus(services);
-      setLastHealthCheck(healthData.timestamp);
+      // An absent `timestamp` used to become `new Date(undefined)` and render
+      // the literal "Invalid Date" beside the system-status panel.
+      setLastHealthCheck(healthData.timestamp ?? new Date().toISOString());
     } catch (error) {
       console.error('Failed to load health status:', error);
       // Fallback to degraded state if health check fails
@@ -195,27 +231,32 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const getAccessTypeColor = (type: string) => {
-    switch (type?.toLowerCase()) {
+  /** Badge colour for the three kinds the audit row distinguishes. */
+  const getAccessTypeColor = (kind: 'emergency' | 'fail' | 'normal') => {
+    switch (kind) {
       case 'emergency':
-      case 'emergency_access':
+        return 'bg-orange-100 text-orange-700';
+      case 'fail':
         return 'bg-red-100 text-red-700';
-      case 'failed':
-      case 'failed_login':
-        return 'bg-red-100 text-red-700';
-      case 'view':
-      case 'read':
-        return 'bg-green-100 text-green-700';
-      case 'update':
-      case 'write':
-        return 'bg-blue-100 text-blue-700';
       default:
-        return 'bg-gray-100 text-gray-700';
+        return 'bg-green-100 text-green-700';
     }
   };
 
+  // Safe here: every hook above has already run, so the hook count is the same
+  // for an administrator and for anyone else.
+  if (!isAdministrator) {
+    return (
+      <RestrictedSection
+        title="System administration"
+        audience="administrators"
+        currentRole={user?.role}
+      />
+    );
+  }
+
   if (loading) {
-  return (
+    return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader2 className="mx-auto animate-spin text-purple-600" size={48} />
@@ -268,7 +309,7 @@ export default function AdminDashboardPage() {
               {t('docAdmin.refresh')}
             </button>
             <span className="text-xs text-gray-500">
-              {t('docAdmin.lastCheck', { time: new Date(lastHealthCheck).toLocaleTimeString() })}
+              {t('docAdmin.lastCheck', { time: formatClock(lastHealthCheck) })}
             </span>
           </div>
         </div>
@@ -434,41 +475,51 @@ export default function AdminDashboardPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {data.recent_access_logs?.slice(0, 10).map((log) => (
-                <tr key={log.access_id} className="hover:bg-gray-50">
+              {data.recent_access_logs?.slice(0, 10).map((log) => {
+                // `is_emergency_access` is the authoritative flag; matching on
+                // the action string was a guess that only ever worked if the
+                // word "emergency" happened to appear in it.
+                const kind = log.is_emergency_access
+                  ? 'emergency'
+                  : /fail|denied|refus/i.test(log.action ?? '')
+                    ? 'fail'
+                    : 'normal';
+                return (
+                <tr key={log.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(log.timestamp).toLocaleString()}
+                    {formatWhen(log.accessed_at)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {log.accessor_id?.slice(0, 12)}...
+                    {truncateId(log.accessor_id)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {log.access_type}
+                    {log.action || '—'}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {log.patient_id?.slice(0, 12) || '-'}...
+                    {truncateId(log.patient_id)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded ${getAccessTypeColor(log.access_type)}`}>
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs rounded ${getAccessTypeColor(kind)}`}>
                       <span
                         className={`inline-block w-2 h-2 rounded-full ${
-                          log.access_type?.includes('emergency')
+                          kind === 'emergency'
                             ? 'bg-orange-500'
-                            : log.access_type?.includes('fail')
+                            : kind === 'fail'
                             ? 'bg-red-500'
                             : 'bg-green-500'
                         }`}
                         aria-hidden="true"
                       />
-                      {log.access_type?.includes('emergency')
+                      {kind === 'emergency'
                         ? t('docAdmin.badgeEmer')
-                        : log.access_type?.includes('fail')
+                        : kind === 'fail'
                         ? t('docAdmin.badgeFail')
                         : t('docAdmin.badgeNorm')}
                     </span>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {(!data.recent_access_logs || data.recent_access_logs.length === 0) && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-500">

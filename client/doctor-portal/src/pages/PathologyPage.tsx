@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToastActions } from '../components/Toast';
-import { getPatients, listPathology, createPathology, useTranslation } from '@medichain/shared';
+import {
+  getPatients,
+  listPathology,
+  createPathology,
+  getPatientRecords,
+  uploadMedicalRecord,
+  downloadMedicalRecord,
+  useTranslation,
+} from '@medichain/shared';
 import type { PatientProfile } from '@medichain/shared';
 import { FileText, Microscope, Search, Plus, Eye, Calendar, AlertCircle, CheckCircle, Clock, RefreshCw } from 'lucide-react';
 
@@ -48,6 +56,91 @@ interface PathologySpecimen {
   communicatedTo?: string;
 }
 
+/** One decrypted slide image belonging to the specimen on screen. */
+interface SlideImage {
+  hash: string;
+  label: string;
+  contentType: string;
+  base64: string;
+}
+
+/**
+ * Filename prefix that ties an uploaded image to its specimen.
+ *
+ * The record listing (`MedicalRecordReference`) carries only hashes, a type and
+ * a timestamp — no filename — so the specimen a slide belongs to has to travel
+ * inside the name and be recovered on download. Encoding it here keeps that
+ * convention in one place rather than spelled out at both ends.
+ */
+const slidePrefix = (specimenId: string) => `pathslide__${specimenId}__`;
+
+/**
+ * Map one stored row onto the shape this page renders.
+ *
+ * The registry returns `PathologyReportEntity` — snake_case typed columns plus
+ * a `data` blob holding the tracking fields those columns have no home for
+ * (priority, container, fixative, laterality, blocks, slides). The list used to
+ * be asserted straight across with `as PathologySpecimen[]`, which type-checks
+ * and is simply false: `patientName`, `site` and `specimenId` were all
+ * `undefined`, and the first search keystroke threw on `.toLowerCase()` —
+ * taking the whole page down with it as soon as a specimen existed. An empty
+ * worklist hid the bug.
+ *
+ * Every string field is defaulted, because the crash was not the search box: it
+ * was trusting an assertion over data that comes off the wire.
+ */
+function toSpecimen(raw: unknown): PathologySpecimen {
+  const row = raw as Record<string, any>;
+  const tracked: Record<string, any> = row.data ?? {};
+  const pick = (...keys: string[]): string => {
+    for (const key of keys) {
+      const value = row[key] ?? tracked[key];
+      if (typeof value === 'string' && value) return value;
+    }
+    return '';
+  };
+  const list = (...keys: string[]): string[] => {
+    for (const key of keys) {
+      const value = row[key] ?? tracked[key];
+      if (Array.isArray(value)) return value.map(String);
+    }
+    return [];
+  };
+
+  return {
+    specimenId: pick('id', 'specimenId', 'specimen_id'),
+    patientId: pick('patient_id', 'patientId'),
+    patientName: pick('patientName', 'patient_name'),
+    collectionDate: pick('collection_date', 'collectionDate').slice(0, 10),
+    collectionTime: pick('collectionTime', 'collection_time'),
+    clinician: pick('ordering_provider_id', 'clinician'),
+    specimenType: (pick('specimen_type', 'specimenType') ||
+      'surgical') as PathologySpecimen['specimenType'],
+    site: pick('specimen_source', 'site'),
+    laterality: (pick('laterality') || 'n/a') as PathologySpecimen['laterality'],
+    clinicalHistory: pick('clinical_history', 'clinicalHistory'),
+    clinicalDiagnosis: pick('clinicalDiagnosis', 'clinical_diagnosis'),
+    priority: (pick('priority') || 'routine') as PathologySpecimen['priority'],
+    status: (pick('status') || 'received') as PathologySpecimen['status'],
+    receivedDate: pick('received_date', 'receivedDate').slice(0, 10),
+    receivedBy: pick('receivedBy', 'received_by'),
+    container: pick('container'),
+    fixative: pick('fixative'),
+    grossDescription: pick('gross_description', 'grossDescription'),
+    blocks: list('blocks'),
+    slides: list('slides'),
+    specialStains: list('specialStains', 'special_stains'),
+    ihcMarkers: list('ihcMarkers', 'ihc_markers'),
+    microscopicDescription: pick('microscopic_description', 'microscopicDescription'),
+    diagnosis: pick('diagnosis'),
+    snomedCode: pick('snomedCode', 'snomed_code'),
+    reportDate: pick('report_date', 'reportDate').slice(0, 10),
+    pathologist: pick('pathologist_id', 'pathologist'),
+    isCritical: Boolean(row.isCritical ?? tracked.isCritical),
+    communicatedTo: pick('communicatedTo', 'communicated_to'),
+  };
+}
+
 const PathologyPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
@@ -58,6 +151,9 @@ const PathologyPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'worklist' | 'newOrder' | 'report'>('worklist');
   const [selectedSpecimen, setSelectedSpecimen] = useState<PathologySpecimen | null>(null);
+  const [slideImages, setSlideImages] = useState<SlideImage[]>([]);
+  const [slideImagesLoading, setSlideImagesLoading] = useState(false);
+  const [slideUploading, setSlideUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -96,7 +192,7 @@ const PathologyPage: React.FC = () => {
       setError(null);
       const response = await listPathology();
       if (response.success && Array.isArray(response.items)) {
-        setSpecimens(response.items as PathologySpecimen[]);
+        setSpecimens(response.items.map(toSpecimen));
       }
     } catch (err) {
       console.error('Error fetching pathology specimens:', err);
@@ -169,8 +265,78 @@ const PathologyPage: React.FC = () => {
     setActiveTab('worklist');
   };
 
+  /**
+   * Load the slide images attached to a specimen.
+   *
+   * The record index exposes no filename, so each candidate image has to be
+   * downloaded to learn which specimen it belongs to. Only `imaging` records
+   * are considered, and a download that fails is skipped rather than failing
+   * the panel: one unreadable slide must not hide the rest.
+   */
+  const loadSlideImages = useCallback(async (specimen: PathologySpecimen) => {
+    setSlideImagesLoading(true);
+    setSlideImages([]);
+    try {
+      const records = await getPatientRecords(specimen.patientId);
+      const prefix = slidePrefix(specimen.specimenId);
+      const found: SlideImage[] = [];
+      for (const ref of records.filter(r => r.record_type === 'imaging')) {
+        try {
+          const file = await downloadMedicalRecord({
+            content_hash: ref.content_hash,
+            metadata_hash: ref.metadata_hash,
+          });
+          if (!file.filename?.startsWith(prefix)) continue;
+          found.push({
+            hash: ref.content_hash,
+            label: file.filename.slice(prefix.length),
+            contentType: file.content_type || 'image/jpeg',
+            base64: file.content_base64,
+          });
+        } catch {
+          // Unreadable or not ours; the other slides still render.
+        }
+      }
+      setSlideImages(found);
+    } catch (err) {
+      console.error('Failed to load slide images:', err);
+    } finally {
+      setSlideImagesLoading(false);
+    }
+  }, []);
+
+  /** Encrypt and store one captured slide image against the open specimen. */
+  const attachSlideImage = async (file: File) => {
+    if (!selectedSpecimen) return;
+    setSlideUploading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        // `result` is a data URL; the API wants the payload only.
+        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+
+      await uploadMedicalRecord({
+        patient_id: selectedSpecimen.patientId,
+        content_base64: base64,
+        filename: `${slidePrefix(selectedSpecimen.specimenId)}${file.name}`,
+        content_type: file.type || 'image/jpeg',
+        record_type: 'imaging',
+      });
+      showSuccess(t('docPathology.slideAttached'));
+      await loadSlideImages(selectedSpecimen);
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('docPathology.slideAttachFailed'));
+    } finally {
+      setSlideUploading(false);
+    }
+  };
+
   const handleOpenReport = (specimen: PathologySpecimen) => {
     setSelectedSpecimen(specimen);
+    void loadSlideImages(specimen);
     setGrossDescription(specimen.grossDescription || '');
     setBlocks(specimen.blocks || []);
     setSlides(specimen.slides || []);
@@ -252,10 +418,14 @@ const PathologyPage: React.FC = () => {
   };
 
   const filteredSpecimens = specimens.filter(specimen => {
-    const matchesSearch = 
-      specimen.specimenId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      specimen.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      specimen.site.toLowerCase().includes(searchTerm.toLowerCase());
+    // Belt as well as braces. `toSpecimen` defaults every field, but a search
+    // filter is a poor place to discover that an assumption failed: a thrown
+    // TypeError here unmounts the entire worklist, so a missing value must
+    // simply not match rather than take the page down.
+    const term = searchTerm.toLowerCase();
+    const has = (value: string | undefined) => (value ?? '').toLowerCase().includes(term);
+    const matchesSearch =
+      has(specimen.specimenId) || has(specimen.patientName) || has(specimen.site);
     
     const matchesStatus = statusFilter === 'all' || specimen.status === statusFilter;
     const matchesType = typeFilter === 'all' || specimen.specimenType === typeFilter;
@@ -748,20 +918,75 @@ const PathologyPage: React.FC = () => {
             )}
           </div>
 
-          {/* Digital Slide Viewer Placeholder */}
-          <div className="bg-gray-100 rounded-lg border-2 border-dashed border-gray-300 p-8 text-center">
-            <Microscope className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-            <p className="text-gray-600 font-medium">{t('docPathology.viewerPlaceholder')}</p>
-            <p className="text-sm text-gray-500 mt-1">
-              {t('docPathology.viewerPlaceholderHint')}
-            </p>
-            {slides.length > 0 && (
-              <div className="mt-3 flex flex-wrap justify-center gap-2">
-                {slides.map((slide, idx) => (
-                  <span key={idx} className="px-3 py-1 bg-white border rounded text-sm text-gray-700">
-                    {slide}
-                  </span>
+          {/* Digital slide viewer.
+              This was a dashed box reading "whole slide images would display
+              here via OpenSeadragon or similar" — a design mockup left in the
+              product. Slide images now go through the same encrypted IPFS store
+              the rest of the record uses, so a pathologist can attach and read
+              them. It is not a WSI pyramid viewer: these are captured field
+              images, and the panel says so rather than implying tiled
+              whole-slide navigation it does not provide. */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <Microscope className="h-5 w-5 text-purple-600" />
+                {t('docPathology.viewerHeading')}
+              </h3>
+              <label className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded cursor-pointer hover:bg-purple-500">
+                {slideUploading ? t('docPathology.slideUploading') : t('docPathology.slideAttach')}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={slideUploading}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) void attachSlideImage(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
+            {slideImagesLoading ? (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                {t('docPathology.slidesLoading')}
+              </p>
+            ) : slideImages.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {slideImages.map(image => (
+                  <figure key={image.hash} className="border rounded overflow-hidden">
+                    <img
+                      src={`data:${image.contentType};base64,${image.base64}`}
+                      alt={t('docPathology.slideImageAlt', { label: image.label })}
+                      className="w-full h-40 object-cover bg-black"
+                    />
+                    <figcaption className="px-2 py-1 text-xs text-gray-600 truncate">
+                      {image.label}
+                    </figcaption>
+                  </figure>
                 ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                {t('docPathology.slidesNoneAttached')}
+              </p>
+            )}
+
+            {/* The stain/block labels the pathologist recorded, which exist
+                whether or not an image was captured for them. */}
+            {slides.length > 0 && (
+              <div className="mt-4 pt-3 border-t">
+                <p className="text-xs font-medium text-gray-500 mb-2">
+                  {t('docPathology.slidesRecordedLabel')}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {slides.map((slide, idx) => (
+                    <span key={idx} className="px-3 py-1 bg-gray-50 border rounded text-sm text-gray-700">
+                      {slide}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>

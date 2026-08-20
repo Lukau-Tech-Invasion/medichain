@@ -266,7 +266,10 @@ export const useAuthStore = create<AuthState>()(
 
           opened = await openKeystore(resp.encrypted_keystore, derived.keystoreKey);
 
-          const signer = await signerFromSecret(opened.miniSecret);
+          // The address travels with the secret: a v2 keystore may hold a
+          // 64-byte secret key (an account from a derivation path), and
+          // recovering its public half needs the address the keystore recorded.
+          const signer = await signerFromSecret(opened.miniSecret, opened.address);
           if (signer.address !== resp.wallet_address) {
             // The keystore opened but unlocks a different account than the one
             // the server named. Never continue past that: it means the stored

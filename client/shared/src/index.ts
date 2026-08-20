@@ -50,6 +50,7 @@ export * from './hooks';
 
 // Utilities
 export * from './utils/cache';
+export { lookupOr, componentOr } from './utils/enumLookup';
 export { fetchWithRetry } from './utils/fetchWithRetry';
 export * from './utils/indexedDB';
 export * from './utils/offlineQueue';

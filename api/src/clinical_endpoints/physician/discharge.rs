@@ -40,43 +40,142 @@ pub async fn create_discharge_summary(
     let summary_id = format!("DCS-{}", uuid::Uuid::new_v4().simple());
     let entity = DischargeSummaryEntity {
         id: summary_id.clone(),
-        patient_id: body.get("patient_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        encounter_id: body.get("encounter_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        attending_physician_id: body.get("attending_physician_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        admission_datetime: body.get("admission_datetime").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or(now),
-        discharge_datetime: body.get("discharge_datetime").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)).unwrap_or(now),
-        admission_diagnosis: body.get("admission_diagnosis").cloned().unwrap_or_else(|| serde_json::json!({})),
-        discharge_diagnosis: body.get("discharge_diagnosis").cloned().unwrap_or_else(|| serde_json::json!({})),
-        principal_diagnosis: body.get("principal_diagnosis").and_then(|v| v.as_str()).map(str::to_string),
+        patient_id: body
+            .get("patient_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        encounter_id: body
+            .get("encounter_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        attending_physician_id: body
+            .get("attending_physician_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        admission_datetime: body
+            .get("admission_datetime")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc))
+            .unwrap_or(now),
+        discharge_datetime: body
+            .get("discharge_datetime")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc))
+            .unwrap_or(now),
+        admission_diagnosis: body
+            .get("admission_diagnosis")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        discharge_diagnosis: body
+            .get("discharge_diagnosis")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        principal_diagnosis: body
+            .get("principal_diagnosis")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         secondary_diagnoses: body.get("secondary_diagnoses").cloned(),
         procedures_performed: body.get("procedures_performed").cloned(),
-        hospital_course: body.get("hospital_course").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        condition_at_discharge: body.get("condition_at_discharge").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or("stable").to_string(),
-        discharge_disposition: body.get("discharge_disposition").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or("home").to_string(),
-        discharge_destination: body.get("discharge_destination").and_then(|v| v.as_str()).map(str::to_string),
-        discharge_medications: body.get("discharge_medications").cloned().unwrap_or_else(|| serde_json::json!({})),
-        medication_changes: body.get("medication_changes").and_then(|v| v.as_str()).map(str::to_string),
+        hospital_course: body
+            .get("hospital_course")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        condition_at_discharge: body
+            .get("condition_at_discharge")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("stable")
+            .to_string(),
+        discharge_disposition: body
+            .get("discharge_disposition")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("home")
+            .to_string(),
+        discharge_destination: body
+            .get("discharge_destination")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        discharge_medications: body
+            .get("discharge_medications")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        medication_changes: body
+            .get("medication_changes")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         follow_up_appointments: body.get("follow_up_appointments").cloned(),
-        follow_up_instructions: body.get("follow_up_instructions").and_then(|v| v.as_str()).map(str::to_string),
-        diet_instructions: body.get("diet_instructions").and_then(|v| v.as_str()).map(str::to_string),
-        activity_restrictions: body.get("activity_restrictions").and_then(|v| v.as_str()).map(str::to_string),
-        wound_care_instructions: body.get("wound_care_instructions").and_then(|v| v.as_str()).map(str::to_string),
-        warning_signs: body.get("warning_signs").and_then(|v| v.as_str()).map(str::to_string),
+        follow_up_instructions: body
+            .get("follow_up_instructions")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        diet_instructions: body
+            .get("diet_instructions")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        activity_restrictions: body
+            .get("activity_restrictions")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        wound_care_instructions: body
+            .get("wound_care_instructions")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        warning_signs: body
+            .get("warning_signs")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         pending_results: body.get("pending_results").cloned(),
         pending_studies: body.get("pending_studies").cloned(),
-        primary_care_notified: body.get("primary_care_notified").and_then(|v| v.as_bool()).unwrap_or(false),
+        primary_care_notified: body
+            .get("primary_care_notified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
         specialist_follow_up: body.get("specialist_follow_up").cloned(),
         durable_medical_equipment: body.get("durable_medical_equipment").cloned(),
         home_health_orders: body.get("home_health_orders").cloned(),
         physical_therapy_orders: body.get("physical_therapy_orders").cloned(),
-        dictated_by: body.get("dictated_by").and_then(|v| v.as_str()).map(str::to_string),
-        dictated_at: body.get("dictated_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
-        transcribed_by: body.get("transcribed_by").and_then(|v| v.as_str()).map(str::to_string),
-        signed_by: body.get("signed_by").and_then(|v| v.as_str()).map(str::to_string),
-        signed_at: body.get("signed_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
-        addendum: body.get("addendum").and_then(|v| v.as_str()).map(str::to_string),
-        addendum_by: body.get("addendum_by").and_then(|v| v.as_str()).map(str::to_string),
-        addendum_at: body.get("addendum_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
+        dictated_by: body
+            .get("dictated_by")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        dictated_at: body
+            .get("dictated_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
+        transcribed_by: body
+            .get("transcribed_by")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        signed_by: body
+            .get("signed_by")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        signed_at: body
+            .get("signed_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
+        addendum: body
+            .get("addendum")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        addendum_by: body
+            .get("addendum_by")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        addendum_at: body
+            .get("addendum_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
         created_at: now,
         updated_at: now,
         data: body.clone(),
@@ -302,37 +401,122 @@ pub async fn create_discharge_instructions(
     let instructions_id = format!("DCI-{}", uuid::Uuid::new_v4().simple());
     let entity = DischargeInstructionsEntity {
         id: instructions_id.clone(),
-        patient_id: body.get("patient_id").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        discharge_summary_id: body.get("discharge_summary_id").and_then(|v| v.as_str()).map(str::to_string),
-        visit_date: body.get("visit_date").and_then(|v| v.as_str()).and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()).unwrap_or_else(|| now.date_naive()),
-        diagnosis_summary: body.get("diagnosis_summary").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        medications_list: body.get("medications_list").cloned().unwrap_or_else(|| serde_json::json!({})),
+        patient_id: body
+            .get("patient_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        discharge_summary_id: body
+            .get("discharge_summary_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        visit_date: body
+            .get("visit_date")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok())
+            .unwrap_or_else(|| now.date_naive()),
+        diagnosis_summary: body
+            .get("diagnosis_summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        medications_list: body
+            .get("medications_list")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
         new_medications: body.get("new_medications").cloned(),
         stopped_medications: body.get("stopped_medications").cloned(),
         changed_medications: body.get("changed_medications").cloned(),
-        diet_instructions: body.get("diet_instructions").and_then(|v| v.as_str()).map(str::to_string),
-        activity_level: body.get("activity_level").and_then(|v| v.as_str()).map(str::to_string),
+        diet_instructions: body
+            .get("diet_instructions")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        activity_level: body
+            .get("activity_level")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         activity_restrictions: body.get("activity_restrictions").cloned(),
-        wound_care: body.get("wound_care").and_then(|v| v.as_str()).map(str::to_string),
-        follow_up_appointments: body.get("follow_up_appointments").cloned().unwrap_or_else(|| serde_json::json!({})),
-        return_precautions: body.get("return_precautions").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        emergency_instructions: body.get("emergency_instructions").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        contact_numbers: body.get("contact_numbers").cloned().unwrap_or_else(|| serde_json::json!({})),
+        wound_care: body
+            .get("wound_care")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        follow_up_appointments: body
+            .get("follow_up_appointments")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        return_precautions: body
+            .get("return_precautions")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        emergency_instructions: body
+            .get("emergency_instructions")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        contact_numbers: body
+            .get("contact_numbers")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
         patient_education_materials: body.get("patient_education_materials").cloned(),
-        language: body.get("language").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-        reading_level: body.get("reading_level").and_then(|v| v.as_str()).map(str::to_string),
-        special_instructions: body.get("special_instructions").and_then(|v| v.as_str()).map(str::to_string),
+        language: body
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        reading_level: body
+            .get("reading_level")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        special_instructions: body
+            .get("special_instructions")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         equipment_needed: body.get("equipment_needed").cloned(),
-        home_health_arranged: body.get("home_health_arranged").and_then(|v| v.as_bool()).unwrap_or(false),
-        transportation_arranged: body.get("transportation_arranged").and_then(|v| v.as_bool()).unwrap_or(false),
-        pharmacy_notified: body.get("pharmacy_notified").and_then(|v| v.as_bool()).unwrap_or(false),
-        printed_at: body.get("printed_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
-        emailed_at: body.get("emailed_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
-        patient_portal_posted: body.get("patient_portal_posted").and_then(|v| v.as_bool()).unwrap_or(false),
-        acknowledged_by_patient: body.get("acknowledged_by_patient").and_then(|v| v.as_bool()).unwrap_or(false),
-        acknowledged_at: body.get("acknowledged_at").and_then(|v| v.as_str()).and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Utc)),
-        witness_signature: body.get("witness_signature").and_then(|v| v.as_str()).map(str::to_string),
-        provided_by: body.get("provided_by").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        home_health_arranged: body
+            .get("home_health_arranged")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        transportation_arranged: body
+            .get("transportation_arranged")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        pharmacy_notified: body
+            .get("pharmacy_notified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        printed_at: body
+            .get("printed_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
+        emailed_at: body
+            .get("emailed_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
+        patient_portal_posted: body
+            .get("patient_portal_posted")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        acknowledged_by_patient: body
+            .get("acknowledged_by_patient")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        acknowledged_at: body
+            .get("acknowledged_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc)),
+        witness_signature: body
+            .get("witness_signature")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        provided_by: body
+            .get("provided_by")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string(),
         created_at: now,
         updated_at: now,
         data: body.clone(),

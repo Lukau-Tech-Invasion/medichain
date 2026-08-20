@@ -152,10 +152,12 @@ pub async fn list_patients(
     for entity in &entities {
         match patient_entity_to_profile(entity, &data.encryption_keyring) {
             Some(profile) => {
-                let mut value =
-                    serde_json::to_value(&profile).unwrap_or(serde_json::Value::Null);
+                let mut value = serde_json::to_value(&profile).unwrap_or(serde_json::Value::Null);
                 if let Some(object) = value.as_object_mut() {
-                    object.insert("content_available".to_string(), serde_json::Value::Bool(true));
+                    object.insert(
+                        "content_available".to_string(),
+                        serde_json::Value::Bool(true),
+                    );
                 }
                 rows.push(RosterRow {
                     ts: profile.last_updated.timestamp_millis(),
@@ -249,9 +251,7 @@ pub async fn get_patient_by_id(
             // so this fails loudly instead.
             None => {
                 let reason = unreadable_reason(&entity, &data.encryption_keyring);
-                log::error!(
-                    "patient {patient_id} exists but its profile is unreadable ({reason})"
-                );
+                log::error!("patient {patient_id} exists but its profile is unreadable ({reason})");
                 HttpResponse::InternalServerError().json(ErrorResponse {
                     success: false,
                     error: format!(

@@ -4,13 +4,19 @@ use super::*;
 // SYSTEM ANALYTICS & METRICS
 // ============================================================================
 
-/// Analytics query parameters
-#[allow(dead_code)]
+/// Analytics query parameters. `start_date`/`end_date` are inclusive
+/// `YYYY-MM-DD` bounds; both are optional and an absent bound is unbounded.
 #[derive(Debug, Deserialize)]
 pub struct AnalyticsQueryRequest {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    /// Accepted and deserialised so an existing caller's query string is not
+    /// rejected, but no handler narrows on them yet. Kept rather than dropped
+    /// because the frontend already sends them; they become live when a
+    /// metric-specific or per-patient view needs them.
+    #[allow(dead_code)]
     pub metric_type: Option<String>,
+    #[allow(dead_code)]
     pub patient_id: Option<String>,
 }
 
@@ -124,11 +130,19 @@ pub async fn get_patient_analytics(
     }))
 }
 
-/// Get appointment & volume analytics
+/// Get appointment & volume analytics.
+///
+/// Honours `start_date`/`end_date` (inclusive, `YYYY-MM-DD`) when supplied.
+/// The analytics dashboard's period selector had no effect on anything before
+/// this: it posted a range the handler bound to `_query` and ignored, so
+/// "Today" and "This Year" rendered identical figures. A control that visibly
+/// changes nothing is worse than no control, because it invites the reader to
+/// believe a number is scoped when it is not.
 #[get("/api/platform/analytics/appointments")]
 pub async fn get_appointment_analytics(
     data: web::Data<crate::AppState>,
     http_req: HttpRequest,
+    query: web::Query<AnalyticsQueryRequest>,
 ) -> impl Responder {
     if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
         return resp;
@@ -137,15 +151,165 @@ pub async fn get_appointment_analytics(
     let appointments: Vec<crate::clinical::Appointment> =
         crate::clinical_endpoints::fetch_all_appointments(&data).await;
 
+    // `scheduled_date` is a plain `YYYY-MM-DD` string, so lexicographic
+    // comparison is chronological. An unparseable or absent bound simply does
+    // not constrain that end of the range rather than dropping every row.
+    let in_period = |a: &crate::clinical::Appointment| -> bool {
+        let after = query
+            .start_date
+            .as_deref()
+            .is_none_or(|start| a.scheduled_date.as_str() >= start);
+        let before = query
+            .end_date
+            .as_deref()
+            .is_none_or(|end| a.scheduled_date.as_str() <= end);
+        after && before
+    };
+
+    let scoped: Vec<&crate::clinical::Appointment> =
+        appointments.iter().filter(|a| in_period(a)).collect();
+
     let mut status_counts = std::collections::HashMap::new();
-    for a in &appointments {
+    for a in &scoped {
         let entry = status_counts.entry(format!("{:?}", a.status)).or_insert(0);
         *entry += 1;
     }
 
+    let total = scoped.len();
+    let telehealth = scoped.iter().filter(|a| a.is_telehealth).count();
+    let completed = scoped
+        .iter()
+        .filter(|a| matches!(a.status, crate::clinical::AppointmentStatus::Completed))
+        .count();
+
+    // Null rather than 0.0 when there are no appointments in range: "0% of
+    // visits were telehealth" and "there were no visits" are different facts,
+    // and only one of them is true here.
+    let telehealth_percentage = (total > 0).then(|| (telehealth as f64 / total as f64) * 100.0);
+
     HttpResponse::Ok().json(serde_json::json!({
         "status_distribution": status_counts,
-        "total_appointments": appointments.len()
+        "total_appointments": total,
+        "completed_appointments": completed,
+        "telehealth_appointments": telehealth,
+        "telehealth_percentage": telehealth_percentage,
+        "period_start": query.start_date,
+        "period_end": query.end_date,
+    }))
+}
+
+/// Operational indicators for the analytics dashboard.
+///
+/// The three panels this feeds — "top performing", "needs attention",
+/// "critical issues" — were twelve hardcoded literals in `AnalyticsPage.tsx`:
+/// 94% patient satisfaction, a 32-minute ED wait, 112% ED overcapacity, "2
+/// ventilators left". Invented numbers, rendered with the same confidence as
+/// the real ones beside them, on the screen an executive reads to decide where
+/// to send staff. Worse, they sat next to genuine counts that read zero, so the
+/// fabricated half looked like the working half.
+///
+/// Everything below is counted from stored records. Metrics this deployment
+/// cannot measure — bed occupancy, ventilator stock, staffing levels, ED
+/// capacity — are **absent** rather than estimated: there is no bed, roster or
+/// equipment model to derive them from, and inventing them is what this
+/// endpoint exists to stop. `unmeasured` names them so the client can say so
+/// out loud instead of leaving a suggestive gap.
+#[get("/api/platform/analytics/operations")]
+pub async fn get_operational_metrics(
+    data: web::Data<crate::AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = crate::support::require_clinical_staff(&data, &http_req) {
+        return resp;
+    }
+
+    let repos = &data.repositories;
+
+    // Radiology work still queued, by the order's own status.
+    let radiology = repos.radiology_orders.list_all().await.unwrap_or_default();
+    let radiology_queue = radiology
+        .iter()
+        .filter(|o| {
+            matches!(
+                o.status.to_lowercase().as_str(),
+                "pending" | "ordered" | "scheduled" | "in_progress"
+            )
+        })
+        .count();
+
+    // Lab turnaround: order to result, in whole minutes, over completed work
+    // only. The median rather than the mean, because one specimen stuck for a
+    // week should not move the number a clinician plans around.
+    let submissions = repos
+        .lab_submissions
+        .get_pending_by_priority()
+        .await
+        .unwrap_or_default();
+    let lab_pending = submissions
+        .iter()
+        .filter(|s| s.status.eq_ignore_ascii_case("pending"))
+        .count();
+
+    let mut turnarounds: Vec<i64> = submissions
+        .iter()
+        .filter(|s| {
+            s.status.eq_ignore_ascii_case("completed") || s.status.eq_ignore_ascii_case("resulted")
+        })
+        .map(|s| (s.updated_at - s.order_date).num_minutes())
+        .filter(|m| *m >= 0)
+        .collect();
+    turnarounds.sort_unstable();
+    let lab_turnaround_median_minutes =
+        (!turnarounds.is_empty()).then(|| turnarounds[turnarounds.len() / 2]);
+
+    // Critical values a clinician has not yet acknowledged: the one number on
+    // this page that is genuinely time-critical.
+    let unacknowledged_critical_values = repos
+        .critical_values
+        .get_unacknowledged()
+        .await
+        .map(|values| values.len())
+        .unwrap_or(0);
+
+    // Patient satisfaction, averaged over submitted surveys. `None` when nobody
+    // has answered — an average over zero responses is not 100%, it is nothing.
+    let surveys = repos
+        .satisfaction_surveys
+        .list_all()
+        .await
+        .unwrap_or_default();
+    let ratings: Vec<f64> = surveys
+        .iter()
+        .filter_map(|s| {
+            s.data
+                .get("overall_rating")
+                .or_else(|| s.data.get("rating"))
+                .and_then(|v| v.as_f64())
+        })
+        .collect();
+    let satisfaction_average =
+        (!ratings.is_empty()).then(|| ratings.iter().sum::<f64>() / ratings.len() as f64);
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "measured": {
+            "radiology_queue": radiology_queue,
+            "lab_pending": lab_pending,
+            "lab_turnaround_median_minutes": lab_turnaround_median_minutes,
+            "unacknowledged_critical_values": unacknowledged_critical_values,
+            "patient_satisfaction_average": satisfaction_average,
+            "patient_satisfaction_responses": ratings.len(),
+        },
+        // Named rather than estimated. Adding any of these means adding the
+        // model behind it first.
+        "unmeasured": [
+            "bed_availability",
+            "ed_wait_time",
+            "ed_capacity",
+            "ventilator_availability",
+            "staffing_level",
+            "medication_stock",
+        ],
     }))
 }
 

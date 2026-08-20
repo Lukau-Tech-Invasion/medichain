@@ -9,7 +9,7 @@ use crate::clinical;
 pub use crate::clinical::*;
 pub use crate::repositories::traits::*;
 pub use crate::types::*;
-pub use actix_web::{delete, get, post, web, HttpRequest, HttpResponse, Responder};
+pub use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 pub use chrono::Utc;
 pub use serde::Deserialize;
 
