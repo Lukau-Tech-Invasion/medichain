@@ -94,7 +94,9 @@ impl RetentionExecutionRepository for PgRetentionExecutionRepository {
         let result = sqlx::query_as::<Postgres, RetentionApprovalEntity>(&format!(
             "UPDATE retention_approvals
              SET status = $2, approved_by = $3, approved_at = NOW(), rejection_reason = $4
-             WHERE token = $1 AND status = 'pending'
+             WHERE token = $1
+               AND status = 'pending'
+               AND requested_by <> $3
              RETURNING {APPROVAL_COLUMNS}"
         ))
         .bind(token)

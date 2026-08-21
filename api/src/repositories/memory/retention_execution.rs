@@ -92,6 +92,12 @@ impl RetentionExecutionRepository for MemoryRetentionExecutionRepository {
             )));
         }
 
+        if approval.requested_by == decided_by {
+            return Err(RepositoryError::Validation(
+                "a requester may not decide their own retention approval".to_string(),
+            ));
+        }
+
         approval.status = if approved { "approved" } else { "rejected" }.to_string();
         approval.approved_by = Some(decided_by.to_string());
         approval.approved_at = Some(Utc::now());
@@ -239,11 +245,28 @@ mod tests {
         let pending = repo.get_approval("T-1").await.unwrap();
         assert!(!pending.is_executable(Utc::now()));
 
-        repo.decide_approval("T-1", true, "admin", None)
+        repo.decide_approval("T-1", true, "reviewer", None)
             .await
             .unwrap();
         let approved = repo.get_approval("T-1").await.unwrap();
         assert!(approved.is_executable(Utc::now()));
+    }
+
+    #[tokio::test]
+    async fn requester_cannot_decide_own_retention_approval() {
+        let repo = MemoryRetentionExecutionRepository::new();
+        repo.create_approval(approval("T-maker-checker"))
+            .await
+            .unwrap();
+
+        assert!(repo
+            .decide_approval("T-maker-checker", true, "admin", None)
+            .await
+            .is_err());
+        assert!(repo
+            .decide_approval("T-maker-checker", true, "reviewer", None)
+            .await
+            .is_ok());
     }
 
     /// Replaying an execution request must not restrict the same records twice.
@@ -251,7 +274,7 @@ mod tests {
     async fn an_approval_can_only_be_executed_once() {
         let repo = MemoryRetentionExecutionRepository::new();
         repo.create_approval(approval("T-2")).await.unwrap();
-        repo.decide_approval("T-2", true, "admin", None)
+        repo.decide_approval("T-2", true, "reviewer", None)
             .await
             .unwrap();
 
@@ -263,7 +286,7 @@ mod tests {
     async fn rejected_approval_is_not_executable() {
         let repo = MemoryRetentionExecutionRepository::new();
         repo.create_approval(approval("T-3")).await.unwrap();
-        repo.decide_approval("T-3", false, "admin", Some("periods unconfirmed".into()))
+        repo.decide_approval("T-3", false, "reviewer", Some("periods unconfirmed".into()))
             .await
             .unwrap();
 
@@ -283,7 +306,7 @@ mod tests {
         let mut stale = approval("T-4");
         stale.expires_at = Utc::now() - Duration::hours(1);
         repo.create_approval(stale).await.unwrap();
-        repo.decide_approval("T-4", true, "admin", None)
+        repo.decide_approval("T-4", true, "reviewer", None)
             .await
             .unwrap();
 
@@ -297,12 +320,12 @@ mod tests {
     async fn a_decided_approval_cannot_be_decided_again() {
         let repo = MemoryRetentionExecutionRepository::new();
         repo.create_approval(approval("T-5")).await.unwrap();
-        repo.decide_approval("T-5", true, "admin", None)
+        repo.decide_approval("T-5", true, "reviewer", None)
             .await
             .unwrap();
 
         assert!(repo
-            .decide_approval("T-5", false, "admin", None)
+            .decide_approval("T-5", false, "reviewer", None)
             .await
             .is_err());
     }
