@@ -7,7 +7,6 @@
 use crate::clinical::*;
 use crate::ipfs::{EncryptedMetadata, IpfsError, MedicalRecordReference};
 use crate::middleware::error_handling::{secure_tokens, validation};
-use crate::middleware::signature_auth::generate_auth_challenge;
 use crate::nfc_simulator::{NFCCard, NationalIdType, QRCodeData};
 use crate::repositories::*;
 use crate::state::AppState;

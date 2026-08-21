@@ -24,7 +24,15 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:?ENCRYPTION_KEYS is required}
       NATIONAL_ID_HASH_KEY: ${NATIONAL_ID_HASH_KEY:?NATIONAL_ID_HASH_KEY is required}
+      NATIONAL_ID_VERIFICATION_MODE: "live"
       SMS_INBOUND_WEBHOOK_SECRET: ${SMS_INBOUND_WEBHOOK_SECRET:?SMS_INBOUND_WEBHOOK_SECRET is required}
+      # Disabled until a qualified private provider is configured. If enabled,
+      # startup rejects public Jitsi and missing provider credentials.
+      TELEHEALTH_ENABLED: ${TELEHEALTH_ENABLED:-false}
+      TELEHEALTH_PROVIDER: ${TELEHEALTH_PROVIDER:-jitsi}
+      JITSI_DOMAIN: ${JITSI_DOMAIN:-}
+      JITSI_APP_ID: ${JITSI_APP_ID:-}
+      JITSI_APP_SECRET: ${JITSI_APP_SECRET:-}
       BLOCKCHAIN_ENABLED: "true"
       SUBSTRATE_WS_URL: ${SUBSTRATE_WS_URL:?SUBSTRATE_WS_URL is required}
       SUBSTRATE_SIGNING_KEY: ${SUBSTRATE_SIGNING_KEY:?SUBSTRATE_SIGNING_KEY is required}

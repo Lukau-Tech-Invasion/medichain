@@ -449,8 +449,6 @@ import type {
   BootstrapAdminResponse,
   WalletRegisterRequest,
   WalletRegisterResponse,
-  WalletLoginRequest,
-  WalletLoginResponse,
   WalletUserInfo,
   CurrentUser,
   Role,
@@ -498,11 +496,9 @@ export async function walletRegister(data: WalletRegisterRequest): Promise<Walle
   return getApiClient().post('/api/auth/register', data);
 }
 
-/**
- * Login with wallet address - validates wallet exists and returns user info
- */
-export async function walletLogin(data: WalletLoginRequest): Promise<WalletLoginResponse> {
-  return getApiClient().post('/api/auth/login', data);
+/** Request an opaque, single-use wallet-signing challenge. */
+export async function requestWalletChallenge(walletAddress: string): Promise<WalletChallenge> {
+  return getApiClient().post('/api/auth/challenge', { wallet_address: walletAddress });
 }
 
 /**
@@ -556,9 +552,20 @@ export async function getCurrentUser(): Promise<CurrentUser> {
 
 export interface JwtIssueRequest {
   wallet_address: string;
-  /** Hex sr25519 signature over `<timestamp>:<wallet_address>`. */
+  challenge_id: string;
+  nonce: string;
+  /** Hex sr25519 signature over the issued login challenge message. */
   signature: string;
-  timestamp: number;
+}
+
+export interface WalletChallenge {
+  success: boolean;
+  challenge: {
+    challenge_id: string;
+    nonce: string;
+    message: string;
+    expires_in_secs: number;
+  };
 }
 
 export interface JwtIssueResponse {

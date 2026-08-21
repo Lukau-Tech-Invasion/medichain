@@ -51,9 +51,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_auth_challenge) // SEC-005: Auth challenge for signing
         .service(bootstrap_admin)
         .service(wallet_register)
-        .service(wallet_login)
-        .service(wallet_login_get)
-        .service(wallet_lookup)
+        // Legacy anonymous wallet lookup/login routes remain unregistered.
+        // Private account information is returned only after challenge proof.
         // Staff credential sign-in: employee identifier + password proof.
         // Enrolment is wallet-signed; login returns the client-openable
         // keystore, never a session (see handlers/staff_credentials.rs).

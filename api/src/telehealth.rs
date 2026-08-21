@@ -77,6 +77,41 @@ pub enum TelehealthError {
     ProviderError(String),
 }
 
+/// Explicitly disabled telehealth fails closed instead of manufacturing an
+/// insecure fallback meeting URL.
+pub struct DisabledProvider;
+
+#[async_trait]
+impl TelehealthProvider for DisabledProvider {
+    async fn create_session(
+        &self,
+        _params: CreateSessionParams,
+    ) -> Result<SessionInfo, TelehealthError> {
+        Err(TelehealthError::ConfigError(
+            "Telehealth is not enabled for this deployment".to_string(),
+        ))
+    }
+
+    async fn get_join_url(
+        &self,
+        _session_id: &str,
+        _participant: &str,
+        _role: ParticipantRole,
+    ) -> Result<String, TelehealthError> {
+        Err(TelehealthError::ConfigError(
+            "Telehealth is not enabled for this deployment".to_string(),
+        ))
+    }
+
+    async fn end_session(&self, _session_id: &str) -> Result<(), TelehealthError> {
+        Ok(())
+    }
+
+    fn provider_name(&self) -> &'static str {
+        "disabled"
+    }
+}
+
 // ============================================================================
 // Provider Trait
 // ============================================================================
@@ -768,6 +803,13 @@ impl TelehealthService {
     /// env var.  Falls back to `InternalProvider` if the var is absent or the
     /// configured provider cannot be initialised (e.g. missing API key).
     pub fn new() -> Self {
+        if std::env::var("TELEHEALTH_ENABLED").as_deref() == Ok("false") {
+            log::info!("TelehealthService: disabled by TELEHEALTH_ENABLED=false");
+            return TelehealthService {
+                provider: Box::new(DisabledProvider),
+                sessions: RwLock::new(HashMap::new()),
+            };
+        }
         let provider_name =
             std::env::var("TELEHEALTH_PROVIDER").unwrap_or_else(|_| "jitsi".to_string());
 
@@ -920,6 +962,15 @@ impl Default for TelehealthService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn disabled_provider_never_returns_a_joinable_room() {
+        let provider = DisabledProvider;
+        let result = provider
+            .create_session(make_params("TH-disabled-001"))
+            .await;
+        assert!(matches!(result, Err(TelehealthError::ConfigError(_))));
+    }
 
     #[test]
     fn test_role_to_moderator_mapping() {

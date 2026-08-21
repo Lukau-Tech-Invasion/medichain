@@ -13,6 +13,7 @@ import {
   getApiClient,
   getApiErrorMessage,
   issueJwt,
+  requestWalletChallenge,
   enterWorkContext,
   initPushNotifications,
   getCurrentUser,
@@ -127,9 +128,14 @@ async function acquireJwtTokens(
     return;
   }
   try {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signature = await sign(`${timestamp}:${walletAddress}`);
-    const resp = await issueJwt({ wallet_address: walletAddress, signature, timestamp });
+    const challenge = await requestWalletChallenge(walletAddress);
+    const signature = await sign(challenge.challenge.message);
+    const resp = await issueJwt({
+      wallet_address: walletAddress,
+      challenge_id: challenge.challenge.challenge_id,
+      nonce: challenge.challenge.nonce,
+      signature,
+    });
     if (resp?.access_token) {
       getApiClient().setTokens(resp.access_token, resp.refresh_token);
       // Phase 1: professional screens run with a work-context token. If the

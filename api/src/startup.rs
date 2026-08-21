@@ -86,6 +86,8 @@ pub fn validate_production_secrets() -> Result<(), String> {
     let app_env = std::env::var("APP_ENV")
         .unwrap_or_else(|_| if is_demo { "development" } else { "production" }.to_string());
     validate_runtime_posture(&app_env, is_demo, require_signatures)?;
+    validate_telehealth_configuration(&app_env)?;
+    validate_identity_verification_configuration(&app_env)?;
 
     let mut offenders: Vec<String> = Vec::new();
 
@@ -129,6 +131,83 @@ pub fn validate_production_secrets() -> Result<(), String> {
         offenders.len()
     );
     Ok(())
+}
+
+/// Production telehealth must use a private, authenticated provider. Provider
+/// failure may not be handled by silently offering a public meeting room.
+pub fn validate_telehealth_configuration(app_env: &str) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if !production || std::env::var("TELEHEALTH_ENABLED").as_deref() == Ok("false") {
+        return Ok(());
+    }
+
+    let provider = std::env::var("TELEHEALTH_PROVIDER")
+        .unwrap_or_else(|_| "jitsi".to_string())
+        .to_ascii_lowercase();
+    match provider.as_str() {
+        "jitsi" => {
+            let domain = std::env::var("JITSI_DOMAIN").unwrap_or_default();
+            let app_id = std::env::var("JITSI_APP_ID").unwrap_or_default();
+            let secret = std::env::var("JITSI_APP_SECRET").unwrap_or_default();
+            if domain.is_empty()
+                || domain == "meet.jit.si"
+                || app_id.is_empty()
+                || secret.is_empty()
+            {
+                return Err(
+                    "Refusing production startup: Jitsi must use a non-public self-hosted domain \
+                     with JITSI_APP_ID and JITSI_APP_SECRET token authentication"
+                        .to_string(),
+                );
+            }
+        }
+        "daily" if std::env::var("DAILY_API_KEY").is_err() => {
+            return Err(
+                "Refusing production startup: DAILY_API_KEY is required for telehealth".into(),
+            );
+        }
+        "twilio"
+            if std::env::var("TWILIO_ACCOUNT_SID").is_err()
+                || std::env::var("TWILIO_AUTH_TOKEN").is_err() =>
+        {
+            return Err(
+                "Refusing production startup: Twilio telehealth requires account and auth token"
+                    .into(),
+            );
+        }
+        "internal" => {
+            return Err(
+                "Refusing production startup: the internal telehealth provider is not externally qualified"
+                    .into(),
+            );
+        }
+        "daily" | "twilio" => {}
+        _ => return Err("Refusing production startup: unknown telehealth provider".into()),
+    }
+    Ok(())
+}
+
+/// The deterministic ID verifier is restricted to explicit demo/test use. A
+/// production response must never label a non-empty placeholder as verified.
+pub fn validate_identity_verification_configuration(app_env: &str) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if !production {
+        return Ok(());
+    }
+    match std::env::var("NATIONAL_ID_VERIFICATION_MODE") {
+        Ok(mode) if mode.eq_ignore_ascii_case("live") => Ok(()),
+        _ => Err(
+            "Refusing production startup: NATIONAL_ID_VERIFICATION_MODE=live is required; \
+             the deterministic stub is demo/test only"
+                .into(),
+        ),
+    }
 }
 
 /// Env vars for the 5 national-ID verifiers (Horizon HZ-004). Unlike

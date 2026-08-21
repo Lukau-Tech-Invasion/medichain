@@ -2,8 +2,8 @@ use super::*;
 
 /// Verify a national ID number against the appropriate government API.
 ///
-/// Falls back to a deterministic SHA3-256 stub when no real API key is
-/// configured for the requested country.
+/// Demo/test may use a deterministic verifier. Production requires a live
+/// country verifier and returns a typed unavailable response otherwise.
 ///
 /// POST /api/national-id/verify
 /// Body: { "id_number": "FAN123456", "country": "Ethiopia" }
@@ -31,10 +31,10 @@ pub async fn verify_national_id(
             "success": true,
             "result": result
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ErrorResponse {
+        Err(_) => HttpResponse::ServiceUnavailable().json(ErrorResponse {
             success: false,
-            error: e.to_string(),
-            code: "VERIFICATION_ERROR".to_string(),
+            error: "Identity verification is temporarily unavailable".to_string(),
+            code: "VERIFICATION_UNAVAILABLE".to_string(),
         }),
     }
 }

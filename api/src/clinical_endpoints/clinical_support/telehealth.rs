@@ -86,21 +86,12 @@ pub(crate) async fn provision_session(
                 info.patient_join_url,
                 info.provider_name,
             ),
-            Err(e) => {
-                // The configured provider is unavailable. Fall back to a Jitsi
-                // room rather than failing the booking: the appointment is
-                // still real and the room is still a real, joinable place.
-                log::warn!("TelehealthService::create_session failed ({e}); falling back to Jitsi");
-                let room = format!(
-                    "medichain-{}-{}",
-                    session_id.to_lowercase().replace('_', "-"),
-                    &uuid::Uuid::new_v4().to_string()[..8]
+            Err(error) => {
+                log::error!("Telehealth session provisioning failed: {error}");
+                return Err(
+                    "Telehealth is temporarily unavailable; the appointment was not provisioned"
+                        .into(),
                 );
-                (
-                    format!("https://meet.jit.si/{room}#userInfo.displayName=%22Provider%22"),
-                    format!("https://meet.jit.si/{room}#userInfo.displayName=%22Patient%22"),
-                    "jitsi-fallback".to_string(),
-                )
             }
         };
 

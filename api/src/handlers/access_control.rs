@@ -11,9 +11,18 @@ use super::*;
 use crate::patient_access::{AccessType, RequestingProvider, STORE_UNAVAILABLE};
 use crate::repositories::traits::GuardianPermission;
 
+const MAX_ACCESS_GRANT_DAYS: i64 = 30;
+
 #[derive(Debug, Deserialize)]
 pub struct CreateAccessRequestBody {
     pub reason: String,
+}
+
+/// A patient/guardian approval must name a finite access window. Standing,
+/// indefinite grants are prohibited by the release policy.
+#[derive(Debug, Deserialize)]
+pub struct ApproveAccessRequestBody {
+    pub expires_at: chrono::DateTime<Utc>,
 }
 
 fn unauthorized(error: &str, code: &str) -> HttpResponse {
@@ -186,6 +195,7 @@ pub async fn approve_access_request(
     data: web::Data<AppState>,
     req: HttpRequest,
     path: web::Path<String>,
+    body: web::Json<ApproveAccessRequestBody>,
 ) -> impl Responder {
     let user = match authed_user(&data, &req) {
         Ok(u) => u,
@@ -197,6 +207,16 @@ pub async fn approve_access_request(
         Ok(None) => return not_found("Access request not found"),
         Err(_) => return unavailable(),
     };
+    if existing.provider_id == user.wallet_address {
+        return forbidden("A requester may not approve their own access request");
+    }
+    let now = Utc::now();
+    if body.expires_at <= now {
+        return bad_request("Access-grant expiry must be in the future");
+    }
+    if body.expires_at > now + chrono::Duration::days(MAX_ACCESS_GRANT_DAYS) {
+        return bad_request("Access-grant expiry exceeds the 30-day maximum");
+    }
     let access = resolve_patient_access(
         &data,
         &user,
@@ -209,7 +229,7 @@ pub async fn approve_access_request(
     }
     match data
         .patient_access
-        .approve_request(&request_id, AccessType::Limited, None, Utc::now())
+        .approve_request(&request_id, AccessType::Limited, Some(body.expires_at), now)
         .await
     {
         Ok((request, grant)) => {

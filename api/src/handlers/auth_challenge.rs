@@ -19,7 +19,10 @@ pub struct AuthChallengeRequest {
 /// method, path, and body (Horizon HZ-007) — see
 /// `middleware::signature_auth::generate_auth_challenge`'s doc comment.
 #[post("/api/auth/challenge")]
-pub async fn get_auth_challenge(body: web::Json<AuthChallengeRequest>) -> impl Responder {
+pub async fn get_auth_challenge(
+    data: web::Data<AppState>,
+    body: web::Json<AuthChallengeRequest>,
+) -> impl Responder {
     // Validate wallet address format
     if !is_valid_wallet_address(&body.wallet_address) {
         return HttpResponse::BadRequest().json(ErrorResponse {
@@ -29,29 +32,39 @@ pub async fn get_auth_challenge(body: web::Json<AuthChallengeRequest>) -> impl R
         });
     }
 
-    let challenge = generate_auth_challenge(&body.wallet_address);
-
-    log::info!(
-        "Auth challenge generated for wallet {}: timestamp={}",
-        body.wallet_address,
-        challenge.timestamp
-    );
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    let challenge = match crate::auth_challenges::issue(pool, &body.wallet_address).await {
+        Ok(challenge) => challenge,
+        Err(error) => {
+            log::error!("Could not create authentication challenge: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Authentication is temporarily unavailable".to_string(),
+                code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
         "challenge": challenge,
         "instructions": {
-            "step1": "Sign the 'message' field with your wallet's sr25519 private key",
-            "step2": "Include X-User-Id header with your wallet address",
-            "step3": "Include X-Signature header with hex-encoded signature",
-            "step4": "Include X-Timestamp header with the timestamp value",
-            "note": format!("Challenge expires in {} seconds", challenge.expires_in_secs)
+            "step1": "Sign the challenge message with your wallet's sr25519 private key",
+            "step2": "Submit challenge_id, wallet_address, nonce and signature to /api/auth/jwt",
+            "note": format!("Challenge expires in {} seconds and can be used once", challenge.expires_in_secs)
         }
     }))
 }
 
 /// Login with wallet address - validates wallet exists and returns user info
 #[post("/api/auth/login")]
+#[allow(dead_code)] // Deliberately retained during client migration; route is unregistered.
 pub async fn wallet_login(
     data: web::Data<AppState>,
     body: web::Json<WalletLoginRequest>,
@@ -99,6 +112,7 @@ pub async fn wallet_login(
 
 /// Login with wallet address (GET version for frontend compatibility)
 #[get("/api/auth/login/{address}")]
+#[allow(dead_code)] // Deliberately retained during client migration; route is unregistered.
 pub async fn wallet_login_get(
     data: web::Data<AppState>,
     path: web::Path<String>,
@@ -288,6 +302,7 @@ pub async fn get_providers(
 /// Lookup wallet address - returns user info if wallet is registered
 /// Used by frontend to validate wallet before setting up session
 #[get("/api/auth/wallet/{address}")]
+#[allow(dead_code)] // Deliberately retained during client migration; route is unregistered.
 pub async fn wallet_lookup(data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
     let wallet_address = path.into_inner();
 

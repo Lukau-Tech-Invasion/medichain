@@ -20,6 +20,10 @@ import {
   syncApiClientUserId,
   getApiClient,
   initPushNotifications,
+  getCurrentUser,
+  requestWalletChallenge,
+  issueJwt,
+  signMessage,
 } from '@medichain/shared';
 
 /**
@@ -102,66 +106,62 @@ export const usePatientAuthStore = create<AuthState>()(
 
       /**
        * Login with a wallet address
-       * Validates the wallet against the blockchain/API
+       * Proves wallet ownership, then obtains the caller's own identity from
+       * the authenticated API. It deliberately never performs anonymous
+       * wallet discovery.
        */
       login: async (walletAddress: string) => {
         set({ isLoading: true, error: null });
 
         try {
-          // Query the API/blockchain for patient account info
-          const response = await fetch(apiUrl(`/api/auth/wallet/${walletAddress}`), {
-            headers: { 'Accept': 'application/json' },
+          const challenge = await requestWalletChallenge(walletAddress);
+          const signature = await signMessage(walletAddress, challenge.challenge.message);
+          const tokens = await issueJwt({
+            wallet_address: walletAddress,
+            challenge_id: challenge.challenge.challenge_id,
+            nonce: challenge.challenge.nonce,
+            signature,
           });
-          
-          if (response.ok) {
-            const accountData = await response.json();
-            
-            // Ensure it's a patient account
-            if (accountData.role !== 'Patient') {
-              throw new Error('Please use the Doctor Portal for provider accounts');
-            }
-            
-            const patient: Patient = {
-              walletAddress: accountData.address,
-              // `/api/auth/wallet/{address}` returns the patient-record link as
-              // `linked_patient_id`; it has NO `healthId` field. Reading only
-              // `accountData.healthId` left this undefined, so every page that
-              // fetches the patient's own record built the URL
-              // `/api/patients/undefined` and got 403 — the dashboard, the
-              // emergency card and the profile page all failed to load, with
-              // nothing on screen explaining why.
-              healthId: accountData.healthId ?? accountData.linked_patient_id,
-              fullName: accountData.name || `Patient`,
-              firstName: accountData.firstName || accountData.name?.split(' ')[0] || 'Patient',
-              bloodType: accountData.bloodType,
-              emergencyContact: accountData.emergencyContact,
-              createdAt: accountData.createdAt || new Date().toISOString(),
-            };
-            
-            // Store auth data for API calls
-            setPatientAuth({
-              address: patient.walletAddress,
-              healthId: patient.healthId,
-              name: patient.fullName,
-            });
-            
-            // Sync API client with new userId
-            syncApiClientUserId();
-            
-            set({
-              patient,
-              isAuthenticated: true,
-              isLoading: false,
-              error: null,
-            });
+          getApiClient().setTokens(tokens.access_token, tokens.refresh_token);
+          const accountData = await getCurrentUser();
 
-            initPush();
-
-            debugLog('patientAuthStore', 'Logged in with wallet:', walletAddress);
-            return true;
+          if (accountData.role !== 'Patient') {
+            throw new Error('Please use the Doctor Portal for provider accounts');
           }
-          
-          throw new Error('Wallet not registered or authentication failed');
+
+          const patient: Patient = {
+            walletAddress: accountData.wallet_address,
+            healthId: accountData.linked_patient_id ?? '',
+            fullName: accountData.name || 'Patient',
+            firstName: accountData.name?.split(' ')[0] || 'Patient',
+            createdAt: accountData.created_at || new Date().toISOString(),
+          };
+          if (!patient.healthId) {
+            throw new Error('This patient account is not linked to a health record');
+          }
+            
+          // Store auth data for API calls
+          setPatientAuth({
+            address: patient.walletAddress,
+            healthId: patient.healthId,
+            name: patient.fullName,
+          });
+            
+          // The legacy header remains only for demo compatibility. Production
+          // identity comes from the bearer token issued above.
+          syncApiClientUserId();
+            
+          set({
+            patient,
+            isAuthenticated: true,
+            isLoading: false,
+            error: null,
+          });
+
+          initPush();
+
+          debugLog('patientAuthStore', 'Wallet authentication completed');
+          return true;
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Login failed';
           

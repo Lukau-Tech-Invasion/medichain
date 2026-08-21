@@ -1,7 +1,8 @@
 //! # National ID Verification Module
 //!
 //! Provides trait-based national ID verification with per-country implementations.
-//! Falls back to a stub verifier (SHA3-256 based) when no real API key is configured.
+//! Uses a deterministic stub only in explicit demo/test mode. Production
+//! returns a typed configuration failure when a live verifier is unavailable.
 //!
 //! ## Supported Countries
 //! - Ethiopia — Fayda ID (`FAYDA_API_KEY` / `FAYDA_API_URL`)
@@ -274,14 +275,16 @@ impl NationalIdVerifier for HttpVerifier {
         let api_key = match self.api_key() {
             Some(k) => k,
             None => {
-                // Fall back to stub when no API key is configured
-                log::debug!(
-                    "No API key for {} (env var {}); using stub verifier",
-                    self.country,
-                    self.api_key_env
-                );
-                let stub = StubVerifier::new(self.country.clone());
-                return stub.verify(id, country).await;
+                if crate::support::is_demo_mode() {
+                    log::debug!(
+                        "No API key for {} (env var {}); using demo verifier",
+                        self.country,
+                        self.api_key_env
+                    );
+                    let stub = StubVerifier::new(self.country.clone());
+                    return stub.verify(id, country).await;
+                }
+                return Err(NationalIdError::ServiceUnavailable);
             }
         };
 
@@ -432,11 +435,7 @@ impl NationalIdService {
 
         match verifier {
             Some(v) => v.verify(id, country).await,
-            None => {
-                // Fallback to stub for any country that has no registered verifier
-                let stub = StubVerifier::new(country.clone());
-                stub.verify(id, country).await
-            }
+            None => Err(NationalIdError::UnsupportedCountry(country.to_string())),
         }
     }
 }
@@ -520,19 +519,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_service_falls_back_to_stub_without_api_key() {
-        // Ensure the env var is absent
+    async fn production_service_rejects_missing_live_verifier_configuration() {
+        // The default test posture is production-like. A missing live key must
+        // not transform a non-empty identifier into a verified identity.
         std::env::remove_var("FAYDA_API_KEY");
         let service = NationalIdService::new();
-        let result = service
-            .verify("FAN-TEST-001", &Country::Ethiopia)
-            .await
-            .unwrap();
-        // Stub always verifies non-empty IDs
-        assert!(result.verified);
-        // HZ-004 regression: the caller must be able to tell this was the stub,
-        // not a real government-API confirmation.
-        assert_eq!(result.verification_method, VerificationMethod::Stub);
+        let result = service.verify("FAN-TEST-001", &Country::Ethiopia).await;
+        assert!(matches!(result, Err(NationalIdError::ServiceUnavailable)));
     }
 
     /// HZ-004 regression: a real HTTP-verifier path (even one that fails to

@@ -49,6 +49,7 @@ pub struct WalletRegisterResponse {
 
 /// Request to verify/login with wallet
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Legacy route type; anonymous wallet-login route is unregistered.
 pub struct WalletLoginRequest {
     /// SS58 encoded wallet address
     pub wallet_address: String,
@@ -85,6 +86,7 @@ pub struct SessionVerifyResponse {
 
 /// Response for wallet login
 #[derive(Debug, Serialize)]
+#[allow(dead_code)] // Legacy route type; anonymous wallet-login route is unregistered.
 pub struct WalletLoginResponse {
     pub success: bool,
     pub user: Option<WalletUserInfo>,

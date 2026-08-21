@@ -13,10 +13,10 @@ use crate::security::{jwt, mfa};
 #[derive(Debug, Deserialize)]
 pub struct JwtIssueRequest {
     pub wallet_address: String,
-    /// Hex-encoded sr25519 signature over `<timestamp>:<wallet_address>`.
-    pub signature: Option<String>,
-    /// Unix timestamp that was signed.
-    pub timestamp: Option<i64>,
+    pub challenge_id: String,
+    pub nonce: String,
+    /// Hex-encoded sr25519 signature over the issued login challenge message.
+    pub signature: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,19 +32,15 @@ pub struct JwtIssueResponse {
     pub mfa_required: bool,
 }
 
-fn wallet_login_proof(signature: Option<&str>, timestamp: Option<i64>) -> Option<(&str, i64)> {
-    match (signature.map(str::trim), timestamp) {
-        (Some(signature), Some(timestamp)) if !signature.is_empty() => Some((signature, timestamp)),
-        _ => None,
-    }
+fn valid_login_proof(challenge_id: &str, nonce: &str, signature: &str) -> bool {
+    !challenge_id.trim().is_empty() && !nonce.trim().is_empty() && !signature.trim().is_empty()
 }
 
-/// Issue access + refresh JWTs after verifying a wallet signature challenge.
+/// Issue access + refresh JWTs after verifying a durable single-use challenge.
 ///
 /// POST /api/auth/jwt
 ///
-/// The signed message format matches the challenge from `/api/auth/challenge`:
-/// `<timestamp>:<wallet_address>`. Demo mode does not bypass wallet ownership.
+/// Demo mode does not bypass wallet ownership or replay protection.
 #[post("/api/auth/jwt")]
 pub async fn issue_jwt(
     data: web::Data<AppState>,
@@ -58,35 +54,63 @@ pub async fn issue_jwt(
         });
     }
 
-    // JWTs always prove wallet ownership. Demo mode may relax per-request
-    // middleware for synthetic data, but it never mints a bearer token for a
-    // caller that cannot sign the login challenge.
-    match wallet_login_proof(body.signature.as_deref(), body.timestamp) {
-        Some((signature, timestamp)) => {
-            let message = format!("{}:{}", timestamp, body.wallet_address);
-            let now = Utc::now().timestamp();
-            if let Err(error) = medichain_crypto::signature::verify_wallet_signature(
-                signature,
-                &message,
-                &body.wallet_address,
-                now,
-            ) {
-                data.security
-                    .observe_failed_auth(&data.ws_manager, &body.wallet_address)
-                    .await;
-                log::warn!("JWT wallet signature verification failed: {error}");
-                return HttpResponse::Unauthorized().json(ErrorResponse {
-                    success: false,
-                    error: "Signature verification failed".to_string(),
-                    code: "SIGNATURE_VERIFICATION_FAILED".to_string(),
-                });
-            }
-        }
-        _ => {
+    if !valid_login_proof(&body.challenge_id, &body.nonce, &body.signature) {
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Invalid authentication challenge".to_string(),
+            code: "INVALID_AUTH_CHALLENGE".to_string(),
+        });
+    }
+    let message = crate::auth_challenges::login_message(
+        &body.challenge_id,
+        &body.wallet_address,
+        &body.nonce,
+    );
+    if let Err(error) = medichain_crypto::signature::verify_wallet_signature(
+        &body.signature,
+        &message,
+        &body.wallet_address,
+        Utc::now().timestamp(),
+    ) {
+        data.security
+            .observe_failed_auth(&data.ws_manager, &body.wallet_address)
+            .await;
+        log::warn!("JWT wallet signature verification failed: {error}");
+        return HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Invalid authentication challenge".to_string(),
+            code: "INVALID_AUTH_CHALLENGE".to_string(),
+        });
+    }
+    let Some(pool) = data.db_pool.as_ref() else {
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Authentication is temporarily unavailable".to_string(),
+            code: "AUTH_STORAGE_REQUIRED".to_string(),
+        });
+    };
+    match crate::auth_challenges::consume(
+        pool,
+        &body.challenge_id,
+        &body.wallet_address,
+        &body.nonce,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 success: false,
-                error: "signature and timestamp are required".to_string(),
-                code: "SIGNATURE_REQUIRED".to_string(),
+                error: "Invalid authentication challenge".to_string(),
+                code: "INVALID_AUTH_CHALLENGE".to_string(),
+            });
+        }
+        Err(error) => {
+            log::error!("Could not consume authentication challenge: {error}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Authentication is temporarily unavailable".to_string(),
+                code: "AUTH_CHALLENGE_UNAVAILABLE".to_string(),
             });
         }
     }
@@ -108,17 +132,14 @@ pub async fn issue_jwt(
 
 #[cfg(test)]
 mod jwt_issue_tests {
-    use super::wallet_login_proof;
+    use super::valid_login_proof;
 
     #[test]
-    fn wallet_proof_is_mandatory_even_for_demo_runtime_configuration() {
-        assert!(wallet_login_proof(None, None).is_none());
-        assert!(wallet_login_proof(Some(""), Some(1)).is_none());
-        assert!(wallet_login_proof(Some("signature"), None).is_none());
-        assert_eq!(
-            wallet_login_proof(Some(" signature "), Some(42)),
-            Some(("signature", 42))
-        );
+    fn wallet_challenge_fields_are_mandatory_even_for_demo_runtime_configuration() {
+        assert!(!valid_login_proof("", "nonce", "signature"));
+        assert!(!valid_login_proof("challenge", "", "signature"));
+        assert!(!valid_login_proof("challenge", "nonce", ""));
+        assert!(valid_login_proof("challenge", "nonce", "signature"));
     }
 }
 

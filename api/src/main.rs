@@ -36,6 +36,7 @@ mod repositories;
 mod services;
 
 mod audit_outbox;
+mod auth_challenges;
 mod blockchain;
 mod clinical;
 mod clinical_endpoints;

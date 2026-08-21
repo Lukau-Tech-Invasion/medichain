@@ -2,12 +2,13 @@
  * useAuth Hook
  * 
  * Manages authentication state for MediChain apps.
- * Uses wallet-based authentication with X-User-Id header containing wallet address.
+ * Reads an already verified bearer session. Wallet proof belongs to the portal
+ * login flow and this generic hook never performs anonymous wallet lookup.
  */
 
 import { useState, useCallback, useEffect, createContext, useContext, type ReactNode } from 'react';
 import { getApiClient, initApiClient } from '../api/client';
-import { walletLogin, getCurrentUser } from '../api/endpoints';
+import { getCurrentUser } from '../api/endpoints';
 import type { User, Role, WalletUserInfo } from '../types';
 
 export interface AuthState {
@@ -85,16 +86,8 @@ export function AuthProvider({
     const client = getApiClient();
 
     try {
-      client.setUserId(walletAddress);
-
-      // Use wallet login endpoint to validate and get user info
-      const loginResponse = await walletLogin({ wallet_address: walletAddress });
-
-      if (!loginResponse.success || !loginResponse.user) {
-        throw new Error(loginResponse.message || 'Wallet not registered');
-      }
-
-      const user = walletUserToUser(loginResponse.user);
+      client.setUserId(undefined);
+      const user = walletUserToUser(await getCurrentUser());
 
       localStorage.setItem('medichain_wallet_address', walletAddress);
       setState({

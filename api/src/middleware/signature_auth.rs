@@ -291,6 +291,7 @@ where
 /// it. No current client calls this endpoint; if one starts signing live
 /// per-request actions from a challenge, it must construct the bound message
 /// itself, the same way `client/shared/src/api/client.ts` does inline.
+#[allow(dead_code)] // Legacy timestamp challenge; JWT login now uses durable nonce challenges.
 pub fn generate_auth_challenge(wallet_address: &str) -> AuthChallenge {
     let timestamp = chrono::Utc::now().timestamp();
     let message = format!("{}:{}", timestamp, wallet_address);
@@ -305,6 +306,7 @@ pub fn generate_auth_challenge(wallet_address: &str) -> AuthChallenge {
 
 /// Authentication challenge response
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)] // Kept with the legacy helper until downstream clients are migrated.
 pub struct AuthChallenge {
     /// Wallet address for the challenge
     pub wallet: String,
