@@ -38,6 +38,7 @@ mod services;
 
 mod audit_outbox;
 mod auth_challenges;
+mod auth_sessions;
 mod blockchain;
 mod clinical;
 mod clinical_endpoints;

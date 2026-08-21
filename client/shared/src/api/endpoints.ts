@@ -586,7 +586,7 @@ export async function issueJwt(data: JwtIssueRequest): Promise<JwtIssueResponse>
 /** Exchange a refresh token for a fresh access token. */
 export async function refreshJwt(
   refreshToken: string
-): Promise<{ success: boolean; access_token: string; token_type: string; expires_in: number }> {
+): Promise<JwtIssueResponse> {
   return getApiClient().post('/api/auth/jwt/refresh', { refresh_token: refreshToken });
 }
 

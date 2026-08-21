@@ -224,8 +224,9 @@ export class ApiClient {
           return false;
         }
         const data = await resp.json();
-        if (data?.access_token) {
+        if (data?.access_token && data?.refresh_token) {
           this.accessToken = data.access_token as string;
+          this.refreshToken = data.refresh_token as string;
           return true;
         }
         return false;

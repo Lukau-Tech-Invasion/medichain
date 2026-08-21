@@ -25,6 +25,7 @@ PRESENT`, and `UNKNOWN`.
 | INT-001 | P1 | Production could treat stub identity verification as verified. | `api/src/national_id.rs`, handler, startup, production compose | National-ID test module passes. | Development runtime only. | No live/sandbox provider verification. | Pending | PARTIALLY FIXED |
 | DATA-001 | P1 | Process-local idempotency and offline queue have no stable end-to-end key or durable replay state. | `client/shared/src/api/client.ts` | Shared-client typecheck passes. | Mutation retries reuse one client-generated key; automatic reconnect replay is disabled. | No durable database record, restart, replica, conflict, or browser proof. | `0ed9bb7` | PARTIALLY FIXED |
 | PRIV-001 | P1 | Sensitive identifiers can enter logs and related telemetry. | `api/src/privacy_logging.rs`, logging initialization | Sanitizer and `log::Record` sink-path leakage tests pass; API check passes. | Not yet observed under a production collector. | Direct stdout/stderr call sites and browser/metrics collector audit remain incomplete. | `4af04c7` | PARTIALLY FIXED |
+| AUTH-002 | P2 | Refresh JWTs were stateless and non-rotating. | `api/src/auth_sessions.rs`, auth JWT handler, session migration, shared client | Session-token hash test and shared-client typecheck pass. | Not yet rebuilt into a running API. | Rotation is not yet one database transaction; no reuse, logout, or multi-device database proof. | Pending | PARTIALLY FIXED |
 
 ## Commands and immutable evidence identifiers
 
