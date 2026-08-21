@@ -18,6 +18,7 @@
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
+use std::io::Write;
 
 use crate::middleware::encryption_policy::EncryptionPolicyMiddleware;
 use crate::middleware::idempotency::IdempotencyMiddleware;
@@ -53,6 +54,7 @@ mod organization_keys;
 mod pagination;
 mod patient_access;
 mod pdf;
+mod privacy_logging;
 mod retention;
 mod security;
 mod telehealth;
@@ -87,9 +89,9 @@ pub(crate) use types::*;
 
 /// Initialize logging (Phase 8.2).
 ///
-/// `LOG_FORMAT=json` installs a `tracing` JSON subscriber and bridges existing
-/// `log::` records into it (structured logs for aggregation). Otherwise the
-/// human-readable `env_logger` is used. Both honor `RUST_LOG`.
+/// `LOG_FORMAT=json` installs a JSON subscriber; otherwise logs are rendered
+/// for operators. Existing `log::` records are filtered through
+/// `privacy_logging` before either output reaches disk or a collector.
 ///
 /// Built with `--features tokio-console` (and `RUSTFLAGS="--cfg tokio_unstable"`,
 /// required for tokio's task-tracking instrumentation), this installs the
@@ -106,16 +108,31 @@ fn init_logging() {
     let json = std::env::var("LOG_FORMAT")
         .map(|v| v == "json")
         .unwrap_or(false);
+    let env = env_logger::Env::default().default_filter_or("info");
+    let mut builder = env_logger::Builder::from_env(env);
     if json {
-        use tracing_subscriber::{fmt, EnvFilter};
-        // Route `log::` macros (used throughout the codebase) into `tracing`.
-        let _ = tracing_log::LogTracer::init();
-        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-        let subscriber = fmt().json().with_env_filter(filter).finish();
-        let _ = tracing::subscriber::set_global_default(subscriber);
+        builder.format(|buffer, record| {
+            writeln!(
+                buffer,
+                "{{\"level\":\"{}\",\"target\":\"{}\",\"message\":{}}}",
+                record.level(),
+                record.target(),
+                serde_json::to_string(&crate::privacy_logging::format_record(record))
+                    .unwrap_or_else(|_| "\"log message unavailable\"".to_string())
+            )
+        });
     } else {
-        env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+        builder.format(|buffer, record| {
+            writeln!(
+                buffer,
+                "{} {}: {}",
+                record.level(),
+                record.target(),
+                crate::privacy_logging::format_record(record)
+            )
+        });
     }
+    builder.init();
 }
 
 #[actix_web::main]
