@@ -159,7 +159,25 @@ ROLE_MARKERS = ['require_admin', 'require_provider', 'is_healthcare_provider',
 # Ties the decision to the specific patient/resource being touched.
 RESOURCE_MARKERS = ['resolve_patient_access', 'caller_may_access_patient',
                     'require_emergency_list_access', 'require_card_access',
-                    'require_surgical_list_access', 'is_permitted()']
+                    'require_surgical_list_access', 'is_permitted()',
+                    # Dedicated patient/device capability paths. The first
+                    # resolves a registered user to their linked patient; the
+                    # second cryptographically binds patient + active device.
+                    'authenticated_patient_id', 'verify_lockscreen_token',
+                    # Binds the acting identity in the body to the authenticated
+                    # caller, so a clinical act cannot be attributed to someone
+                    # else (`create_radiology_order`, WF-021).
+                    'require_actor_is_caller',
+                    # Resolves the caller and checks them against the patient in
+                    # the path. Module-local in `handlers/patient_documents.rs`
+                    # and `handlers/patient_self_service.rs`; both delegate to
+                    # `may_read` / `may_write`, which compare the caller against
+                    # the record owner.
+                    'authorize(&data', 'may_read(', 'may_write(',
+                    # Resolves the caller and loads the patient only if they own
+                    # the record (`caller_owns_patient_record`), used by the
+                    # patient self-service writes.
+                    'authorize_and_load', 'caller_owns_patient_record']
 
 # Unscoped bulk reads. `list_all()` returns every row for every organization;
 # filtering afterwards in Rust is not isolation, and at 10-100 hospitals it is
@@ -249,8 +267,15 @@ def main() -> int:
         print(f'\nNOTE: {len(weak)} handler(s) only check that X-User-Id is PRESENT. '
               f'A forged header satisfies them. Run with --list-weak to enumerate.')
     if bulk:
-        print(f'NOTE: {len(bulk)} handler(s) call list_all() without resource-scope '
-              f'authorization — cross-organization exposure risk.')
+        # Not a finding. ADR-0006 makes each hospital its own deployment and
+        # ADR-0007 records the consequence: a clinician worklist is *meant* to be
+        # deployment-wide, and startup refuses a database holding more than one
+        # active organisation. The count stays printed so growth is still
+        # visible, but calling it an exposure risk trained readers to ignore this
+        # gate — and then to ignore the real findings alongside it.
+        print(f'NOTE: {len(bulk)} handler(s) read deployment-wide via list_all(). '
+              f'Intended scope for a single-organisation instance (ADR-0007); '
+              f'enforced at startup by validate_single_organisation().')
     if '--list-weak' in sys.argv:
         print('\nPresence-only handlers:')
         for method, route, fn, f in weak:

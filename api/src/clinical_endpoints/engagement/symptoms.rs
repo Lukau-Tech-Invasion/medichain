@@ -186,7 +186,9 @@ pub async fn submit_symptom_answers(
         }
     };
 
-    if session.patient_id != current_user_id {
+    // Same wallet-vs-record-id namespace mismatch fixed elsewhere: a symptom
+    // session is keyed by patient_id, the caller by wallet.
+    if !crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id) {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Session does not belong to you".to_string(),
@@ -418,11 +420,12 @@ pub async fn get_symptom_checker_history(
         });
     }
 
-    // Repository list_all() (was: data.symptom_sessions HashMap)
+    // Owner-scoped in the query: `owner_id` is the session's `patient_id`,
+    // which is exactly what the in-Rust filter below compared against.
     let all_records = data
         .repositories
         .symptom_sessions
-        .list_all()
+        .get_by_owner(&patient_id)
         .await
         .unwrap_or_default();
     let matching_records: Vec<_> = all_records

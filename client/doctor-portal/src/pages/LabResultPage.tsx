@@ -99,10 +99,10 @@ const LabResultPage: React.FC = () => {
 
   const getStatusBadge = (status: ResultStatus) => {
     const styles: Record<ResultStatus, { bg: string; text: string; icon: React.ReactNode }> = {
-      'pending': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
-      'in-progress': { bg: 'bg-blue-100', text: 'text-blue-700', icon: <RefreshCw className="w-3 h-3" /> },
-      'completed': { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-      'cancelled': { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> }
+      'pending': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
+      'in-progress': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', icon: <RefreshCw className="w-3 h-3" /> },
+      'completed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
+      'cancelled': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <XCircle className="w-3 h-3" /> }
     };
     const s = styles[status];
     const labels: Record<ResultStatus, string> = {
@@ -120,11 +120,11 @@ const LabResultPage: React.FC = () => {
 
   const getFlagBadge = (flag: ResultFlag) => {
     const styles: Record<ResultFlag, { bg: string; text: string; icon: React.ReactNode }> = {
-      'normal': { bg: 'bg-green-100', text: 'text-green-700', icon: <Minus className="w-3 h-3" /> },
-      'abnormal-low': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <TrendingDown className="w-3 h-3" /> },
-      'abnormal-high': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <TrendingUp className="w-3 h-3" /> },
-      'critical-low': { bg: 'bg-red-100', text: 'text-red-700', icon: <TrendingDown className="w-3 h-3" /> },
-      'critical-high': { bg: 'bg-red-100', text: 'text-red-700', icon: <TrendingUp className="w-3 h-3" /> }
+      'normal': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <Minus className="w-3 h-3" /> },
+      'abnormal-low': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <TrendingDown className="w-3 h-3" /> },
+      'abnormal-high': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <TrendingUp className="w-3 h-3" /> },
+      'critical-low': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <TrendingDown className="w-3 h-3" /> },
+      'critical-high': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <TrendingUp className="w-3 h-3" /> }
     };
     const s = styles[flag];
     return (
@@ -151,7 +151,7 @@ const LabResultPage: React.FC = () => {
   const criticalCount = results.filter(r => hasCritical(r)).length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -163,29 +163,29 @@ const LabResultPage: React.FC = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{results.length}</p>
-          <p className="text-xs text-gray-500">{t('docLabResult.totalResults')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-content-secondary">{results.length}</p>
+          <p className="text-xs text-content-muted">{t('docLabResult.totalResults')}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
-          <p className="text-xs text-gray-500">{t('docLabResult.pendingInProgress')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-caution-subtle-fg">{pendingCount}</p>
+          <p className="text-xs text-content-muted">{t('docLabResult.pendingInProgress')}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-red-600">{criticalCount}</p>
-          <p className="text-xs text-gray-500">{t('docLabResult.criticalValues')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-critical-subtle-fg">{criticalCount}</p>
+          <p className="text-xs text-content-muted">{t('docLabResult.criticalValues')}</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {(['results', 'pending', 'critical'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-4 text-sm font-medium ${
-                activeTab === tab ? 'text-emerald-700 border-b-2 border-emerald-700' : 'text-gray-500'
+                activeTab === tab ? 'text-ok-subtle-fg border-b-2 border-emerald-700' : 'text-content-muted'
               }`}
             >
               {tab === 'results' ? t('docLabResult.tabAll') : tab === 'pending' ? t('docLabResult.tabPending', { count: pendingCount }) : t('docLabResult.tabCritical', { count: criticalCount })}
@@ -198,7 +198,7 @@ const LabResultPage: React.FC = () => {
       <div className="p-4 flex gap-2">
         <div className="relative flex-1">
           <label htmlFor="labresult-search" className="sr-only">{t('docLabResult.searchLabel')}</label>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
           <input
             id="labresult-search"
             type="text"
@@ -228,19 +228,19 @@ const LabResultPage: React.FC = () => {
           <div
             key={result.id}
             onClick={() => setSelectedResult(result)}
-            className={`bg-white rounded-lg shadow border p-4 cursor-pointer hover:shadow-md transition-shadow ${
+            className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md transition-shadow ${
               hasCritical(result) ? 'border-l-4 border-l-red-500' : ''
             }`}
           >
             <div className="flex items-start justify-between mb-2">
               <div>
                 <h3 className="font-semibold">{result.panelName}</h3>
-                <p className="text-sm text-gray-500">{result.patientName} • {t('docLabResult.mrn', { mrn: result.mrn })}</p>
+                <p className="text-sm text-content-muted">{result.patientName} • {t('docLabResult.mrn', { mrn: result.mrn })}</p>
               </div>
               {getStatusBadge(result.status)}
             </div>
 
-            <div className="flex items-center gap-4 text-xs text-gray-500">
+            <div className="flex items-center gap-4 text-xs text-content-muted">
               <span className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
                 {result.orderDate.toLocaleDateString()}
@@ -255,13 +255,13 @@ const LabResultPage: React.FC = () => {
               <div className="mt-3 flex flex-wrap gap-2">
                 {result.tests.filter(tt => tt.flag !== 'normal').slice(0, 3).map(test => (
                   <span key={test.testCode} className={`text-xs px-2 py-1 rounded ${
-                    test.flag.includes('critical') ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                    test.flag.includes('critical') ? 'bg-critical-subtle text-critical-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
                   }`}>
                     {test.testCode}: {test.result} {test.unit}
                   </span>
                 ))}
                 {result.tests.filter(tt => tt.flag !== 'normal').length > 3 && (
-                  <span className="text-xs text-gray-500">{t('docLabResult.more', { count: result.tests.filter(tt => tt.flag !== 'normal').length - 3 })}</span>
+                  <span className="text-xs text-content-muted">{t('docLabResult.more', { count: result.tests.filter(tt => tt.flag !== 'normal').length - 3 })}</span>
                 )}
               </div>
             )}
@@ -272,35 +272,35 @@ const LabResultPage: React.FC = () => {
       {/* Result Detail Modal */}
       {selectedResult && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{selectedResult.panelName}</h2>
-                <p className="text-sm text-gray-500">{selectedResult.patientName} • {t('docLabResult.mrn', { mrn: selectedResult.mrn })}</p>
+                <p className="text-sm text-content-muted">{selectedResult.patientName} • {t('docLabResult.mrn', { mrn: selectedResult.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button className="p-2 hover:bg-gray-100 rounded"><Download className="w-5 h-5" /></button>
-                <button className="p-2 hover:bg-gray-100 rounded"><Printer className="w-5 h-5" /></button>
-                <button onClick={() => setSelectedResult(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+                <button className="p-2 hover:bg-surface-sunken rounded"><Download className="w-5 h-5" /></button>
+                <button className="p-2 hover:bg-surface-sunken rounded"><Printer className="w-5 h-5" /></button>
+                <button onClick={() => setSelectedResult(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>
 
             <div className="p-6">
               <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                 <div>
-                  <p className="text-gray-500">{t('docLabResult.orderDate')}</p>
+                  <p className="text-content-muted">{t('docLabResult.orderDate')}</p>
                   <p className="font-medium">{selectedResult.orderDate.toLocaleString()}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">{t('docLabResult.collectionDate')}</p>
+                  <p className="text-content-muted">{t('docLabResult.collectionDate')}</p>
                   <p className="font-medium">{selectedResult.collectionDate?.toLocaleString() || t('docLabResult.pending')}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">{t('docLabResult.resultDate')}</p>
+                  <p className="text-content-muted">{t('docLabResult.resultDate')}</p>
                   <p className="font-medium">{selectedResult.resultDate?.toLocaleString() || t('docLabResult.pending')}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">{t('docLabResult.specimen')}</p>
+                  <p className="text-content-muted">{t('docLabResult.specimen')}</p>
                   <p className="font-medium">{selectedResult.specimen}</p>
                 </div>
               </div>
@@ -308,7 +308,7 @@ const LabResultPage: React.FC = () => {
               {selectedResult.status === 'completed' && selectedResult.tests.length > 0 ? (
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-surface-sunken">
                       <tr>
                         <th className="text-left p-3">{t('docLabResult.colTest')}</th>
                         <th className="text-right p-3">{t('docLabResult.colResult')}</th>
@@ -318,29 +318,29 @@ const LabResultPage: React.FC = () => {
                     </thead>
                     <tbody>
                       {selectedResult.tests.map(test => (
-                        <tr key={test.testCode} className={`border-t ${test.flag.includes('critical') ? 'bg-red-50' : test.flag !== 'normal' ? 'bg-yellow-50' : ''}`}>
+                        <tr key={test.testCode} className={`border-t ${test.flag.includes('critical') ? 'bg-critical-subtle' : test.flag !== 'normal' ? 'bg-caution-subtle' : ''}`}>
                           <td className="p-3">
                             <p className="font-medium">{test.testName}</p>
-                            <p className="text-xs text-gray-500">{test.testCode}</p>
+                            <p className="text-xs text-content-muted">{test.testCode}</p>
                           </td>
                           <td className="p-3 text-right font-mono font-semibold">{test.result} {test.unit}</td>
                           <td className="p-3 text-center">{getFlagBadge(test.flag)}</td>
-                          <td className="p-3 text-gray-600">{test.referenceRange} {test.unit}</td>
+                          <td className="p-3 text-content-muted">{test.referenceRange} {test.unit}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-content-muted">
                   <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin" />
                   <p>{t('docLabResult.resultsPending')}</p>
                 </div>
               )}
 
               {selectedResult.notes && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm text-yellow-800"><strong>{t('docLabResult.noteLabel')}</strong> {selectedResult.notes}</p>
+                <div className="mt-4 p-3 bg-caution-subtle border border-caution rounded-lg">
+                  <p className="text-sm text-caution-subtle-fg"><strong>{t('docLabResult.noteLabel')}</strong> {selectedResult.notes}</p>
                 </div>
               )}
             </div>

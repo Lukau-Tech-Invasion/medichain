@@ -192,7 +192,7 @@ const OperativeNotePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3">
@@ -205,15 +205,15 @@ const OperativeNotePage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {['new', 'history'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab as 'new' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-emerald-600 border-b-2 border-emerald-600'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                ? 'text-ok-subtle-fg border-b-2 border-emerald-600'
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'new' ? t('docOperativeNote.tabNew') : t('docOperativeNote.tabHistory')}
             </button>
@@ -225,13 +225,13 @@ const OperativeNotePage: React.FC = () => {
         {activeTab === 'new' ? (
           <div className="space-y-6">
             {/* Patient & Team */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docOperativeNote.patientTeamHeading')}
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="opnote-patient" className="text-sm text-gray-600">{t('docOperativeNote.patientLabel')}</label>
+                  <label htmlFor="opnote-patient" className="text-sm text-content-muted">{t('docOperativeNote.patientLabel')}</label>
                   <select
                     id="opnote-patient"
                     value={selectedPatient}
@@ -245,7 +245,7 @@ const OperativeNotePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="opnote-procedure-date" className="text-sm text-gray-600">{t('docOperativeNote.procedureDateLabel')}</label>
+                  <label htmlFor="opnote-procedure-date" className="text-sm text-content-muted">{t('docOperativeNote.procedureDateLabel')}</label>
                   <input
                     id="opnote-procedure-date"
                     type="date"
@@ -255,7 +255,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-surgeon" className="text-sm text-gray-600">{t('docOperativeNote.surgeonLabel')}</label>
+                  <label htmlFor="opnote-surgeon" className="text-sm text-content-muted">{t('docOperativeNote.surgeonLabel')}</label>
                   <input
                     id="opnote-surgeon"
                     type="text"
@@ -265,7 +265,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-assistant" className="text-sm text-gray-600">{t('docOperativeNote.assistantLabel')}</label>
+                  <label htmlFor="opnote-assistant" className="text-sm text-content-muted">{t('docOperativeNote.assistantLabel')}</label>
                   <input
                     id="opnote-assistant"
                     type="text"
@@ -275,7 +275,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-anesthesiologist" className="text-sm text-gray-600">{t('docOperativeNote.anesthesiologistLabel')}</label>
+                  <label htmlFor="opnote-anesthesiologist" className="text-sm text-content-muted">{t('docOperativeNote.anesthesiologistLabel')}</label>
                   <input
                     id="opnote-anesthesiologist"
                     type="text"
@@ -285,7 +285,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-scrub-nurse" className="text-sm text-gray-600">{t('docOperativeNote.scrubNurseLabel')}</label>
+                  <label htmlFor="opnote-scrub-nurse" className="text-sm text-content-muted">{t('docOperativeNote.scrubNurseLabel')}</label>
                   <input
                     id="opnote-scrub-nurse"
                     type="text"
@@ -295,7 +295,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-circulator" className="text-sm text-gray-600">{t('docOperativeNote.circulatorLabel')}</label>
+                  <label htmlFor="opnote-circulator" className="text-sm text-content-muted">{t('docOperativeNote.circulatorLabel')}</label>
                   <input                    id="opnote-circulator"                    type="text"
                     value={circulator}
                     onChange={e => setCirculator(e.target.value)}
@@ -306,13 +306,13 @@ const OperativeNotePage: React.FC = () => {
             </div>
 
             {/* Diagnosis & Procedure */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <FileText className="w-5 h-5" /> {t('docOperativeNote.diagnosisProcedureHeading')}
               </h2>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="opnote-pre-op-diagnosis" className="text-sm text-gray-600">{t('docOperativeNote.preOpDiagnosisLabel')}</label>
+                  <label htmlFor="opnote-pre-op-diagnosis" className="text-sm text-content-muted">{t('docOperativeNote.preOpDiagnosisLabel')}</label>
                   <textarea
                     id="opnote-pre-op-diagnosis"
                     value={preOpDiagnosis}
@@ -321,7 +321,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-post-op-diagnosis" className="text-sm text-gray-600">{t('docOperativeNote.postOpDiagnosisLabel')}</label>
+                  <label htmlFor="opnote-post-op-diagnosis" className="text-sm text-content-muted">{t('docOperativeNote.postOpDiagnosisLabel')}</label>
                   <textarea
                     id="opnote-post-op-diagnosis"
                     value={postOpDiagnosis}
@@ -330,7 +330,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-procedure-name" className="text-sm text-gray-600">{t('docOperativeNote.procedureNameLabel')}</label>
+                  <label htmlFor="opnote-procedure-name" className="text-sm text-content-muted">{t('docOperativeNote.procedureNameLabel')}</label>
                   <input
                     id="opnote-procedure-name"
                     list="procedures"
@@ -344,7 +344,7 @@ const OperativeNotePage: React.FC = () => {
                   </datalist>
                 </div>
                 <div>
-                  <label htmlFor="opnote-cpt-codes" className="text-sm text-gray-600">{t('docOperativeNote.cptCodesLabel')}</label>
+                  <label htmlFor="opnote-cpt-codes" className="text-sm text-content-muted">{t('docOperativeNote.cptCodesLabel')}</label>
                   <input
                     id="opnote-cpt-codes"
                     type="text"
@@ -355,7 +355,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-anesthesia-type" className="text-sm text-gray-600">{t('docOperativeNote.anesthesiaTypeLabel')}</label>
+                  <label htmlFor="opnote-anesthesia-type" className="text-sm text-content-muted">{t('docOperativeNote.anesthesiaTypeLabel')}</label>
                   <select                    id="opnote-anesthesia-type"                    value={anesthesiaType}
                     onChange={e => setAnesthesiaType(e.target.value as AnesthesiaType)}
                     className="w-full border rounded p-2"
@@ -370,7 +370,7 @@ const OperativeNotePage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="opnote-wound-class" className="text-sm text-gray-600">{t('docOperativeNote.woundClassificationLabel')}</label>
+                  <label htmlFor="opnote-wound-class" className="text-sm text-content-muted">{t('docOperativeNote.woundClassificationLabel')}</label>
                   <select
                     id="opnote-wound-class"
                     value={woundClass}
@@ -386,11 +386,11 @@ const OperativeNotePage: React.FC = () => {
             </div>
 
             {/* Operative Details */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docOperativeNote.operativeDetailsHeading')}</h2>
               <div className="space-y-4">
                 <div>
-                  <label htmlFor="opnote-incision" className="text-sm text-gray-600">{t('docOperativeNote.incisionLabel')}</label>
+                  <label htmlFor="opnote-incision" className="text-sm text-content-muted">{t('docOperativeNote.incisionLabel')}</label>
                   <input
                     id="opnote-incision"
                     type="text"
@@ -401,7 +401,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-findings" className="text-sm text-gray-600">{t('docOperativeNote.findingsLabel')}</label>
+                  <label htmlFor="opnote-findings" className="text-sm text-content-muted">{t('docOperativeNote.findingsLabel')}</label>
                   <textarea
                     id="opnote-findings"
                     value={findings}
@@ -411,7 +411,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-procedure-description" className="text-sm text-gray-600">{t('docOperativeNote.procedureDescriptionLabel')}</label>
+                  <label htmlFor="opnote-procedure-description" className="text-sm text-content-muted">{t('docOperativeNote.procedureDescriptionLabel')}</label>
                   <textarea
                     id="opnote-procedure-description"
                     value={procedureText}
@@ -422,7 +422,7 @@ const OperativeNotePage: React.FC = () => {
                 </div>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="opnote-closure" className="text-sm text-gray-600">{t('docOperativeNote.closureLabel')}</label>
+                    <label htmlFor="opnote-closure" className="text-sm text-content-muted">{t('docOperativeNote.closureLabel')}</label>
                     <input
                       id="opnote-closure"
                       type="text"
@@ -433,7 +433,7 @@ const OperativeNotePage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label htmlFor="opnote-drains" className="text-sm text-gray-600">{t('docOperativeNote.drainsLabel')}</label>
+                    <label htmlFor="opnote-drains" className="text-sm text-content-muted">{t('docOperativeNote.drainsLabel')}</label>
                     <input                      id="opnote-drains"                      type="text"
                       value={drains}
                       onChange={e => setDrains(e.target.value)}
@@ -446,23 +446,23 @@ const OperativeNotePage: React.FC = () => {
             </div>
 
             {/* Fluids & EBL */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Droplet className="w-5 h-5" /> {t('docOperativeNote.fluidsBloodLossHeading')}
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="opnote-ebl" className="text-sm text-gray-600">{t('docOperativeNote.eblLabel')}</label>
+                  <label htmlFor="opnote-ebl" className="text-sm text-content-muted">{t('docOperativeNote.eblLabel')}</label>
                   <input
                     id="opnote-ebl"
                     type="number"
                     value={ebl}
                     onChange={e => setEbl(Number(e.target.value))}
-                    className={`w-full border rounded p-2 ${ebl > 500 ? 'border-red-500 bg-red-50' : ''}`}
+                    className={`w-full border rounded p-2 ${ebl > 500 ? 'border-red-500 bg-critical-subtle' : ''}`}
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-fluids-in" className="text-sm text-gray-600">{t('docOperativeNote.fluidsInLabel')}</label>
+                  <label htmlFor="opnote-fluids-in" className="text-sm text-content-muted">{t('docOperativeNote.fluidsInLabel')}</label>
                   <input
                     id="opnote-fluids-in"
                     type="number"
@@ -472,7 +472,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-urine-output" className="text-sm text-gray-600">{t('docOperativeNote.urineOutputLabel')}</label>
+                  <label htmlFor="opnote-urine-output" className="text-sm text-content-muted">{t('docOperativeNote.urineOutputLabel')}</label>
                   <input
                     id="opnote-urine-output"
                     type="number"
@@ -485,7 +485,7 @@ const OperativeNotePage: React.FC = () => {
             </div>
 
             {/* Specimens */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Package className="w-5 h-5" /> {t('docOperativeNote.specimensHeading')}
               </h2>
@@ -513,7 +513,7 @@ const OperativeNotePage: React.FC = () => {
                 </select>
                 <button
                   onClick={addSpecimen}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                  className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok"
                 >
                   {t('docOperativeNote.addButton')}
                 </button>
@@ -521,23 +521,23 @@ const OperativeNotePage: React.FC = () => {
               {specimens.length > 0 ? (
                 <ul className="space-y-2">
                   {specimens.map(s => (
-                    <li key={s.id} className="flex justify-between items-center bg-gray-50 p-2 rounded">
-                      <span>{s.description} → <span className="text-gray-500">{t(`docOperativeNote.disposition_${s.disposition}`)}</span></span>
+                    <li key={s.id} className="flex justify-between items-center bg-surface-sunken p-2 rounded">
+                      <span>{s.description} → <span className="text-content-muted">{t(`docOperativeNote.disposition_${s.disposition}`)}</span></span>
                       <button onClick={() => removeSpecimen(s.id)} className="text-red-500 text-sm">{t('docOperativeNote.removeButton')}</button>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-gray-400 text-sm">{t('docOperativeNote.noSpecimensAdded')}</p>
+                <p className="text-content-muted text-sm">{t('docOperativeNote.noSpecimensAdded')}</p>
               )}
             </div>
 
             {/* Additional Info */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docOperativeNote.additionalInfoHeading')}</h2>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="opnote-implants" className="text-sm text-gray-600">{t('docOperativeNote.implantsLabel')}</label>
+                  <label htmlFor="opnote-implants" className="text-sm text-content-muted">{t('docOperativeNote.implantsLabel')}</label>
                   <input
                     id="opnote-implants"
                     type="text"
@@ -548,7 +548,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="opnote-disposition" className="text-sm text-gray-600">{t('docOperativeNote.dispositionLabel')}</label>
+                  <label htmlFor="opnote-disposition" className="text-sm text-content-muted">{t('docOperativeNote.dispositionLabel')}</label>
                   <input
                     id="opnote-disposition"
                     type="text"
@@ -559,7 +559,7 @@ const OperativeNotePage: React.FC = () => {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label htmlFor="opnote-complications" className="text-sm text-gray-600">{t('docOperativeNote.complicationsLabel')}</label>
+                  <label htmlFor="opnote-complications" className="text-sm text-content-muted">{t('docOperativeNote.complicationsLabel')}</label>
                   <textarea                    id="opnote-complications"                    value={complications}
                     onChange={e => setComplications(e.target.value)}
                     className="w-full border rounded p-2"
@@ -572,7 +572,7 @@ const OperativeNotePage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700"
+              className="w-full py-3 bg-ok text-ok-fg rounded-lg font-semibold hover:bg-ok"
             >
               {t('docOperativeNote.saveButton')}
             </button>
@@ -580,16 +580,16 @@ const OperativeNotePage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {notes.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docOperativeNote.noNotesYet')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docOperativeNote.noNotesYet')}</div>
             ) : (
               notes.map(n => (
-                <div key={n.id} className="bg-white rounded-lg shadow p-4">
+                <div key={n.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{n.patientName}</h3>
-                      <p className="text-sm text-gray-500">{new Date(n.procedureDate).toLocaleDateString()}</p>
+                      <p className="text-sm text-content-muted">{new Date(n.procedureDate).toLocaleDateString()}</p>
                     </div>
-                    <span className="px-2 py-1 text-xs rounded bg-emerald-100 text-emerald-700">
+                    <span className="px-2 py-1 text-xs rounded bg-ok-subtle text-ok-subtle-fg">
                       {t(`docOperativeNote.woundClassBadge_${n.woundClass}`)}
                     </span>
                   </div>
@@ -597,7 +597,7 @@ const OperativeNotePage: React.FC = () => {
                     <p><strong>{t('docOperativeNote.procedureColLabel')}</strong> {n.procedureName}</p>
                     <p><strong>{t('docOperativeNote.surgeonColLabel')}</strong> {n.surgeon}</p>
                     <p><strong>{t('docOperativeNote.eblColLabel')}</strong> {n.ebl} mL | <strong>{t('docOperativeNote.specimensColLabel')}</strong> {n.specimens.length}</p>
-                    {n.complications && <p className="text-red-600">{t('docOperativeNote.complicationsLine', { text: n.complications })}</p>}
+                    {n.complications && <p className="text-critical-subtle-fg">{t('docOperativeNote.complicationsLine', { text: n.complications })}</p>}
                   </div>
                 </div>
               ))

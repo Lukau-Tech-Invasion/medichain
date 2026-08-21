@@ -26,15 +26,15 @@ export function MedicationRemindersPage() {
 
       <div className="space-y-4">
         {reminders.length === 0 ? (
-          <p className="text-gray-500">{t('medications.noReminders')}</p>
+          <p className="text-content-muted">{t('medications.noReminders')}</p>
         ) : (
           reminders.map((reminder) => (
-            <div key={reminder.id} className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
+            <div key={reminder.id} className="bg-surface p-4 rounded-lg shadow border-l-4 border-blue-500">
               <h3 className="font-bold">{reminder.medication}</h3>
-              <p className="text-sm text-gray-600">{t('medications.dosageColon', { dosage: reminder.dosage })}</p>
+              <p className="text-sm text-content-muted">{t('medications.dosageColon', { dosage: reminder.dosage })}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {reminder.schedule?.map((time: string) => (
-                  <span key={time} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
+                  <span key={time} className="bg-notice-subtle text-notice-subtle-fg text-xs px-2 py-1 rounded-full">
                     {time}
                   </span>
                 ))}

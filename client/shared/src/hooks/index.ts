@@ -4,3 +4,4 @@ export * from './useSidebarData';
 export * from './useSSE';
 export * from './useApiStatus';
 export * from './useOfflineCache';
+export * from './useProviderDirectory';

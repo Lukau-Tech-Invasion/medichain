@@ -205,7 +205,7 @@ const IntubationPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-cyan-600 to-teal-600 text-white p-6">
         <div className="flex items-center gap-3">
@@ -218,15 +218,15 @@ const IntubationPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {['new', 'history'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab as 'new' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-cyan-600 border-b-2 border-cyan-600'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                ? 'text-content-secondary border-b-2 border-cyan-600'
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'new' ? t('docIntubation.tabNew') : t('docIntubation.tabHistory')}
             </button>
@@ -238,7 +238,7 @@ const IntubationPage: React.FC = () => {
         {activeTab === 'new' ? (
           <div className="space-y-6">
             {/* Patient Selection */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docIntubation.patientSelectionHeading')}
               </h2>
@@ -255,18 +255,18 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* Airway Assessment */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Stethoscope className="w-5 h-5" /> {t('docIntubation.airwayAssessmentHeading')}
                 {airway.predictedDifficult && (
-                  <span className="ml-2 px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full flex items-center gap-1">
+                  <span className="ml-2 px-2 py-1 bg-critical-subtle text-critical-subtle-fg text-xs rounded-full flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> {t('docIntubation.difficultAirwayBadge')}
                   </span>
                 )}
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="intubation-mallampati" className="text-sm text-gray-600">{t('docIntubation.mallampatiClassLabel')}</label>
+                  <label htmlFor="intubation-mallampati" className="text-sm text-content-muted">{t('docIntubation.mallampatiClassLabel')}</label>
                   <select
                     id="intubation-mallampati"
                     value={airway.mallampati}
@@ -277,10 +277,10 @@ const IntubationPage: React.FC = () => {
                       <option key={c} value={c}>{t('docIntubation.classOption', { c })}</option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">{t(`docIntubation.mallampati_${airway.mallampati}`)}</p>
+                  <p className="text-xs text-content-muted mt-1">{t(`docIntubation.mallampati_${airway.mallampati}`)}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-mouth-opening" className="text-sm text-gray-600">{t('docIntubation.mouthOpeningLabel')}</label>
+                  <label htmlFor="intubation-mouth-opening" className="text-sm text-content-muted">{t('docIntubation.mouthOpeningLabel')}</label>
                   <input
                     id="intubation-mouth-opening"
                     type="number"
@@ -289,10 +289,10 @@ const IntubationPage: React.FC = () => {
                     className="w-full border rounded p-2"
                     step="0.5"
                   />
-                  <p className="text-xs text-gray-500">{t('docIntubation.mouthOpeningHint')}</p>
+                  <p className="text-xs text-content-muted">{t('docIntubation.mouthOpeningHint')}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-thyromental" className="text-sm text-gray-600">{t('docIntubation.thyromentalLabel')}</label>
+                  <label htmlFor="intubation-thyromental" className="text-sm text-content-muted">{t('docIntubation.thyromentalLabel')}</label>
                   <input
                     id="intubation-thyromental"
                     type="number"
@@ -301,10 +301,10 @@ const IntubationPage: React.FC = () => {
                     className="w-full border rounded p-2"
                     step="0.5"
                   />
-                  <p className="text-xs text-gray-500">{t('docIntubation.thyromentalHint')}</p>
+                  <p className="text-xs text-content-muted">{t('docIntubation.thyromentalHint')}</p>
                 </div>
                 <div>
-                  <label htmlFor="intubation-neck-mobility" className="text-sm text-gray-600">{t('docIntubation.neckMobilityLabel')}</label>
+                  <label htmlFor="intubation-neck-mobility" className="text-sm text-content-muted">{t('docIntubation.neckMobilityLabel')}</label>
                   <select
                     id="intubation-neck-mobility"
                     value={airway.neckMobility}
@@ -317,7 +317,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intubation-dentition" className="text-sm text-gray-600">{t('docIntubation.dentitionLabel')}</label>
+                  <label htmlFor="intubation-dentition" className="text-sm text-content-muted">{t('docIntubation.dentitionLabel')}</label>
                   <select
                     id="intubation-dentition"
                     value={airway.dentition}
@@ -350,9 +350,9 @@ const IntubationPage: React.FC = () => {
                     <span className="text-sm">{t('docIntubation.obeseNeckCheckbox')}</span>
                   </label>
                 </div>
-                <div className="bg-gray-50 p-3 rounded">
+                <div className="bg-surface-sunken p-3 rounded">
                   <span className="text-sm font-medium">{t('docIntubation.lemonScoreLabel')}</span>
-                  <span className={`font-bold ${airway.lemonScore >= 3 ? 'text-red-600' : 'text-green-600'}`}>
+                  <span className={`font-bold ${airway.lemonScore >= 3 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
                     {airway.lemonScore}{t('docIntubation.lemonScoreSuffix')}
                   </span>
                 </div>
@@ -360,11 +360,11 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* Procedure Details */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docIntubation.procedureDetailsHeading')}</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="intub-indication" className="text-sm text-gray-600">{t('docIntubation.indicationLabel')}</label>
+                  <label htmlFor="intub-indication" className="text-sm text-content-muted">{t('docIntubation.indicationLabel')}</label>
                   <select
                     id="intub-indication"
                     value={formData.indication}
@@ -378,7 +378,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-method" className="text-sm text-gray-600">{t('docIntubation.methodLabel')}</label>
+                  <label htmlFor="intub-method" className="text-sm text-content-muted">{t('docIntubation.methodLabel')}</label>
                   <select
                     id="intub-method"
                     value={formData.method}
@@ -392,7 +392,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-blade-type" className="text-sm text-gray-600">{t('docIntubation.bladeTypeLabel')}</label>
+                  <label htmlFor="intub-blade-type" className="text-sm text-content-muted">{t('docIntubation.bladeTypeLabel')}</label>
                   <select
                     id="intub-blade-type"
                     value={formData.bladeType}
@@ -406,7 +406,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-blade-size" className="text-sm text-gray-600">{t('docIntubation.bladeSizeLabel')}</label>
+                  <label htmlFor="intub-blade-size" className="text-sm text-content-muted">{t('docIntubation.bladeSizeLabel')}</label>
                   <select
                     id="intub-blade-size"
                     value={formData.bladeSize}
@@ -419,7 +419,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-ett-size" className="text-sm text-gray-600">{t('docIntubation.ettSizeLabel')}</label>
+                  <label htmlFor="intub-ett-size" className="text-sm text-content-muted">{t('docIntubation.ettSizeLabel')}</label>
                   <select
                     id="intub-ett-size"
                     value={formData.tubeSize}
@@ -432,7 +432,7 @@ const IntubationPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="intub-depth-at-lip" className="text-sm text-gray-600">{t('docIntubation.depthAtLipLabel')}</label>
+                  <label htmlFor="intub-depth-at-lip" className="text-sm text-content-muted">{t('docIntubation.depthAtLipLabel')}</label>
                   <input
                     id="intub-depth-at-lip"
                     type="number"
@@ -442,7 +442,7 @@ const IntubationPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="intub-cuff-pressure" className="text-sm text-gray-600">{t('docIntubation.cuffPressureLabel')}</label>
+                  <label htmlFor="intub-cuff-pressure" className="text-sm text-content-muted">{t('docIntubation.cuffPressureLabel')}</label>
                   <input
                     id="intub-cuff-pressure"
                     type="number"
@@ -452,7 +452,7 @@ const IntubationPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="intub-attempts" className="text-sm text-gray-600">{t('docIntubation.attemptsLabel')}</label>
+                  <label htmlFor="intub-attempts" className="text-sm text-content-muted">{t('docIntubation.attemptsLabel')}</label>
                   <select
                     id="intub-attempts"
                     value={formData.attempts}
@@ -489,7 +489,7 @@ const IntubationPage: React.FC = () => {
 
             {/* RSI Medications */}
             {formData.rsiUsed && (
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-surface rounded-lg shadow p-4">
                 <h2 className="font-semibold mb-3">{t('docIntubation.rsiMedicationsHeading')}</h2>
                 <div className="flex flex-wrap gap-2 mb-4">
                   {rsiMedications.map(med => (
@@ -499,7 +499,7 @@ const IntubationPage: React.FC = () => {
                         <button
                           key={dose}
                           onClick={() => addMedication(med.name, dose)}
-                          className="px-2 py-1 text-xs bg-cyan-100 text-cyan-700 rounded hover:bg-cyan-200"
+                          className="px-2 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-cyan-200"
                         >
                           {dose}
                         </button>
@@ -512,7 +512,7 @@ const IntubationPage: React.FC = () => {
                     <h3 className="text-sm font-medium mb-2">{t('docIntubation.medicationsGivenLabel')}</h3>
                     {medications.map((med, i) => (
                       <div key={i} className="flex items-center gap-2 text-sm">
-                        <Clock className="w-4 h-4 text-gray-400" />
+                        <Clock className="w-4 h-4 text-content-muted" />
                         <span>{med.time}</span>
                         <span className="font-medium">{med.name}</span>
                         <span>{med.dose}</span>
@@ -524,13 +524,13 @@ const IntubationPage: React.FC = () => {
             )}
 
             {/* Verification */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <CheckCircle className="w-5 h-5" /> {t('docIntubation.verificationHeading')}
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {Object.entries(verification).map(([key, val]) => (
-                  <label key={key} className={`flex items-center gap-2 p-3 rounded border ${val ? 'bg-green-50 border-green-300' : 'bg-gray-50'}`}>
+                  <label key={key} className={`flex items-center gap-2 p-3 rounded border ${val ? 'bg-ok-subtle border-ok' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={val}
@@ -543,14 +543,14 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* Complications */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docIntubation.complicationsHeading')}</h2>
               <div className="flex flex-wrap gap-2">
                 {complications.map(c => (
                   <label key={c} className={`px-3 py-2 rounded border cursor-pointer ${
                     selectedComplications.includes(c)
-                      ? c === 'None' ? 'bg-green-100 border-green-300' : 'bg-red-100 border-red-300'
-                      : 'bg-gray-50'
+                      ? c === 'None' ? 'bg-ok-subtle border-ok' : 'bg-critical-subtle border-critical'
+                      : 'bg-surface-sunken'
                   }`}>
                     <input
                       type="checkbox"
@@ -572,7 +572,7 @@ const IntubationPage: React.FC = () => {
             </div>
 
             {/* Notes */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docIntubation.notesHeading')}</h2>
               <textarea
                 value={formData.notes}
@@ -593,27 +593,27 @@ const IntubationPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docIntubation.noRecordsYet')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docIntubation.noRecordsYet')}</div>
             ) : (
               records.map(r => (
-                <div key={r.id} className="bg-white rounded-lg shadow p-4">
+                <div key={r.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-gray-500">{new Date(r.performedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{new Date(r.performedAt).toLocaleString()}</p>
                     </div>
-                    <span className={`px-2 py-1 text-xs rounded ${r.successful ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    <span className={`px-2 py-1 text-xs rounded ${r.successful ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
                       {r.successful ? t('docIntubation.successfulBadge') : t('docIntubation.unsuccessfulBadge')}
                     </span>
                   </div>
                   <div className="grid grid-cols-4 gap-4 text-sm">
-                    <div><span className="text-gray-500">{t('docIntubation.indicationColLabel')}</span> {INDICATION_KEYS[r.indication] ? t(`docIntubation.indication_${INDICATION_KEYS[r.indication]}`) : r.indication}</div>
-                    <div><span className="text-gray-500">{t('docIntubation.methodColLabel')}</span> {t(`docIntubation.method_${r.method}`)}</div>
-                    <div><span className="text-gray-500">{t('docIntubation.ettSizeColLabel')}</span> {r.tubeSize}mm</div>
-                    <div><span className="text-gray-500">{t('docIntubation.attemptsColLabel')}</span> {r.attempts}</div>
+                    <div><span className="text-content-muted">{t('docIntubation.indicationColLabel')}</span> {INDICATION_KEYS[r.indication] ? t(`docIntubation.indication_${INDICATION_KEYS[r.indication]}`) : r.indication}</div>
+                    <div><span className="text-content-muted">{t('docIntubation.methodColLabel')}</span> {t(`docIntubation.method_${r.method}`)}</div>
+                    <div><span className="text-content-muted">{t('docIntubation.ettSizeColLabel')}</span> {r.tubeSize}mm</div>
+                    <div><span className="text-content-muted">{t('docIntubation.attemptsColLabel')}</span> {r.attempts}</div>
                   </div>
                   {r.complications.length > 0 && (
-                    <div className="mt-2 text-sm text-red-600">
+                    <div className="mt-2 text-sm text-critical-subtle-fg">
                       {t('docIntubation.complicationsLine', { list: r.complications.map(c => COMPLICATION_KEYS[c] ? t(`docIntubation.complication_${COMPLICATION_KEYS[c]}`) : c).join(', ') })}
                     </div>
                   )}

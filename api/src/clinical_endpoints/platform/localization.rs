@@ -23,14 +23,22 @@ pub struct TranslateContentRequest {
 /// Get supported languages for the platform
 #[get("/api/platform/languages")]
 pub async fn get_supported_languages() -> impl Responder {
+    // Must match `ACTIVE_LOCALES` in `client/shared/src/i18n/react.tsx`, which
+    // is the set with a real translation bundle under `i18n/locales/`.
+    //
+    // This list was wrong in both directions: it advertised Xhosa and
+    // Portuguese, for which no bundle exists — a patient selecting either got
+    // an untranslated interface — and omitted Hausa, which is fully
+    // translated and so was unreachable through this endpoint. Locale tags are
+    // the full BCP 47 codes the client actually switches on, not bare language
+    // subtags it would have had to guess at.
     let languages = vec![
-        serde_json::json!({"code": "en", "name": "English", "native_name": "English"}),
-        serde_json::json!({"code": "sw", "name": "Swahili", "native_name": "Kiswahili"}),
-        serde_json::json!({"code": "fr", "name": "French", "native_name": "Français"}),
-        serde_json::json!({"code": "am", "name": "Amharic", "native_name": "አማርኛ"}),
-        serde_json::json!({"code": "zu", "name": "Zulu", "native_name": "isiZulu"}),
-        serde_json::json!({"code": "xh", "name": "Xhosa", "native_name": "isiXhosa"}),
-        serde_json::json!({"code": "pt", "name": "Portuguese", "native_name": "Português"}),
+        serde_json::json!({"code": "en-US", "name": "English", "native_name": "English"}),
+        serde_json::json!({"code": "fr-FR", "name": "French", "native_name": "Français"}),
+        serde_json::json!({"code": "sw-KE", "name": "Swahili", "native_name": "Kiswahili"}),
+        serde_json::json!({"code": "am-ET", "name": "Amharic", "native_name": "አማርኛ"}),
+        serde_json::json!({"code": "zu-ZA", "name": "Zulu", "native_name": "isiZulu"}),
+        serde_json::json!({"code": "ha-NG", "name": "Hausa", "native_name": "Harshen Hausa"}),
     ];
 
     HttpResponse::Ok().json(serde_json::json!({

@@ -3,8 +3,8 @@
 //! © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
 //!
 //! Provides a lightweight HTTP-based JSON-RPC client for interacting with a
-//! Substrate node. Supports health checks and fire-and-forget on-chain event
-//! logging for patient registration, IPFS hash recording, and access auditing.
+//! Substrate node. Supports health checks and finalized on-chain event logging
+//! for patient registration, IPFS hash recording, and access auditing.
 //!
 //! # Extrinsic Encoding Note
 //!
@@ -12,14 +12,10 @@
 //! `BLOCKCHAIN_ENABLED=true`, a node is connected, and an operator signing key is
 //! configured (`SUBSTRATE_SIGNING_KEY`), calls are signed and submitted for real via
 //! `sign_and_submit_then_watch_default` + `wait_for_finalized_success`. In every
-//! other case (disabled/demo mode, node not ready, no operator key, or a real
-//! submission that failed) the call logs its arguments and falls back to a
-//! deterministic SHA3-256-derived placeholder hash instead — nothing reaches the
-//! node in that case. Every call returns a `ChainTxResult { hash, finalized }` so
-//! callers can tell the two cases apart instead of only ever seeing a bare hash
-//! string (Horizon finding HZ-002).
+//! other case (disabled/demo mode, node not ready, no operator key, or failed
+//! submission) returns an error. MediChain never fabricates a value that could
+//! be mistaken for a transaction hash.
 
-use chrono::Utc;
 use log::{info, warn};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -39,12 +35,8 @@ use subxt::{OnlineClient, PolkadotConfig};
 // ------------------------------------------------------------------
 
 /// Returns `true` when the `BLOCKCHAIN_ENABLED` environment variable is set
-/// to `"true"` (case-insensitive). When disabled (the default), on-chain
-/// operations log the intent and return a deterministic placeholder hash
-/// without touching the Substrate node.
-///
-/// Set `BLOCKCHAIN_ENABLED=true` in production once a Substrate node is
-/// reachable and `subxt` / `parity-scale-codec` are added to `Cargo.toml`.
+/// to `"true"` (case-insensitive). Disabled integrations return a typed error;
+/// they never fabricate a transaction hash or claim that an event was anchored.
 pub fn blockchain_enabled() -> bool {
     std::env::var("BLOCKCHAIN_ENABLED")
         .ok()
@@ -52,12 +44,35 @@ pub fn blockchain_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Validate the operator-controlled blockchain posture before the API starts.
+pub fn validate_blockchain_configuration(is_demo: bool) -> Result<(), String> {
+    if !blockchain_enabled() {
+        return if is_demo {
+            Ok(())
+        } else {
+            Err("BLOCKCHAIN_ENABLED=true is required outside demo mode".to_string())
+        };
+    }
+    if SubstrateClient::from_env().is_none() {
+        return Err("SUBSTRATE_WS_URL is required when blockchain is enabled".to_string());
+    }
+    let has_operator_key =
+        std::env::var("SUBSTRATE_SIGNING_KEY").is_ok_and(|value| !value.trim().is_empty());
+    let allow_dev = std::env::var("SUBSTRATE_ALLOW_DEV_SIGNER")
+        .is_ok_and(|value| value.eq_ignore_ascii_case("true"));
+    if has_operator_key || (is_demo && allow_dev) {
+        return Ok(());
+    }
+    Err(
+        "SUBSTRATE_SIGNING_KEY is required; Alice is permitted only in explicit demo mode"
+            .to_string(),
+    )
+}
+
 /// Classify an access-audit event as emergency (break-glass) or routine.
 ///
-/// Emergency access is the only case that maps to the access-control pallet's
-/// `grant_emergency_access` extrinsic; everything else (reads, consent actions)
-/// is recorded via the dedicated `log_access` audit extrinsic. Routing routine
-/// reads through `grant_emergency_access` was the C5 audit-integrity bug.
+/// The result becomes the `emergency` flag on an immutable audit event. Audit
+/// logging never creates or mutates an access grant.
 pub(crate) fn is_emergency_access(access_type: &str) -> bool {
     matches!(
         access_type.trim().to_ascii_uppercase().as_str(),
@@ -80,11 +95,40 @@ fn decode_commitment(commitment_hex: &str) -> Option<[u8; 32]> {
 ///
 /// Returns `(call_name, is_emergency)`.
 pub(crate) fn audit_call_for(access_type: &str) -> (&'static str, bool) {
-    if is_emergency_access(access_type) {
-        ("grant_emergency_access", true)
-    } else {
-        ("log_access", false)
+    ("log_delegated_access", is_emergency_access(access_type))
+}
+
+/// Encode an `AccountId32` as a call argument.
+///
+/// It is the raw 32 bytes, not a named variant. In runtime metadata
+/// `AccountId32` is a *composite* — a newtype wrapping `[u8; 32]` — so wrapping
+/// it in `Value::unnamed_variant("AccountId32", ..)` makes subxt try to encode
+/// the variant name as a string and the whole extrinsic fails to build:
+///
+/// ```text
+/// Extrinsic encoding failed: cannot encode call data:
+/// Error at [0]: Cannot encode Str into type with ID 2
+/// ```
+///
+/// That failure is invisible until a call is actually submitted to a node with
+/// real metadata — it is not a compile error and no unit test with a mocked
+/// client catches it.
+fn account_arg(account: &sp_core::crypto::AccountId32) -> DynamicValue {
+    DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(account))
+}
+
+fn keyed_audit_digest(domain: &str, values: &[&str]) -> [u8; 32] {
+    let key = std::env::var("NATIONAL_ID_HASH_KEY")
+        .unwrap_or_else(|_| "medichain-dev-national-id-key-change-in-production".to_string());
+    let mut hasher = Sha3_256::new();
+    hasher.update(key.as_bytes());
+    hasher.update(b":chain-audit:");
+    hasher.update(domain.as_bytes());
+    for value in values {
+        hasher.update(b":");
+        hasher.update(value.as_bytes());
     }
+    hasher.finalize().into()
 }
 
 /// Resolve the operator signing keypair for on-chain extrinsics.
@@ -129,6 +173,13 @@ fn operator_signer() -> Result<subxt_signer::sr25519::Keypair, BlockchainError> 
 /// Errors that can arise when communicating with a Substrate node.
 #[derive(Debug, Error)]
 pub enum BlockchainError {
+    /// Blockchain integration is intentionally disabled for this runtime.
+    #[error("Blockchain integration is disabled")]
+    Disabled,
+
+    /// The operator enabled blockchain writes but the node is not ready.
+    #[error("Blockchain node is not ready: {0}")]
+    NotReady(String),
     /// TCP / HTTP connection failure.
     #[error("Connection error: {0}")]
     Connection(String),
@@ -206,18 +257,12 @@ pub struct SystemHealth {
 
 /// Result of an on-chain operation attempt.
 ///
-/// `hash` is always a well-formed `0x`-prefixed 32-byte hex string either way, but
-/// `finalized` is the only field that says whether it is a real, node-confirmed
-/// extrinsic hash or a deterministic placeholder computed locally without ever
-/// reaching a node (Horizon finding HZ-002: previously both cases returned a bare
-/// `String`, so no caller could tell them apart).
+/// Successful results always come from a finalized node-confirmed extrinsic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChainTxResult {
-    /// The transaction hash — real (chain-confirmed) or placeholder.
+    /// The finalized on-chain transaction hash.
     pub hash: String,
-    /// `true` only when this hash came from `wait_for_finalized_success` on a real
-    /// node. `false` for every placeholder case (disabled, not-ready, or a real
-    /// submission that failed and fell back).
+    /// Retained for API compatibility; successful results are always finalized.
     pub finalized: bool,
 }
 
@@ -299,7 +344,7 @@ impl SubstrateClient {
         } else {
             warn!(
                 "[blockchain] Substrate node at {} is not reachable – \
-                 on-chain calls will use placeholder hashes until the node comes online.",
+                 on-chain writes will fail closed until the node is ready.",
                 instance.ws_url
             );
         }
@@ -323,6 +368,10 @@ impl SubstrateClient {
     /// Returns `true` if the last `health_check()` call succeeded.
     pub fn is_connected(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.is_connected() && self.subxt.is_some()
     }
 
     // ------------------------------------------------------------------
@@ -368,8 +417,8 @@ impl SubstrateClient {
 
     /// Register a patient on-chain.
     ///
-    /// Submits (or, until SCALE encoding is available, logs and stubs) an
-    /// extrinsic that anchors the patient's identity hash to the chain.
+    /// Submits a signed extrinsic that anchors the patient's identity hash to
+    /// the chain and waits for finalized success.
     ///
     /// # Arguments
     /// * `patient_id`       – Internal MediChain patient UUID.
@@ -378,8 +427,7 @@ impl SubstrateClient {
     /// * `registered_by`    – Staff member / system that triggered registration.
     ///
     /// # Returns
-    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
-    /// and `finalized` says honestly which one.
+    /// A `ChainTxResult` containing the real finalized extrinsic hash.
     pub async fn register_patient_on_chain(
         &self,
         patient_id: &str,
@@ -393,16 +441,9 @@ impl SubstrateClient {
         );
 
         // Convert patient_id to AccountId32 (assuming it's a valid SS58 address or hash)
-        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
-            Ok(acc) => acc,
-            Err(_) => {
-                // If not a valid address, we can't submit to a real chain.
-                // Fall back to placeholder if needed, or error out.
-                return self
-                    .pending_extrinsic("PatientIdentity", "register_patient", vec![])
-                    .await;
-            }
-        };
+        let patient_account = patient_id
+            .parse::<sp_core::crypto::AccountId32>()
+            .map_err(|_| BlockchainError::InvalidArgument("patient wallet is not SS58".into()))?;
 
         // Parse id_hash from hex
         let id_hash_bytes = match hex::decode(id_hash.trim_start_matches("0x")) {
@@ -411,7 +452,11 @@ impl SubstrateClient {
                 h.copy_from_slice(&bytes);
                 h
             }
-            _ => [0u8; 32],
+            _ => {
+                return Err(BlockchainError::InvalidArgument(
+                    "national ID commitment must be exactly 32 bytes of hex".into(),
+                ));
+            }
         };
 
         // Map national_id_type string to enum variant
@@ -423,12 +468,7 @@ impl SubstrateClient {
         };
 
         let params = vec![
-            DynamicValue::unnamed_variant(
-                "AccountId32",
-                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
-                    &patient_account,
-                ))],
-            ),
+            account_arg(&patient_account),
             DynamicValue::unnamed_variant(id_type_variant, vec![]),
             DynamicValue::from_bytes(id_hash_bytes),
         ];
@@ -449,8 +489,7 @@ impl SubstrateClient {
     /// * `uploaded_by`  – Staff member / system that performed the upload.
     ///
     /// # Returns
-    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
-    /// and `finalized` says honestly which one.
+    /// A `ChainTxResult` containing the real finalized extrinsic hash.
     pub async fn record_ipfs_hash_on_chain(
         &self,
         patient_id: &str,
@@ -464,29 +503,19 @@ impl SubstrateClient {
         );
 
         // Convert patient_id to AccountId32
-        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
-            Ok(acc) => acc,
-            Err(_) => {
-                return self
-                    .pending_extrinsic("MedicalRecords", "update_ipfs_hash", vec![])
-                    .await;
-            }
-        };
+        let patient_account = patient_id
+            .parse::<sp_core::crypto::AccountId32>()
+            .map_err(|_| BlockchainError::InvalidArgument("patient wallet is not SS58".into()))?;
 
-        // For real on-chain recording, we use the medical records pallet.
-        // If the record doesn't exist, we should technically call create_health_record first,
-        // but for this audit-logging purpose we assume it exists or use update_ipfs_hash.
+        // The pallet upserts an opaque record shell on first use and updates the
+        // encrypted IPFS reference thereafter. This avoids a permanent retry
+        // loop when an upload is the patient's first on-chain medical action.
         let params = vec![
-            DynamicValue::unnamed_variant(
-                "AccountId32",
-                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
-                    &patient_account,
-                ))],
-            ),
+            account_arg(&patient_account),
             DynamicValue::from_bytes(ipfs_hash.as_bytes()), // IPFS hash as Vec<u8>
         ];
 
-        self.pending_extrinsic("MedicalRecords", "update_ipfs_hash", params)
+        self.pending_extrinsic("MedicalRecords", "upsert_ipfs_hash", params)
             .await
     }
 
@@ -496,15 +525,16 @@ impl SubstrateClient {
     /// record and for what purpose.
     ///
     /// # Arguments
+    /// * `audit_event_id` – Stable ID of the durable application audit event.
     /// * `accessor_id`   – ID of the staff member or system accessing the record.
     /// * `patient_id`    – Patient whose record was accessed.
     /// * `access_type`   – E.g. `"READ"`, `"EMERGENCY_ACCESS"`, `"CONSENT_GRANT"`.
     ///
     /// # Returns
-    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
-    /// and `finalized` says honestly which one.
+    /// A `ChainTxResult` containing the real finalized extrinsic hash.
     pub async fn log_access_on_chain(
         &self,
+        audit_event_id: &str,
         accessor_id: &str,
         patient_id: &str,
         access_type: &str,
@@ -514,42 +544,25 @@ impl SubstrateClient {
             accessor_id, patient_id, access_type
         );
 
-        // Route by access type: genuine emergency (break-glass) access is an
-        // `grant_emergency_access`; everything else (routine reads, consent
-        // actions) is recorded with the dedicated `log_access` audit extrinsic.
-        // Previously ALL access was misrouted through `grant_emergency_access`,
-        // making the on-chain audit trail legally unreliable (C5/F-05).
+        // A backend operator signs the extrinsic, but the event also carries a
+        // keyed commitment to the real application accessor. This avoids both
+        // misattributing every access to the operator account and publishing an
+        // internal user identifier on a public ledger.
         let (call_name, emergency) = audit_call_for(access_type);
 
-        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
-            Ok(acc) => acc,
-            Err(_) => {
-                return self
-                    .pending_extrinsic("AccessControl", call_name, vec![])
-                    .await;
-            }
-        };
+        let patient_account = patient_id
+            .parse::<sp_core::crypto::AccountId32>()
+            .map_err(|_| BlockchainError::InvalidArgument("patient wallet is not SS58".into()))?;
 
-        // Reason hash (sha3-256 of access type + timestamp)
-        let mut hasher = Sha3_256::new();
-        hasher.update(access_type.as_bytes());
-        hasher.update(Utc::now().to_rfc3339().as_bytes());
-        let reason_hash: [u8; 32] = hasher.finalize().into();
+        let accessor_hash = keyed_audit_digest("accessor", &[accessor_id]);
+        let reason_hash = keyed_audit_digest("event", &[audit_event_id, access_type]);
 
-        let mut params = vec![
-            DynamicValue::unnamed_variant(
-                "AccountId32",
-                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
-                    &patient_account,
-                ))],
-            ),
+        let params = vec![
+            account_arg(&patient_account),
+            DynamicValue::from_bytes(accessor_hash),
             DynamicValue::from_bytes(reason_hash),
+            DynamicValue::bool(emergency),
         ];
-        // `log_access(patient, reason_hash, emergency)` takes the extra bool flag;
-        // `grant_emergency_access(patient, reason_hash)` does not.
-        if !emergency {
-            params.push(DynamicValue::bool(emergency));
-        }
 
         self.pending_extrinsic("AccessControl", call_name, params)
             .await
@@ -568,8 +581,7 @@ impl SubstrateClient {
     /// * `version`        – Capsule version this commitment belongs to.
     ///
     /// # Returns
-    /// A `ChainTxResult` — its `hash` is real or a deterministic placeholder,
-    /// and `finalized` says honestly which one.
+    /// A `ChainTxResult` containing the real finalized extrinsic hash.
     pub async fn set_emergency_capsule_commitment_on_chain(
         &self,
         patient_id: &str,
@@ -594,28 +606,22 @@ impl SubstrateClient {
             }
         };
 
-        let patient_account = match patient_id.parse::<sp_core::crypto::AccountId32>() {
-            Ok(acc) => acc,
-            Err(_) => {
-                return self
-                    .pending_extrinsic("MedicalRecords", "set_emergency_capsule_commitment", vec![])
-                    .await;
-            }
-        };
+        let patient_account = patient_id
+            .parse::<sp_core::crypto::AccountId32>()
+            .map_err(|_| BlockchainError::InvalidArgument("patient wallet is not SS58".into()))?;
 
         let params = vec![
-            DynamicValue::unnamed_variant(
-                "AccountId32",
-                vec![DynamicValue::from_bytes(AsRef::<[u8]>::as_ref(
-                    &patient_account,
-                ))],
-            ),
+            account_arg(&patient_account),
             DynamicValue::from_bytes(commitment),
             DynamicValue::u128(u128::from(version)),
         ];
 
-        self.pending_extrinsic("MedicalRecords", "set_emergency_capsule_commitment", params)
-            .await
+        self.pending_extrinsic(
+            "MedicalRecords",
+            "upsert_emergency_capsule_commitment",
+            params,
+        )
+        .await
     }
 
     // ------------------------------------------------------------------
@@ -682,133 +688,60 @@ impl SubstrateClient {
             .ok_or_else(|| BlockchainError::Rpc("Missing 'result' field in response".into()))
     }
 
-    /// Submit or simulate an extrinsic.
-    ///
-    /// **When `BLOCKCHAIN_ENABLED=false` (default / demo mode):**
-    /// Logs the intended call and returns a deterministic SHA3-256 placeholder
-    /// hash. Nothing is submitted to the Substrate node.
-    ///
-    /// **When `BLOCKCHAIN_ENABLED=true`:**
-    /// Attempts to submit the extrinsic via `author_submitExtrinsic` using the
-    /// JSON-RPC transport. This requires the call to be pre-encoded as a SCALE
-    /// hex string. The current implementation sends the JSON args as a UTF-8
-    /// hex payload (sufficient for dev/test nodes that accept untyped calls).
-    ///
-    /// # Production upgrade path
-    /// Replace the body of the `blockchain_enabled()` branch below with a real
-    /// `subxt` call once the crate is added to `Cargo.toml`:
-    ///
-    /// ```ignore
-    /// // TODO: replace with real subxt call
-    /// // async fn submit_with_subxt(
-    /// //     api: &OnlineClient<PolkadotConfig>,
-    /// //     call: impl subxt::tx::TxPayload,
-    /// //     signer: &PairSigner<PolkadotConfig, sp_core::sr25519::Pair>,
-    /// // ) -> Result<H256, subxt::Error> {
-    /// //     api.tx().sign_and_submit_default(&call, signer).await
-    /// // }
-    /// ```
+    /// Submit a signed dynamic extrinsic and wait for finalized success.
     async fn pending_extrinsic(
         &self,
         pallet_name: &str,
         call_name: &str,
         params: Vec<DynamicValue>,
     ) -> Result<ChainTxResult, BlockchainError> {
-        let timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
+        self.pending_extrinsic_when_enabled(blockchain_enabled(), pallet_name, call_name, params)
+            .await
+    }
 
-        if blockchain_enabled() && self.is_connected() && self.subxt.is_some() {
-            // Clippy can't correlate `is_some()` across the `&&` short-circuit with the
-            // `as_ref()` below; restructuring into `if let` would reshape the 3-way
-            // enabled/connected/not-ready branching below it, so this is deliberately
-            // left as a checked unwrap rather than risking that.
-            #[allow(clippy::unnecessary_unwrap)]
-            let api = self.subxt.as_ref().unwrap();
-
-            info!(
-                "[blockchain] Submitting real extrinsic '{}.{}' to node at {}",
-                pallet_name, call_name, self.ws_url
-            );
-
-            // Sign with the operator-managed key (never the shared Alice dev key
-            // in production — see `operator_signer`). Fail closed to a placeholder
-            // rather than signing with an insecure key when none is configured.
-            match operator_signer() {
-                Ok(signer) => {
-                    let tx = subxt::dynamic::tx(pallet_name, call_name, params);
-
-                    match api
-                        .tx()
-                        .sign_and_submit_then_watch_default(&tx, &signer)
-                        .await
-                    {
-                        Ok(progress) => {
-                            // Wait for the transaction to be finalized.
-                            match progress.wait_for_finalized_success().await {
-                                Ok(events) => {
-                                    let tx_hash = format!("{:?}", events.extrinsic_hash());
-                                    info!(
-                                        "[blockchain] Extrinsic '{}.{}' included in block, tx_hash={}",
-                                        pallet_name, call_name, tx_hash
-                                    );
-                                    return Ok(ChainTxResult {
-                                        hash: tx_hash,
-                                        finalized: true,
-                                    });
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        "[blockchain] Failed to wait for block for '{}.{}': {}",
-                                        pallet_name, call_name, e
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "[blockchain] Extrinsic submission failed for '{}.{}': {} — \
-                                 falling back to placeholder hash.",
-                                pallet_name, call_name, e
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "[blockchain] No operator signer for '{}.{}': {} — \
-                         not submitting; returning placeholder hash.",
-                        pallet_name, call_name, e
-                    );
-                }
-            }
-        } else if blockchain_enabled() {
-            warn!(
-                "[blockchain] BLOCKCHAIN_ENABLED=true but node/subxt is not ready. \
-                 Call '{}.{}' will use a placeholder hash.",
-                pallet_name, call_name
-            );
-        } else {
-            info!(
-                "[blockchain] DEMO MODE — call='{}.{}' logged but not submitted.",
-                pallet_name, call_name
-            );
+    /// Submission implementation with an explicit feature flag. Keeping the
+    /// flag as an argument makes fail-closed behavior testable without mutating
+    /// process-global environment variables across async suspension points.
+    async fn pending_extrinsic_when_enabled(
+        &self,
+        enabled: bool,
+        pallet_name: &str,
+        call_name: &str,
+        params: Vec<DynamicValue>,
+    ) -> Result<ChainTxResult, BlockchainError> {
+        if !enabled {
+            return Err(BlockchainError::Disabled);
         }
-
-        // Derive a deterministic placeholder hash (used in demo/offline mode).
-        let mut hasher = Sha3_256::new();
-        hasher.update(pallet_name.as_bytes());
-        hasher.update(call_name.as_bytes());
-        hasher.update(timestamp.as_bytes());
-        let hash_bytes = hasher.finalize();
-        let tx_hash = format!("0x{}", hex::encode(hash_bytes));
-
+        if !self.is_connected() {
+            return Err(BlockchainError::NotReady("health check failed".into()));
+        }
+        let api = self
+            .subxt
+            .as_ref()
+            .ok_or_else(|| BlockchainError::NotReady("subxt client unavailable".into()))?;
+        let signer = operator_signer()?;
+        let tx = subxt::dynamic::tx(pallet_name, call_name, params);
+        // `tx()` is async as of subxt 0.50: it resolves the chain's metadata and
+        // transaction-extension set before a call can be encoded.
+        let progress = api
+            .tx()
+            .await
+            .map_err(|error| BlockchainError::Rpc(error.to_string()))?
+            .sign_and_submit_then_watch_default(&tx, &signer)
+            .await
+            .map_err(|error| BlockchainError::Rpc(error.to_string()))?;
+        let events = progress
+            .wait_for_finalized_success()
+            .await
+            .map_err(|error| BlockchainError::Rpc(error.to_string()))?;
+        let tx_hash = format!("{:?}", events.extrinsic_hash());
         info!(
-            "[blockchain] Placeholder tx_hash for '{}.{}': {}",
+            "[blockchain] Extrinsic '{}.{}' finalized, tx_hash={}",
             pallet_name, call_name, tx_hash
         );
-
         Ok(ChainTxResult {
             hash: tx_hash,
-            finalized: false,
+            finalized: true,
         })
     }
 }
@@ -839,20 +772,23 @@ mod tests {
         );
     }
 
-    /// Routine access must NOT be recorded as an emergency-access grant; only
-    /// genuine break-glass access maps to `grant_emergency_access` (C5/F-05).
+    /// Every audit uses the non-grant delegated event; break-glass access is
+    /// distinguished by its immutable emergency flag (C5/F-05).
     #[test]
     fn test_audit_call_routing() {
-        assert_eq!(audit_call_for("READ"), ("log_access", false));
-        assert_eq!(audit_call_for("CONSENT_GRANT"), ("log_access", false));
+        assert_eq!(audit_call_for("READ"), ("log_delegated_access", false));
+        assert_eq!(
+            audit_call_for("CONSENT_GRANT"),
+            ("log_delegated_access", false)
+        );
         assert_eq!(
             audit_call_for("EMERGENCY_ACCESS"),
-            ("grant_emergency_access", true)
+            ("log_delegated_access", true)
         );
         // Case-insensitive + alias.
         assert_eq!(
             audit_call_for("break_glass"),
-            ("grant_emergency_access", true)
+            ("log_delegated_access", true)
         );
         assert!(!is_emergency_access("read"));
         assert!(is_emergency_access("Emergency"));
@@ -862,6 +798,7 @@ mod tests {
     /// silently fall back to the insecure Alice dev key (C5/F-04).
     #[test]
     fn test_operator_signer_fail_closed() {
+        let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         // Run sequentially within one test to avoid cross-test env races.
         std::env::remove_var("SUBSTRATE_SIGNING_KEY");
         std::env::remove_var("SUBSTRATE_ALLOW_DEV_SIGNER");
@@ -881,13 +818,9 @@ mod tests {
         std::env::remove_var("SUBSTRATE_SIGNING_KEY");
     }
 
-    /// Placeholder tx hashes must be valid 0x-prefixed 64-character hex strings
-    /// (32 bytes = 256 bits, matching the width of a Substrate extrinsic hash),
-    /// and — HZ-002 regression — must be honestly marked `finalized: false` since
-    /// no node was ever reached (`subxt: None`, `BLOCKCHAIN_ENABLED` unset).
+    /// Disabled mode must never fabricate a transaction hash.
     #[tokio::test]
-    async fn test_placeholder_hash_format() {
-        std::env::remove_var("BLOCKCHAIN_ENABLED");
+    async fn disabled_blockchain_returns_typed_error_without_hash() {
         let client = SubstrateClient {
             ws_url: "ws://localhost:9944".into(),
             http_url: "http://localhost:9944".into(),
@@ -897,65 +830,14 @@ mod tests {
         };
 
         let result = client
-            .pending_extrinsic("medicalRecords", "testCall", vec![])
-            .await
-            .expect("pending_extrinsic should not fail");
-
-        assert!(
-            !result.finalized,
-            "a placeholder result must not claim finalized"
-        );
-        assert!(result.hash.starts_with("0x"), "hash must be 0x-prefixed");
-        // Strip prefix and check hex length: 32 bytes × 2 hex chars = 64.
-        let hex_part = &result.hash[2..];
-        assert_eq!(hex_part.len(), 64, "hash must encode 32 bytes");
-        assert!(
-            hex_part.chars().all(|c| c.is_ascii_hexdigit()),
-            "hash must contain only hex digits"
-        );
+            .pending_extrinsic_when_enabled(false, "MedicalRecords", "test_call", vec![])
+            .await;
+        assert!(matches!(result, Err(BlockchainError::Disabled)));
     }
 
-    /// Two calls with identical arguments must produce the same hash
-    /// (determinism), but different call names must produce different hashes.
+    /// Enabled mode must fail closed when no node/subxt client is ready.
     #[tokio::test]
-    async fn test_placeholder_hash_determinism() {
-        let client = SubstrateClient {
-            ws_url: "ws://localhost:9944".into(),
-            http_url: "http://localhost:9944".into(),
-            connected: Arc::new(AtomicBool::new(false)),
-            client: Client::new(),
-            subxt: None,
-        };
-
-        let h1 = client
-            .pending_extrinsic("patientIdentity", "registerPatient", vec![])
-            .await
-            .unwrap();
-        let h2 = client
-            .pending_extrinsic("accessControl", "logAccess", vec![])
-            .await
-            .unwrap();
-
-        // Different call names → different hashes.
-        assert_ne!(
-            h1.hash, h2.hash,
-            "different call names must yield different hashes"
-        );
-        assert!(!h1.finalized && !h2.finalized);
-
-        // Both should still be correctly formatted.
-        assert!(h1.hash.starts_with("0x") && h1.hash.len() == 66);
-        assert!(h2.hash.starts_with("0x") && h2.hash.len() == 66);
-    }
-
-    /// HZ-002 regression: `log_access_on_chain` must be reachable and callable —
-    /// previously it had zero callers anywhere in `api/src`, making the on-chain
-    /// audit trail the code's own comments describe as a legal-reliability fix
-    /// entirely dead code. This does not require a live node: with no `subxt`
-    /// client, the call still resolves through the same placeholder path and
-    /// must return a well-formed, honestly-unfinalized `ChainTxResult`.
-    #[tokio::test]
-    async fn test_log_access_on_chain_is_reachable() {
+    async fn enabled_but_unready_blockchain_returns_typed_error() {
         let client = SubstrateClient {
             ws_url: "ws://localhost:9944".into(),
             http_url: "http://localhost:9944".into(),
@@ -965,21 +847,9 @@ mod tests {
         };
 
         let result = client
-            .log_access_on_chain("0xACCESSOR", "0xPATIENT", "READ")
-            .await
-            .expect("log_access_on_chain should not fail without a live node");
-        assert!(!result.finalized);
-        assert!(result.hash.starts_with("0x"));
-
-        let emergency = client
-            .log_access_on_chain("0xACCESSOR", "0xPATIENT", "EMERGENCY_ACCESS")
-            .await
-            .expect("log_access_on_chain should not fail without a live node");
-        assert!(!emergency.finalized);
-        // Routine vs. emergency route to different extrinsics (C5/F-05 routing,
-        // covered separately by `test_audit_call_routing`) and so, deterministically,
-        // to different placeholder hashes.
-        assert_ne!(result.hash, emergency.hash);
+            .pending_extrinsic_when_enabled(true, "AccessControl", "log_access", vec![])
+            .await;
+        assert!(matches!(result, Err(BlockchainError::NotReady(_))));
     }
 
     /// Serialises the two `from_env` tests.
@@ -1032,5 +902,160 @@ mod tests {
         }
 
         assert_eq!(url.as_deref(), Some("ws://localhost:9944"));
+    }
+
+    /// End-to-end: a real signed extrinsic through the production `subxt` path.
+    ///
+    /// What makes this meaningful is `wait_for_finalized_success` inside
+    /// `pending_extrinsic`. It errors unless the extrinsic was accepted by the
+    /// pool, included in a block, **executed successfully by the pallet** (a
+    /// dispatch error such as `NotHealthcareProvider` fails here even though the
+    /// extrinsic made it on chain), and that block was finalized by GRANDPA. A
+    /// returned `ChainTxResult` therefore covers inclusion, execution and
+    /// finality in one assertion.
+    ///
+    /// Ignored by default because it needs a running node; CI never runs it.
+    ///
+    /// ```text
+    /// # terminal 1
+    /// scripts/blockchain/run-dev-node.sh --persist
+    /// # terminal 2
+    /// SUBSTRATE_SIGNING_KEY=//Alice \
+    ///   cargo test --bin medichain-api -- --ignored --nocapture chain_e2e
+    /// # then read the value back off chain state
+    /// python3 scripts/blockchain/verify-capsule.py <patient> <commitment> <version>
+    /// ```
+    ///
+    /// Synthetic dev accounts only — never real patient data.
+    #[tokio::test]
+    #[ignore = "needs a running MediChain dev node; see docs/BLOCKCHAIN_NODE.md"]
+    async fn chain_e2e_capsule_commitment_reaches_finalized_success() {
+        let ws =
+            std::env::var("SUBSTRATE_WS_URL").unwrap_or_else(|_| "ws://127.0.0.1:9944".to_string());
+        std::env::set_var("BLOCKCHAIN_ENABLED", "true");
+        // The signer must hold a provider role on chain. The dev genesis grants
+        // //Alice `Role::Admin`, which satisfies `can_edit_medical_records`.
+        if std::env::var("SUBSTRATE_SIGNING_KEY").is_err() {
+            std::env::set_var("SUBSTRATE_SIGNING_KEY", "//Alice");
+        }
+
+        let client = SubstrateClient::new(&ws)
+            .await
+            .expect("could not connect to the dev node");
+        assert!(client.health_check().await, "node health check failed");
+
+        // Which account actually signs matters more than it looks: a signer that
+        // resolves to an unfunded account fails with "Inability to pay some
+        // fees", which reads like a chain problem rather than a key problem.
+        let signer = operator_signer().expect("operator signer");
+        let signer_pub: [u8; 32] = signer.public_key().0;
+        println!("signer pubkey 0x{}", hex::encode(signer_pub));
+
+        // Well-known dev account standing in for an existing patient.
+        const SYNTHETIC_PATIENT: &str = "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty";
+
+        // Unique per run, so the test can be repeated against a chain that
+        // already holds state from an earlier run.
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock is before the unix epoch")
+            .as_nanos();
+
+        // Every call is exercised in ONE test, sequentially, on purpose. They all
+        // sign with the same operator account, and separate parallel tests would
+        // race for the same transaction nonce.
+        let mut failures: Vec<String> = Vec::new();
+
+        // Asserts the shape of a successful submission and records, rather than
+        // panics on, a failure — so one broken call does not hide the other three.
+        fn check(label: &str, outcome: Result<ChainTxResult, BlockchainError>) -> Option<String> {
+            match outcome {
+                Ok(result) if result.finalized && result.hash.starts_with("0x") => {
+                    println!("  [OK]   {label:<34} tx {}", result.hash);
+                    None
+                }
+                Ok(result) => {
+                    println!("  [FAIL] {label:<34} suspicious result {result:?}");
+                    Some(format!(
+                        "{label}: finalized={} hash={}",
+                        result.finalized, result.hash
+                    ))
+                }
+                Err(e) => {
+                    println!("  [FAIL] {label:<34} {e}");
+                    Some(format!("{label}: {e}"))
+                }
+            }
+        }
+
+        // --- 1. PatientIdentity::register_patient -------------------------------
+        // Needs an account not already registered and an ID hash not already
+        // linked, so both are derived fresh from the run nonce. This is the only
+        // call carrying an enum argument (`NationalIdType`), which is encoded as a
+        // real variant — unlike `AccountId32`, which is a composite.
+        let mut fresh = [0u8; 32];
+        fresh[..16].copy_from_slice(&nonce.to_le_bytes());
+        fresh[16..].copy_from_slice(&nonce.to_le_bytes());
+        let fresh_patient = {
+            use sp_core::crypto::Ss58Codec;
+            sp_core::crypto::AccountId32::from(fresh).to_ss58check()
+        };
+        let id_hash = hex::encode(fresh);
+        failures.extend(check(
+            "PatientIdentity.register_patient",
+            client
+                .register_patient_on_chain(&fresh_patient, &id_hash, "FaydaID", "e2e")
+                .await,
+        ));
+
+        // --- 2. MedicalRecords::upsert_ipfs_hash --------------------------------
+        // Exercises a `Vec<u8>` argument encoded into the pallet's BoundedVec.
+        failures.extend(check(
+            "MedicalRecords.upsert_ipfs_hash",
+            client
+                .record_ipfs_hash_on_chain(
+                    SYNTHETIC_PATIENT,
+                    "QmSyntheticE2ETestHashOnlyNotRealContent00",
+                    "lab_result",
+                    "e2e",
+                )
+                .await,
+        ));
+
+        // --- 3. AccessControl::log_delegated_access -----------------------------
+        // Two [u8; 32] digests and a bool. Emits an event and writes no state.
+        failures.extend(check(
+            "AccessControl.log_delegated_access",
+            client
+                .log_access_on_chain(
+                    &format!("e2e-{nonce}"),
+                    "e2e-accessor",
+                    SYNTHETIC_PATIENT,
+                    "READ",
+                )
+                .await,
+        ));
+
+        // --- 4. MedicalRecords::upsert_emergency_capsule_commitment -------------
+        // The pallet requires a strictly increasing version per patient.
+        let commitment = "ab".repeat(32);
+        let version = (nonce / 1_000_000_000) as u32;
+        failures.extend(check(
+            "MedicalRecords.upsert_capsule",
+            client
+                .set_emergency_capsule_commitment_on_chain(SYNTHETIC_PATIENT, &commitment, version)
+                .await,
+        ));
+
+        println!("\nfresh patient {fresh_patient}");
+        println!("commitment    0x{commitment}");
+        println!("version       {version}");
+
+        assert!(
+            failures.is_empty(),
+            "{} of 4 chain writes did not reach finalized success:\n  {}",
+            failures.len(),
+            failures.join("\n  ")
+        );
     }
 }

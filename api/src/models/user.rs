@@ -33,6 +33,13 @@ pub struct DbUser {
     pub blockchain_address: Option<String>,
     pub blockchain_tx_hash: Option<String>,
     pub is_active: bool,
+    /// Account status: `active | inactive | suspended | pending`.
+    ///
+    /// Authoritative, and the reason this column exists: `is_active` alone
+    /// cannot represent `suspended`/`pending`, so persisting through the
+    /// boolean silently promoted both back to `active` on restart (H1 / D-1).
+    /// A DB constraint ties `is_active` to `status = 'active'`.
+    pub status: String,
     pub email_verified: bool,
     pub last_login_at: Option<DateTime<Utc>>,
     pub login_count: i32,
@@ -40,6 +47,22 @@ pub struct DbUser {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: Option<String>,
+}
+
+/// A user joined to the professional half of their profile.
+///
+/// H1 (issue #7): the logical user spans `users` and `user_profiles`, so
+/// reloading it needs both. Only the professional attributes are carried —
+/// `phone` and the other HZ-014 plaintext-PII columns are deliberately not
+/// read into the runtime model, because nothing writes them and surfacing
+/// them would imply a round trip that does not occur.
+#[derive(Debug, Clone, FromRow)]
+pub struct DbUserWithProfile {
+    #[sqlx(flatten)]
+    pub user: DbUser,
+    pub department: Option<String>,
+    pub specialty: Option<String>,
+    pub license_number: Option<String>,
 }
 
 /// User profile with extended information.

@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { MyRecordsPage } from './MyRecordsPage';
+import { usePatientAuthStore } from '../store/authStore';
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -20,18 +21,22 @@ describe('MyRecordsPage (Patient)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Mock localStorage
-    const authData = JSON.stringify({ patientId: mockPatientId });
-    localStorage.getItem = vi.fn().mockImplementation((key) => {
-      if (key === 'patient-auth') return authData;
-      return null;
+    usePatientAuthStore.setState({
+      patient: {
+        walletAddress: '5TestPatientWallet',
+        healthId: mockPatientId,
+        fullName: 'Test Patient',
+        firstName: 'Test',
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+      isAuthenticated: true,
     });
 
     mockFetch.mockImplementation((url) => {
       if (url.includes('/api/lab/patient/')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             submissions: [
               {
@@ -48,6 +53,7 @@ describe('MyRecordsPage (Patient)', () => {
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({ records: [] }),
       });
     });
@@ -77,7 +83,7 @@ describe('MyRecordsPage (Patient)', () => {
       expect(screen.getByText(/Blood Count/i)).toBeInTheDocument();
     });
 
-    const searchInput = screen.getByPlaceholderText(/Search your medical records/i);
+    const searchInput = screen.getByPlaceholderText(/Search records/i);
     fireEvent.change(searchInput, { target: { value: 'X-Ray' } });
 
     expect(screen.queryByText(/Blood Count/i)).not.toBeInTheDocument();
@@ -94,8 +100,9 @@ describe('MyRecordsPage (Patient)', () => {
       expect(screen.getByText(/Blood Count/i)).toBeInTheDocument();
     });
 
-    const filterSelect = screen.getByRole('combobox');
-    fireEvent.change(filterSelect, { target: { value: 'imaging' } });
+    // The type filter is a row of buttons, not a <select> — the generated test
+    // assumed a dropdown that does not exist.
+    fireEvent.click(screen.getByRole('button', { name: /Imaging/i }));
 
     expect(screen.queryByText(/Blood Count/i)).not.toBeInTheDocument();
   });
@@ -113,6 +120,6 @@ describe('MyRecordsPage (Patient)', () => {
     });
 
     expect(screen.getByText(/Record Details/i)).toBeInTheDocument();
-    expect(screen.getByText(/Hematology/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Hematology/i).length).toBeGreaterThan(0);
   });
 });

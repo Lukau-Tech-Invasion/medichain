@@ -127,7 +127,7 @@ const SplintPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-500 text-white p-6">
         <div className="flex items-center gap-3">
@@ -141,22 +141,22 @@ const SplintPage: React.FC = () => {
 
       {/* NV Warning */}
       {nvWarning && (
-        <div className="bg-red-600 text-white p-4 flex items-center gap-3">
+        <div className="bg-critical text-critical-fg p-4 flex items-center gap-3">
           <AlertTriangle className="w-6 h-6" />
           <span className="font-semibold">{t('docSplint.nvWarning')}</span>
         </div>
       )}
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {['new', 'history'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab as 'new' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-blue-600 border-b-2 border-blue-600'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                ? 'text-notice-subtle-fg border-b-2 border-blue-600'
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'new' ? t('docSplint.tabNew') : t('docSplint.tabHistory')}
             </button>
@@ -168,13 +168,13 @@ const SplintPage: React.FC = () => {
         {activeTab === 'new' ? (
           <div className="space-y-6">
             {/* Patient & Type */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docSplint.patientDevice')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="splint-patient" className="text-sm text-gray-600">{t('docSplint.patient')}</label>
+                  <label htmlFor="splint-patient" className="text-sm text-content-muted">{t('docSplint.patient')}</label>
                   <select
                     id="splint-patient"
                     value={selectedPatient}
@@ -188,7 +188,7 @@ const SplintPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-type" className="text-sm text-gray-600">{t('docSplint.type')}</label>
+                  <label htmlFor="splint-type" className="text-sm text-content-muted">{t('docSplint.type')}</label>
                   <select
                     id="splint-type"
                     value={type}
@@ -203,7 +203,7 @@ const SplintPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-material" className="text-sm text-gray-600">{t('docSplint.material')}</label>
+                  <label htmlFor="splint-material" className="text-sm text-content-muted">{t('docSplint.material')}</label>
                   <select
                     id="splint-material"
                     value={material}
@@ -218,7 +218,7 @@ const SplintPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-side" className="text-sm text-gray-600">{t('docSplint.side')}</label>
+                  <label htmlFor="splint-side" className="text-sm text-content-muted">{t('docSplint.side')}</label>
                   <select
                     id="splint-side"
                     value={side}
@@ -234,11 +234,11 @@ const SplintPage: React.FC = () => {
             </div>
 
             {/* Body Part & Indication */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docSplint.locationIndication')}</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="splint-body-part" className="text-sm text-gray-600">{t('docSplint.bodyPartLabel')}</label>
+                  <label htmlFor="splint-body-part" className="text-sm text-content-muted">{t('docSplint.bodyPartLabel')}</label>
                   <select
                     id="splint-body-part"
                     value={bodyPart}
@@ -252,7 +252,7 @@ const SplintPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-indication" className="text-sm text-gray-600">{t('docSplint.indicationLabel')}</label>
+                  <label htmlFor="splint-indication" className="text-sm text-content-muted">{t('docSplint.indicationLabel')}</label>
                   <select
                     id="splint-indication"
                     value={indication}
@@ -266,7 +266,7 @@ const SplintPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="splint-fracture-site" className="text-sm text-gray-600">{t('docSplint.fractureSite')}</label>
+                  <label htmlFor="splint-fracture-site" className="text-sm text-content-muted">{t('docSplint.fractureSite')}</label>
                   <input
                     id="splint-fracture-site"
                     type="text"
@@ -280,12 +280,12 @@ const SplintPage: React.FC = () => {
             </div>
 
             {/* NV Checks */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <CheckCircle className="w-5 h-5" /> {t('docSplint.nvAssessment')}
               </h2>
               <div className="grid md:grid-cols-2 gap-6">
-                <div className="p-3 bg-gray-50 rounded">
+                <div className="p-3 bg-surface-sunken rounded">
                   <h3 className="font-medium mb-2">{t('docSplint.preApplication')}</h3>
                   <label htmlFor="splint-pre-nv-intact" className="flex items-center gap-2 mb-2">
                     <input
@@ -294,7 +294,7 @@ const SplintPage: React.FC = () => {
                       checked={preNV.intact}
                       onChange={e => setPreNV({ ...preNV, intact: e.target.checked })}
                     />
-                    <span className={preNV.intact ? 'text-green-600' : 'text-red-600 font-semibold'}>
+                    <span className={preNV.intact ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg font-semibold'}>
                       {t('docSplint.nvStatusIntact')}
                     </span>
                   </label>
@@ -306,7 +306,7 @@ const SplintPage: React.FC = () => {
                     placeholder={t('docSplint.nvNotesPh')}
                   />
                 </div>
-                <div className="p-3 bg-gray-50 rounded">
+                <div className="p-3 bg-surface-sunken rounded">
                   <h3 className="font-medium mb-2">{t('docSplint.postApplication')}</h3>
                   <label htmlFor="splint-post-nv-intact" className="flex items-center gap-2 mb-2">
                     <input
@@ -315,7 +315,7 @@ const SplintPage: React.FC = () => {
                       checked={postNV.intact}
                       onChange={e => setPostNV({ ...postNV, intact: e.target.checked })}
                     />
-                    <span className={postNV.intact ? 'text-green-600' : 'text-red-600 font-semibold'}>
+                    <span className={postNV.intact ? 'text-ok-subtle-fg' : 'text-critical-subtle-fg font-semibold'}>
                       {t('docSplint.nvStatusIntact')}
                     </span>
                   </label>
@@ -331,7 +331,7 @@ const SplintPage: React.FC = () => {
             </div>
 
             {/* Quality Checklist */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docSplint.checklist')}</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <label htmlFor="splint-padding-adequate" className="flex items-center gap-2">
@@ -365,11 +365,11 @@ const SplintPage: React.FC = () => {
             </div>
 
             {/* Activity Restrictions */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docSplint.activityInstructions')}</h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="splint-weight-bearing" className="text-sm text-gray-600">{t('docSplint.weightBearing')}</label>
+                  <label htmlFor="splint-weight-bearing" className="text-sm text-content-muted">{t('docSplint.weightBearing')}</label>
                   <select
                     id="splint-weight-bearing"
                     value={weightBearing}
@@ -401,7 +401,7 @@ const SplintPage: React.FC = () => {
                   {t('docSplint.ice')}
                 </label>
                 <div>
-                  <label htmlFor="splint-follow-up" className="text-sm text-gray-600">{t('docSplint.followUp')}</label>
+                  <label htmlFor="splint-follow-up" className="text-sm text-content-muted">{t('docSplint.followUp')}</label>
                   <input
                     id="splint-follow-up"
                     type="text"
@@ -415,13 +415,13 @@ const SplintPage: React.FC = () => {
             </div>
 
             {/* Return Precautions */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" /> {t('docSplint.returnPrecautions')}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {returnPrecautionsList.map(p => (
-                  <label key={p} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedPrecautions.includes(p) ? 'bg-yellow-100 border-yellow-300' : 'bg-gray-50'}`}>
+                  <label key={p} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedPrecautions.includes(p) ? 'bg-caution-subtle border-caution' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={selectedPrecautions.includes(p)}
@@ -438,7 +438,7 @@ const SplintPage: React.FC = () => {
             </div>
 
             {/* Notes */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docSplint.notes')}</h2>
               <textarea
                 value={notes}
@@ -459,26 +459,26 @@ const SplintPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docSplint.noRecords')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docSplint.noRecords')}</div>
             ) : (
               records.map(r => (
-                <div key={r.id} className="bg-white rounded-lg shadow p-4">
+                <div key={r.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-gray-500">{new Date(r.appliedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{new Date(r.appliedAt).toLocaleString()}</p>
                     </div>
                     <div className="flex gap-2">
-                      <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-700 capitalize">{typeLabel(r.type)}</span>
-                      <span className={`px-2 py-1 text-xs rounded ${r.postApplicationNV.intact ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      <span className="px-2 py-1 text-xs rounded bg-notice-subtle text-notice-subtle-fg capitalize">{typeLabel(r.type)}</span>
+                      <span className={`px-2 py-1 text-xs rounded ${r.postApplicationNV.intact ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
                         {t('docSplint.nvLabel')} {r.postApplicationNV.intact ? t('docSplint.intact') : t('docSplint.compromised')}
                       </span>
                     </div>
                   </div>
                   <div className="text-sm">
                     <p><strong>{r.bodyPart}</strong> - {sideLabel(r.side)} {t('docSplint.sideSuffix')}</p>
-                    <p className="text-gray-600">{r.indication}</p>
-                    {r.followUp && <p className="text-blue-600">{t('docSplint.followUpPrefix', { value: r.followUp })}</p>}
+                    <p className="text-content-muted">{r.indication}</p>
+                    {r.followUp && <p className="text-notice-subtle-fg">{t('docSplint.followUpPrefix', { value: r.followUp })}</p>}
                   </div>
                 </div>
               ))

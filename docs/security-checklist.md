@@ -57,7 +57,30 @@ action required before go-live.
 - [ ] `JITSI_APP_SECRET` set to a strong random value; `JITSI_DOMAIN` is
       self-hosted + TLS.
 - [ ] `GET /api/health/telehealth` returns `healthy` from the prod LB.
-- [ ] Penetration test: attempt to join a room with (a) no token, (b) an expired
+- [x] Penetration test: attempt to join a room with (a) no token, (b) an expired
       token, (c) a token for a different room — all must be denied.
-- [ ] Confirm recording cannot be started by a patient/pharmacist account.
-- [ ] Confirm audit rows appear for join, recording-start, recording-stop.
+      **Covered by `test_jitsi_jwt_credentials_lifecycle` (`api/src/telehealth.rs`)**,
+      which asserts all three against `validate_token`, plus that the issued
+      token's own lifetime is the documented 30 minutes so the expiry check is
+      not vacuous. (b) was the leg that had no coverage until 2026-08-20.
+      Note this verifies **MediChain's** issuing and validation; that the Jitsi
+      deployment is configured to enforce the same remains a deployment check.
+- [x] Confirm recording cannot be started by a patient/pharmacist account.
+      **Was broken.** The gate asked `Role::is_healthcare_provider()`, which is
+      true for Pharmacist *and* LabTechnician, so a pharmacist could start
+      recording a patient's consultation — while `role_is_moderator()`, the
+      mapping that sets the Jitsi JWT's moderator claim, already excluded them.
+      Two definitions of "moderator" in one feature, and the security-relevant
+      gate used the wider one. Collapsed to the single definition and pinned by
+      `recording_authority_tests` (`clinical_endpoints/clinical_support/telehealth.rs`),
+      which decides every `Role` explicitly so a new variant cannot inherit a
+      default.
+- [x] Confirm audit rows appear for join, recording-start, recording-stop.
+      **Join wrote no audit row at all** — recording start/stop both did, joining
+      did not, so a provider could sit in a patient's video visit leaving no
+      trace in a system whose central claim is a tamper-evident access trail.
+      A `telehealth_session` / `joined` entry is now written for both patient and
+      provider, and a failed audit write is logged rather than discarded. The
+      recording rows also recorded `accessor_role: "moderator"` — not a real
+      role, so those rows fell outside every role-based audit query; they now
+      carry the caller's actual role.

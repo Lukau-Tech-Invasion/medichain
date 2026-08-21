@@ -27,9 +27,19 @@ pub async fn log_symptom(
         }
     };
 
-    // Get patient_id - patients log for themselves, providers can log for patients
+    // Get patient_id - patients log for themselves, providers can log for patients.
+    //
+    // A patient's entries must be filed under their PATIENT RECORD id, not their
+    // wallet: `GET /api/symptoms/{patient_id}` reads by record id, so filing by
+    // wallet meant a patient logged a symptom and then could not see it in their
+    // own history. `linked_patient_id` is the bridge between the two namespaces;
+    // the wallet remains the fallback for accounts that have not claimed a
+    // record yet, which is also the arm `caller_owns_patient_record` honours.
     let patient_id = if matches!(current_user.role, crate::Role::Patient) {
-        current_user_id.clone()
+        current_user
+            .linked_patient_id
+            .clone()
+            .unwrap_or_else(|| current_user_id.clone())
     } else {
         body.get("patient_id")
             .and_then(|p| p.as_str())
@@ -368,7 +378,7 @@ pub async fn get_messages(
     let wanted_suffix = if folder == "sent" { ":out" } else { ":in" };
     let mut messages: Vec<serde_json::Value> = records
         .into_iter()
-        .filter(|r| r.id.ends_with(wanted_suffix))
+        .filter(|r| folder == "all" || r.id.ends_with(wanted_suffix))
         .map(|r| r.data)
         .collect();
     messages.sort_by_key(|m| std::cmp::Reverse(m.get("sent_at").and_then(|v| v.as_i64())));
@@ -406,8 +416,10 @@ pub async fn get_messages(
                         None
                     }
                 })
-                .unwrap_or(&counterpart)
-                .to_string();
+                .map(str::to_string)
+                .or_else(|| crate::get_user(&data, &counterpart).map(|user| user.name))
+                .unwrap_or_else(|| counterpart.clone());
+            let counterpart_user = crate::get_user(&data, &counterpart);
             let unread = thread
                 .iter()
                 .filter(|m| {
@@ -419,7 +431,8 @@ pub async fn get_messages(
                 "id": counterpart,
                 "providerId": counterpart,
                 "providerName": counterpart_name,
-                "providerRole": latest.get("sender_role"),
+                "providerRole": counterpart_user.as_ref().map(|user| user.role.to_string()),
+                "specialty": counterpart_user.as_ref().and_then(|user| user.specialty.clone()),
                 "lastMessage": latest.get("content"),
                 "lastMessageTime": latest.get("sent_at"),
                 "unreadCount": unread,

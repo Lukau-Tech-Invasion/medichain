@@ -184,7 +184,7 @@ const CDSAlertsPage: React.FC = () => {
       isEnabled: newRule.isEnabled || false,
       testMode: newRule.testMode !== undefined ? newRule.testMode : true,
       targetRoles: newRule.targetRoles || ['doctor'],
-      evidenceLevel: newRule.evidenceLevel || 'C',
+      evidenceLevel: newRule.evidenceLevel || undefined,
       references: newRule.references || [],
     };
 
@@ -377,34 +377,34 @@ const CDSAlertsPage: React.FC = () => {
 
   const getSeverityBadge = (severity: AlertSeverity) => {
     const badges = {
-      critical: 'bg-red-100 text-red-800',
-      high: 'bg-orange-100 text-orange-800',
-      medium: 'bg-yellow-100 text-yellow-800',
-      low: 'bg-blue-100 text-blue-800',
-      info: 'bg-gray-100 text-gray-800',
+      critical: 'bg-critical-subtle text-critical-subtle-fg',
+      high: 'bg-surface-sunken text-content-secondary',
+      medium: 'bg-caution-subtle text-caution-subtle-fg',
+      low: 'bg-notice-subtle text-notice-subtle-fg',
+      info: 'bg-surface-sunken text-content-secondary',
     };
     return badges[severity];
   };
 
   const getStatusBadge = (status: AlertStatus) => {
     const badges = {
-      active: 'bg-green-100 text-green-800',
-      inactive: 'bg-gray-100 text-gray-800',
-      testing: 'bg-purple-100 text-purple-800',
-      draft: 'bg-yellow-100 text-yellow-800',
+      active: 'bg-ok-subtle text-ok-subtle-fg',
+      inactive: 'bg-surface-sunken text-content-secondary',
+      testing: 'bg-surface-sunken text-content-secondary',
+      draft: 'bg-caution-subtle text-caution-subtle-fg',
     };
     return badges[status];
   };
 
   const getCategoryBadge = (category: AlertCategory) => {
     const badges = {
-      medication: 'bg-blue-100 text-blue-800',
-      allergy: 'bg-red-100 text-red-800',
-      vital_signs: 'bg-green-100 text-green-800',
-      lab_results: 'bg-purple-100 text-purple-800',
-      diagnosis: 'bg-indigo-100 text-indigo-800',
-      procedure: 'bg-pink-100 text-pink-800',
-      clinical_pathway: 'bg-teal-100 text-teal-800',
+      medication: 'bg-notice-subtle text-notice-subtle-fg',
+      allergy: 'bg-critical-subtle text-critical-subtle-fg',
+      vital_signs: 'bg-ok-subtle text-ok-subtle-fg',
+      lab_results: 'bg-surface-sunken text-content-secondary',
+      diagnosis: 'bg-surface-sunken text-content-secondary',
+      procedure: 'bg-surface-sunken text-content-secondary',
+      clinical_pathway: 'bg-surface-sunken text-content-secondary',
     };
     return badges[category];
   };
@@ -443,19 +443,19 @@ const CDSAlertsPage: React.FC = () => {
           <Bell className="w-12 h-12" />
           <div>
             <h1 className="text-3xl font-bold">{t('docCDS.title')}</h1>
-            <p className="text-red-100 mt-1">{t('docCDS.subtitle')}</p>
+            <p className="text-critical-fg mt-1">{t('docCDS.subtitle')}</p>
           </div>
         </div>
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex gap-2 mb-6 border-b border-gray-200">
+      <div className="flex gap-2 mb-6 border-b border-border">
         <button
           onClick={() => setActiveTab('all')}
           className={`px-6 py-3 font-medium transition-colors ${
             activeTab === 'all'
-              ? 'border-b-2 border-red-600 text-red-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-red-600 text-critical-subtle-fg'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docCDS.tabAllRules', { count: rules.length })}
@@ -464,8 +464,8 @@ const CDSAlertsPage: React.FC = () => {
           onClick={() => setActiveTab('create')}
           className={`px-6 py-3 font-medium transition-colors ${
             activeTab === 'create'
-              ? 'border-b-2 border-red-600 text-red-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-red-600 text-critical-subtle-fg'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docCDS.tabCreateRule')}
@@ -474,8 +474,8 @@ const CDSAlertsPage: React.FC = () => {
           onClick={() => setActiveTab('analytics')}
           className={`px-6 py-3 font-medium transition-colors ${
             activeTab === 'analytics'
-              ? 'border-b-2 border-red-600 text-red-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-red-600 text-critical-subtle-fg'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docCDS.tabAnalytics')}
@@ -486,19 +486,19 @@ const CDSAlertsPage: React.FC = () => {
       {activeTab === 'all' && (
         <div>
           {/* Filters */}
-          <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="bg-surface rounded-lg shadow p-4 mb-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Search */}
               <div className="md:col-span-2 relative">
                 <label htmlFor="cds-search" className="sr-only">{t('docCDS.searchRulesSr')}</label>
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted w-5 h-5" />
                 <input
                   id="cds-search"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder={t('docCDS.searchPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 />
               </div>
 
@@ -509,7 +509,7 @@ const CDSAlertsPage: React.FC = () => {
                   id="cds-category-filter"
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value as AlertCategory | 'all')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
                   <option value="all">{t('docCDS.filterAllCategories')}</option>
                   <option value="medication">{t('docCDS.category_medication')}</option>
@@ -529,7 +529,7 @@ const CDSAlertsPage: React.FC = () => {
                   id="cds-severity-filter"
                   value={severityFilter}
                   onChange={(e) => setSeverityFilter(e.target.value as AlertSeverity | 'all')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
                   <option value="all">{t('docCDS.filterAllSeverities')}</option>
                   <option value="critical">{t('docCDS.severity_critical')}</option>
@@ -549,7 +549,7 @@ const CDSAlertsPage: React.FC = () => {
                   id="cds-status-filter"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as AlertStatus | 'all')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
                   <option value="all">{t('docCDS.filterAllStatuses')}</option>
                   <option value="active">{t('docCDS.status_active')}</option>
@@ -567,13 +567,13 @@ const CDSAlertsPage: React.FC = () => {
               {filteredRules.map(rule => {
                 const isExpanded = expandedRules.has(rule.ruleId);
                 return (
-                  <div key={rule.ruleId} className="bg-white rounded-lg shadow border border-gray-200 hover:shadow-md transition-shadow">
+                  <div key={rule.ruleId} className="bg-surface rounded-lg shadow border border-border hover:shadow-md transition-shadow">
                     {/* Rule Header */}
                     <div className="p-6">
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-xl font-bold text-gray-900">{rule.name}</h3>
+                            <h3 className="text-xl font-bold text-content">{rule.name}</h3>
                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSeverityBadge(rule.severity)}`}>
                               {t(`docCDS.severity_${rule.severity}`).toUpperCase()}
                             </span>
@@ -584,18 +584,18 @@ const CDSAlertsPage: React.FC = () => {
                               {t(`docCDS.category_${rule.category}`)}
                             </span>
                             {!rule.isEnabled && (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-200 text-gray-700">
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-surface-sunken text-content-secondary">
                                 {t('docCDS.disabledBadge')}
                               </span>
                             )}
                             {rule.testMode && (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-surface-sunken text-content-secondary">
                                 {t('docCDS.testModeBadge')}
                               </span>
                             )}
                           </div>
-                          <p className="text-gray-600 text-sm mb-3">{rule.description}</p>
-                          <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <p className="text-content-muted text-sm mb-3">{rule.description}</p>
+                          <div className="flex items-center gap-4 text-sm text-content-muted">
                             <span className="flex items-center gap-1">
                               <Code className="w-4 h-4" />
                               {rule.ruleId}
@@ -621,7 +621,7 @@ const CDSAlertsPage: React.FC = () => {
                         <div className="flex items-center gap-2 ml-4">
                           <button
                             onClick={() => toggleRuleExpansion(rule.ruleId)}
-                            className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="p-2 text-content-muted hover:bg-surface-sunken rounded-lg transition-colors"
                             title={isExpanded ? t('docCDS.collapseTitle') : t('docCDS.expandTitle')}
                           >
                             {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -630,8 +630,8 @@ const CDSAlertsPage: React.FC = () => {
                             onClick={() => handleToggleRule(rule.ruleId)}
                             className={`p-2 rounded-lg transition-colors ${
                               rule.isEnabled
-                                ? 'text-green-600 hover:bg-green-100'
-                                : 'text-gray-400 hover:bg-gray-100'
+                                ? 'text-ok-subtle-fg hover:bg-ok-subtle'
+                                : 'text-content-muted hover:bg-surface-sunken'
                             }`}
                             title={rule.isEnabled ? t('docCDS.disableRuleTitle') : t('docCDS.enableRuleTitle')}
                           >
@@ -639,21 +639,21 @@ const CDSAlertsPage: React.FC = () => {
                           </button>
                           <button
                             onClick={() => handleDuplicateRule(rule)}
-                            className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                            className="p-2 text-ok-subtle-fg hover:bg-ok-subtle rounded-lg transition-colors"
                             title={t('docCDS.duplicateRuleTitle')}
                           >
                             <Copy className="w-5 h-5" />
                           </button>
                           <button
                             onClick={() => handleExportRule(rule)}
-                            className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
+                            className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
                             title={t('docCDS.exportRuleTitle')}
                           >
                             <Download className="w-5 h-5" />
                           </button>
                           <button
                             onClick={() => handleDeleteRule(rule.ruleId)}
-                            className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors"
+                            className="p-2 text-critical-subtle-fg hover:bg-critical-subtle rounded-lg transition-colors"
                             title={t('docCDS.deleteRuleTitle')}
                           >
                             <Trash2 className="w-5 h-5" />
@@ -665,24 +665,24 @@ const CDSAlertsPage: React.FC = () => {
                       {isExpanded && (
                         <div className="mt-6 space-y-4 border-t pt-4">
                           {/* Conditions */}
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                          <div className="bg-notice-subtle border border-notice rounded-lg p-4">
+                            <h4 className="font-semibold text-notice-subtle-fg mb-3 flex items-center gap-2">
                               <Filter className="w-4 h-4" />
                               {t('docCDS.conditionsCount', { count: rule.conditions.length })}
                             </h4>
                             <div className="space-y-2">
                               {rule.conditions.map((condition, idx) => (
                                 <div key={condition.conditionId} className="flex items-center gap-2 text-sm">
-                                  <span className="bg-blue-200 text-blue-900 px-2 py-1 rounded font-medium">
+                                  <span className="bg-blue-200 text-notice-subtle-fg px-2 py-1 rounded font-medium">
                                     {condition.field}
                                   </span>
-                                  <span className="text-blue-700 font-mono">{getOperatorLabel(condition.operator)}</span>
-                                  <span className="bg-white text-blue-900 px-2 py-1 rounded border border-blue-300">
+                                  <span className="text-notice-subtle-fg font-mono">{getOperatorLabel(condition.operator)}</span>
+                                  <span className="bg-surface text-notice-subtle-fg px-2 py-1 rounded border border-notice">
                                     {condition.value}
                                     {condition.secondValue !== undefined && ` - ${condition.secondValue}`}
                                   </span>
                                   {idx < rule.conditions.length - 1 && condition.logicalOperator && (
-                                    <span className="text-blue-700 font-semibold">{condition.logicalOperator}</span>
+                                    <span className="text-notice-subtle-fg font-semibold">{condition.logicalOperator}</span>
                                   )}
                                 </div>
                               ))}
@@ -690,21 +690,21 @@ const CDSAlertsPage: React.FC = () => {
                           </div>
 
                           {/* Actions */}
-                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                            <h4 className="font-semibold text-orange-900 mb-3 flex items-center gap-2">
+                          <div className="bg-surface-sunken border border-orange-200 rounded-lg p-4">
+                            <h4 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
                               <AlertTriangle className="w-4 h-4" />
                               {t('docCDS.actionsCount', { count: rule.actions.length })}
                             </h4>
                             <div className="space-y-3">
                               {rule.actions.map(action => (
-                                <div key={action.actionId} className="bg-white border border-orange-300 rounded p-3">
+                                <div key={action.actionId} className="bg-surface border border-orange-300 rounded p-3">
                                   <div className="flex items-center gap-2 mb-2">
                                     <span className={`px-2 py-1 text-xs font-medium rounded ${
-                                      action.type === 'block' ? 'bg-red-100 text-red-800' :
-                                      action.type === 'alert' ? 'bg-orange-100 text-orange-800' :
-                                      action.type === 'notify' ? 'bg-blue-100 text-blue-800' :
-                                      action.type === 'recommend' ? 'bg-green-100 text-green-800' :
-                                      'bg-purple-100 text-purple-800'
+                                      action.type === 'block' ? 'bg-critical-subtle text-critical-subtle-fg' :
+                                      action.type === 'alert' ? 'bg-surface-sunken text-content-secondary' :
+                                      action.type === 'notify' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                                      action.type === 'recommend' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                      'bg-surface-sunken text-content-secondary'
                                     }`}>
                                       {t(`docCDS.actionType_${action.type}`).toUpperCase()}
                                     </span>
@@ -712,25 +712,25 @@ const CDSAlertsPage: React.FC = () => {
                                       {t(`docCDS.severity_${action.severity}`)}
                                     </span>
                                     {action.blockAction && (
-                                      <span className="px-2 py-1 text-xs font-medium rounded bg-red-100 text-red-800">
+                                      <span className="px-2 py-1 text-xs font-medium rounded bg-critical-subtle text-critical-subtle-fg">
                                         {t('docCDS.blockingBadge')}
                                       </span>
                                     )}
                                   </div>
-                                  <p className="text-sm text-gray-700 mb-2">{action.message}</p>
+                                  <p className="text-sm text-content-secondary mb-2">{action.message}</p>
                                   {action.suggestedAction && (
-                                    <div className="text-sm text-green-700 bg-green-50 p-2 rounded mt-2">
+                                    <div className="text-sm text-ok-subtle-fg bg-ok-subtle p-2 rounded mt-2">
                                       <span className="font-medium">{t('docCDS.suggestedLabel')}</span> {action.suggestedAction}
                                     </div>
                                   )}
                                   {action.notifyRoles && action.notifyRoles.length > 0 && (
-                                    <div className="text-xs text-gray-600 mt-2 flex items-center gap-1">
+                                    <div className="text-xs text-content-muted mt-2 flex items-center gap-1">
                                       <User className="w-3 h-3" />
                                       {t('docCDS.notifyLine', { roles: action.notifyRoles.join(', ') })}
                                     </div>
                                   )}
                                   {action.escalateTo && (
-                                    <div className="text-xs text-red-600 mt-2 flex items-center gap-1">
+                                    <div className="text-xs text-critical-subtle-fg mt-2 flex items-center gap-1">
                                       <AlertTriangle className="w-3 h-3" />
                                       {t('docCDS.escalateLine', { value: action.escalateTo })}
                                     </div>
@@ -742,39 +742,39 @@ const CDSAlertsPage: React.FC = () => {
 
                           {/* Metadata */}
                           <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div className="bg-gray-50 rounded p-3">
-                              <div className="flex items-center gap-2 text-gray-600 mb-1">
+                            <div className="bg-surface-sunken rounded p-3">
+                              <div className="flex items-center gap-2 text-content-muted mb-1">
                                 <User className="w-4 h-4" />
                                 {t('docCDS.createdByLabel')}
                               </div>
-                              <div className="font-medium text-gray-900">{rule.createdBy}</div>
-                              <div className="text-xs text-gray-500 mt-1">{formatDate(rule.createdAt)}</div>
+                              <div className="font-medium text-content">{rule.createdBy}</div>
+                              <div className="text-xs text-content-muted mt-1">{formatDate(rule.createdAt)}</div>
                             </div>
-                            <div className="bg-gray-50 rounded p-3">
-                              <div className="flex items-center gap-2 text-gray-600 mb-1">
+                            <div className="bg-surface-sunken rounded p-3">
+                              <div className="flex items-center gap-2 text-content-muted mb-1">
                                 <Clock className="w-4 h-4" />
                                 {t('docCDS.lastModifiedLabel')}
                               </div>
-                              <div className="text-xs text-gray-500 mt-1">{formatDate(rule.lastModified)}</div>
+                              <div className="text-xs text-content-muted mt-1">{formatDate(rule.lastModified)}</div>
                             </div>
                           </div>
 
                           {/* Evidence & References */}
                           {(rule.evidenceLevel || (rule.references && rule.references.length > 0)) && (
-                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                              <h4 className="font-semibold text-purple-900 mb-2">{t('docCDS.evidenceBaseTitle')}</h4>
+                            <div className="bg-surface-sunken border border-purple-200 rounded-lg p-4">
+                              <h4 className="font-semibold text-content-secondary mb-2">{t('docCDS.evidenceBaseTitle')}</h4>
                               {rule.evidenceLevel && (
                                 <div className="text-sm mb-2">
-                                  <span className="font-medium text-purple-700">{t('docCDS.evidenceLevelLabel')}</span>{' '}
-                                  <span className="bg-purple-200 text-purple-900 px-2 py-1 rounded">
+                                  <span className="font-medium text-content-secondary">{t('docCDS.evidenceLevelLabel')}</span>{' '}
+                                  <span className="bg-purple-200 text-content-secondary px-2 py-1 rounded">
                                     {rule.evidenceLevel}
                                   </span>
                                 </div>
                               )}
                               {rule.references && rule.references.length > 0 && (
                                 <div className="text-sm">
-                                  <span className="font-medium text-purple-700">{t('docCDS.referencesLabel')}</span>
-                                  <ul className="list-disc list-inside mt-1 text-gray-700">
+                                  <span className="font-medium text-content-secondary">{t('docCDS.referencesLabel')}</span>
+                                  <ul className="list-disc list-inside mt-1 text-content-secondary">
                                     {rule.references.map((ref, idx) => (
                                       <li key={idx}>{ref}</li>
                                     ))}
@@ -791,10 +791,10 @@ const CDSAlertsPage: React.FC = () => {
               })}
             </div>
           ) : (
-            <div className="bg-white rounded-lg shadow p-12 text-center">
+            <div className="bg-surface rounded-lg shadow p-12 text-center">
               <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-700 mb-2">{t('docCDS.noRulesTitle')}</h3>
-              <p className="text-gray-500">{t('docCDS.noRulesHint')}</p>
+              <h3 className="text-xl font-semibold text-content-secondary mb-2">{t('docCDS.noRulesTitle')}</h3>
+              <p className="text-content-muted">{t('docCDS.noRulesHint')}</p>
             </div>
           )}
         </div>
@@ -804,12 +804,12 @@ const CDSAlertsPage: React.FC = () => {
       {activeTab === 'create' && (
         <div className="space-y-6">
           {/* Basic Information */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">{t('docCDS.basicInfoTitle')}</h2>
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-content mb-4">{t('docCDS.basicInfoTitle')}</h2>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="cds-rule-name" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="cds-rule-name" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docCDS.ruleNameLabel')} <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -818,17 +818,17 @@ const CDSAlertsPage: React.FC = () => {
                     value={newRule.name || ''}
                     onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
                     placeholder={t('docCDS.ruleNamePh')}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="cds-category" className="block text-sm font-medium text-gray-700 mb-1">{t('docCDS.categoryLabel')}</label>
+                  <label htmlFor="cds-category" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.categoryLabel')}</label>
                   <select
                     id="cds-category"
                     value={newRule.category || 'medication'}
                     onChange={(e) => setNewRule({ ...newRule, category: e.target.value as AlertCategory })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   >
                     <option value="medication">{t('docCDS.category_medication')}</option>
                     <option value="allergy">{t('docCDS.category_allergy')}</option>
@@ -843,12 +843,12 @@ const CDSAlertsPage: React.FC = () => {
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="cds-severity" className="block text-sm font-medium text-gray-700 mb-1">{t('docCDS.severityLabel')}</label>
+                  <label htmlFor="cds-severity" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.severityLabel')}</label>
                   <select
                     id="cds-severity"
                     value={newRule.severity || 'medium'}
                     onChange={(e) => setNewRule({ ...newRule, severity: e.target.value as AlertSeverity })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   >
                     <option value="critical">{t('docCDS.severity_critical')}</option>
                     <option value="high">{t('docCDS.severity_high')}</option>
@@ -858,13 +858,32 @@ const CDSAlertsPage: React.FC = () => {
                   </select>
                 </div>
 
+                {/* Evidence level was initialised to 'B' with no control, so every
+                    authored rule asserted moderate literature support it had not
+                    been given. 'Unspecified' is the honest default: a rule with
+                    no stated evidence should say so rather than claim a grade. */}
                 <div>
-                  <label htmlFor="cds-trigger-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docCDS.triggerTypeLabel')}</label>
+                  <label htmlFor="cds-evidence-level" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.evidenceLevelFieldLabel')}</label>
+                  <select
+                    id="cds-evidence-level"
+                    value={newRule.evidenceLevel || ''}
+                    onChange={(e) => setNewRule({ ...newRule, evidenceLevel: e.target.value })}
+                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  >
+                    <option value="">{t('docCDS.evidence_unspecified')}</option>
+                    <option value="A">{t('docCDS.evidence_a')}</option>
+                    <option value="B">{t('docCDS.evidence_b')}</option>
+                    <option value="C">{t('docCDS.evidence_c')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="cds-trigger-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.triggerTypeLabel')}</label>
                   <select
                     id="cds-trigger-type"
                     value={newRule.triggerType || 'threshold'}
                     onChange={(e) => setNewRule({ ...newRule, triggerType: e.target.value as TriggerType })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   >
                     <option value="threshold">{t('docCDS.trigger_threshold')}</option>
                     <option value="pattern">{t('docCDS.trigger_pattern')}</option>
@@ -875,7 +894,7 @@ const CDSAlertsPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label htmlFor="cds-priority" className="block text-sm font-medium text-gray-700 mb-1">{t('docCDS.priorityLabel')}</label>
+                  <label htmlFor="cds-priority" className="block text-sm font-medium text-content-secondary mb-1">{t('docCDS.priorityLabel')}</label>
                   <input
                     id="cds-priority"
                     type="number"
@@ -883,13 +902,13 @@ const CDSAlertsPage: React.FC = () => {
                     max="10"
                     value={newRule.priority || 5}
                     onChange={(e) => setNewRule({ ...newRule, priority: parseInt(e.target.value) || 5 })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="cds-description" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="cds-description" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docCDS.descriptionLabel')} <span className="text-red-500">*</span>
                 </label>
                 <textarea
@@ -898,7 +917,7 @@ const CDSAlertsPage: React.FC = () => {
                   onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
                   placeholder={t('docCDS.descriptionPh')}
                   rows={3}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 />
               </div>
 
@@ -909,9 +928,9 @@ const CDSAlertsPage: React.FC = () => {
                     type="checkbox"
                     checked={newRule.isEnabled || false}
                     onChange={(e) => setNewRule({ ...newRule, isEnabled: e.target.checked })}
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    className="rounded border-border-strong text-critical-subtle-fg focus:ring-red-500"
                   />
-                  <span className="text-sm font-medium text-gray-700">{t('docCDS.enableRuleLabel')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docCDS.enableRuleLabel')}</span>
                 </label>
                 <label htmlFor="cds-test-mode" className="flex items-center gap-2">
                   <input
@@ -919,24 +938,24 @@ const CDSAlertsPage: React.FC = () => {
                     type="checkbox"
                     checked={newRule.testMode !== undefined ? newRule.testMode : true}
                     onChange={(e) => setNewRule({ ...newRule, testMode: e.target.checked })}
-                    className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    className="rounded border-border-strong text-critical-subtle-fg focus:ring-red-500"
                   />
-                  <span className="text-sm font-medium text-gray-700">{t('docCDS.testModeLabel')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docCDS.testModeLabel')}</span>
                 </label>
               </div>
             </div>
           </div>
 
           {/* Conditions */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Filter className="w-6 h-6 text-blue-600" />
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
+              <Filter className="w-6 h-6 text-notice-subtle-fg" />
               {t('docCDS.conditionsTitle')} <span className="text-red-500">*</span>
             </h2>
 
             {/* Add Condition Form */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-              <h3 className="font-semibold text-blue-900 mb-3">{t('docCDS.addConditionTitle')}</h3>
+            <div className="bg-notice-subtle border border-notice rounded-lg p-4 mb-4">
+              <h3 className="font-semibold text-notice-subtle-fg mb-3">{t('docCDS.addConditionTitle')}</h3>
               <div className="grid grid-cols-4 gap-3 mb-3">
                 <div>
                   <label htmlFor="cds-condition-field" className="sr-only">{t('docCDS.conditionFieldSr')}</label>
@@ -946,7 +965,7 @@ const CDSAlertsPage: React.FC = () => {
                     value={newCondition.field || ''}
                     onChange={(e) => setNewCondition({ ...newCondition, field: e.target.value })}
                     placeholder={t('docCDS.conditionFieldPh')}
-                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-notice rounded focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
@@ -955,7 +974,7 @@ const CDSAlertsPage: React.FC = () => {
                     id="cds-condition-operator"
                     value={newCondition.operator || 'equals'}
                     onChange={(e) => setNewCondition({ ...newCondition, operator: e.target.value as Condition['operator'] })}
-                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-notice rounded focus:ring-2 focus:ring-blue-500"
                   >
                   <option value="equals">{t('docCDS.op_equals_full')}</option>
                   <option value="not_equals">{t('docCDS.op_not_equals_full')}</option>
@@ -977,7 +996,7 @@ const CDSAlertsPage: React.FC = () => {
                     value={newCondition.value || ''}
                     onChange={(e) => setNewCondition({ ...newCondition, value: e.target.value })}
                     placeholder={t('docCDS.conditionValuePh')}
-                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-notice rounded focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
@@ -986,7 +1005,7 @@ const CDSAlertsPage: React.FC = () => {
                     id="cds-condition-logical"
                     value={newCondition.logicalOperator || 'AND'}
                     onChange={(e) => setNewCondition({ ...newCondition, logicalOperator: e.target.value as 'AND' | 'OR' })}
-                    className="w-full px-3 py-2 border border-blue-300 rounded focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-notice rounded focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="AND">AND</option>
                     <option value="OR">OR</option>
@@ -1005,24 +1024,24 @@ const CDSAlertsPage: React.FC = () => {
             {/* Current Conditions */}
             {newRule.conditions && newRule.conditions.length > 0 && (
               <div className="space-y-2">
-                <h3 className="font-semibold text-gray-900 mb-2">{t('docCDS.currentConditionsTitle', { count: newRule.conditions.length })}</h3>
+                <h3 className="font-semibold text-content mb-2">{t('docCDS.currentConditionsTitle', { count: newRule.conditions.length })}</h3>
                 {newRule.conditions.map((condition, idx) => (
-                  <div key={condition.conditionId} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded p-3">
+                  <div key={condition.conditionId} className="flex items-center justify-between bg-surface-sunken border border-border rounded p-3">
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="bg-blue-200 text-blue-900 px-2 py-1 rounded font-medium">
+                      <span className="bg-blue-200 text-notice-subtle-fg px-2 py-1 rounded font-medium">
                         {condition.field}
                       </span>
-                      <span className="text-blue-700 font-mono">{getOperatorLabel(condition.operator)}</span>
-                      <span className="bg-white text-blue-900 px-2 py-1 rounded border border-blue-300">
+                      <span className="text-notice-subtle-fg font-mono">{getOperatorLabel(condition.operator)}</span>
+                      <span className="bg-surface text-notice-subtle-fg px-2 py-1 rounded border border-notice">
                         {condition.value}
                       </span>
                       {newRule.conditions && idx < newRule.conditions.length - 1 && condition.logicalOperator && (
-                        <span className="text-blue-700 font-semibold">{condition.logicalOperator}</span>
+                        <span className="text-notice-subtle-fg font-semibold">{condition.logicalOperator}</span>
                       )}
                     </div>
                     <button
                       onClick={() => handleRemoveCondition(condition.conditionId)}
-                      className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                      className="p-1 text-critical-subtle-fg hover:bg-critical-subtle rounded transition-colors"
                       aria-label="Remove condition"
                     >
                       <X className="w-4 h-4" />
@@ -1034,15 +1053,15 @@ const CDSAlertsPage: React.FC = () => {
           </div>
 
           {/* Actions */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-6 h-6 text-orange-600" />
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-6 h-6 text-content-secondary" />
               {t('docCDS.actionsTitle')} <span className="text-red-500">*</span>
             </h2>
 
             {/* Add Action Form */}
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-              <h3 className="font-semibold text-orange-900 mb-3">{t('docCDS.addActionTitle')}</h3>
+            <div className="bg-surface-sunken border border-orange-200 rounded-lg p-4 mb-4">
+              <h3 className="font-semibold text-content-secondary mb-3">{t('docCDS.addActionTitle')}</h3>
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
                   <div>
@@ -1081,9 +1100,9 @@ const CDSAlertsPage: React.FC = () => {
                       type="checkbox"
                       checked={newAction.blockAction || false}
                       onChange={(e) => setNewAction({ ...newAction, blockAction: e.target.checked })}
-                      className="rounded border-orange-300 text-orange-600 focus:ring-orange-500"
+                      className="rounded border-orange-300 text-content-secondary focus:ring-orange-500"
                     />
-                    <span className="text-sm font-medium text-orange-900">{t('docCDS.blockActionLabel')}</span>
+                    <span className="text-sm font-medium text-content-secondary">{t('docCDS.blockActionLabel')}</span>
                   </label>
                 </div>
                 <div>
@@ -1121,17 +1140,17 @@ const CDSAlertsPage: React.FC = () => {
             {/* Current Actions */}
             {newRule.actions && newRule.actions.length > 0 && (
               <div className="space-y-3">
-                <h3 className="font-semibold text-gray-900 mb-2">{t('docCDS.currentActionsTitle', { count: newRule.actions.length })}</h3>
+                <h3 className="font-semibold text-content mb-2">{t('docCDS.currentActionsTitle', { count: newRule.actions.length })}</h3>
                 {newRule.actions.map(action => (
-                  <div key={action.actionId} className="bg-white border border-orange-300 rounded p-3">
+                  <div key={action.actionId} className="bg-surface border border-orange-300 rounded p-3">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-1 text-xs font-medium rounded ${
-                          action.type === 'block' ? 'bg-red-100 text-red-800' :
-                          action.type === 'alert' ? 'bg-orange-100 text-orange-800' :
-                          action.type === 'notify' ? 'bg-blue-100 text-blue-800' :
-                          action.type === 'recommend' ? 'bg-green-100 text-green-800' :
-                          'bg-purple-100 text-purple-800'
+                          action.type === 'block' ? 'bg-critical-subtle text-critical-subtle-fg' :
+                          action.type === 'alert' ? 'bg-surface-sunken text-content-secondary' :
+                          action.type === 'notify' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                          action.type === 'recommend' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                          'bg-surface-sunken text-content-secondary'
                         }`}>
                           {t(`docCDS.actionType_${action.type}`).toUpperCase()}
                         </span>
@@ -1139,22 +1158,22 @@ const CDSAlertsPage: React.FC = () => {
                           {t(`docCDS.severity_${action.severity}`)}
                         </span>
                         {action.blockAction && (
-                          <span className="px-2 py-1 text-xs font-medium rounded bg-red-100 text-red-800">
+                          <span className="px-2 py-1 text-xs font-medium rounded bg-critical-subtle text-critical-subtle-fg">
                             {t('docCDS.blockingBadge')}
                           </span>
                         )}
                       </div>
                       <button
                         onClick={() => handleRemoveAction(action.actionId)}
-                        className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                        className="p-1 text-critical-subtle-fg hover:bg-critical-subtle rounded transition-colors"
                         aria-label="Remove action"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
-                    <p className="text-sm text-gray-700">{action.message}</p>
+                    <p className="text-sm text-content-secondary">{action.message}</p>
                     {action.suggestedAction && (
-                      <p className="text-sm text-green-700 mt-2">{t('docCDS.suggestedPrefix', { value: action.suggestedAction })}</p>
+                      <p className="text-sm text-ok-subtle-fg mt-2">{t('docCDS.suggestedPrefix', { value: action.suggestedAction })}</p>
                     )}
                   </div>
                 ))}
@@ -1190,7 +1209,7 @@ const CDSAlertsPage: React.FC = () => {
             </button>
             <button
               onClick={handleCreateRule}
-              className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              className="flex items-center gap-2 px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors"
             >
               <Save className="w-5 h-5" />
               {t('docCDS.createRuleBtn')}
@@ -1203,31 +1222,31 @@ const CDSAlertsPage: React.FC = () => {
       {activeTab === 'analytics' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('docCDS.totalRulesTitle')}</h3>
-              <div className="text-3xl font-bold text-red-600">{rules.length}</div>
-              <div className="text-sm text-gray-600 mt-1">
+            <div className="bg-surface rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-content mb-2">{t('docCDS.totalRulesTitle')}</h3>
+              <div className="text-3xl font-bold text-critical-subtle-fg">{rules.length}</div>
+              <div className="text-sm text-content-muted mt-1">
                 {t('docCDS.activeCount', { count: rules.filter(r => r.isEnabled).length })}
               </div>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('docCDS.totalTriggersTitle')}</h3>
-              <div className="text-3xl font-bold text-orange-600">
+            <div className="bg-surface rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-content mb-2">{t('docCDS.totalTriggersTitle')}</h3>
+              <div className="text-3xl font-bold text-content-secondary">
                 {rules.reduce((sum, r) => sum + r.triggerCount, 0)}
               </div>
-              <div className="text-sm text-gray-600 mt-1">{t('docCDS.acrossAllRules')}</div>
+              <div className="text-sm text-content-muted mt-1">{t('docCDS.acrossAllRules')}</div>
             </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('docCDS.criticalRulesTitle')}</h3>
-              <div className="text-3xl font-bold text-red-600">
+            <div className="bg-surface rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold text-content mb-2">{t('docCDS.criticalRulesTitle')}</h3>
+              <div className="text-3xl font-bold text-critical-subtle-fg">
                 {rules.filter(r => r.severity === 'critical').length}
               </div>
-              <div className="text-sm text-gray-600 mt-1">{t('docCDS.highestPriority')}</div>
+              <div className="text-sm text-content-muted mt-1">{t('docCDS.highestPriority')}</div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docCDS.rulesByCategoryTitle')}</h3>
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-content mb-4">{t('docCDS.rulesByCategoryTitle')}</h3>
             <div className="space-y-2">
               {(['medication', 'allergy', 'vital_signs', 'lab_results', 'diagnosis', 'procedure', 'clinical_pathway'] as AlertCategory[]).map(category => {
                 const count = rules.filter(r => r.category === category).length;
@@ -1235,10 +1254,10 @@ const CDSAlertsPage: React.FC = () => {
                 return (
                   <div key={category}>
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-700 capitalize">{t(`docCDS.category_${category}`)}</span>
-                      <span className="text-gray-900 font-medium">{count} ({percentage.toFixed(0)}%)</span>
+                      <span className="text-content-secondary capitalize">{t(`docCDS.category_${category}`)}</span>
+                      <span className="text-content font-medium">{count} ({percentage.toFixed(0)}%)</span>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-surface-sunken rounded-full h-2">
                       <div
                         className={`h-2 rounded-full ${getCategoryBadge(category).split(' ')[0].replace('bg-', 'bg-').replace('-100', '-500')}`}
                         style={{ width: `${percentage}%` }}
@@ -1250,21 +1269,21 @@ const CDSAlertsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('docCDS.topTriggeredTitle')}</h3>
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold text-content mb-4">{t('docCDS.topTriggeredTitle')}</h3>
             <div className="space-y-3">
               {rules
                 .sort((a, b) => b.triggerCount - a.triggerCount)
                 .slice(0, 5)
                 .map(rule => (
-                  <div key={rule.ruleId} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                  <div key={rule.ruleId} className="flex items-center justify-between p-3 bg-surface-sunken rounded">
                     <div>
-                      <div className="font-medium text-gray-900">{rule.name}</div>
-                      <div className="text-sm text-gray-600">{rule.ruleId}</div>
+                      <div className="font-medium text-content">{rule.name}</div>
+                      <div className="text-sm text-content-muted">{rule.ruleId}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-2xl font-bold text-red-600">{rule.triggerCount}</div>
-                      <div className="text-xs text-gray-500">{t('docCDS.triggersLabel')}</div>
+                      <div className="text-2xl font-bold text-critical-subtle-fg">{rule.triggerCount}</div>
+                      <div className="text-xs text-content-muted">{t('docCDS.triggersLabel')}</div>
                     </div>
                   </div>
                 ))}

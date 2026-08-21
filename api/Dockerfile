@@ -23,8 +23,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # (node/ and runtime/ are excluded from the workspace and not built here.)
 COPY Cargo.toml Cargo.lock ./
 COPY crypto ./crypto
-COPY pallets ./pallets
 COPY api ./api
+# NOTE: no `COPY pallets`. The pallets moved to blockchain/pallets and left the
+# root workspace entirely; `api` never depended on them (its only path
+# dependency is `crypto`). Copying a path that no longer exists fails the build
+# outright, and this only surfaced when the image was first rebuilt after the
+# move — nothing else references this Dockerfile.
 
 # Build only the API binary (and its path dependencies).
 RUN cargo build --release -p medichain-api

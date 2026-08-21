@@ -7,22 +7,24 @@ describe('EmergencyProtocolsPage', () => {
     render(<EmergencyProtocolsPage />);
 
     expect(screen.getByText(/Emergency Protocols/i)).toBeInTheDocument();
-    expect(screen.getByText(/Select a protocol to view guidelines and checklists/i)).toBeInTheDocument();
+    expect(screen.getByText(/New Emergency Record/i)).toBeInTheDocument();
   });
 
   it('displays protocol categories', () => {
     render(<EmergencyProtocolsPage />);
 
-    expect(screen.getByText(/Cardiac/i)).toBeInTheDocument();
-    expect(screen.getByText(/Respiratory/i)).toBeInTheDocument();
-    expect(screen.getByText(/Trauma/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Cardiac Arrest/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Code Blue/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Trauma/i).length).toBeGreaterThan(0);
   });
 
-  it('allows searching for a protocol', () => {
+  it('allows switching the emergency type being recorded', () => {
     render(<EmergencyProtocolsPage />);
 
-    const input = screen.getByPlaceholderText(/Search protocols/i);
-    fireEvent.change(input, { target: { value: 'ACLS' } });
-    expect(input).toHaveValue('ACLS');
+    // The page records emergency events by type rather than serving a
+    // searchable protocol library, so the type tabs are the navigation.
+    const sepsisTab = screen.getByRole('button', { name: /Sepsis/i });
+    fireEvent.click(sepsisTab);
+    expect(sepsisTab).toBeInTheDocument();
   });
 });

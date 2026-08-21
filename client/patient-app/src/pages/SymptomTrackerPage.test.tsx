@@ -63,7 +63,7 @@ describe('SymptomTrackerPage (Patient)', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Symptom Tracker/i)).toBeInTheDocument();
-      expect(screen.getByText(/Headache/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Headache/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Morning headache/i)).toBeInTheDocument();
     });
   });
@@ -75,10 +75,13 @@ describe('SymptomTrackerPage (Patient)', () => {
       </MemoryRouter>
     );
 
-    const addButton = screen.getByText(/Log Symptom/i);
+    await waitFor(() =>
+      expect(screen.getByText(/Log New Symptom/i)).toBeInTheDocument()
+    );
+    const addButton = screen.getByText(/Log New Symptom/i);
     fireEvent.click(addButton);
 
-    expect(screen.getByText(/Select Category/i)).toBeInTheDocument();
+    expect(screen.getByText(/Log Symptom/i)).toBeInTheDocument();
     expect(screen.getByText(/Pain/i)).toBeInTheDocument();
     expect(screen.getByText(/Respiratory/i)).toBeInTheDocument();
   });

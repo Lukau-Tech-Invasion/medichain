@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -15,6 +20,14 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
+
+/** Choose the seeded patient — everything past the picker depends on it. */
+const selectPatient = async () => {
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /Test Patient/i })).toBeInTheDocument()
+  );
+  fireEvent.click(screen.getByRole('button', { name: /Test Patient/i }));
+};
 
 describe('IVSitePage', () => {
   const mockUser = {
@@ -27,28 +40,40 @@ describe('IVSitePage', () => {
     (useAuthStore as any).mockReturnValue({
       user: mockUser,
     });
-    (shared.getPatients as any).mockResolvedValue([]);
+    // IV sites hang off a patient: with no patient chosen the page shows only
+    // the picker, so the assessment tabs never render.
+    (shared.getPatients as any).mockResolvedValue([
+      { patient_id: 'PAT-001', full_name: 'Test Patient', health_id: 'MCHI-1' },
+    ]);
   });
 
   it('renders IV site page', () => {
     render(<IVSitePage />);
 
     expect(screen.getByText(/IV Site Management/i)).toBeInTheDocument();
-    expect(screen.getByText(/Documentation and monitoring of intravenous access sites/i)).toBeInTheDocument();
+    expect(screen.getByText(/Document and monitor intravenous access sites/i)).toBeInTheDocument();
   });
 
-  it('displays assessment criteria', () => {
+  it('displays assessment criteria', async () => {
     render(<IVSitePage />);
+    await selectPatient();
 
-    expect(screen.getByText(/Infiltration/i)).toBeInTheDocument();
-    expect(screen.getByText(/Phlebitis/i)).toBeInTheDocument();
+    // Both complications are staged, on their own scales: infiltration on the
+    // INS grade and phlebitis on the VIP score.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Infiltration/i).length).toBeGreaterThan(0)
+    );
+    expect(screen.getAllByText(/Phlebitis/i).length).toBeGreaterThan(0);
   });
 
-  it('allows selecting IV location', () => {
+  it('allows selecting IV location', async () => {
     render(<IVSitePage />);
+    await selectPatient();
 
+    // The entry form is its own tab; the page opens on the active-sites list.
+    fireEvent.click(screen.getByRole('button', { name: /Add New Site/i }));
     const select = screen.getByLabelText(/Insertion Site/i);
-    fireEvent.change(select, { target: { value: 'Right Forearm' } });
-    expect(select).toHaveValue('Right Forearm');
+    fireEvent.change(select, { target: { value: 'right-forearm' } });
+    expect(select).toHaveValue('right-forearm');
   });
 });

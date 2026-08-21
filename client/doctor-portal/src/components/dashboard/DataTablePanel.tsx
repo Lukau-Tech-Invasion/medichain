@@ -25,21 +25,39 @@ interface DataTablePanelProps<T> {
 }
 
 const headerColors = {
-  default: 'bg-white border-gray-200',
-  red: 'bg-red-50 border-red-200',
-  amber: 'bg-amber-50 border-amber-200',
-  green: 'bg-green-50 border-green-200',
-  blue: 'bg-blue-50 border-blue-200',
-  purple: 'bg-purple-50 border-purple-200',
+  default: 'bg-surface border-border',
+  red: 'bg-critical-subtle border-critical',
+  amber: 'bg-caution-subtle border-caution',
+  green: 'bg-ok-subtle border-ok',
+  blue: 'bg-notice-subtle border-notice',
+  purple: 'bg-surface-sunken border-border',
+};
+
+/**
+ * The count badge beside a panel heading.
+ *
+ * This was built at runtime as `bg-${headerColor}-100 text-${headerColor}-700`.
+ * Tailwind's JIT compiler scans source for *complete* class names, so a class
+ * assembled from a variable is never emitted -- the badge was styled by
+ * whichever of those names some other file happened to contain, and unstyled
+ * otherwise. A static lookup is both visible to the compiler and theme-aware.
+ */
+const headerCountColors: Record<NonNullable<DataTablePanelProps<never>['headerColor']>, string> = {
+  default: 'bg-surface-sunken text-content-muted',
+  red: 'bg-critical-subtle text-critical-subtle-fg',
+  amber: 'bg-caution-subtle text-caution-subtle-fg',
+  green: 'bg-ok-subtle text-ok-subtle-fg',
+  blue: 'bg-notice-subtle text-notice-subtle-fg',
+  purple: 'bg-surface-sunken text-content-secondary',
 };
 
 const headerTextColors = {
-  default: 'text-gray-900',
-  red: 'text-red-800',
-  amber: 'text-amber-800',
-  green: 'text-green-800',
-  blue: 'text-blue-800',
-  purple: 'text-purple-800',
+  default: 'text-content',
+  red: 'text-critical-subtle-fg',
+  amber: 'text-caution-subtle-fg',
+  green: 'text-ok-subtle-fg',
+  blue: 'text-notice-subtle-fg',
+  purple: 'text-content-secondary',
 };
 
 /**
@@ -84,7 +102,7 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
           {icon}
           <h3 className={`font-semibold ${headerTextColors[headerColor]}`}>{title}</h3>
           {!loading && data.length > 0 && (
-            <span className={`${headerColor === 'default' ? 'bg-gray-100 text-gray-600' : `bg-${headerColor}-100 text-${headerColor}-700`} text-xs px-2 py-0.5 rounded-full`}>
+            <span className={`${headerCountColors[headerColor]} text-xs px-2 py-0.5 rounded-full`}>
               {data.length}
             </span>
           )}
@@ -92,7 +110,12 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
         {viewAllLink && (
           <Link 
             to={viewAllLink}
-            className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1"
+            // `min-h-[24px]` and vertical padding, because a 14px line box in a
+            // flex row renders 20px tall — under WCAG 2.2 SC 2.5.8's 24x24 CSS
+            // px minimum (Level AA). The inline exception does not apply: this
+            // is a standalone control in a panel header, not a link inside a
+            // sentence.
+            className="text-brand hover:text-brand text-sm inline-flex items-center gap-1 min-h-[24px] py-1"
           >
             {viewAllLabel} <ArrowRight size={14} />
           </Link>
@@ -101,30 +124,30 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
 
       {/* Table */}
       {loading ? (
-        <div className="p-8 text-center bg-white">
+        <div className="p-8 text-center bg-surface">
           <Loader2 className="mx-auto mb-3 text-gray-300 animate-spin" size={48} />
-          <p className="text-gray-500">Loading...</p>
+          <p className="text-content-muted">Loading...</p>
         </div>
       ) : displayedData.length > 0 ? (
-        <div className="bg-white overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+        <div className="bg-surface overflow-x-auto">
+          <table className="min-w-full divide-y divide-border">
+            <thead className="bg-surface-sunken">
               <tr>
                 {columns.map((column) => (
                   <th 
                     key={String(column.key)}
-                    className={`px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${column.className || ''}`}
+                    className={`px-4 py-3 text-left text-xs font-medium text-content-muted uppercase tracking-wider ${column.className || ''}`}
                   >
                     {column.header}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-border">
               {displayedData.map((row) => (
                 <tr 
                   key={String(row[rowKey])}
-                  className={`hover:bg-gray-50 transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
+                  className={`hover:bg-surface-sunken transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
                   onClick={() => onRowClick?.(row)}
                 >
                   {columns.map((column) => {
@@ -146,7 +169,7 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
           </table>
         </div>
       ) : (
-        <div className="p-8 text-center text-gray-500 bg-white">
+        <div className="p-8 text-center text-content-muted bg-surface">
           {emptyIcon}
           <p className="mt-2">{emptyMessage}</p>
         </div>
@@ -154,10 +177,10 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
 
       {/* Footer */}
       {!loading && remainingCount > 0 && viewAllLink && (
-        <div className="p-3 bg-gray-50 text-center border-t border-gray-200">
+        <div className="p-3 bg-surface-sunken text-center border-t border-border">
           <Link 
             to={viewAllLink}
-            className="text-primary-600 hover:text-primary-700 text-sm"
+            className="text-brand hover:text-brand text-sm inline-flex items-center gap-1 min-h-[24px] py-1"
           >
             + {remainingCount} more →
           </Link>

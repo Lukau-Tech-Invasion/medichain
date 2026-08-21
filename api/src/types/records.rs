@@ -35,6 +35,10 @@ pub struct UploadMedicalRecordResponse {
     pub ipfs_hash: String,
     pub metadata_hash: String,
     pub record_reference: MedicalRecordReference,
+    pub record_chain_status: String,
+    pub record_blockchain_tx_hash: Option<String>,
+    pub access_chain_status: String,
+    pub access_blockchain_tx_hash: Option<String>,
     pub message: String,
 }
 

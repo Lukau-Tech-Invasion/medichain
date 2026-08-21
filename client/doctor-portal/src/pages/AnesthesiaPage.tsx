@@ -145,7 +145,7 @@ const AnesthesiaPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-cyan-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3">
@@ -158,15 +158,15 @@ const AnesthesiaPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {['record', 'history'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab as 'record' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-cyan-600 border-b-2 border-cyan-600'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                ? 'text-content-secondary border-b-2 border-cyan-600'
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'record' ? t('docAnesthesia.tabRecord') : t('docAnesthesia.tabHistory')}
             </button>
@@ -178,13 +178,13 @@ const AnesthesiaPage: React.FC = () => {
         {activeTab === 'record' ? (
           <div className="space-y-6">
             {/* Patient & Case Info */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docAnesthesia.patientCaseInfo')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="anes-patient" className="text-sm text-gray-600">{t('docAnesthesia.patient')}</label>
+                  <label htmlFor="anes-patient" className="text-sm text-content-muted">{t('docAnesthesia.patient')}</label>
                   <select
                     id="anes-patient"
                     value={selectedPatient}
@@ -198,7 +198,7 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anes-procedure" className="text-sm text-gray-600">{t('docAnesthesia.procedure')}</label>
+                  <label htmlFor="anes-procedure" className="text-sm text-content-muted">{t('docAnesthesia.procedure')}</label>
                   <input
                     id="anes-procedure"
                     type="text"
@@ -208,7 +208,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-asa-class" className="text-sm text-gray-600">{t('docAnesthesia.asaClass')}</label>
+                  <label htmlFor="anes-asa-class" className="text-sm text-content-muted">{t('docAnesthesia.asaClass')}</label>
                   <select                    id="anes-asa-class"                    value={asaClass}
                     onChange={e => setAsaClass(e.target.value as ASAClass)}
                     className="w-full border rounded p-2"
@@ -219,7 +219,7 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anes-type" className="text-sm text-gray-600">{t('docAnesthesia.anesthesiaType')}</label>
+                  <label htmlFor="anes-type" className="text-sm text-content-muted">{t('docAnesthesia.anesthesiaType')}</label>
                   <select
                     id="anes-type"
                     value={anesthesiaType}
@@ -239,11 +239,11 @@ const AnesthesiaPage: React.FC = () => {
             </div>
 
             {/* Airway */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docAnesthesia.airwayManagement')}</h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="anes-airway-type" className="text-sm text-gray-600">{t('docAnesthesia.airwayType')}</label>
+                  <label htmlFor="anes-airway-type" className="text-sm text-content-muted">{t('docAnesthesia.airwayType')}</label>
                   <select
                     id="anes-airway-type"
                     value={airwayType}
@@ -254,7 +254,7 @@ const AnesthesiaPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="anes-intubation-time" className="text-sm text-gray-600">{t('docAnesthesia.intubationTime')}</label>
+                  <label htmlFor="anes-intubation-time" className="text-sm text-content-muted">{t('docAnesthesia.intubationTime')}</label>
                   <input
                     id="anes-intubation-time"
                     type="time"
@@ -264,7 +264,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-extubation-time" className="text-sm text-gray-600">{t('docAnesthesia.extubationTime')}</label>
+                  <label htmlFor="anes-extubation-time" className="text-sm text-content-muted">{t('docAnesthesia.extubationTime')}</label>
                   <input
                     id="anes-extubation-time"
                     type="time"
@@ -277,13 +277,13 @@ const AnesthesiaPage: React.FC = () => {
             </div>
 
             {/* Medications */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Syringe className="w-5 h-5" /> {t('docAnesthesia.medications')}
               </h2>
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="anes-induction-agents" className="text-sm text-gray-600">{t('docAnesthesia.inductionAgents')}</label>
+                  <label htmlFor="anes-induction-agents" className="text-sm text-content-muted">{t('docAnesthesia.inductionAgents')}</label>
                   <input
                     id="anes-induction-agents"
                     type="text"
@@ -294,7 +294,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-maintenance-agents" className="text-sm text-gray-600">{t('docAnesthesia.maintenanceAgents')}</label>
+                  <label htmlFor="anes-maintenance-agents" className="text-sm text-content-muted">{t('docAnesthesia.maintenanceAgents')}</label>
                   <input
                     id="anes-maintenance-agents"
                     type="text"
@@ -305,7 +305,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-analgesics" className="text-sm text-gray-600">{t('docAnesthesia.analgesics')}</label>
+                  <label htmlFor="anes-analgesics" className="text-sm text-content-muted">{t('docAnesthesia.analgesics')}</label>
                   <input
                     id="anes-analgesics"
                     type="text"
@@ -316,7 +316,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-relaxants" className="text-sm text-gray-600">{t('docAnesthesia.relaxants')}</label>
+                  <label htmlFor="anes-relaxants" className="text-sm text-content-muted">{t('docAnesthesia.relaxants')}</label>
                   <input
                     id="anes-relaxants"
                     type="text"
@@ -327,7 +327,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-reversals" className="text-sm text-gray-600">{t('docAnesthesia.reversals')}</label>
+                  <label htmlFor="anes-reversals" className="text-sm text-content-muted">{t('docAnesthesia.reversals')}</label>
                   <input
                     id="anes-reversals"
                     type="text"
@@ -338,7 +338,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vasoactives" className="text-sm text-gray-600">{t('docAnesthesia.vasoactives')}</label>
+                  <label htmlFor="anes-vasoactives" className="text-sm text-content-muted">{t('docAnesthesia.vasoactives')}</label>
                   <input
                     id="anes-vasoactives"
                     type="text"
@@ -349,7 +349,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-antiemetics" className="text-sm text-gray-600">{t('docAnesthesia.antiemetics')}</label>
+                  <label htmlFor="anes-antiemetics" className="text-sm text-content-muted">{t('docAnesthesia.antiemetics')}</label>
                   <input
                     id="anes-antiemetics"
                     type="text"
@@ -363,13 +363,13 @@ const AnesthesiaPage: React.FC = () => {
             </div>
 
             {/* Fluids & I/O */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Droplets className="w-5 h-5" /> {t('docAnesthesia.fluidsBlood')}
               </h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div>
-                  <label htmlFor="anes-fluids" className="text-sm text-gray-600">{t('docAnesthesia.crystalloids')}</label>
+                  <label htmlFor="anes-fluids" className="text-sm text-content-muted">{t('docAnesthesia.crystalloids')}</label>
                   <input
                     id="anes-fluids"
                     type="text"
@@ -380,7 +380,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-blood-products" className="text-sm text-gray-600">{t('docAnesthesia.bloodProducts')}</label>
+                  <label htmlFor="anes-blood-products" className="text-sm text-content-muted">{t('docAnesthesia.bloodProducts')}</label>
                   <input
                     id="anes-blood-products"
                     type="text"
@@ -391,17 +391,17 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-ebl" className="text-sm text-gray-600">{t('docAnesthesia.ebl')}</label>
+                  <label htmlFor="anes-ebl" className="text-sm text-content-muted">{t('docAnesthesia.ebl')}</label>
                   <input
                     id="anes-ebl"
                     type="number"
                     value={ebl}
                     onChange={e => setEbl(Number(e.target.value))}
-                    className={`w-full border rounded p-2 ${ebl > 500 ? 'border-red-500 bg-red-50' : ''}`}
+                    className={`w-full border rounded p-2 ${ebl > 500 ? 'border-red-500 bg-critical-subtle' : ''}`}
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-urine-output" className="text-sm text-gray-600">{t('docAnesthesia.urineOutput')}</label>
+                  <label htmlFor="anes-urine-output" className="text-sm text-content-muted">{t('docAnesthesia.urineOutput')}</label>
                   <input
                     id="anes-urine-output"
                     type="number"
@@ -414,14 +414,14 @@ const AnesthesiaPage: React.FC = () => {
             </div>
 
             {/* Vitals Trend */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Heart className="w-5 h-5" /> {t('docAnesthesia.intraopVitals')}
               </h2>
               {vitals.length > 0 && (
                 <div className="overflow-x-auto mb-4">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-surface-sunken">
                       <tr>
                         <th className="p-2 text-left">{t('docAnesthesia.vitalTime')}</th>
                         <th className="p-2">BP</th>
@@ -450,7 +450,7 @@ const AnesthesiaPage: React.FC = () => {
               )}
               <div className="grid grid-cols-8 gap-2 items-end">
                 <div>
-                  <label htmlFor="anes-vital-time" className="text-xs text-gray-600">{t('docAnesthesia.vitalTime')}</label>
+                  <label htmlFor="anes-vital-time" className="text-xs text-content-muted">{t('docAnesthesia.vitalTime')}</label>
                   <input
                     id="anes-vital-time"
                     type="time"
@@ -460,7 +460,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vital-bp" className="text-xs text-gray-600">BP</label>
+                  <label htmlFor="anes-vital-bp" className="text-xs text-content-muted">BP</label>
                   <input
                     id="anes-vital-bp"
                     type="text"
@@ -470,7 +470,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vital-hr" className="text-xs text-gray-600">HR</label>
+                  <label htmlFor="anes-vital-hr" className="text-xs text-content-muted">HR</label>
                   <input
                     id="anes-vital-hr"
                     type="number"
@@ -480,7 +480,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vital-spo2" className="text-xs text-gray-600">SpO2</label>
+                  <label htmlFor="anes-vital-spo2" className="text-xs text-content-muted">SpO2</label>
                   <input
                     id="anes-vital-spo2"
                     type="number"
@@ -490,7 +490,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vital-etco2" className="text-xs text-gray-600">EtCO2</label>
+                  <label htmlFor="anes-vital-etco2" className="text-xs text-content-muted">EtCO2</label>
                   <input
                     id="anes-vital-etco2"
                     type="number"
@@ -500,7 +500,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vital-rr" className="text-xs text-gray-600">RR</label>
+                  <label htmlFor="anes-vital-rr" className="text-xs text-content-muted">RR</label>
                   <input
                     id="anes-vital-rr"
                     type="number"
@@ -510,7 +510,7 @@ const AnesthesiaPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="anes-vital-fio2" className="text-xs text-gray-600">FiO2%</label>
+                  <label htmlFor="anes-vital-fio2" className="text-xs text-content-muted">FiO2%</label>
                   <input
                     id="anes-vital-fio2"
                     type="number"
@@ -524,15 +524,15 @@ const AnesthesiaPage: React.FC = () => {
             </div>
 
             {/* Complications */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5" /> {t('docAnesthesia.complications')}
               </h2>
               <div className="flex flex-wrap gap-2">
                 {complicationsList.map(c => (
                   <label key={c} className={`px-3 py-1 rounded border text-sm cursor-pointer ${complications.includes(c)
-                    ? c === 'None' ? 'bg-green-100 border-green-300' : 'bg-red-100 border-red-300'
-                    : 'bg-gray-50'}`}>
+                    ? c === 'None' ? 'bg-ok-subtle border-ok' : 'bg-critical-subtle border-critical'
+                    : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={complications.includes(c)}
@@ -549,7 +549,7 @@ const AnesthesiaPage: React.FC = () => {
             </div>
 
             {/* Notes */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <label htmlFor="anes-notes" className="font-semibold mb-3 block">{t('docAnesthesia.notes')}</label>
               <textarea
                 id="anes-notes"
@@ -570,16 +570,16 @@ const AnesthesiaPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {records.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docAnesthesia.noRecords')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docAnesthesia.noRecords')}</div>
             ) : (
               records.map(r => (
-                <div key={r.id} className="bg-white rounded-lg shadow p-4">
+                <div key={r.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{r.patientName}</h3>
-                      <p className="text-sm text-gray-500">{new Date(r.documentedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{new Date(r.documentedAt).toLocaleString()}</p>
                     </div>
-                    <span className="px-2 py-1 text-xs rounded bg-cyan-100 text-cyan-700">
+                    <span className="px-2 py-1 text-xs rounded bg-surface-sunken text-content-secondary">
                       {t('docAnesthesia.asaBadge', { class: r.asaClass })}
                     </span>
                   </div>

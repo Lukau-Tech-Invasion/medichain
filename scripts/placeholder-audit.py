@@ -34,8 +34,11 @@ KEYWORDS = re.compile(r"TODO|FIXME|mock|placeholder|simulated|hardcoded|unimplem
 COMMENT = re.compile(r"^\s*(//|/\*|\*|#)")
 # UI noise: the `placeholder` input attribute, Tailwind's `placeholder-*` colour
 # utilities, and i18n keys ending in "Placeholder". None of these are defects.
+# `placeholder?: string` is an optional prop declaration, so the `?` has to be
+# allowed between the name and the colon or every typed component that accepts a
+# placeholder is reported as a defect.
 UI_ATTR = re.compile(
-    r"placeholder\s*[=:]|placeholder-[a-z]|[A-Za-z]Placeholder\b|placeholderText", re.I)
+    r"placeholder\??\s*[=:]|placeholder-[a-z]|[A-Za-z]Placeholder\b|placeholderText", re.I)
 DEBT = re.compile(r"\bTODO\b|\bFIXME\b", re.I)
 # `wiremock` spins up a real HTTP mock SERVER inside #[cfg(test)] blocks that
 # live in production-named files. That is test infrastructure, not a shipped mock.
@@ -49,10 +52,22 @@ DOCUMENTED_MARKERS = (
 )
 
 
-def classify(path: pathlib.Path, line: str, in_test_mod: bool) -> str:
+# Shipped features whose *subject* is simulation. `nfc_simulator.rs` is a named
+# component in the architecture: a demo deployment has no NFC reader, so tapping
+# a card is simulated on purpose and the response says so to the caller. Flagging
+# it as a placeholder would be flagging the feature.
+SIMULATION_IS_THE_FEATURE = ("api/src/nfc_simulator.rs", "api/src/handlers/national_id.rs")
+
+
+def classify(
+    path: pathlib.Path, line: str, in_test_mod: bool, in_block_comment: bool = False
+) -> str:
     rel = path.as_posix()
     low = line.lower()
-    if ".test." in rel or "/tests/" in rel or "/test/" in rel or rel.endswith("_tests.rs"):
+    # `/testing/` holds shared harness code (fetch mocks, fixtures) that is
+    # imported only by tests but does not live under a `tests/` directory.
+    if (".test." in rel or "/tests/" in rel or "/test/" in rel or "/testing/" in rel
+            or rel.endswith("_tests.rs")):
         return "TEST_SUPPORT"
     if in_test_mod or TEST_INFRA.search(line):
         return "TEST_SUPPORT"
@@ -60,10 +75,13 @@ def classify(path: pathlib.Path, line: str, in_test_mod: bool) -> str:
         return "UI_ATTR"
     if DEBT.search(line):
         return "DEBT_NOTE"
-    if COMMENT.match(line):
-        if any(m in low for m in DOCUMENTED_MARKERS):
-            return "DOCUMENTED"
+    # A continuation line inside a `/* ... */` or `{/* ... */}` block has no
+    # leading marker of its own, so without this the second and later lines of
+    # every explanatory comment were reported as executable defects.
+    if in_block_comment or COMMENT.match(line):
         return "DOCUMENTED"          # a comment alone changes no behaviour
+    if any(rel.endswith(p) for p in SIMULATION_IS_THE_FEATURE):
+        return "DOCUMENTED"
     return "BEHAVIOURAL"
 
 
@@ -102,11 +120,25 @@ def main() -> int:
                 test_mod_at = m.start()
 
             offset = 0
+            # Tracks whether the current line sits inside an unterminated
+            # `/* ... */` (or JSX `{/* ... */}`) block. Counting delimiters is
+            # enough here: these are comments, and a `/*` inside a string
+            # literal on a line that also matches a placeholder keyword would at
+            # worst mark one line as documentation.
+            in_block = False
             for i, line in enumerate(text.splitlines(), 1):
                 line_start, offset = offset, offset + len(line) + 1
+                was_in_block = in_block
+                opens, closes = line.count("/*"), line.count("*/")
+                if opens > closes:
+                    in_block = True
+                elif closes > opens:
+                    in_block = False
                 if not KEYWORDS.search(line):
                     continue
-                cat = classify(f.relative_to(REPO), line, line_start >= test_mod_at)
+                cat = classify(
+                    f.relative_to(REPO), line, line_start >= test_mod_at, was_in_block or in_block
+                )
                 counts[cat] += 1
                 hits.setdefault(cat, []).append(
                     f"{f.relative_to(REPO).as_posix()}:{i}: {line.strip()[:120]}")

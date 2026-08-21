@@ -182,38 +182,38 @@ const NoteTemplatesPage: React.FC = () => {
   const getTypeBadge = (type: TemplateType) => {
     switch (type) {
       case 'soap':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-notice-subtle text-notice-subtle-fg';
       case 'history-physical':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'discharge-summary':
-        return 'bg-green-100 text-green-800';
+        return 'bg-ok-subtle text-ok-subtle-fg';
       case 'consult':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'procedure':
-        return 'bg-pink-100 text-pink-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'progress-note':
-        return 'bg-indigo-100 text-indigo-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'op-note':
-        return 'bg-red-100 text-red-800';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   const getCategoryBadge = (category: TemplateCategory) => {
     switch (category) {
       case 'emergency':
-        return 'bg-red-100 text-red-800';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       case 'surgery':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'medicine':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-notice-subtle text-notice-subtle-fg';
       case 'pediatrics':
-        return 'bg-pink-100 text-pink-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'psychiatry':
-        return 'bg-indigo-100 text-indigo-800';
+        return 'bg-surface-sunken text-content-secondary';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-surface-sunken text-content-secondary';
     }
   };
 
@@ -242,13 +242,13 @@ const NoteTemplatesPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6 border-b border-gray-300">
+      <div className="flex gap-2 mb-6 border-b border-border-strong">
         <button
           onClick={() => setActiveTab('all')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'all'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-indigo-600 text-content-secondary'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docNoteTemplates.tabAllTemplates', { count: templates.length })}
@@ -257,8 +257,8 @@ const NoteTemplatesPage: React.FC = () => {
           onClick={() => setActiveTab('new')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'new'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-indigo-600 text-content-secondary'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docNoteTemplates.tabNewTemplate')}
@@ -267,8 +267,8 @@ const NoteTemplatesPage: React.FC = () => {
           onClick={() => setActiveTab('macros')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'macros'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-indigo-600 text-content-secondary'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docNoteTemplates.tabMacros')}
@@ -277,29 +277,29 @@ const NoteTemplatesPage: React.FC = () => {
 
       {activeTab === 'all' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="col-span-2">
-                <label htmlFor="notetmpl-search" className="block text-sm font-medium text-gray-700 mb-2">{t('docNoteTemplates.searchTemplatesLabel')}</label>
+                <label htmlFor="notetmpl-search" className="block text-sm font-medium text-content-secondary mb-2">{t('docNoteTemplates.searchTemplatesLabel')}</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted w-5 h-5" />
                   <input
                     id="notetmpl-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docNoteTemplates.searchTemplatesPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="notetmpl-filter-type" className="block text-sm font-medium text-gray-700 mb-2">{t('docNoteTemplates.filterByTypeLabel')}</label>
+                <label htmlFor="notetmpl-filter-type" className="block text-sm font-medium text-content-secondary mb-2">{t('docNoteTemplates.filterByTypeLabel')}</label>
                 <select
                   id="notetmpl-filter-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value as TemplateType | 'all')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="all">{t('docNoteTemplates.allTypes')}</option>
                   <option value="soap">{t('docNoteTemplates.type_soap')}</option>
@@ -317,12 +317,12 @@ const NoteTemplatesPage: React.FC = () => {
           {filteredTemplates.length > 0 ? (
             <div className="space-y-4">
               {filteredTemplates.map((template) => (
-                <div key={template.templateId} className="bg-white rounded-lg shadow p-6 border border-gray-300 hover:shadow-md transition-shadow">
+                <div key={template.templateId} className="bg-surface rounded-lg shadow p-6 border border-border-strong hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-start gap-3">
-                      <FileText className="w-6 h-6 text-indigo-600 mt-1" />
+                      <FileText className="w-6 h-6 text-content-secondary mt-1" />
                       <div>
-                        <h3 className="text-xl font-bold text-gray-900">{template.name}</h3>
+                        <h3 className="text-xl font-bold text-content">{template.name}</h3>
                         <div className="flex gap-2 mt-2">
                           <span className={`px-2 py-1 rounded-md text-xs font-medium ${getTypeBadge(template.type)}`}>
                             {t(`docNoteTemplates.type_${template.type}`).toUpperCase()}
@@ -331,7 +331,7 @@ const NoteTemplatesPage: React.FC = () => {
                             {t(`docNoteTemplates.category_${template.category}`).toUpperCase()}
                           </span>
                           {!template.isActive && (
-                            <span className="px-2 py-1 rounded-md text-xs font-medium bg-gray-200 text-gray-600">
+                            <span className="px-2 py-1 rounded-md text-xs font-medium bg-surface-sunken text-content-muted">
                               {t('docNoteTemplates.inactiveBadge')}
                             </span>
                           )}
@@ -355,7 +355,7 @@ const NoteTemplatesPage: React.FC = () => {
                       </button>
                       <button
                         onClick={() => handleDeleteTemplate(template.templateId)}
-                        className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2 text-sm"
+                        className="px-3 py-2 bg-red-500 text-critical-fg rounded-lg hover:bg-critical transition-colors flex items-center gap-2 text-sm"
                       >
                         <Trash2 className="w-4 h-4" />
                         {t('docNoteTemplates.deleteButton')}
@@ -363,9 +363,9 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <p className="text-gray-600 mb-4">{template.description}</p>
+                  <p className="text-content-muted mb-4">{template.description}</p>
 
-                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
+                  <div className="flex items-center gap-4 text-sm text-content-muted mb-4">
                     <div className="flex items-center gap-1">
                       <Clipboard className="w-4 h-4" />
                       <span>{t('docNoteTemplates.sectionsCount', { count: template.sections.length })}</span>
@@ -381,11 +381,11 @@ const NoteTemplatesPage: React.FC = () => {
                   </div>
 
                   {template.macros.length > 0 && (
-                    <div className="bg-indigo-50 border border-indigo-200 rounded p-3 mb-4">
-                      <div className="font-medium text-indigo-900 text-sm mb-2">{t('docNoteTemplates.availableMacrosLabel')}</div>
+                    <div className="bg-surface-sunken border border-indigo-200 rounded p-3 mb-4">
+                      <div className="font-medium text-content-secondary text-sm mb-2">{t('docNoteTemplates.availableMacrosLabel')}</div>
                       <div className="flex flex-wrap gap-2">
                         {template.macros.map((macro, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-mono">
+                          <span key={idx} className="px-2 py-1 bg-surface-sunken text-content-secondary rounded text-xs font-mono">
                             {macro}
                           </span>
                         ))}
@@ -393,31 +393,31 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="border-t border-gray-200 pt-4">
-                    <div className="font-medium text-gray-700 mb-3">{t('docNoteTemplates.templateSectionsCount', { count: template.sections.length })}</div>
+                  <div className="border-t border-border pt-4">
+                    <div className="font-medium text-content-secondary mb-3">{t('docNoteTemplates.templateSectionsCount', { count: template.sections.length })}</div>
                     <div className="space-y-2">
                       {template.sections.map((section) => (
-                        <div key={section.sectionId} className="bg-gray-50 rounded p-3 border border-gray-200">
+                        <div key={section.sectionId} className="bg-surface-sunken rounded p-3 border border-border">
                           <div className="flex items-center gap-2 mb-2">
-                            <span className="font-medium text-gray-900">{section.order}. {section.title}</span>
+                            <span className="font-medium text-content">{section.order}. {section.title}</span>
                             {section.required && (
-                              <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-medium">
+                              <span className="px-2 py-0.5 bg-critical-subtle text-critical-subtle-fg rounded text-xs font-medium">
                                 {t('docNoteTemplates.requiredBadge')}
                               </span>
                             )}
                           </div>
-                          <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap">{section.content}</pre>
+                          <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap">{section.content}</pre>
                         </div>
                       ))}
                     </div>
                   </div>
 
                   {template.tags.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="mt-4 pt-4 border-t border-border">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-gray-700">{t('docNoteTemplates.tagsLabel')}</span>
+                        <span className="text-sm font-medium text-content-secondary">{t('docNoteTemplates.tagsLabel')}</span>
                         {template.tags.map((tag, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-md text-xs">
+                          <span key={idx} className="px-2 py-1 bg-surface-sunken text-content-secondary rounded-md text-xs">
                             {tag}
                           </span>
                         ))}
@@ -425,44 +425,44 @@ const NoteTemplatesPage: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="mt-4 pt-4 border-t border-gray-200 grid grid-cols-2 gap-4 text-sm">
-                    <div className="bg-blue-50 rounded p-2">
-                      <div className="flex items-center gap-1 text-blue-700">
+                  <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4 text-sm">
+                    <div className="bg-notice-subtle rounded p-2">
+                      <div className="flex items-center gap-1 text-notice-subtle-fg">
                         <Clock className="w-4 h-4" />
                         <span className="font-medium">{t('docNoteTemplates.createdLabel')}</span>
                       </div>
-                      <div className="text-blue-900 ml-5">{formatDate(template.createdAt)}</div>
+                      <div className="text-notice-subtle-fg ml-5">{formatDate(template.createdAt)}</div>
                     </div>
-                    <div className="bg-green-50 rounded p-2">
-                      <div className="flex items-center gap-1 text-green-700">
+                    <div className="bg-ok-subtle rounded p-2">
+                      <div className="flex items-center gap-1 text-ok-subtle-fg">
                         <Clock className="w-4 h-4" />
                         <span className="font-medium">{t('docNoteTemplates.lastModifiedLabel')}</span>
                       </div>
-                      <div className="text-green-900 ml-5">{formatDate(template.lastModified)}</div>
+                      <div className="text-ok-subtle-fg ml-5">{formatDate(template.lastModified)}</div>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="bg-white rounded-lg shadow p-12 text-center">
-              <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">{t('docNoteTemplates.noTemplatesFoundHeading')}</h3>
-              <p className="text-gray-600">{t('docNoteTemplates.noTemplatesFoundMessage')}</p>
+            <div className="bg-surface rounded-lg shadow p-12 text-center">
+              <FileText className="w-16 h-16 text-content-muted mx-auto mb-4" />
+              <h3 className="text-xl font-semibold text-content mb-2">{t('docNoteTemplates.noTemplatesFoundHeading')}</h3>
+              <p className="text-content-muted">{t('docNoteTemplates.noTemplatesFoundMessage')}</p>
             </div>
           )}
         </div>
       )}
 
       {activeTab === 'new' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">{t('docNoteTemplates.createNewTemplateHeading')}</h2>
+        <div className="bg-surface rounded-lg shadow p-6">
+          <h2 className="text-2xl font-bold text-content mb-6">{t('docNoteTemplates.createNewTemplateHeading')}</h2>
 
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="notetmpl-name" className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('docNoteTemplates.templateNameRequired')} <span className="text-red-600">*</span>
+                <label htmlFor="notetmpl-name" className="block text-sm font-medium text-content-secondary mb-2">
+                  {t('docNoteTemplates.templateNameRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <input
                   id="notetmpl-name"
@@ -470,18 +470,18 @@ const NoteTemplatesPage: React.FC = () => {
                   value={newTemplate.name}
                   onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
                   placeholder={t('docNoteTemplates.templateNamePh')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
               </div>
               <div>
-                <label htmlFor="notetmpl-type" className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('docNoteTemplates.templateTypeRequired')} <span className="text-red-600">*</span>
+                <label htmlFor="notetmpl-type" className="block text-sm font-medium text-content-secondary mb-2">
+                  {t('docNoteTemplates.templateTypeRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <select
                   id="notetmpl-type"
                   value={newTemplate.type}
                   onChange={(e) => setNewTemplate({ ...newTemplate, type: e.target.value as TemplateType })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="soap">{t('docNoteTemplates.type_soap')}</option>
                   <option value="history-physical">{t('docNoteTemplates.type_history-physical')}</option>
@@ -496,14 +496,14 @@ const NoteTemplatesPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="notetmpl-category" className="block text-sm font-medium text-gray-700 mb-2">
-                  {t('docNoteTemplates.categoryRequired')} <span className="text-red-600">*</span>
+                <label htmlFor="notetmpl-category" className="block text-sm font-medium text-content-secondary mb-2">
+                  {t('docNoteTemplates.categoryRequired')} <span className="text-critical-subtle-fg">*</span>
                 </label>
                 <select
                   id="notetmpl-category"
                   value={newTemplate.category}
                   onChange={(e) => setNewTemplate({ ...newTemplate, category: e.target.value as TemplateCategory })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="general">{t('docNoteTemplates.category_general')}</option>
                   <option value="emergency">{t('docNoteTemplates.category_emergency')}</option>
@@ -514,21 +514,21 @@ const NoteTemplatesPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label htmlFor="notetmpl-tags" className="block text-sm font-medium text-gray-700 mb-2">{t('docNoteTemplates.tagsFieldLabel')}</label>
+                <label htmlFor="notetmpl-tags" className="block text-sm font-medium text-content-secondary mb-2">{t('docNoteTemplates.tagsFieldLabel')}</label>
                 <input
                   id="notetmpl-tags"
                   type="text"
                   value={newTemplate.tags?.join(', ')}
                   onChange={(e) => setNewTemplate({ ...newTemplate, tags: e.target.value.split(',').map(t => t.trim()) })}
                   placeholder={t('docNoteTemplates.tagsFieldPh')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="notetmpl-description" className="block text-sm font-medium text-gray-700 mb-2">
-                {t('docNoteTemplates.descriptionRequired')} <span className="text-red-600">*</span>
+              <label htmlFor="notetmpl-description" className="block text-sm font-medium text-content-secondary mb-2">
+                {t('docNoteTemplates.descriptionRequired')} <span className="text-critical-subtle-fg">*</span>
               </label>
               <textarea
                 id="notetmpl-description"
@@ -536,54 +536,54 @@ const NoteTemplatesPage: React.FC = () => {
                 onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
                 placeholder={t('docNoteTemplates.descriptionPh')}
                 rows={3}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
             </div>
 
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">
-                {t('docNoteTemplates.templateSectionsRequired')} <span className="text-red-600">*</span>
+            <div className="border-t border-border pt-6">
+              <h3 className="text-lg font-bold text-content mb-4">
+                {t('docNoteTemplates.templateSectionsRequired')} <span className="text-critical-subtle-fg">*</span>
               </h3>
 
               {newTemplate.sections && newTemplate.sections.length > 0 && (
                 <div className="space-y-2 mb-4">
                   {newTemplate.sections.map((section) => (
-                    <div key={section.sectionId} className="bg-gray-50 rounded p-3 border border-gray-200">
+                    <div key={section.sectionId} className="bg-surface-sunken rounded p-3 border border-border">
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">{section.order}. {section.title}</span>
+                          <span className="font-medium text-content">{section.order}. {section.title}</span>
                           {section.required && (
-                            <span className="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-medium">
+                            <span className="px-2 py-0.5 bg-critical-subtle text-critical-subtle-fg rounded text-xs font-medium">
                               {t('docNoteTemplates.requiredBadge')}
                             </span>
                           )}
                         </div>
                         <button
                           onClick={() => handleDeleteSection(section.sectionId)}
-                          className="text-red-600 hover:text-red-800"
+                          className="text-critical-subtle-fg hover:text-critical-subtle-fg"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                      <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap">{section.content}</pre>
+                      <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap">{section.content}</pre>
                     </div>
                   ))}
                 </div>
               )}
 
-              <div className="bg-indigo-50 border border-indigo-200 rounded p-4">
-                <h4 className="font-medium text-indigo-900 mb-3">{t('docNoteTemplates.addSectionHeading')}</h4>
+              <div className="bg-surface-sunken border border-indigo-200 rounded p-4">
+                <h4 className="font-medium text-content-secondary mb-3">{t('docNoteTemplates.addSectionHeading')}</h4>
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
-                      <label htmlFor="notetmpl-section-title" className="block text-sm font-medium text-gray-700 mb-1">{t('docNoteTemplates.sectionTitleLabel')}</label>
+                      <label htmlFor="notetmpl-section-title" className="block text-sm font-medium text-content-secondary mb-1">{t('docNoteTemplates.sectionTitleLabel')}</label>
                       <input
                         id="notetmpl-section-title"
                         type="text"
                         value={newSection.title}
                         onChange={(e) => setNewSection({ ...newSection, title: e.target.value })}
                         placeholder={t('docNoteTemplates.sectionTitlePh')}
-                        className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        className="w-full px-3 py-2 border border-border-strong rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       />
                     </div>
                     <div className="flex items-end">
@@ -593,21 +593,21 @@ const NoteTemplatesPage: React.FC = () => {
                           type="checkbox"
                           checked={newSection.required}
                           onChange={(e) => setNewSection({ ...newSection, required: e.target.checked })}
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
+                          className="w-4 h-4 text-content-secondary rounded focus:ring-2 focus:ring-indigo-500"
                         />
-                        <span className="text-sm font-medium text-gray-700">{t('docNoteTemplates.requiredCheckbox')}</span>
+                        <span className="text-sm font-medium text-content-secondary">{t('docNoteTemplates.requiredCheckbox')}</span>
                       </label>
                     </div>
                   </div>
                   <div>
-                    <label htmlFor="notetmpl-section-content" className="block text-sm font-medium text-gray-700 mb-1">{t('docNoteTemplates.sectionContentLabel')}</label>
+                    <label htmlFor="notetmpl-section-content" className="block text-sm font-medium text-content-secondary mb-1">{t('docNoteTemplates.sectionContentLabel')}</label>
                     <textarea
                       id="notetmpl-section-content"
                       value={newSection.content}
                       onChange={(e) => setNewSection({ ...newSection, content: e.target.value })}
                       placeholder={t('docNoteTemplates.sectionContentPh')}
                       rows={4}
-                      className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm"
+                      className="w-full px-3 py-2 border border-border-strong rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono text-sm"
                     />
                   </div>
                   <button
@@ -621,7 +621,7 @@ const NoteTemplatesPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex justify-end pt-4 border-t border-gray-200">
+            <div className="flex justify-end pt-4 border-t border-border">
               <button
                 onClick={handleCreateTemplate}
                 className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-semibold flex items-center gap-2"
@@ -635,22 +635,22 @@ const NoteTemplatesPage: React.FC = () => {
       )}
 
       {activeTab === 'macros' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">{t('docNoteTemplates.macroLibraryHeading')}</h2>
-          <p className="text-gray-600 mb-6">
+        <div className="bg-surface rounded-lg shadow p-6">
+          <h2 className="text-2xl font-bold text-content mb-4">{t('docNoteTemplates.macroLibraryHeading')}</h2>
+          <p className="text-content-muted mb-6">
             {t('docNoteTemplates.macroLibraryIntro')}
           </p>
 
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">{t('docNoteTemplates.vitalSignsHeading')}</h3>
+              <h3 className="text-lg font-bold text-content mb-3">{t('docNoteTemplates.vitalSignsHeading')}</h3>
               <div className="space-y-3">
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@vitals</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_vitals')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@vitals</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_vitals')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Vital Signs:
 Temperature: ___ °F (___ °C)
 Blood Pressure: ___ / ___ mmHg
@@ -663,14 +663,14 @@ Oxygen Saturation: ___ % on [RA/O2 ___L]
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">{t('docNoteTemplates.reviewOfSystemsHeading')}</h3>
+              <h3 className="text-lg font-bold text-content mb-3">{t('docNoteTemplates.reviewOfSystemsHeading')}</h3>
               <div className="space-y-3">
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@ros-neg</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_rosNeg')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@ros-neg</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_rosNeg')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Complete review of systems negative except as noted in HPI. Specifically denies:
 Constitutional: fever, chills, weight changes
 HEENT: vision changes, hearing loss
@@ -684,12 +684,12 @@ Skin: rash, lesions
                   </pre>
                 </div>
 
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@fullros</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_fullRos')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@fullros</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_fullRos')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Constitutional: [ ] fever [ ] chills [ ] weight change [ ] fatigue
 HEENT: [ ] vision changes [ ] hearing loss [ ] sore throat
 Cardiovascular: [ ] chest pain [ ] palpitations [ ] edema
@@ -706,14 +706,14 @@ Skin: [ ] rash [ ] lesions [ ] itching
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">{t('docNoteTemplates.physicalExamHeading')}</h3>
+              <h3 className="text-lg font-bold text-content mb-3">{t('docNoteTemplates.physicalExamHeading')}</h3>
               <div className="space-y-3">
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@pe-normal</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_peNormal')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@pe-normal</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_peNormal')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 General: Alert and oriented x3, in no acute distress, appears stated age
 HEENT: Normocephalic, atraumatic. PERRLA, EOMI. TMs clear bilaterally. Oropharynx clear.
 Neck: Supple, no lymphadenopathy, no JVD
@@ -729,26 +729,26 @@ Skin: Warm, dry, no rash or lesions
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">{t('docNoteTemplates.medsAllergiesHeading')}</h3>
+              <h3 className="text-lg font-bold text-content mb-3">{t('docNoteTemplates.medsAllergiesHeading')}</h3>
               <div className="space-y-3">
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@meds</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_meds')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@meds</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_meds')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Current Medications:
 1. [Drug name] [Dose] [Route] [Frequency] - [Indication]
 2. [Drug name] [Dose] [Route] [Frequency] - [Indication]
                   </pre>
                 </div>
 
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@allergies</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_allergies')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@allergies</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_allergies')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Allergies:
 - [Drug/Substance]: [Reaction/Severity]
 - NKDA (No Known Drug Allergies)
@@ -758,14 +758,14 @@ Allergies:
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">{t('docNoteTemplates.labsDiagnosticsHeading')}</h3>
+              <h3 className="text-lg font-bold text-content mb-3">{t('docNoteTemplates.labsDiagnosticsHeading')}</h3>
               <div className="space-y-3">
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@labs</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_labs')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@labs</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_labs')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Laboratory Results:
 CBC: WBC ___, Hgb ___, Plt ___
 BMP: Na ___, K ___, Cl ___, CO2 ___, BUN ___, Cr ___, Glucose ___
@@ -776,14 +776,14 @@ LFTs: AST ___, ALT ___, Alk Phos ___, Total bili ___
             </div>
 
             <div>
-              <h3 className="text-lg font-bold text-gray-900 mb-3">{t('docNoteTemplates.dischargeInstructionsHeading')}</h3>
+              <h3 className="text-lg font-bold text-content mb-3">{t('docNoteTemplates.dischargeInstructionsHeading')}</h3>
               <div className="space-y-3">
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@discharge-meds</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_dischargeMeds')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@discharge-meds</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_dischargeMeds')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Discharge Medications:
 1. [Drug] [Dose] [Route] [Frequency]
    - Take for: [Indication]
@@ -792,12 +792,12 @@ Discharge Medications:
                   </pre>
                 </div>
 
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@instructions</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_instructions')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@instructions</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_instructions')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Discharge Instructions:
 Activity: [Level]
 Diet: [Type]
@@ -807,12 +807,12 @@ Return to ED if: fever greater than 101°F, worsening symptoms, new concerning s
                   </pre>
                 </div>
 
-                <div className="bg-gray-50 rounded p-4 border border-gray-200">
+                <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@followup</code>
-                    <span className="text-sm text-gray-600">- {t('docNoteTemplates.macroDesc_followup')}</span>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@followup</code>
+                    <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_followup')}</span>
                   </div>
-                  <pre className="text-sm text-gray-600 font-mono whitespace-pre-wrap bg-white p-3 rounded border border-gray-200">
+                  <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
 Follow-up:
 - Primary Care: [Provider name] in [timeframe]
 - Specialist: [Provider name/specialty] in [timeframe]

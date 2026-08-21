@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -34,15 +39,15 @@ describe('PostOpPage', () => {
     render(<PostOpPage />);
 
     expect(screen.getByText(/Post-Operative Care/i)).toBeInTheDocument();
-    expect(screen.getByText(/PACU documentation and recovery monitoring/i)).toBeInTheDocument();
+    expect(screen.getByText(/PACU assessment and discharge criteria/i)).toBeInTheDocument();
   });
 
   it('displays assessment sections', () => {
     render(<PostOpPage />);
 
-    expect(screen.getByText(/Neurological/i)).toBeInTheDocument();
-    expect(screen.getByText(/Cardiovascular/i)).toBeInTheDocument();
-    expect(screen.getByText(/Respiratory/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Aldrete Score/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Pain Score \(0-10\)/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Discharge Criteria/i).length).toBeGreaterThan(0);
   });
 
   it('allows entering aldrete score', () => {

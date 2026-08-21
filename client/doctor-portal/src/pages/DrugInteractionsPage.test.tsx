@@ -5,16 +5,32 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
 // Mock shared utilities
 vi.mock('@medichain/shared', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  checkDrugInteractions: vi.fn(),
   apiUrl: (path: string) => path,
 }));
+
+// The page calls fetch directly for /api/drugs and /api/interactions/check.
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
+const json = (body: unknown) =>
+  Promise.resolve({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: () => Promise.resolve(body),
+  });
 
 describe('DrugInteractionsPage', () => {
   const mockUser = {
@@ -27,45 +43,80 @@ describe('DrugInteractionsPage', () => {
     (useAuthStore as any).mockReturnValue({
       user: mockUser,
     });
+
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
+      if (url.includes('/api/interactions/check')) {
+        return json({
+          interactions: [
+            {
+              drug_a: 'Warfarin',
+              drug_b: 'Aspirin',
+              severity: 'major',
+              description: 'Major interaction between Warfarin and Aspirin',
+              clinical_effects: 'Increased bleeding risk',
+              management: 'Monitor INR closely',
+            },
+          ],
+        });
+      }
+      if (url.includes('/api/drugs')) {
+        return json({
+          success: true,
+          drugs: [
+            {
+              drugId: 'D-1', name: 'Warfarin', genericName: 'warfarin sodium',
+              brandNames: ['Coumadin'], drugClass: 'Anticoagulant',
+              route: 'PO', form: 'tablet', commonDoses: ['5 mg'],
+            },
+            {
+              drugId: 'D-2', name: 'Aspirin', genericName: 'acetylsalicylic acid',
+              brandNames: ['Disprin'], drugClass: 'Antiplatelet',
+              route: 'PO', form: 'tablet', commonDoses: ['75 mg'],
+            },
+          ],
+        });
+      }
+      return json({});
+    });
   });
 
   it('renders drug interactions page', () => {
     render(<DrugInteractionsPage />);
 
     expect(screen.getByText(/Drug Interaction Checker/i)).toBeInTheDocument();
-    expect(screen.getByText(/Check for potential interactions between multiple medications/i)).toBeInTheDocument();
+    expect(screen.getByText(/Check for drug-drug, drug-allergy, and other medication interactions/i)).toBeInTheDocument();
   });
 
-  it('allows adding medications to check', () => {
+  it('allows adding medications to check', async () => {
     render(<DrugInteractionsPage />);
 
-    const input = screen.getByPlaceholderText(/Add medication to list/i);
+    // Drugs are picked from the loaded database, not free-typed: the search
+    // filters `/api/drugs` and each result is a button that adds it.
+    const input = screen.getByPlaceholderText(/Search by drug name/i);
     fireEvent.change(input, { target: { value: 'Warfarin' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
 
-    expect(screen.getByText('Warfarin')).toBeInTheDocument();
+    const result = await screen.findByRole('button', { name: /Warfarin/i });
+    fireEvent.click(result);
+
+    expect(screen.getAllByText(/Warfarin/i).length).toBeGreaterThan(0);
   });
 
   it('performs interaction check', async () => {
-    (shared.checkDrugInteractions as any).mockResolvedValue({
-      interactions: [
-        { severity: 'High', description: 'Major interaction between Warfarin and Aspirin' }
-      ]
-    });
-
     render(<DrugInteractionsPage />);
 
-    const input = screen.getByPlaceholderText(/Add medication to list/i);
-    fireEvent.change(input, { target: { value: 'Warfarin' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
-    fireEvent.change(input, { target: { value: 'Aspirin' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    const input = screen.getByPlaceholderText(/Search by drug name/i);
+    for (const drug of ['Warfarin', 'Aspirin']) {
+      fireEvent.change(input, { target: { value: drug } });
+      fireEvent.click(await screen.findByRole('button', { name: new RegExp(drug, 'i') }));
+    }
 
-    const checkButton = screen.getByText(/Check Interactions/i);
-    fireEvent.click(checkButton);
+    fireEvent.click(screen.getByText(/Check Interactions/i));
 
     await waitFor(() => {
-      expect(screen.getByText(/Major interaction between Warfarin and Aspirin/i)).toBeInTheDocument();
+      expect(
+        screen.getAllByText(/Major interaction between Warfarin and Aspirin/i).length
+      ).toBeGreaterThan(0);
     });
   });
 });

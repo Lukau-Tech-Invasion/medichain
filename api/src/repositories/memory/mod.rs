@@ -132,6 +132,8 @@ mod emergency_capsules;
 pub use emergency_capsules::MemoryEmergencyCapsuleRepository;
 mod retention_execution;
 pub use retention_execution::MemoryRetentionExecutionRepository;
+mod patient_access;
+pub use patient_access::MemoryPatientAccessRepository;
 
 // Phase 7-10 repositories
 mod phase5;

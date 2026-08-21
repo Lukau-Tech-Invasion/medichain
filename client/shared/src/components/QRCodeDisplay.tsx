@@ -58,12 +58,12 @@ export function QRCodeDisplay({
       <div className="flex flex-col items-center">
         <div 
           className={clsx(
-            'bg-white border-2 border-gray-200 rounded-lg flex items-center justify-center mb-4',
+            'bg-surface border-2 border-border rounded-lg flex items-center justify-center mb-4',
             sizes[size]
           )}
         >
           {isLoading ? (
-            <RefreshCw className="w-8 h-8 text-gray-400 animate-spin" />
+            <RefreshCw className="w-8 h-8 text-content-muted animate-spin" />
           ) : qrCodeBase64 ? (
             <img 
               src={`data:image/png;base64,${qrCodeBase64}`}
@@ -71,17 +71,17 @@ export function QRCodeDisplay({
               className="w-full h-full p-2"
             />
           ) : (
-            <QrCode className="w-12 h-12 text-gray-400" />
+            <QrCode className="w-12 h-12 text-content-muted" />
           )}
         </div>
 
-        <p className="text-sm text-gray-600 mb-1">Patient ID</p>
-        <p className="font-mono font-semibold text-gray-900 mb-2">{patientId}</p>
+        <p className="text-sm text-content-muted mb-1">Patient ID</p>
+        <p className="font-mono font-semibold text-content mb-2">{patientId}</p>
         
         {cardHash && (
           <>
-            <p className="text-xs text-gray-500 mb-1">Card Hash (first 16 chars)</p>
-            <p className="font-mono text-xs text-gray-600 mb-4 break-all">
+            <p className="text-xs text-content-muted mb-1">Card Hash (first 16 chars)</p>
+            <p className="font-mono text-xs text-content-muted mb-4 break-all">
               {cardHash.substring(0, 16)}...
             </p>
           </>
@@ -164,7 +164,7 @@ export function NFCCardDisplay({
       <div className="absolute inset-0 p-5 flex flex-col justify-between text-white">
         <div>
           <div className="flex items-center gap-2 mb-4">
-            <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+            <div className="w-10 h-10 bg-surface/20 rounded-lg flex items-center justify-center">
               <QrCode className="w-6 h-6" />
             </div>
             <div>

@@ -143,11 +143,13 @@ pub async fn grant_bound_emergency_access(
         }
     };
     let grant = match data.emergency_grants.issue(
-        patient_id,
-        wallet,
-        organization_id,
-        facility_id,
-        body.device_id.clone(),
+        crate::emergency_grants::EmergencyGrantBinding {
+            patient_id,
+            person_id: wallet,
+            organization_id,
+            facility_id,
+            device_id: body.device_id.clone(),
+        },
         body.reason_code.clone(),
         body.reason_text.clone(),
         vec![
@@ -166,13 +168,20 @@ pub async fn grant_bound_emergency_access(
             )
         }
     };
-    let _ = data.audit_outbox.record(
+    if let Err(error) = data
+        .audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
         "emergency_grant_issued".into(),
         "emergency_grant".into(),
         grant.id.clone(),
         serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
         Utc::now(),
-    );
+        )
+        .await
+    {
+        log::error!("audit outbox write failed: {error}");
+    }
 
     // HZ-003: record the break-glass disclosure at field granularity, and check
     // the off-chain capsule against its commitment. The generic audit row above
@@ -229,6 +238,8 @@ fn emergency_error(
 pub struct NfcTokenExchangeRequest {
     pub patient_id: String,
     pub nfc_hash: String,
+    pub device_id: String,
+    pub reason_code: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -251,8 +262,36 @@ pub struct NfcTokenExchangeResponse {
 #[post("/api/emergency/nfc-token")]
 pub async fn exchange_nfc_hash_for_token(
     data: web::Data<AppState>,
+    req: HttpRequest,
     body: web::Json<NfcTokenExchangeRequest>,
 ) -> impl Responder {
+    let responder = match get_current_user_id(&req).and_then(|id| get_user(&data, &id)) {
+        Some(user) if user.role.is_healthcare_provider() => user,
+        _ => {
+            return emergency_error(
+                HttpResponse::Unauthorized(),
+                "An authenticated healthcare responder is required",
+                "RESPONDER_AUTH_REQUIRED",
+            );
+        }
+    };
+    if body.reason_code.trim().is_empty() {
+        return emergency_error(
+            HttpResponse::BadRequest(),
+            "reason_code is required",
+            "MISSING_REASON_CODE",
+        );
+    }
+    if !data
+        .device_lifecycle
+        .can_access(&body.device_id, Utc::now())
+    {
+        return emergency_error(
+            HttpResponse::Forbidden(),
+            "An active approved device is required",
+            "DEVICE_NOT_APPROVED",
+        );
+    }
     if body.nfc_hash.trim().is_empty() {
         return emergency_error(
             HttpResponse::BadRequest(),
@@ -285,10 +324,23 @@ pub async fn exchange_nfc_hash_for_token(
         );
     }
 
-    let token = crate::clinical_endpoints::emergency_access::issue_emergency_token(
+    let token = match crate::clinical_endpoints::emergency_access::issue_emergency_token(
         &body.patient_id,
+        &responder.wallet_address,
+        &body.device_id,
+        &body.reason_code,
         crate::clinical_endpoints::emergency_access::NFC_EXCHANGE_TOKEN_TTL_SECS,
-    );
+    ) {
+        Ok(token) => token,
+        Err(error) => {
+            log::error!("Emergency token issuance failed: {}", error);
+            return emergency_error(
+                HttpResponse::InternalServerError(),
+                "Emergency token could not be issued",
+                "TOKEN_ISSUE_FAILED",
+            );
+        }
+    };
 
     HttpResponse::Ok().json(NfcTokenExchangeResponse {
         token,
@@ -322,10 +374,49 @@ mod hz_001_exchange_tests {
             .unwrap();
     }
 
+    fn seed_responder_and_device(state: &AppState) -> String {
+        state.users.write().unwrap().insert(
+            "responder-wallet".to_string(),
+            User {
+                wallet_address: "responder-wallet".to_string(),
+                username: None,
+                name: "Responder".to_string(),
+                role: Role::Doctor,
+                created_at: Utc::now(),
+                created_by: None,
+                linked_patient_id: None,
+                email: None,
+                phone: None,
+                department: None,
+                specialty: None,
+                license_number: None,
+                status: "active".to_string(),
+                last_login: None,
+            },
+        );
+        let device = state
+            .device_lifecycle
+            .enroll(
+                "org-1".into(),
+                None,
+                "ED tablet".into(),
+                "tablet".into(),
+                "fingerprint-1".into(),
+                None,
+            )
+            .unwrap();
+        state
+            .device_lifecycle
+            .rotate(&device.id, "key-1".into(), Utc::now())
+            .unwrap();
+        device.id
+    }
+
     #[actix_web::test]
     async fn matching_hash_yields_a_verifiable_token() {
         let state = AppState::new();
         seed_tag(&state, "PAT-EX-1", "correct-hash").await;
+        let device_id = seed_responder_and_device(&state);
         let app_state = web::Data::new(state);
         let app = actix_web::App::new()
             .app_data(app_state.clone())
@@ -334,7 +425,13 @@ mod hz_001_exchange_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/emergency/nfc-token")
-            .set_json(serde_json::json!({"patient_id": "PAT-EX-1", "nfc_hash": "correct-hash"}))
+            .insert_header(("X-User-Id", "responder-wallet"))
+            .set_json(serde_json::json!({
+                "patient_id": "PAT-EX-1",
+                "nfc_hash": "correct-hash",
+                "device_id": device_id,
+                "reason_code": "trauma"
+            }))
             .to_request();
         let resp: NfcTokenExchangeResponse = test::call_and_read_body_json(&app, req).await;
 
@@ -342,7 +439,8 @@ mod hz_001_exchange_tests {
             crate::clinical_endpoints::emergency_access::verify_emergency_token(
                 &resp.token,
                 "PAT-EX-1"
-            ),
+            )
+            .is_ok(),
             "the issued token must verify for the patient it was issued for"
         );
     }
@@ -351,6 +449,7 @@ mod hz_001_exchange_tests {
     async fn mismatched_hash_is_rejected() {
         let state = AppState::new();
         seed_tag(&state, "PAT-EX-2", "correct-hash").await;
+        let device_id = seed_responder_and_device(&state);
         let app_state = web::Data::new(state);
         let app = actix_web::App::new()
             .app_data(app_state.clone())
@@ -359,7 +458,13 @@ mod hz_001_exchange_tests {
 
         let req = test::TestRequest::post()
             .uri("/api/emergency/nfc-token")
-            .set_json(serde_json::json!({"patient_id": "PAT-EX-2", "nfc_hash": "wrong-hash"}))
+            .insert_header(("X-User-Id", "responder-wallet"))
+            .set_json(serde_json::json!({
+                "patient_id": "PAT-EX-2",
+                "nfc_hash": "wrong-hash",
+                "device_id": device_id,
+                "reason_code": "trauma"
+            }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);

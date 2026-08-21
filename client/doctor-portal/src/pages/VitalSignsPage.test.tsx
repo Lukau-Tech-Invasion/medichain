@@ -2,12 +2,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import VitalSignsPage from './VitalSignsPage';
-import { useAuthStore, usePatientStore } from '../store';
+import { useAuthStore } from '../store';
 
 // Mock the stores
 vi.mock('../store', () => ({
   useAuthStore: vi.fn(),
-  usePatientStore: vi.fn(),
 }));
 
 // Mock fetch
@@ -45,19 +44,26 @@ describe('VitalSignsPage', () => {
       user: mockUser,
       isAuthenticated: true,
     });
-    (usePatientStore as any).mockReturnValue({
-      recentPatients: [{ patientId: 'PAT-001', fullName: 'John Doe' }],
-    });
-
     mockFetch.mockImplementation((url) => {
-      if (url.includes('/api/vitals/PAT-001')) {
+      if (url.includes('/api/patients')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          json: () => Promise.resolve({ data: [{ patient_id: 'PAT-001', full_name: 'John Doe' }] }),
+        });
+      }
+      // The flowsheet endpoint is /api/clinical/vitals/flowsheet/{id};
+      // '/api/vitals/{id}' never matched, so the page rendered its error state.
+      if (url.includes('/api/clinical/vitals/flowsheet/PAT-001')) {
+        return Promise.resolve({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve(mockFlowsheet),
         });
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -84,8 +90,9 @@ describe('VitalSignsPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText('72')).toBeInTheDocument(); // heart rate
-      expect(screen.getByText('120/80')).toBeInTheDocument(); // BP
+      // 72 appears in both the latest-reading card and the flowsheet row.
+      expect(screen.getAllByText('72').length).toBeGreaterThan(0); // heart rate
+      expect(screen.getAllByText('120/80').length).toBeGreaterThan(0); // BP
     });
   });
 
@@ -97,11 +104,11 @@ describe('VitalSignsPage', () => {
     );
 
     await waitFor(() => {
-      const addButton = screen.getByText(/Record New Vitals/i);
+      const addButton = screen.getByText(/Record Vitals/i);
       fireEvent.click(addButton);
     });
 
-    expect(screen.getByText(/New Vital Signs Entry/i)).toBeInTheDocument();
+    expect(screen.getByText(/Record New Vital Signs/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Heart Rate/i)).toBeInTheDocument();
   });
 });

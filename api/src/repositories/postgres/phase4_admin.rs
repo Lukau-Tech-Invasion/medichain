@@ -361,17 +361,22 @@ impl PhysicianOrderRepository for PgPhysicianOrderRepository {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<PhysicianOrderEntity>> {
         let mut count_qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT COUNT(*) FROM physician_orders WHERE patient_id = ");
-        count_qb.push_bind(patient_id);
+            QueryBuilder::new("SELECT COUNT(*) FROM physician_orders");
+        if patient_id != "all" {
+            count_qb.push(" WHERE patient_id = ");
+            count_qb.push_bind(patient_id);
+        }
 
         let total = count_qb
             .build_query_scalar::<i64>()
             .fetch_one(&self.pool)
             .await? as u64;
 
-        let mut qb: QueryBuilder<Postgres> =
-            QueryBuilder::new("SELECT * FROM physician_orders WHERE patient_id = ");
-        qb.push_bind(patient_id);
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("SELECT * FROM physician_orders");
+        if patient_id != "all" {
+            qb.push(" WHERE patient_id = ");
+            qb.push_bind(patient_id);
+        }
         qb.push(" ORDER BY order_datetime DESC LIMIT ");
         qb.push_bind(pagination.limit() as i32);
         qb.push(" OFFSET ");
@@ -398,6 +403,10 @@ impl PhysicianOrderRepository for PgPhysicianOrderRepository {
         qb.push(", executed_by = ").push_bind(&order.executed_by);
         qb.push(", executed_at = ").push_bind(order.executed_at);
         qb.push(", notes = ").push_bind(&order.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&order.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&order.id);
         qb.push(" RETURNING *");
@@ -644,6 +653,10 @@ impl DischargeSummaryRepository for PgDischargeSummaryRepository {
         qb.push(", addendum = ").push_bind(&summary.addendum);
         qb.push(", addendum_by = ").push_bind(&summary.addendum_by);
         qb.push(", addendum_at = ").push_bind(summary.addendum_at);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&summary.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&summary.id);
         qb.push(" RETURNING *");
@@ -819,6 +832,10 @@ impl DischargeInstructionsRepository for PgDischargeInstructionsRepository {
             .push_bind(instructions.printed_at);
         qb.push(", emailed_at = ")
             .push_bind(instructions.emailed_at);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&instructions.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&instructions.id);
         qb.push(" RETURNING *");
@@ -981,6 +998,10 @@ impl AmaDischargeRepository for PgAmaDischargeRepository {
             .push_bind(&discharge.physician_narrative);
         qb.push(", nurse_notes = ")
             .push_bind(&discharge.nurse_notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&discharge.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&discharge.id);
         qb.push(" RETURNING *");

@@ -71,6 +71,11 @@ services:
       # proxies to `api:8080`, so pin it here rather than changing nginx.
       PORT: 8080
       DATABASE_URL: postgres://${POSTGRES_USER:-medichain}:${POSTGRES_PASSWORD:-medichain_dev_2024}@postgres:5432/${POSTGRES_DB:-medichain}
+      # The API otherwise defaults to its in-memory repository even when a
+      # healthy PostgreSQL pool exists. That made every browser-created patient
+      # and clinical workflow disappear on the next API restart.
+      MEDICHAIN_STORAGE: postgres
+      ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:-}
       IPFS_API_URL: http://ipfs:5001
       IPFS_GATEWAY_URL: http://ipfs:8080
       # Production secrets — set these in .env (no insecure defaults baked in).

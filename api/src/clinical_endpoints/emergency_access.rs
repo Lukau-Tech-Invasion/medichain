@@ -3,16 +3,14 @@
 //! First-responder access to a patient's emergency PHI is gated by one of two
 //! verifiable proofs — never by the mere *presence* of a query parameter:
 //!
-//! 1. **Signed emergency token** — a time-limited MAC over `(patient_id, expiry)`
-//!    keyed with the server secret. SHA3-256 is length-extension resistant, so a
-//!    secret-prefix construction (`SHA3-256(secret || patient_id || expiry)`) is a
-//!    secure MAC without pulling in an HMAC dependency. A forged or expired token
-//!    fails verification.
+//! 1. **Signed emergency token** — a one-time HS256 JWT bound to the patient,
+//!    approved device, authenticated responder, purpose, issuer and audience.
 //! 2. **NFC card hash** — the value tapped from the patient's physical card must
 //!    match the SHA3-256 `tag_uid` of one of the patient's active registered NFC
 //!    tags (see `nfc_simulator::card_hash` and `types::conversions`).
 
-use sha3::{Digest, Sha3_256};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use serde::{Deserialize, Serialize};
 
 use crate::repositories::traits::NfcTagEntity;
 
@@ -26,15 +24,23 @@ fn emergency_secret() -> String {
         .unwrap_or_else(|_| "medichain-dev-secret-change-in-production".to_string())
 }
 
-/// Compute the hex MAC tag binding `patient_id` to an `expiry` instant.
-fn mac_tag(patient_id: &str, expiry: i64) -> String {
-    let mut h = Sha3_256::new();
-    h.update(emergency_secret().as_bytes());
-    h.update(b":emergency:");
-    h.update(patient_id.as_bytes());
-    h.update(b":");
-    h.update(expiry.to_string().as_bytes());
-    hex::encode(h.finalize())
+const EMERGENCY_ISSUER: &str = "medichain-api";
+const EMERGENCY_AUDIENCE: &str = "medichain-emergency";
+const EMERGENCY_SCOPE: &str = "emergency_medical_id:read";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmergencyClaims {
+    pub iss: String,
+    pub aud: String,
+    pub sub: String,
+    pub patient_id: String,
+    pub device_id: String,
+    pub reason_code: String,
+    pub scope: String,
+    pub jti: String,
+    pub iat: i64,
+    pub nbf: i64,
+    pub exp: i64,
 }
 
 /// Constant-time byte comparison to avoid leaking MAC bytes via timing.
@@ -49,23 +55,28 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Verify a signed emergency token for `patient_id`.
-///
-/// Returns `true` only when the token is well-formed, unexpired, and its MAC
-/// matches the server secret. Forged/expired/cross-patient tokens return `false`.
-pub fn verify_emergency_token(token: &str, patient_id: &str) -> bool {
-    let (exp_str, tag) = match token.split_once('.') {
-        Some(parts) => parts,
-        None => return false,
-    };
-    let expiry: i64 = match exp_str.parse() {
-        Ok(e) => e,
-        Err(_) => return false,
-    };
-    if chrono::Utc::now().timestamp() > expiry {
-        return false;
+/// Verify signature, registered claims, purpose and patient binding.
+pub fn verify_emergency_token(
+    token: &str,
+    patient_id: &str,
+) -> Result<EmergencyClaims, jsonwebtoken::errors::Error> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.set_issuer(&[EMERGENCY_ISSUER]);
+    validation.set_audience(&[EMERGENCY_AUDIENCE]);
+    validation.validate_nbf = true;
+    validation.leeway = 0;
+    let claims = decode::<EmergencyClaims>(
+        token,
+        &DecodingKey::from_secret(emergency_secret().as_bytes()),
+        &validation,
+    )?
+    .claims;
+    if claims.patient_id != patient_id || claims.scope != EMERGENCY_SCOPE {
+        return Err(jsonwebtoken::errors::Error::from(
+            jsonwebtoken::errors::ErrorKind::InvalidToken,
+        ));
     }
-    ct_eq(mac_tag(patient_id, expiry).as_bytes(), tag.as_bytes())
+    Ok(claims)
 }
 
 /// Whether `provided` matches the `tag_uid` of one of the patient's active NFC tags.
@@ -93,9 +104,87 @@ pub fn nfc_hash_matches(provided: &str, tags: &[NfcTagEntity]) -> bool {
 /// challenge, or — via `/api/emergency/nfc-token` — a validated NFC tap) into
 /// something the PHI-releasing endpoints will accept, precisely because it
 /// carries a short, enforced expiry that a static NFC hash does not (HZ-001).
-pub fn issue_emergency_token(patient_id: &str, ttl_secs: i64) -> String {
-    let expiry = chrono::Utc::now().timestamp() + ttl_secs;
-    format!("{}.{}", expiry, mac_tag(patient_id, expiry))
+pub fn issue_emergency_token(
+    patient_id: &str,
+    responder_id: &str,
+    device_id: &str,
+    reason_code: &str,
+    ttl_secs: i64,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = chrono::Utc::now().timestamp();
+    let claims = EmergencyClaims {
+        iss: EMERGENCY_ISSUER.to_string(),
+        aud: EMERGENCY_AUDIENCE.to_string(),
+        sub: responder_id.to_string(),
+        patient_id: patient_id.to_string(),
+        device_id: device_id.to_string(),
+        reason_code: reason_code.to_string(),
+        scope: EMERGENCY_SCOPE.to_string(),
+        jti: uuid::Uuid::new_v4().to_string(),
+        iat: now,
+        nbf: now,
+        exp: now + ttl_secs,
+    };
+    encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(emergency_secret().as_bytes()),
+    )
+}
+
+/// Reject replay of an already-spent one-time emergency token.
+///
+/// The spent-token set is **durable** (migration 20260811000002). It used to be
+/// a process-memory map, which meant a restart — or a crash, or a rolling
+/// deploy — silently made every previously redeemed emergency token valid
+/// again, against PHI. That is why this is async: the check has to reach the
+/// repository, not a `RwLock`.
+///
+/// Spend is recorded before the claims are returned, so a caller that never
+/// reaches the PHI response has still burned the token. Failing closed on a
+/// repository error is deliberate: if we cannot prove a token is unspent, we
+/// must not treat it as unspent.
+pub async fn consume_emergency_token(
+    state: &crate::AppState,
+    token: &str,
+    patient_id: &str,
+) -> Result<EmergencyClaims, &'static str> {
+    let claims = verify_emergency_token(token, patient_id).map_err(|_| "invalid token")?;
+
+    match state
+        .repositories
+        .used_emergency_tokens
+        .get_by_id(&claims.jti)
+        .await
+    {
+        Ok(Some(_)) => return Err("token already used"),
+        Ok(None) => {}
+        Err(_) => return Err("token replay store unavailable"),
+    }
+
+    let now = chrono::Utc::now();
+    let record = crate::repositories::traits::JsonRecordEntity {
+        id: claims.jti.clone(),
+        owner_id: claims.patient_id.clone(),
+        // Recorded so a replay attempt is auditable, not just refused.
+        data: serde_json::json!({
+            "responder_id": claims.sub,
+            "device_id": claims.device_id,
+            "reason_code": claims.reason_code,
+            "expires_at": claims.exp,
+            "spent_at": now.timestamp(),
+        }),
+        created_at: now,
+        updated_at: now,
+    };
+    state
+        .repositories
+        .used_emergency_tokens
+        .create(record)
+        .await
+        .map_err(|_| "token replay store unavailable")?;
+
+    Ok(claims)
 }
 
 /// Default validity window for a token issued via the NFC exchange endpoint.
@@ -126,28 +215,69 @@ mod tests {
 
     #[test]
     fn valid_token_verifies() {
-        let t = issue_emergency_token("PAT-1", 300);
-        assert!(verify_emergency_token(&t, "PAT-1"));
+        let t = issue_emergency_token("PAT-1", "responder", "device", "trauma", 300).unwrap();
+        assert!(verify_emergency_token(&t, "PAT-1").is_ok());
     }
 
     #[test]
     fn token_is_patient_bound() {
-        let t = issue_emergency_token("PAT-1", 300);
-        assert!(!verify_emergency_token(&t, "PAT-2"));
+        let t = issue_emergency_token("PAT-1", "responder", "device", "trauma", 300).unwrap();
+        assert!(verify_emergency_token(&t, "PAT-2").is_err());
     }
 
     #[test]
     fn forged_token_rejected() {
-        assert!(!verify_emergency_token("9999999999.deadbeef", "PAT-1"));
-        assert!(!verify_emergency_token("not-a-token", "PAT-1"));
-        assert!(!verify_emergency_token("", "PAT-1"));
+        assert!(verify_emergency_token("9999999999.deadbeef", "PAT-1").is_err());
+        assert!(verify_emergency_token("not-a-token", "PAT-1").is_err());
+        assert!(verify_emergency_token("", "PAT-1").is_err());
     }
 
     #[test]
     fn expired_token_rejected() {
         // Negative TTL → already expired.
-        let t = issue_emergency_token("PAT-1", -10);
-        assert!(!verify_emergency_token(&t, "PAT-1"));
+        let t = issue_emergency_token("PAT-1", "responder", "device", "trauma", -10).unwrap();
+        assert!(verify_emergency_token(&t, "PAT-1").is_err());
+    }
+
+    #[tokio::test]
+    async fn token_is_one_time() {
+        let state = crate::AppState::new();
+        let token = issue_emergency_token("PAT-1", "responder", "device", "trauma", 300).unwrap();
+        assert!(consume_emergency_token(&state, &token, "PAT-1")
+            .await
+            .is_ok());
+        assert_eq!(
+            consume_emergency_token(&state, &token, "PAT-1")
+                .await
+                .unwrap_err(),
+            "token already used"
+        );
+    }
+
+    /// The spend must outlive the process. Before migration 20260811000002 the
+    /// spent-token set was a `RwLock<HashMap>`, so a restart silently made every
+    /// redeemed emergency token valid again against PHI. A fresh `AppState` over
+    /// the same repository stands in for that restart.
+    #[tokio::test]
+    async fn spent_token_stays_spent_across_a_restart() {
+        let state = crate::AppState::new();
+        let token = issue_emergency_token("PAT-9", "responder", "device", "trauma", 300).unwrap();
+        assert!(consume_emergency_token(&state, &token, "PAT-9")
+            .await
+            .is_ok());
+
+        // Simulate a restart: new AppState, same repository container.
+        let restarted = crate::AppState {
+            repositories: state.repositories.clone(),
+            ..crate::AppState::new()
+        };
+        assert_eq!(
+            consume_emergency_token(&restarted, &token, "PAT-9")
+                .await
+                .unwrap_err(),
+            "token already used",
+            "a redeemed emergency token became replayable after restart"
+        );
     }
 
     #[test]

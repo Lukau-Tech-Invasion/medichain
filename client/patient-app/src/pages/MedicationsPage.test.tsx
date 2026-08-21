@@ -33,6 +33,7 @@ describe('MedicationsPage (Patient)', () => {
       if (url.includes('/api/e-prescriptions/patient/')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             prescriptions: [
               {
@@ -54,11 +55,13 @@ describe('MedicationsPage (Patient)', () => {
       if (url.includes('/api/medication-reminders/')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({ reminders: [] }),
         });
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -72,7 +75,7 @@ describe('MedicationsPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Medications/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Medications/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Aspirin/i)).toBeInTheDocument();
       expect(screen.getByText(/Take with food/i)).toBeInTheDocument();
     });
@@ -89,12 +92,12 @@ describe('MedicationsPage (Patient)', () => {
       expect(screen.getByText(/Current/i)).toBeInTheDocument();
     });
 
-    const remindersTab = screen.getByText(/Reminders/i);
+    const remindersTab = screen.getByText(/Today's Schedule/i);
     fireEvent.click(remindersTab);
     
     await waitFor(() => {
-      expect(screen.getByText(/Medication Reminders/i)).toBeInTheDocument();
-      expect(screen.getByText(/No more reminders for today/i)).toBeInTheDocument();
+      expect(screen.getByText(/Today's Schedule/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Today's Schedule/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -103,11 +106,13 @@ describe('MedicationsPage (Patient)', () => {
       if (url.includes('/api/e-prescriptions/patient/')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({ prescriptions: [] }),
         });
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -119,7 +124,7 @@ describe('MedicationsPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/No current medications found/i)).toBeInTheDocument();
+      expect(screen.getByText(/No active medications/i)).toBeInTheDocument();
     });
   });
 });

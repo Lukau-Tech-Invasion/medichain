@@ -41,6 +41,30 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Reject contradictory runtime posture before authentication middleware is built.
+pub fn validate_runtime_posture(
+    app_env: &str,
+    is_demo: bool,
+    require_signatures: bool,
+) -> Result<(), String> {
+    let production = matches!(
+        app_env.trim().to_ascii_lowercase().as_str(),
+        "prod" | "production"
+    );
+    if production && is_demo {
+        return Err(
+            "Refusing to start: APP_ENV=production cannot be combined with IS_DEMO=true"
+                .to_string(),
+        );
+    }
+    if production && !require_signatures {
+        return Err(
+            "Refusing to start: APP_ENV=production requires REQUIRE_SIGNATURES=true".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Validate that the running configuration is not using demo/default secrets.
 ///
 /// Secure by default: `IS_DEMO` is treated as `false` (production) when unset, so a
@@ -56,6 +80,12 @@ pub const DEMO_SECRET_MARKERS: &[(&str, &str)] = &[
 pub fn validate_production_secrets() -> Result<(), String> {
     // Fail closed: unset IS_DEMO ⇒ production (refuse demo/missing secrets).
     let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
+    let require_signatures = std::env::var("REQUIRE_SIGNATURES")
+        .map(|value| value == "true")
+        .unwrap_or(!is_demo);
+    let app_env = std::env::var("APP_ENV")
+        .unwrap_or_else(|_| if is_demo { "development" } else { "production" }.to_string());
+    validate_runtime_posture(&app_env, is_demo, require_signatures)?;
 
     let mut offenders: Vec<String> = Vec::new();
 
@@ -239,4 +269,187 @@ pub fn print_startup_banner(bind_addr: &str) {
     println!();
     println!("  © 2025 Lukau Invasion (Pty) Ltd. Rust Africa Hackathon 2026");
     println!();
+}
+
+/// The Substrate well-known development accounts.
+///
+/// Their secrets are published in the Substrate source and in every tutorial, so
+/// anyone at all can sign as one.
+const DEV_ACCOUNT_SURIS: [&str; 6] = [
+    "//Alice",
+    "//Bob",
+    "//Charlie",
+    "//Dave",
+    "//Eve",
+    "//Ferdie",
+];
+
+/// SS58 addresses of the well-known development accounts, derived rather than
+/// hardcoded so the list cannot drift from the keys it is meant to describe.
+pub fn dev_account_addresses() -> Vec<String> {
+    use sp_core::{crypto::Ss58Codec, sr25519, Pair};
+    DEV_ACCOUNT_SURIS
+        .iter()
+        .filter_map(|suri| sr25519::Pair::from_string(suri, None).ok())
+        .map(|pair| pair.public().to_ss58check_with_version(42u8.into()))
+        .collect()
+}
+
+/// Refuse to start a production instance where a well-known dev key holds a
+/// privileged role.
+///
+/// `blockchain.rs` already refuses to *sign chain extrinsics* as Alice without
+/// `SUBSTRATE_ALLOW_DEV_SIGNER`. This closes the other half, which is worse:
+/// `//Alice` seeded as an active `Admin` in the `users` table means anyone who
+/// has read the Substrate docs can authenticate as an administrator of this
+/// deployment — create users, assign roles, read every registry. The key is not
+/// secret and never was.
+///
+/// Demo mode is exempt, deliberately: the dev preset grants `//Alice` Admin
+/// because it is the API's default dev signer, and the browser-test fixtures
+/// depend on it.
+pub async fn validate_no_privileged_dev_accounts(
+    pool: &sqlx::PgPool,
+    is_demo: bool,
+) -> Result<(), String> {
+    if is_demo {
+        return Ok(());
+    }
+
+    let addresses = dev_account_addresses();
+    if addresses.is_empty() {
+        return Ok(());
+    }
+
+    let offenders: Vec<(String, String)> = sqlx::query_as(
+        "SELECT wallet_address, role FROM users \
+         WHERE wallet_address = ANY($1) \
+           AND status = 'active' \
+           AND role IN ('Admin', 'Doctor', 'Nurse', 'LabTechnician', 'Pharmacist')",
+    )
+    .bind(&addresses)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if offenders.is_empty() {
+        return Ok(());
+    }
+
+    let listed = offenders
+        .iter()
+        .map(|(wallet, role)| format!("{role} {wallet}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "Refusing to start: well-known Substrate development account(s) hold privileged roles \
+         in this deployment ({listed}). Their private keys are published, so anyone could \
+         authenticate as them. Deactivate or delete these users, or set IS_DEMO=true if this \
+         is a demonstration instance."
+    ))
+}
+
+/// Refuse to serve two organisations from one instance (ADR-0007).
+///
+/// MediChain is federated: each hospital runs its own API, its own PostgreSQL
+/// and its own IPFS node (ADR-0006). Clinician worklists and the
+/// `/api/platform/list/*` registries are therefore deployment-wide *by design* —
+/// a doctor is supposed to see every critical value in their hospital.
+///
+/// That is only true while a deployment *is* one hospital. Pointing a second
+/// organisation at the same database would silently turn every one of those
+/// reads into a cross-organisation disclosure, with no error anywhere. The
+/// boundary is load-bearing, so it is checked rather than assumed.
+///
+/// Returns `Err` with an operator-readable message when more than one active
+/// organisation is present. A database without the federation tables — or one
+/// where the query cannot run — is not treated as a violation: the check exists
+/// to catch a misconfiguration, not to block startup on its own failure.
+pub async fn validate_single_organisation(pool: &sqlx::PgPool) -> Result<(), String> {
+    let count: Option<i64> = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM organizations WHERE COALESCE(is_active, true) = true",
+    )
+    .fetch_one(pool)
+    .await
+    .ok();
+
+    match count {
+        Some(n) if n > 1 => Err(format!(
+            "Refusing to start: this database holds {n} active organisations, but a MediChain \
+             instance serves exactly one (ADR-0006, ADR-0007). Clinician worklists and the \
+             /api/platform/list/* registries are deployment-wide, so a second organisation here \
+             would read the first one's records. Split them into separate deployments, or \
+             deactivate the extra rows in `organizations`."
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Warn when the facility timezone offset is unset.
+///
+/// Appointment dates and times are stored as facility wall-clock. Without an
+/// offset they are interpreted as UTC, which shifts every scheduled instant —
+/// and therefore the telehealth join window and appointment reminders — by the
+/// facility's real offset.
+pub fn warn_if_clinic_offset_unset() {
+    if std::env::var("CLINIC_UTC_OFFSET_MINUTES").is_err() {
+        log::warn!(
+            "CLINIC_UTC_OFFSET_MINUTES is not set - appointment times are being treated as UTC. \
+             Set it to the facility's offset in minutes (e.g. 120 for SAST) or telehealth join \
+             windows and reminders will be wrong by that offset."
+        );
+    }
+}
+
+#[cfg(test)]
+mod runtime_posture_tests {
+    use super::validate_runtime_posture;
+
+    #[test]
+    fn production_rejects_demo_mode() {
+        let error = validate_runtime_posture("production", true, false).unwrap_err();
+        assert!(error.contains("IS_DEMO=true"));
+    }
+
+    #[test]
+    fn production_rejects_disabled_signatures() {
+        let error = validate_runtime_posture("prod", false, false).unwrap_err();
+        assert!(error.contains("REQUIRE_SIGNATURES=true"));
+    }
+
+    #[test]
+    fn production_accepts_secure_posture() {
+        assert!(validate_runtime_posture("production", false, true).is_ok());
+    }
+
+    #[test]
+    fn explicit_development_demo_is_allowed() {
+        assert!(validate_runtime_posture("development", true, false).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod dev_account_tests {
+    use super::*;
+
+    /// Pins the canonical well-known development addresses.
+    ///
+    /// `validate_no_privileged_dev_accounts` compares database rows against
+    /// these, so a derivation that silently changed would turn the guard into a
+    /// no-op — it would look like it was working and match nothing. Alice's
+    /// address is the one every Substrate tutorial prints, so a regression is
+    /// obvious rather than merely self-consistent.
+    #[test]
+    fn well_known_dev_addresses_are_the_canonical_ones() {
+        let addresses = dev_account_addresses();
+        assert_eq!(addresses.len(), 6, "all six dev accounts must derive");
+        assert!(
+            addresses.contains(&"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string()),
+            "//Alice must derive to her published address, got: {addresses:?}"
+        );
+        assert!(
+            addresses.contains(&"5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty".to_string()),
+            "//Bob must derive to his published address, got: {addresses:?}"
+        );
+    }
 }

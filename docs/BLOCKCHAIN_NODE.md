@@ -203,6 +203,38 @@ If you bump the SDK release in `blockchain/Cargo.toml`, re-check `subxt` in the
 root `Cargo.toml` at the same time. A mismatch does not fail at compile time —
 it fails at runtime, when the API tries to encode a call.
 
+### Extrinsic round trip (submit → execute → finalize → read back)
+
+With a node running:
+
+```bash
+# 1. submit a synthetic commitment through the production subxt path
+SUBSTRATE_SIGNING_KEY=//Alice SUBSTRATE_WS_URL=ws://127.0.0.1:9944 \
+  cargo test --bin medichain-api -- --ignored --nocapture chain_e2e
+
+# 2. read the stored value back off chain state
+python3 scripts/blockchain/verify-capsule.py <patient-ss58> <commitment-hex> <version>
+```
+
+Step 1 covers more than it looks. `pending_extrinsic` waits on
+`wait_for_finalized_success`, which errors unless the extrinsic entered the
+pool, was included in a block, **executed successfully in the pallet** (a
+dispatch error such as `NotHealthcareProvider` fails here even though the
+extrinsic did reach the chain), and that block was finalized by GRANDPA. Step 2
+then proves the resulting state is readable and matches what was sent.
+
+> **Windows/Git Bash trap.** MSYS rewrites values that look like POSIX paths, so
+> `SUBSTRATE_SIGNING_KEY=//Alice` silently arrives as `/Alice`. That is a *soft*
+> derivation rather than a hard one, giving a completely different account —
+> unfunded and role-less — and the failure surfaces as
+> `Inability to pay some fees`, which reads like a chain problem rather than a
+> mangled environment variable. Export `MSYS_NO_PATHCONV=1` (and
+> `MSYS2_ARG_CONV_EXCL='*'`) first, or run from WSL. Verify with:
+>
+> ```bash
+> python -c "import os; print(repr(os.environ['SUBSTRATE_SIGNING_KEY']))"
+> ```
+
 ### The signing account needs a role
 
 The signing account **must hold a role on the chain**. `//Alice` is granted

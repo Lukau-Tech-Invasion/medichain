@@ -147,3 +147,23 @@ pg_json_repo!(PgSyncDeviceRepository, "sync_devices");
 pg_json_repo!(PgMessageRepository, "messages");
 pg_json_repo!(PgSymptomEntryRepository, "symptom_entries");
 pg_json_repo!(PgBarcodeScanRepository, "barcode_scans");
+
+// Final durability sweep (migration 20260811000002): the last process-memory
+// clinical maps. The first three are shape-mismatch domains whose typed tables
+// require columns the API types do not carry — see the migration for why.
+pg_json_repo!(
+    PgBloodTypeScreenRecordRepository,
+    "blood_type_screen_records"
+);
+pg_json_repo!(
+    PgTransfusionEventRecordRepository,
+    "transfusion_event_records"
+);
+pg_json_repo!(PgEPrescriptionRecordRepository, "e_prescription_records");
+pg_json_repo!(
+    PgDeathCertificateRecordRepository,
+    "death_certificate_records"
+);
+pg_json_repo!(PgFamilyHistoryRecordRepository, "family_history_records");
+pg_json_repo!(PgUserSettingRecordRepository, "user_setting_records");
+pg_json_repo!(PgUsedEmergencyTokenRepository, "used_emergency_tokens");

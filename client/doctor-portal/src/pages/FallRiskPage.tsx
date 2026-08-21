@@ -219,16 +219,16 @@ export default function FallRiskPage() {
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {
-      case 'high': return 'text-red-600 bg-red-50 border-red-500';
-      case 'moderate': return 'text-yellow-600 bg-yellow-50 border-yellow-500';
-      default: return 'text-green-600 bg-green-50 border-green-500';
+      case 'high': return 'text-critical-subtle-fg bg-critical-subtle border-red-500';
+      case 'moderate': return 'text-caution-subtle-fg bg-caution-subtle border-yellow-500';
+      default: return 'text-ok-subtle-fg bg-ok-subtle border-green-500';
     }
   };
 
   const getRiskBadge = (level: RiskLevel) => {
     switch (level) {
       case 'high': return 'bg-red-500 text-white';
-      case 'moderate': return 'bg-yellow-500 text-white';
+      case 'moderate': return 'bg-caution text-white';
       default: return 'bg-green-500 text-white';
     }
   };
@@ -301,13 +301,13 @@ export default function FallRiskPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-3 bg-white/20 rounded-full">
+              <div className="p-3 bg-surface/20 rounded-full">
                 <Footprints className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -325,14 +325,14 @@ export default function FallRiskPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             {success}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
@@ -343,7 +343,7 @@ export default function FallRiskPage() {
           <div className={`mb-6 rounded-lg border-2 p-6 ${getRiskColor(riskLevel)}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
-                <div className="p-3 rounded-full bg-white shadow">
+                <div className="p-3 rounded-full bg-surface shadow">
                   {riskLevel === 'high' && <AlertTriangle className="h-8 w-8 text-red-500" />}
                   {riskLevel === 'moderate' && <AlertCircle className="h-8 w-8 text-yellow-500" />}
                   {riskLevel === 'low' && <Shield className="h-8 w-8 text-green-500" />}
@@ -366,14 +366,14 @@ export default function FallRiskPage() {
         )}
 
         {/* Tabs */}
-        <div className="bg-white rounded-lg shadow mb-6">
+        <div className="bg-surface rounded-lg shadow mb-6">
           <div className="border-b flex">
             <button
               onClick={() => setActiveTab('assessment')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'assessment'
-                  ? 'border-b-2 border-orange-500 text-orange-600'
-                  : 'text-gray-500'
+                  ? 'border-b-2 border-orange-500 text-content-secondary'
+                  : 'text-content-muted'
               }`}
             >
               <FileText className="h-5 w-5" />
@@ -383,8 +383,8 @@ export default function FallRiskPage() {
               onClick={() => setActiveTab('history')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'history'
-                  ? 'border-b-2 border-orange-500 text-orange-600'
-                  : 'text-gray-500'
+                  ? 'border-b-2 border-orange-500 text-content-secondary'
+                  : 'text-content-muted'
               }`}
             >
               <History className="h-5 w-5" />
@@ -397,21 +397,21 @@ export default function FallRiskPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Patient Selection */}
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow p-4">
-                <h2 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4">
+                <h2 className="font-bold text-content mb-4 flex items-center">
                   <User className="h-5 w-5 mr-2 text-orange-500" />
                   {t('docFallRisk.selectPatientTitle')}
                 </h2>
                 <div className="relative mb-4">
                   <label htmlFor="fallrisk-patient-search" className="sr-only">{t('docFallRisk.searchPatientsSr')}</label>
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
                   <input
                     id="fallrisk-patient-search"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder={t('docFallRisk.searchPatientsPh')}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
                   />
                 </div>
                 <div className="max-h-64 overflow-y-auto space-y-2">
@@ -421,20 +421,20 @@ export default function FallRiskPage() {
                       onClick={() => setSelectedPatient(patient)}
                       className={`w-full text-left p-3 rounded-lg transition-colors ${
                         selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-orange-100 border-2 border-orange-500'
-                          : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                          ? 'bg-surface-sunken border-2 border-orange-500'
+                          : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                       }`}
                     >
-                      <p className="font-medium text-gray-900">{patient.full_name}</p>
-                      <p className="text-sm text-gray-500">{patient.patient_id}</p>
+                      <p className="font-medium text-content">{patient.full_name}</p>
+                      <p className="text-sm text-content-muted">{patient.patient_id}</p>
                     </button>
                   ))}
                 </div>
               </div>
 
               {/* Risk Factor Medications */}
-              <div className="bg-white rounded-lg shadow p-4 mt-4">
-                <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4 mt-4">
+                <h3 className="font-bold text-content mb-3 flex items-center">
                   <HeartPulse className="h-5 w-5 mr-2 text-orange-500" />
                   {t('docFallRisk.highRiskMedsTitle')}
                 </h3>
@@ -451,17 +451,17 @@ export default function FallRiskPage() {
                         type="checkbox"
                         checked={medications[key as keyof typeof medications]}
                         onChange={() => setMedications(prev => ({ ...prev, [key]: !prev[key as keyof typeof medications] }))}
-                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500"
                       />
-                      <span className="text-sm text-gray-700">{label}</span>
+                      <span className="text-sm text-content-secondary">{label}</span>
                     </label>
                   ))}
                 </div>
               </div>
 
               {/* Mobility Status */}
-              <div className="bg-white rounded-lg shadow p-4 mt-4">
-                <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-4 mt-4">
+                <h3 className="font-bold text-content mb-3 flex items-center">
                   <Activity className="h-5 w-5 mr-2 text-orange-500" />
                   {t('docFallRisk.mobilityStatusTitle')}
                 </h3>
@@ -478,9 +478,9 @@ export default function FallRiskPage() {
                         type="checkbox"
                         checked={mobility[key as keyof typeof mobility]}
                         onChange={() => setMobility(prev => ({ ...prev, [key]: !prev[key as keyof typeof mobility] }))}
-                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500"
                       />
-                      <span className="text-sm text-gray-700">{label}</span>
+                      <span className="text-sm text-content-secondary">{label}</span>
                     </label>
                   ))}
                 </div>
@@ -490,16 +490,16 @@ export default function FallRiskPage() {
             {/* Main Assessment */}
             <div className="lg:col-span-2 space-y-6">
               {/* Morse Fall Scale */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h2 className="text-lg font-bold text-content mb-4 flex items-center">
                   <TrendingUp className="h-6 w-6 mr-2 text-orange-500" />
                   {t('docFallRisk.morseScaleTitle')}
                 </h2>
 
                 <div className="space-y-4">
                   {/* Fall History */}
-                  <fieldset className="bg-gray-50 rounded-lg p-4">
-                    <legend className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-surface-sunken rounded-lg p-4">
+                    <legend className="block font-medium text-content mb-2">
                       {t('docFallRisk.q1Legend')}
                     </legend>
                     <div className="flex space-x-4">
@@ -529,8 +529,8 @@ export default function FallRiskPage() {
                   </fieldset>
 
                   {/* Secondary Diagnosis */}
-                  <fieldset className="bg-gray-50 rounded-lg p-4">
-                    <legend className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-surface-sunken rounded-lg p-4">
+                    <legend className="block font-medium text-content mb-2">
                       {t('docFallRisk.q2Legend')}
                     </legend>
                     <div className="flex space-x-4">
@@ -560,8 +560,8 @@ export default function FallRiskPage() {
                   </fieldset>
 
                   {/* Ambulatory Aid */}
-                  <fieldset className="bg-gray-50 rounded-lg p-4">
-                    <legend className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-surface-sunken rounded-lg p-4">
+                    <legend className="block font-medium text-content mb-2">
                       {t('docFallRisk.q3Legend')}
                     </legend>
                     <div className="space-y-2">
@@ -602,8 +602,8 @@ export default function FallRiskPage() {
                   </fieldset>
 
                   {/* IV Therapy */}
-                  <fieldset className="bg-gray-50 rounded-lg p-4">
-                    <legend className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-surface-sunken rounded-lg p-4">
+                    <legend className="block font-medium text-content mb-2">
                       {t('docFallRisk.q4Legend')}
                     </legend>
                     <div className="flex space-x-4">
@@ -633,8 +633,8 @@ export default function FallRiskPage() {
                   </fieldset>
 
                   {/* Gait */}
-                  <fieldset className="bg-gray-50 rounded-lg p-4">
-                    <legend className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-surface-sunken rounded-lg p-4">
+                    <legend className="block font-medium text-content mb-2">
                       {t('docFallRisk.q5Legend')}
                     </legend>
                     <div className="space-y-2">
@@ -675,8 +675,8 @@ export default function FallRiskPage() {
                   </fieldset>
 
                   {/* Mental Status */}
-                  <fieldset className="bg-gray-50 rounded-lg p-4">
-                    <legend className="block font-medium text-gray-900 mb-2">
+                  <fieldset className="bg-surface-sunken rounded-lg p-4">
+                    <legend className="block font-medium text-content mb-2">
                       {t('docFallRisk.q6Legend')}
                     </legend>
                     <div className="flex space-x-4">
@@ -708,8 +708,8 @@ export default function FallRiskPage() {
               </div>
 
               {/* Recent Fall History */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="font-bold text-content mb-4 flex items-center">
                   <AlertTriangle className="h-5 w-5 mr-2 text-orange-500" />
                   {t('docFallRisk.recentFallTitle')}
                 </h3>
@@ -718,42 +718,42 @@ export default function FallRiskPage() {
                     type="checkbox"
                     checked={recentFall.occurred}
                     onChange={() => setRecentFall(prev => ({ ...prev, occurred: !prev.occurred }))}
-                    className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                    className="rounded border-border-strong text-content-secondary focus:ring-orange-500"
                   />
                   <span className="font-medium">{t('docFallRisk.recentFallCheckbox')}</span>
                 </label>
                 {recentFall.occurred && (
                   <div className="space-y-3 pl-6">
                     <div>
-                      <label htmlFor="fallrisk-fall-date" className="block text-sm font-medium text-gray-700 mb-1">{t('docFallRisk.dateOfFallLabel')}</label>
+                      <label htmlFor="fallrisk-fall-date" className="block text-sm font-medium text-content-secondary mb-1">{t('docFallRisk.dateOfFallLabel')}</label>
                       <input
                         id="fallrisk-fall-date"
                         type="date"
                         value={recentFall.date}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, date: e.target.value }))}
-                        className="w-full p-2 border border-gray-300 rounded"
+                        className="w-full p-2 border border-border-strong rounded"
                       />
                     </div>
                     <div>
-                      <label htmlFor="fallrisk-fall-circumstances" className="block text-sm font-medium text-gray-700 mb-1">{t('docFallRisk.circumstancesLabel')}</label>
+                      <label htmlFor="fallrisk-fall-circumstances" className="block text-sm font-medium text-content-secondary mb-1">{t('docFallRisk.circumstancesLabel')}</label>
                       <textarea
                         id="fallrisk-fall-circumstances"
                         value={recentFall.circumstances}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, circumstances: e.target.value }))}
                         placeholder={t('docFallRisk.circumstancesPh')}
                         rows={2}
-                        className="w-full p-2 border border-gray-300 rounded"
+                        className="w-full p-2 border border-border-strong rounded"
                       />
                     </div>
                     <div>
-                      <label htmlFor="fallrisk-fall-injuries" className="block text-sm font-medium text-gray-700 mb-1">{t('docFallRisk.injuriesLabel')}</label>
+                      <label htmlFor="fallrisk-fall-injuries" className="block text-sm font-medium text-content-secondary mb-1">{t('docFallRisk.injuriesLabel')}</label>
                       <input
                         id="fallrisk-fall-injuries"
                         type="text"
                         value={recentFall.injuries}
                         onChange={(e) => setRecentFall(prev => ({ ...prev, injuries: e.target.value }))}
                         placeholder={t('docFallRisk.injuriesPh')}
-                        className="w-full p-2 border border-gray-300 rounded"
+                        className="w-full p-2 border border-border-strong rounded"
                       />
                     </div>
                   </div>
@@ -761,8 +761,8 @@ export default function FallRiskPage() {
               </div>
 
               {/* Additional Risk Factors */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="font-bold text-content mb-4 flex items-center">
                   <Brain className="h-5 w-5 mr-2 text-orange-500" />
                   {t('docFallRisk.additionalRiskFactorsTitle')}
                 </h3>
@@ -775,7 +775,7 @@ export default function FallRiskPage() {
                       className={`px-3 py-1 rounded-full text-sm transition-colors ${
                         additionalFactors.includes(factor)
                           ? 'bg-orange-500 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                       }`}
                     >
                       {factor}
@@ -785,8 +785,8 @@ export default function FallRiskPage() {
               </div>
 
               {/* Environmental Hazards */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="font-bold text-content mb-4 flex items-center">
                   <Eye className="h-5 w-5 mr-2 text-orange-500" />
                   {t('docFallRisk.environmentalHazardsTitle')}
                 </h3>
@@ -799,7 +799,7 @@ export default function FallRiskPage() {
                       className={`px-3 py-1 rounded-full text-sm transition-colors ${
                         environmentalHazards.includes(hazard)
                           ? 'bg-red-500 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                       }`}
                     >
                       {hazard}
@@ -809,8 +809,8 @@ export default function FallRiskPage() {
               </div>
 
               {/* Interventions */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="font-bold text-gray-900 mb-4 flex items-center">
+              <div className="bg-surface rounded-lg shadow p-6">
+                <h3 className="font-bold text-content mb-4 flex items-center">
                   <Shield className="h-5 w-5 mr-2 text-green-500" />
                   {t('docFallRisk.preventionInterventionsTitle')}
                 </h3>
@@ -818,30 +818,30 @@ export default function FallRiskPage() {
                   {interventionOptions.map(intervention => (
                     <label
                       key={intervention}
-                      className="flex items-center space-x-2 cursor-pointer p-2 rounded hover:bg-gray-50"
+                      className="flex items-center space-x-2 cursor-pointer p-2 rounded hover:bg-surface-sunken"
                     >
                       <input
                         type="checkbox"
                         checked={interventions.includes(intervention)}
                         onChange={() => toggleIntervention(intervention)}
-                        className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                        className="rounded border-border-strong text-ok-subtle-fg focus:ring-green-500"
                       />
-                      <span className="text-sm text-gray-700">{intervention}</span>
+                      <span className="text-sm text-content-secondary">{intervention}</span>
                     </label>
                   ))}
                 </div>
               </div>
 
               {/* Notes */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <label htmlFor="fallrisk-additional-notes" className="font-bold text-gray-900 mb-4 block">{t('docFallRisk.notesLabel')}</label>
+              <div className="bg-surface rounded-lg shadow p-6">
+                <label htmlFor="fallrisk-additional-notes" className="font-bold text-content mb-4 block">{t('docFallRisk.notesLabel')}</label>
                 <textarea
                   id="fallrisk-additional-notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder={t('docFallRisk.notesPh')}
                   rows={4}
-                  className="w-full p-3 border border-gray-300 rounded-lg"
+                  className="w-full p-3 border border-border-strong rounded-lg"
                 />
               </div>
 
@@ -870,13 +870,13 @@ export default function FallRiskPage() {
         )}
 
         {activeTab === 'history' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+          <div className="bg-surface rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-content mb-6 flex items-center">
               <History className="h-6 w-6 mr-2 text-orange-500" />
               {t('docFallRisk.assessmentHistoryTitle')}
             </h2>
             {_assessmentHistory.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
+              <div className="text-center py-12 text-content-muted">
                 <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>{t('docFallRisk.noHistory')}</p>
                 <p className="text-sm mt-1">{t('docFallRisk.noHistoryHint')}</p>
@@ -888,7 +888,7 @@ export default function FallRiskPage() {
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="font-bold">{assessment.patientId}</p>
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm text-content-muted">
                           {assessment.assessmentDate} at {assessment.assessmentTime}
                         </p>
                       </div>
@@ -896,7 +896,7 @@ export default function FallRiskPage() {
                         {t('docFallRisk.scoreRiskLine', { score: assessment.totalScore, level: t(`docFallRisk.risk_${assessment.riskLevel}`).toUpperCase() })}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600 mt-2">
+                    <p className="text-sm text-content-muted mt-2">
                       {t('docFallRisk.interventionsCountLine', { count: assessment.interventions.length })}
                     </p>
                   </div>

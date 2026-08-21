@@ -51,13 +51,20 @@ async fn require_registry_reader(
             code: "INSUFFICIENT_ROLE".to_string(),
         }));
     }
-    let _ = data.audit_outbox.record(
-        "registry_bulk_read".into(),
-        "clinical_registry".into(),
-        http_req.path().to_string(),
-        serde_json::json!({ "accessor_id": user_id, "accessor_role": user.role.to_string() }),
-        Utc::now(),
-    );
+    if let Err(error) = data
+        .audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
+            "registry_bulk_read".into(),
+            "clinical_registry".into(),
+            http_req.path().to_string(),
+            serde_json::json!({ "accessor_id": user_id, "accessor_role": user.role.to_string() }),
+            Utc::now(),
+        )
+        .await
+    {
+        log::error!("audit outbox write failed: {error}");
+    }
     Ok(())
 }
 
@@ -132,6 +139,25 @@ pub async fn list_radiology_orders(
         return resp;
     }
     match data.repositories.radiology_orders.list_all().await {
+        Ok(list) => HttpResponse::Ok().json(list),
+        Err(e) => registry_read_error(&http_req, e),
+    }
+}
+
+/// List all radiology reports
+///
+/// This endpoint did not exist, so `listRadiology()` in the shared client hard-coded
+/// `reports: { total: 0, items: [] }`. The radiology worklist could therefore show a
+/// study as reported while the report itself was unreachable from any list view.
+#[get("/api/platform/list/radiology-reports")]
+pub async fn list_radiology_reports(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
+    }
+    match data.repositories.radiology_reports.list_all().await {
         Ok(list) => HttpResponse::Ok().json(list),
         Err(e) => registry_read_error(&http_req, e),
     }
@@ -442,6 +468,37 @@ pub async fn list_ama_discharges(
         .await
     {
         Ok(result) => HttpResponse::Ok().json(result.items),
+        Err(e) => registry_read_error(&http_req, e),
+    }
+}
+
+/// A patient's pediatric assessments, newest first.
+///
+/// Deliberately patient-scoped rather than a `/api/platform/list/peds`
+/// registry. The pediatrics page needs one child's growth series, not every
+/// child's — and an all-patients read here would add another unscoped bulk read
+/// to a backlog the project is actively trying to shrink. `get_by_patient` is
+/// already on the repository trait, so this needs no new storage surface.
+#[get("/api/clinical/peds/patient/{patient_id}")]
+pub async fn list_peds_for_patient(
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    http_req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = require_registry_reader(&data, &http_req).await {
+        return resp;
+    }
+    let patient_id = path.into_inner();
+    match data
+        .repositories
+        .pediatric_assessments
+        .get_by_patient(&patient_id, Pagination::new(0, 100))
+        .await
+    {
+        Ok(result) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "items": result.items,
+        })),
         Err(e) => registry_read_error(&http_req, e),
     }
 }

@@ -415,6 +415,18 @@ pub trait PatientRepository: Send + Sync + fmt::Debug {
 
     /// Count total patients
     async fn count(&self) -> RepositoryResult<u64>;
+
+    /// Count active patients grouped by administrative gender.
+    ///
+    /// Aggregated in the query rather than by listing every patient and
+    /// counting in Rust: the population analytics endpoint needs the shape of
+    /// the cohort, not its rows, and loading a national register into memory to
+    /// produce four integers does not scale past a demo.
+    ///
+    /// Patients who did not supply a gender are counted under `"not_recorded"`
+    /// so the buckets always sum to the population — a distribution that
+    /// silently drops them misstates every proportion derived from it.
+    async fn count_by_gender(&self) -> RepositoryResult<std::collections::HashMap<String, u64>>;
 }
 
 /// Allergy repository trait
@@ -473,6 +485,10 @@ pub trait MedicalRecordRepository: Send + Sync + fmt::Debug {
 
     /// Get record by IPFS hash
     async fn get_by_ipfs_hash(&self, ipfs_hash: &str) -> RepositoryResult<MedicalRecordEntity>;
+    /// Total records across all patients — the administrator analytics count.
+    /// Deliberately has no default implementation; see the note on
+    /// `list_all` for why a failing default is worse than none.
+    async fn count(&self) -> RepositoryResult<u64>;
 
     /// Update record
     async fn update(&self, record: MedicalRecordEntity) -> RepositoryResult<MedicalRecordEntity>;
@@ -643,6 +659,18 @@ pub trait AccessLogRepository: Send + Sync + fmt::Debug {
         query: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<AccessLogEntity>>;
+
+    /// `(total_entries, entries_carrying_a_blockchain_anchor)`.
+    ///
+    /// This is the measurement behind the compliance dashboard's audit-coverage
+    /// figure, which used to be the string literal `"100%"`. In a system whose
+    /// central claim is a tamper-evident access trail, the share of access
+    /// records actually anchored on-chain is the property an auditor is asking
+    /// about, and asserting it without counting is the assertion most likely to
+    /// be taken at face value.
+    ///
+    /// Both counts come from one call so they cannot disagree.
+    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)>;
 }
 
 // =============================================================================
@@ -1028,11 +1056,7 @@ pub trait HistoryPhysicalRepository: Send + Sync + fmt::Debug {
         exam_type: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<HistoryPhysicalEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<HistoryPhysicalEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<HistoryPhysicalEntity>>;
 }
 
 /// Consultation note repository trait
@@ -1062,11 +1086,7 @@ pub trait ConsultationNoteRepository: Send + Sync + fmt::Debug {
         status: &str,
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<ConsultationNoteEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<ConsultationNoteEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<ConsultationNoteEntity>>;
 }
 
 /// Nursing care plan repository trait
@@ -1338,11 +1358,7 @@ pub trait CodeBlueRepository: Send + Sync + fmt::Debug {
     /// Delete a code blue record
     async fn delete(&self, id: &str) -> RepositoryResult<()>;
     /// List all code blue records
-    async fn list_all(&self) -> RepositoryResult<Vec<CodeBlueEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<CodeBlueEntity>>;
 }
 
 /// Trauma assessment repository trait
@@ -1647,7 +1663,11 @@ pub struct PreOpAssessmentEntity {
     pub clearance_conditions: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless, so the
+    /// WHO checklist fields cannot be dropped by persistence.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1685,7 +1705,12 @@ pub struct OperativeNoteEntity {
     pub post_op_orders: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless. The API
+    /// type carries the full surgical team, specimens, implants and
+    /// drains as structured lists that the flat columns cannot hold.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1695,7 +1720,10 @@ pub struct OperativeNoteEntity {
 pub struct PostOpNoteEntity {
     pub id: String,
     pub patient_id: String,
-    pub operative_note_id: String,
+    /// Nullable since migration 20260810000001: the API type carries no
+    /// operative-note link, and a patient transferred in after surgery
+    /// elsewhere legitimately has none.
+    pub operative_note_id: Option<String>,
     pub post_op_day: i32,
     pub note_date: DateTime<Utc>,
     pub provider_id: String,
@@ -1715,7 +1743,12 @@ pub struct PostOpNoteEntity {
     pub estimated_discharge_date: Option<chrono::NaiveDate>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless. The API
+    /// type carries wound status, I/O balance, foley and DVT prophylaxis
+    /// detail the columns flatten or omit.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1751,7 +1784,12 @@ pub struct AnesthesiaRecordEntity {
     pub post_anesthesia_orders: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload. The typed columns above are its queryable
+    /// projection; this is what makes the round trip lossless. The API
+    /// type carries the timed vitals series, medication and fluid logs,
+    /// emergence and PACU handoff as structured records.
+    /// Column added by migration 20260810000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1897,7 +1935,12 @@ pub struct RadiologyOrderEntity {
     pub accession_number: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload; the typed columns above are the queryable
+    /// projection, so the round trip is lossless — the API type carries the full study type,
+    /// laterality and contrast-safety checks (creatinine, pregnancy) that the
+    /// flat columns flatten or omit.
+    /// Column added by migration 20260811000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1929,7 +1972,12 @@ pub struct RadiologyReportEntity {
     pub pacs_study_uid: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload; the typed columns above are the queryable
+    /// projection, so the round trip is lossless — the API type carries `impression` as a list and
+    /// the critical-finding read-back as a nested record, neither of which the
+    /// flat columns can hold.
+    /// Column added by migration 20260811000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -1966,7 +2014,12 @@ pub struct PathologyReportEntity {
     pub synoptic_report: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[sqlx(skip)]
+    /// Full API payload; the typed columns above are the queryable
+    /// projection, so the round trip is lossless — the API type carries special stains,
+    /// immunohistochemistry, molecular studies and the synoptic cancer-staging
+    /// report as structured lists.
+    /// Column added by migration 20260811000001.
+    #[sqlx(rename = "record_json")]
     #[serde(default)]
     pub data: serde_json::Value,
 }
@@ -2242,11 +2295,7 @@ pub trait LabPanelRepository: Send + Sync + fmt::Debug {
     async fn update(&self, panel: LabPanelEntity) -> RepositoryResult<LabPanelEntity>;
     async fn get_abnormal_results(&self, patient_id: &str)
         -> RepositoryResult<Vec<LabPanelEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<LabPanelEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<LabPanelEntity>>;
 }
 
 /// Lab QC record repository trait
@@ -2264,11 +2313,7 @@ pub trait LabQcRecordRepository: Send + Sync + fmt::Debug {
         date_range: Option<DateRange>,
     ) -> RepositoryResult<Vec<LabQcRecordEntity>>;
     async fn update(&self, record: LabQcRecordEntity) -> RepositoryResult<LabQcRecordEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<LabQcRecordEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<LabQcRecordEntity>>;
 }
 
 /// Critical value repository trait
@@ -2288,11 +2333,7 @@ pub trait CriticalValueRepository: Send + Sync + fmt::Debug {
         acknowledged_by: &str,
         action_taken: &str,
     ) -> RepositoryResult<CriticalValueEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<CriticalValueEntity>>;
 }
 
 /// Specimen collection repository trait
@@ -2315,11 +2356,7 @@ pub trait SpecimenCollectionRepository: Send + Sync + fmt::Debug {
         &self,
         specimen: SpecimenCollectionEntity,
     ) -> RepositoryResult<SpecimenCollectionEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenCollectionEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenCollectionEntity>>;
 }
 
 /// Specimen rejection repository trait
@@ -2335,11 +2372,7 @@ pub trait SpecimenRejectionRepository: Send + Sync + fmt::Debug {
         specimen_id: &str,
     ) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
     async fn get_pending_recollections(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>>;
 }
 
 /// Lab trend repository trait
@@ -2354,11 +2387,7 @@ pub trait LabTrendRepository: Send + Sync + fmt::Debug {
     ) -> RepositoryResult<Option<LabTrendEntity>>;
     async fn get_by_patient(&self, patient_id: &str) -> RepositoryResult<Vec<LabTrendEntity>>;
     async fn update(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<LabTrendEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<LabTrendEntity>>;
 }
 
 /// Pre-op assessment repository trait
@@ -2405,11 +2434,7 @@ pub trait OperativeNoteRepository: Send + Sync + fmt::Debug {
         pagination: Pagination,
     ) -> RepositoryResult<PaginatedResult<OperativeNoteEntity>>;
     async fn update(&self, note: OperativeNoteEntity) -> RepositoryResult<OperativeNoteEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<OperativeNoteEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<OperativeNoteEntity>>;
 }
 
 /// Post-op note repository trait
@@ -2451,11 +2476,7 @@ pub trait AnesthesiaRecordRepository: Send + Sync + fmt::Debug {
         &self,
         record: AnesthesiaRecordEntity,
     ) -> RepositoryResult<AnesthesiaRecordEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<AnesthesiaRecordEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<AnesthesiaRecordEntity>>;
 }
 
 /// Intubation record repository trait
@@ -2476,11 +2497,7 @@ pub trait IntubationRecordRepository: Send + Sync + fmt::Debug {
         &self,
         record: IntubationRecordEntity,
     ) -> RepositoryResult<IntubationRecordEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<IntubationRecordEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<IntubationRecordEntity>>;
 }
 
 /// Laceration repair repository trait
@@ -2501,11 +2518,7 @@ pub trait LacerationRepairRepository: Send + Sync + fmt::Debug {
         &self,
         repair: LacerationRepairEntity,
     ) -> RepositoryResult<LacerationRepairEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<LacerationRepairEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<LacerationRepairEntity>>;
 }
 
 /// Splint/cast record repository trait
@@ -2547,11 +2560,7 @@ pub trait RadiologyOrderRepository: Send + Sync + fmt::Debug {
         &self,
         modality: &str,
     ) -> RepositoryResult<Vec<RadiologyOrderEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyOrderEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyOrderEntity>>;
 }
 
 /// Radiology report repository trait
@@ -2574,11 +2583,7 @@ pub trait RadiologyReportRepository: Send + Sync + fmt::Debug {
         report: RadiologyReportEntity,
     ) -> RepositoryResult<RadiologyReportEntity>;
     async fn get_critical_findings(&self) -> RepositoryResult<Vec<RadiologyReportEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyReportEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyReportEntity>>;
 }
 
 /// Pathology report repository trait
@@ -2602,11 +2607,7 @@ pub trait PathologyReportRepository: Send + Sync + fmt::Debug {
         &self,
         report: PathologyReportEntity,
     ) -> RepositoryResult<PathologyReportEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<PathologyReportEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<PathologyReportEntity>>;
 }
 
 /// Blood type screen repository trait
@@ -2630,11 +2631,7 @@ pub trait BloodTypeScreenRepository: Send + Sync + fmt::Debug {
         &self,
         screen: BloodTypeScreenEntity,
     ) -> RepositoryResult<BloodTypeScreenEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>>;
 }
 
 /// Crossmatch record repository trait
@@ -2659,11 +2656,7 @@ pub trait CrossmatchRecordRepository: Send + Sync + fmt::Debug {
         record: CrossmatchRecordEntity,
     ) -> RepositoryResult<CrossmatchRecordEntity>;
     async fn get_reserved_units(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>>;
 }
 
 /// Transfusion record repository trait
@@ -2687,11 +2680,7 @@ pub trait TransfusionRecordRepository: Send + Sync + fmt::Debug {
         &self,
         date_range: Option<DateRange>,
     ) -> RepositoryResult<Vec<TransfusionRecordEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<TransfusionRecordEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<TransfusionRecordEntity>>;
 }
 
 /// E-prescription repository trait
@@ -2775,11 +2764,7 @@ pub trait MedicationReminderRepository: Send + Sync + fmt::Debug {
     /// Return all active reminders across all patients. Used by the background
     /// notification dispatcher to scan for due times. Default implementation returns
     /// an error so backends opt-in by overriding.
-    async fn list_all_active(&self) -> RepositoryResult<Vec<MedicationReminderEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all_active not implemented".to_string(),
-        ))
-    }
+    async fn list_all_active(&self) -> RepositoryResult<Vec<MedicationReminderEntity>>;
 }
 
 /// Adherence log repository trait
@@ -3852,11 +3837,7 @@ pub trait ChainOfCustodyRepository: Send + Sync + fmt::Debug {
         &self,
         custodian_id: &str,
     ) -> RepositoryResult<Vec<ChainOfCustodyEntity>>;
-    async fn list_all(&self) -> RepositoryResult<Vec<ChainOfCustodyEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<ChainOfCustodyEntity>>;
 }
 
 // =============================================================================
@@ -4415,6 +4396,9 @@ pub trait RpmReadingRepository: Send + Sync + fmt::Debug {
 pub trait CdsAlertRepository: Send + Sync + fmt::Debug {
     async fn create(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity>;
     async fn get_by_id(&self, id: &str) -> RepositoryResult<CdsAlertEntity>;
+    /// Total alerts, and how many are critical severity, for the quality
+    /// dashboard. Returned together so the two numbers cannot disagree.
+    async fn count_by_severity(&self) -> RepositoryResult<(u64, u64)>;
     /// Replace an existing alert in its entirety (used to round-trip response payloads
     /// the narrower acknowledge/override_alert methods can't capture).
     async fn update(&self, alert: CdsAlertEntity) -> RepositoryResult<CdsAlertEntity> {
@@ -4517,67 +4501,32 @@ pub trait InsuranceRecordRepository: Send + Sync + fmt::Debug {
         self.verify_eligibility(id, verified_by).await
     }
     /// Deactivate insurance record
-    async fn deactivate(&self, id: &str) -> RepositoryResult<InsuranceRecordEntity> {
-        let _ = id;
-        Err(RepositoryError::NotImplemented(
-            "deactivate not implemented".into(),
-        ))
-    }
+    async fn deactivate(&self, id: &str) -> RepositoryResult<InsuranceRecordEntity>;
     /// Get insurance records expiring within days
-    async fn get_expiring(&self, days: i32) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
-        let _ = days;
-        Err(RepositoryError::NotImplemented(
-            "get_expiring not implemented".into(),
-        ))
-    }
+    async fn get_expiring(&self, days: i32) -> RepositoryResult<Vec<InsuranceRecordEntity>>;
     /// Get primary insurance for a patient
     async fn get_primary(
         &self,
         patient_id: &str,
-    ) -> RepositoryResult<Option<InsuranceRecordEntity>> {
-        let _ = patient_id;
-        Err(RepositoryError::NotImplemented(
-            "get_primary not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<Option<InsuranceRecordEntity>>;
     /// Get all active insurance records for a patient
-    async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<InsuranceRecordEntity>> {
-        let _ = patient_id;
-        Err(RepositoryError::NotImplemented(
-            "get_active not implemented".into(),
-        ))
-    }
+    async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<InsuranceRecordEntity>>;
     /// Verify eligibility for an insurance record
     async fn verify_eligibility(
         &self,
         id: &str,
         verified_by: &str,
-    ) -> RepositoryResult<InsuranceRecordEntity> {
-        let _ = (id, verified_by);
-        Err(RepositoryError::NotImplemented(
-            "verify_eligibility not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<InsuranceRecordEntity>;
 
     /// Designate an insurance record as primary for the patient
-    async fn set_primary(&self, patient_id: &str, record_id: &str) -> RepositoryResult<()> {
-        let _ = (patient_id, record_id);
-        Err(RepositoryError::NotImplemented(
-            "set_primary not implemented".into(),
-        ))
-    }
+    async fn set_primary(&self, patient_id: &str, record_id: &str) -> RepositoryResult<()>;
 
     /// Terminate an insurance record (mark inactive and set termination date)
     async fn terminate(
         &self,
         id: &str,
         termination_date: chrono::NaiveDate,
-    ) -> RepositoryResult<InsuranceRecordEntity> {
-        let _ = (id, termination_date);
-        Err(RepositoryError::NotImplemented(
-            "terminate not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<InsuranceRecordEntity>;
 }
 
 /// Billing code repository trait
@@ -4600,32 +4549,17 @@ pub trait BillingCodeRepository: Send + Sync + fmt::Debug {
     async fn get_by_category(&self, category: &str) -> RepositoryResult<Vec<BillingCodeEntity>>;
 
     /// Get active billing codes by type
-    async fn get_active(&self, code_type: &str) -> RepositoryResult<Vec<BillingCodeEntity>> {
-        let _ = code_type;
-        Err(RepositoryError::NotImplemented(
-            "get_active not implemented".into(),
-        ))
-    }
+    async fn get_active(&self, code_type: &str) -> RepositoryResult<Vec<BillingCodeEntity>>;
 
     /// Deactivate a billing code
-    async fn deactivate(&self, id: &str) -> RepositoryResult<BillingCodeEntity> {
-        let _ = id;
-        Err(RepositoryError::NotImplemented(
-            "deactivate not implemented".into(),
-        ))
-    }
+    async fn deactivate(&self, id: &str) -> RepositoryResult<BillingCodeEntity>;
 
     /// List billing codes by type with pagination
     async fn list_by_type(
         &self,
         code_type: &str,
         pagination: Pagination,
-    ) -> RepositoryResult<PaginatedResult<BillingCodeEntity>> {
-        let _ = (code_type, pagination);
-        Err(RepositoryError::NotImplemented(
-            "list_by_type not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<PaginatedResult<BillingCodeEntity>>;
 }
 
 // =============================================================================
@@ -4876,11 +4810,7 @@ pub trait ImmunizationRecordRepository: Send + Sync {
     ) -> RepositoryResult<Vec<ImmunizationRecordEntity>>;
     /// Return every immunization record across all patients. Used by admin/list
     /// endpoints. Default returns NotFound so backends opt-in.
-    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationRecordEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationRecordEntity>>;
 }
 
 /// Immunization schedule entity
@@ -4931,11 +4861,7 @@ pub trait ImmunizationScheduleRepository: Send + Sync {
         immunization_id: &str,
     ) -> RepositoryResult<ImmunizationScheduleEntity>;
     async fn skip(&self, id: &str, reason: &str) -> RepositoryResult<ImmunizationScheduleEntity>;
-    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationScheduleEntity>> {
-        Err(RepositoryError::NotFound(
-            "list_all not implemented".to_string(),
-        ))
-    }
+    async fn list_all(&self) -> RepositoryResult<Vec<ImmunizationScheduleEntity>>;
 }
 
 /// Vaccine inventory entity
@@ -5079,19 +5005,10 @@ pub trait DeathRecordRepository: Send + Sync {
         id: &str,
         certifier_id: &str,
         certifier_name: &str,
-    ) -> RepositoryResult<DeathRecordEntity> {
-        let _ = (id, certifier_id, certifier_name);
-        Err(RepositoryError::NotImplemented(
-            "certify not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<DeathRecordEntity>;
 
     /// Get pending certification records
-    async fn get_pending_certification(&self) -> RepositoryResult<Vec<DeathRecordEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_pending_certification not implemented".into(),
-        ))
-    }
+    async fn get_pending_certification(&self) -> RepositoryResult<Vec<DeathRecordEntity>>;
 
     /// Get record by certificate number
     async fn get_by_certificate_number(
@@ -5100,18 +5017,10 @@ pub trait DeathRecordRepository: Send + Sync {
     ) -> RepositoryResult<DeathRecordEntity>;
 
     /// Get medical examiner cases
-    async fn get_medical_examiner_cases(&self) -> RepositoryResult<Vec<DeathRecordEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_medical_examiner_cases not implemented".into(),
-        ))
-    }
+    async fn get_medical_examiner_cases(&self) -> RepositoryResult<Vec<DeathRecordEntity>>;
 
     /// Get records pending autopsy
-    async fn get_pending_autopsies(&self) -> RepositoryResult<Vec<DeathRecordEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_pending_autopsies not implemented".into(),
-        ))
-    }
+    async fn get_pending_autopsies(&self) -> RepositoryResult<Vec<DeathRecordEntity>>;
 }
 
 /// Organ donation record entity
@@ -5171,19 +5080,10 @@ pub trait OrganDonationRecordRepository: Send + Sync {
     async fn get_registered_donors(&self) -> RepositoryResult<Vec<OrganDonationRecordEntity>>;
 
     /// Get records pending organ recovery
-    async fn get_pending_recovery(&self) -> RepositoryResult<Vec<OrganDonationRecordEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_pending_recovery not implemented".into(),
-        ))
-    }
+    async fn get_pending_recovery(&self) -> RepositoryResult<Vec<OrganDonationRecordEntity>>;
 
     /// Get records by OPO (Organ Procurement Organization)
-    async fn get_by_opo(&self, opo_name: &str) -> RepositoryResult<Vec<OrganDonationRecordEntity>> {
-        let _ = opo_name;
-        Err(RepositoryError::NotImplemented(
-            "get_by_opo not implemented".into(),
-        ))
-    }
+    async fn get_by_opo(&self, opo_name: &str) -> RepositoryResult<Vec<OrganDonationRecordEntity>>;
 }
 
 // =============================================================================
@@ -5235,36 +5135,21 @@ pub trait SyncOperationRepository: Send + Sync {
         processed: i32,
         success: i32,
         errors: i32,
-    ) -> RepositoryResult<SyncOperationEntity> {
-        let _ = (id, processed, success, errors);
-        Err(RepositoryError::NotImplemented(
-            "update_progress not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<SyncOperationEntity>;
 
     /// Complete an operation
     async fn complete(
         &self,
         id: &str,
         summary: serde_json::Value,
-    ) -> RepositoryResult<SyncOperationEntity> {
-        let _ = (id, summary);
-        Err(RepositoryError::NotImplemented(
-            "complete not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<SyncOperationEntity>;
 
     /// Mark an operation as failed
     async fn fail(
         &self,
         id: &str,
         error_details: serde_json::Value,
-    ) -> RepositoryResult<SyncOperationEntity> {
-        let _ = (id, error_details);
-        Err(RepositoryError::NotImplemented(
-            "fail not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<SyncOperationEntity>;
 
     /// Get operations by entity type and id
     async fn get_by_entity(
@@ -5274,18 +5159,10 @@ pub trait SyncOperationRepository: Send + Sync {
     ) -> RepositoryResult<Vec<SyncOperationEntity>>;
 
     /// Get operations pending retry
-    async fn get_pending_retries(&self) -> RepositoryResult<Vec<SyncOperationEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_pending_retries not implemented".into(),
-        ))
-    }
+    async fn get_pending_retries(&self) -> RepositoryResult<Vec<SyncOperationEntity>>;
 
     /// Get operations in progress
-    async fn get_in_progress(&self) -> RepositoryResult<Vec<SyncOperationEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_in_progress not implemented".into(),
-        ))
-    }
+    async fn get_in_progress(&self) -> RepositoryResult<Vec<SyncOperationEntity>>;
 }
 
 /// Sync conflict entity
@@ -5338,11 +5215,7 @@ pub trait SyncConflictRepository: Send + Sync {
     ) -> RepositoryResult<Vec<SyncConflictEntity>>;
 
     /// Get conflicts that can be auto-resolved
-    async fn get_auto_resolvable(&self) -> RepositoryResult<Vec<SyncConflictEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_auto_resolvable not implemented".into(),
-        ))
-    }
+    async fn get_auto_resolvable(&self) -> RepositoryResult<Vec<SyncConflictEntity>>;
 }
 
 /// External ID mapping entity
@@ -5387,46 +5260,22 @@ pub trait ExternalIdMappingRepository: Send + Sync {
     ) -> RepositoryResult<ExternalIdMappingEntity>;
 
     /// Update sync time
-    async fn update_sync_time(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity> {
-        let _ = id;
-        Err(RepositoryError::NotImplemented(
-            "update_sync_time not implemented".into(),
-        ))
-    }
+    async fn update_sync_time(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity>;
 
     /// Delete a mapping
-    async fn delete(&self, id: &str) -> RepositoryResult<()> {
-        let _ = id;
-        Err(RepositoryError::NotImplemented(
-            "delete not implemented".into(),
-        ))
-    }
+    async fn delete(&self, id: &str) -> RepositoryResult<()>;
 
     /// Deactivate a mapping
-    async fn deactivate(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity> {
-        let _ = id;
-        Err(RepositoryError::NotImplemented(
-            "deactivate not implemented".into(),
-        ))
-    }
+    async fn deactivate(&self, id: &str) -> RepositoryResult<ExternalIdMappingEntity>;
 
     /// Get mappings by external system
     async fn get_by_system(
         &self,
         external_system: &str,
-    ) -> RepositoryResult<Vec<ExternalIdMappingEntity>> {
-        let _ = external_system;
-        Err(RepositoryError::NotImplemented(
-            "get_by_system not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<Vec<ExternalIdMappingEntity>>;
 
     /// Get unverified mappings
-    async fn get_unverified(&self) -> RepositoryResult<Vec<ExternalIdMappingEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_unverified not implemented".into(),
-        ))
-    }
+    async fn get_unverified(&self) -> RepositoryResult<Vec<ExternalIdMappingEntity>>;
 }
 
 // =============================================================================
@@ -5482,12 +5331,7 @@ pub trait ComplianceReportRepository: Send + Sync {
         &self,
         start: chrono::NaiveDate,
         end: chrono::NaiveDate,
-    ) -> RepositoryResult<Vec<ComplianceReportEntity>> {
-        let _ = (start, end);
-        Err(RepositoryError::NotImplemented(
-            "get_by_period not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<Vec<ComplianceReportEntity>>;
 
     /// Approve a report
     async fn approve(
@@ -5495,54 +5339,25 @@ pub trait ComplianceReportRepository: Send + Sync {
         id: &str,
         reviewed_by: &str,
         notes: Option<&str>,
-    ) -> RepositoryResult<ComplianceReportEntity> {
-        let _ = (id, reviewed_by, notes);
-        Err(RepositoryError::NotImplemented(
-            "approve not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<ComplianceReportEntity>;
 
     /// Get pending review reports
-    async fn get_pending_review(&self) -> RepositoryResult<Vec<ComplianceReportEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_pending_review not implemented".into(),
-        ))
-    }
+    async fn get_pending_review(&self) -> RepositoryResult<Vec<ComplianceReportEntity>>;
 
     /// Get reports by compliance framework
     async fn get_by_framework(
         &self,
         framework: &str,
-    ) -> RepositoryResult<Vec<ComplianceReportEntity>> {
-        let _ = framework;
-        Err(RepositoryError::NotImplemented(
-            "get_by_framework not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<Vec<ComplianceReportEntity>>;
 
     /// Get reports by status
-    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<ComplianceReportEntity>> {
-        let _ = status;
-        Err(RepositoryError::NotImplemented(
-            "get_by_status not implemented".into(),
-        ))
-    }
+    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<ComplianceReportEntity>>;
 
     /// Get reports expiring within specified days
-    async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>> {
-        let _ = days;
-        Err(RepositoryError::NotImplemented(
-            "get_expiring_soon not implemented".into(),
-        ))
-    }
+    async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>>;
 
     /// Get recently generated reports
-    async fn get_recent(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>> {
-        let _ = days;
-        Err(RepositoryError::NotImplemented(
-            "get_recent not implemented".into(),
-        ))
-    }
+    async fn get_recent(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>>;
 }
 
 /// Data retention policy entity
@@ -5603,18 +5418,10 @@ pub trait DataRetentionPolicyRepository: Send + Sync {
     async fn deactivate(&self, id: &str) -> RepositoryResult<DataRetentionPolicyEntity>;
 
     /// Get policies due for review
-    async fn get_due_for_review(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_due_for_review not implemented".into(),
-        ))
-    }
+    async fn get_due_for_review(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>>;
 
     /// Get policies due for execution
-    async fn get_due_for_execution(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_due_for_execution not implemented".into(),
-        ))
-    }
+    async fn get_due_for_execution(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>>;
 }
 
 /// Retention job run entity
@@ -5656,39 +5463,20 @@ pub trait RetentionJobRunRepository: Send + Sync {
         archived: i32,
         deleted: i32,
         skipped: i32,
-    ) -> RepositoryResult<RetentionJobRunEntity> {
-        let _ = (id, archived, deleted, skipped);
-        Err(RepositoryError::NotImplemented(
-            "complete not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<RetentionJobRunEntity>;
 
     /// Mark a job as failed
     async fn fail(
         &self,
         id: &str,
         error_details: serde_json::Value,
-    ) -> RepositoryResult<RetentionJobRunEntity> {
-        let _ = (id, error_details);
-        Err(RepositoryError::NotImplemented(
-            "fail not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<RetentionJobRunEntity>;
 
     /// Get jobs by status
-    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
-        let _ = status;
-        Err(RepositoryError::NotImplemented(
-            "get_by_status not implemented".into(),
-        ))
-    }
+    async fn get_by_status(&self, status: &str) -> RepositoryResult<Vec<RetentionJobRunEntity>>;
 
     /// Get jobs currently in progress
-    async fn get_in_progress(&self) -> RepositoryResult<Vec<RetentionJobRunEntity>> {
-        Err(RepositoryError::NotImplemented(
-            "get_in_progress not implemented".into(),
-        ))
-    }
+    async fn get_in_progress(&self) -> RepositoryResult<Vec<RetentionJobRunEntity>>;
 }
 
 /// Consent record entity
@@ -5945,20 +5733,10 @@ pub trait ConsentRecordRepository: Send + Sync {
         &self,
         patient_id: &str,
         consent_type: &str,
-    ) -> RepositoryResult<Option<ConsentRecordEntity>> {
-        let _ = (patient_id, consent_type);
-        Err(RepositoryError::NotImplemented(
-            "get_active_by_type not implemented".into(),
-        ))
-    }
+    ) -> RepositoryResult<Option<ConsentRecordEntity>>;
 
     /// Get all active consents for a patient
-    async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<ConsentRecordEntity>> {
-        let _ = patient_id;
-        Err(RepositoryError::NotImplemented(
-            "get_active not implemented".into(),
-        ))
-    }
+    async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<ConsentRecordEntity>>;
 
     /// Get all active consents for a patient (alias)
     async fn get_active_by_patient(
@@ -6621,6 +6399,134 @@ pub trait EmergencyCapsuleRepository: Send + Sync + fmt::Debug {
         patient_id: &str,
         limit: i64,
     ) -> RepositoryResult<Vec<EmergencyCapsuleAccessEntity>>;
+}
+
+// =============================================================================
+// Patient-controlled access requests and grants (migration 20260809000001)
+//
+// The consent-based counterpart to emergency (break-glass) grants: a provider
+// requests access, the patient approves — minting a standing grant — or denies,
+// and revokes at will. See `crate::patient_access` for the state machine that
+// drives these operations.
+// =============================================================================
+
+// The response shapes below are serialized `camelCase` on purpose: the
+// patient-app Consent Management page reads `providerName`, `accessType`,
+// `grantedAt`, `accessCount`, … . A serde rename mismatch here would leave the
+// UI rendering `undefined`, so do not drop `rename_all`.
+
+/// A provider's request for standing access, awaiting the patient's decision.
+///
+/// `patient_id` is internal (used for ownership checks) and never serialized.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+#[serde(rename_all = "camelCase")]
+pub struct AccessRequestEntity {
+    pub id: String,
+    #[serde(skip)]
+    pub patient_id: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub provider_role: String,
+    pub organization: String,
+    pub requested_at: DateTime<Utc>,
+    pub reason: String,
+    /// `pending` | `approved` | `denied`
+    pub status: String,
+}
+
+/// A standing access grant the patient has approved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "postgres", derive(sqlx::FromRow))]
+#[serde(rename_all = "camelCase")]
+pub struct AccessGrantEntity {
+    pub id: String,
+    #[serde(skip)]
+    pub patient_id: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub provider_role: String,
+    pub organization: String,
+    /// `full` | `limited` | `emergency`
+    pub access_type: String,
+    pub granted_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+    /// `active` | `expired` | `revoked`
+    pub status: String,
+    pub last_accessed: Option<DateTime<Utc>>,
+    pub access_count: i32,
+    /// The request this grant was minted from, when there was one.
+    #[serde(skip)]
+    pub source_request_id: Option<String>,
+}
+
+impl AccessGrantEntity {
+    /// Whether this grant actually authorises access at `now` — active, and
+    /// (if time-limited) not yet expired.
+    ///
+    /// The stored `status` alone is not sufficient: expiry is applied lazily,
+    /// so a row can still read `active` after its `expires_at` has passed.
+    pub fn is_effective(&self, now: DateTime<Utc>) -> bool {
+        self.status == "active" && self.expires_at.map(|e| e > now).unwrap_or(true)
+    }
+}
+
+/// Patient access repository.
+///
+/// Storage only — the state machine (validation, identifier generation,
+/// which transitions are legal) lives in `crate::patient_access`. What *is*
+/// here is atomicity: every transition is expressed as a conditional update
+/// returning `None` when the row was no longer in the expected state, because
+/// a read-then-write in the caller would let two concurrent approvals mint two
+/// grants for one request.
+#[async_trait]
+pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
+    async fn create_request(
+        &self,
+        request: AccessRequestEntity,
+    ) -> RepositoryResult<AccessRequestEntity>;
+
+    async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>>;
+
+    /// This patient's requests, newest first.
+    async fn list_requests_by_patient(
+        &self,
+        patient_id: &str,
+    ) -> RepositoryResult<Vec<AccessRequestEntity>>;
+
+    /// Atomically move a `pending` request to `approved` and insert `grant`,
+    /// so an approved request can never exist without the grant it minted.
+    ///
+    /// `Ok(None)` means the request was not pending — a replayed approval, or
+    /// one that lost the race — and nothing was written.
+    async fn approve_request(
+        &self,
+        request_id: &str,
+        grant: AccessGrantEntity,
+    ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>>;
+
+    /// Atomically move a `pending` request to `denied`. `Ok(None)` when it was
+    /// already decided.
+    async fn deny_request(&self, request_id: &str)
+        -> RepositoryResult<Option<AccessRequestEntity>>;
+
+    async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>>;
+
+    /// This patient's grants, newest first, with lazy expiry applied first so a
+    /// caller never sees an `active` grant whose `expires_at` has passed.
+    async fn list_grants_by_patient(
+        &self,
+        patient_id: &str,
+        now: DateTime<Utc>,
+    ) -> RepositoryResult<Vec<AccessGrantEntity>>;
+
+    /// Atomically revoke a grant that is active *and* unexpired at `now`.
+    /// `Ok(None)` when it was already revoked, or had already lapsed.
+    async fn revoke_grant(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+    ) -> RepositoryResult<Option<AccessGrantEntity>>;
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@ describe('RegisterPatientPage', () => {
 
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({
         success: true,
         patient_id: 'PAT-123',
@@ -51,17 +52,20 @@ describe('RegisterPatientPage', () => {
     fireEvent.change(screen.getByLabelText(/Phone Number \*/i), { target: { value: '+123456789' } });
     fireEvent.change(screen.getByLabelText(/Relationship \*/i), { target: { value: 'Spouse' } });
 
-    fireEvent.click(screen.getByRole('button', { name: /Register Patient/i }));
+    fireEvent.submit(screen.getByRole('button', { name: /Register Patient/i }).closest('form')!);
 
     await waitFor(() => {
-      expect(screen.getByText(/Register New Patient/i)).toBeInTheDocument();
+      // On success the form is replaced by the confirmation panel carrying the
+      // new patient id and NFC tag.
       expect(screen.getByText('PAT-123')).toBeInTheDocument();
+      expect(screen.getByText('TAG-123')).toBeInTheDocument();
     });
   });
 
   it('shows error message on failure', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ error: 'Database error' }),
     });
 
@@ -79,7 +83,7 @@ describe('RegisterPatientPage', () => {
     fireEvent.change(screen.getByLabelText(/Phone Number \*/i), { target: { value: '+123456789' } });
     fireEvent.change(screen.getByLabelText(/Relationship \*/i), { target: { value: 'Spouse' } });
 
-    fireEvent.click(screen.getByRole('button', { name: /Register Patient/i }));
+    fireEvent.submit(screen.getByRole('button', { name: /Register Patient/i }).closest('form')!);
 
     await waitFor(() => {
       expect(screen.getByText(/Database error/i)).toBeInTheDocument();

@@ -81,6 +81,7 @@ import type {
   AutopsyRequest,
   AutopsyReport,
   PatientSatisfactionSurvey,
+  CreateSatisfactionSurveyInput,
   GcsAssessmentRecord,
   SampleHistoryRecord,
   ClinicalCreateResult,
@@ -226,6 +227,74 @@ export async function addEmergencyContact(
   return getApiClient().post(`/api/patients/${patientId}/emergency-contacts`, contact);
 }
 
+export interface PatientAddressInput {
+  street?: string | null;
+  city: string;
+  state?: string | null;
+  country: string;
+  postal_code?: string | null;
+  coordinates?: { latitude: number; longitude: number } | null;
+}
+
+export interface PatientInsuranceInput {
+  provider: string;
+  policy_number: string;
+  group_number?: string | null;
+  valid_from: string;
+  valid_to: string;
+  coverage_type: 'Public' | 'Private' | 'Employer' | 'NHIS' | 'Community' | 'None';
+  is_active: boolean;
+}
+
+export interface EmergencyContactInput {
+  name: string;
+  phone: string;
+  relationship: string;
+  can_make_medical_decisions?: boolean;
+  language?: string | null;
+}
+
+/**
+ * Update the demographic and administrative parts of a patient's own profile.
+ *
+ * Deliberately distinct from `updatePatient`, which carries clinical fields and
+ * is restricted to providers: a patient is authoritative for where they live and
+ * who insures them, but not for their own blood type.
+ *
+ * Omitted fields are left unchanged server-side, so a caller may send one
+ * section at a time.
+ */
+export async function updateDemographics(
+  patientId: string,
+  data: Partial<{
+    phone: string;
+    gender: string;
+    address: PatientAddressInput;
+    insurance: PatientInsuranceInput;
+    languages: string[];
+  }>
+): Promise<{ success: boolean; patient_id: string; message: string }> {
+  return getApiClient().put(`/api/patients/${patientId}/demographics`, data);
+}
+
+/**
+ * Replace a patient's entire emergency contact list.
+ *
+ * Whole-list replacement rather than per-index edits, so removing a contact
+ * cannot shift the indices out from under a concurrent edit.
+ */
+export async function replaceEmergencyContacts(
+  patientId: string,
+  contacts: EmergencyContactInput[]
+): Promise<{
+  success: boolean;
+  patient_id: string;
+  contacts: Array<EmergencyContactInput & { priority: number }>;
+  message: string;
+}> {
+  return getApiClient().put(`/api/patients/${patientId}/emergency-contacts`, { contacts });
+}
+
 export async function getMyRecords(): Promise<PatientProfile | PatientProfile[]> {
   return getApiClient().get('/api/my-records');
 }
@@ -262,27 +331,65 @@ export async function getAccessLogs(patientId: string): Promise<AccessLogsRespon
  * Get all users (Admin only)
  * Returns empty array if API returns error or unexpected format
  */
+/** One page of `/api/users`, plus the pagination block it returns. */
+interface UsersPage {
+  users?: User[];
+  data?: User[];
+  pagination?: { page: number; total_pages: number; total_items: number };
+}
+
+/**
+ * Every user in the deployment.
+ *
+ * `/api/users` paginates at 20 per page. This used to request page 1 and
+ * discard the `pagination` block entirely, so User Management rendered the
+ * first 20 of 101 users under the heading "All Users" — an administrator could
+ * not reach, search, deactivate or suspend the other 81, and nothing on the
+ * screen suggested they existed.
+ *
+ * Pages are followed to exhaustion with a hard ceiling: this is an
+ * administrative screen over a bounded staff directory, not a patient register,
+ * and a runaway loop against a paginated endpoint is worse than a truncated
+ * list. If the ceiling is ever hit, that is logged rather than passed off as
+ * the complete set.
+ */
 export async function getUsers(): Promise<User[]> {
-  try {
-    const response = await getApiClient().get<User[] | { users?: User[]; data?: User[] } | null>('/api/users');
-    
-    // Handle various response formats defensively
-    if (Array.isArray(response)) {
-      return response;
-    }
-    
-    // Handle wrapped response formats
+  const PAGE_SIZE = 100;
+  const MAX_PAGES = 50;
+
+  const rowsOf = (response: User[] | UsersPage | null): User[] => {
+    if (Array.isArray(response)) return response;
     if (response && typeof response === 'object') {
-      if ('users' in response && Array.isArray(response.users)) {
-        return response.users;
-      }
-      if ('data' in response && Array.isArray(response.data)) {
-        return response.data;
-      }
+      if (Array.isArray(response.users)) return response.users;
+      if (Array.isArray(response.data)) return response.data;
     }
-    
     console.warn('[MediChain] Unexpected users API response format:', response);
     return [];
+  };
+
+  try {
+    const all: User[] = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const response = await getApiClient().get<User[] | UsersPage | null>(
+        `/api/users?page=${page}&limit=${PAGE_SIZE}`
+      );
+      const rows = rowsOf(response);
+      all.push(...rows);
+
+      // A bare array means the endpoint is not paginating; one request is all
+      // there is. Otherwise stop once the server says there is no further page,
+      // or once a page comes back short.
+      if (Array.isArray(response) || rows.length < PAGE_SIZE) break;
+      const totalPages = (response as UsersPage)?.pagination?.total_pages;
+      if (typeof totalPages === 'number' && page >= totalPages) break;
+
+      if (page === MAX_PAGES) {
+        console.warn(
+          `[MediChain] getUsers stopped at the ${MAX_PAGES}-page ceiling; the list is truncated.`
+        );
+      }
+    }
+    return all;
   } catch (error) {
     console.error('[MediChain] Failed to fetch users:', error);
     return [];
@@ -345,6 +452,8 @@ import type {
   WalletLoginRequest,
   WalletLoginResponse,
   WalletUserInfo,
+  CurrentUser,
+  Role,
 } from '../types';
 
 /**
@@ -397,9 +506,47 @@ export async function walletLogin(data: WalletLoginRequest): Promise<WalletLogin
 }
 
 /**
- * Get current user info from wallet address
+ * Sign in with an employee identifier and a password-derived proof.
+ *
+ * Returns the caller's encrypted keystore, not a session: the client still has
+ * to open it and sign the auth challenge before it holds any authority. See
+ * `auth/credentials.ts` for why the proof, not the password, is what travels.
  */
-export async function getCurrentUser(): Promise<WalletUserInfo> {
+export async function staffLogin(body: {
+  identifier: string;
+  auth_proof: string;
+}): Promise<{
+  success: boolean;
+  wallet_address: string;
+  encrypted_keystore: string;
+  name: string;
+  role: Role;
+}> {
+  return getApiClient().post('/api/auth/staff/login', body);
+}
+
+/**
+ * Bind an employee identifier and password to the caller's own wallet.
+ *
+ * Authenticated by the existing wallet-signature path, so only someone who
+ * already controls the key can enrol credentials against it. Onboarding only.
+ */
+export async function enrolCredentials(body: {
+  login_id: string;
+  auth_proof: string;
+  encrypted_keystore: string;
+}): Promise<{ success: boolean; login_id: string; message: string }> {
+  return getApiClient().post('/api/auth/credentials', body);
+}
+
+/**
+ * Fetch the signed-in user's own identity in full: wallet, role, department,
+ * specialty, licence, and the server's view of what their role permits.
+ *
+ * This is the authoritative provider context. Screens read from it instead of
+ * asking the clinician to re-enter details the session already holds.
+ */
+export async function getCurrentUser(): Promise<CurrentUser> {
   return getApiClient().get('/api/auth/me');
 }
 
@@ -409,9 +556,9 @@ export async function getCurrentUser(): Promise<WalletUserInfo> {
 
 export interface JwtIssueRequest {
   wallet_address: string;
-  /** Hex sr25519 signature over `<timestamp>:<wallet_address>` (omit only in demo mode). */
-  signature?: string;
-  timestamp?: number;
+  /** Hex sr25519 signature over `<timestamp>:<wallet_address>`. */
+  signature: string;
+  timestamp: number;
 }
 
 export interface JwtIssueResponse {
@@ -524,6 +671,22 @@ export async function mfaStatus(): Promise<{ success: boolean; enrolled: boolean
 /** Disable MFA after verifying a current code. */
 export async function mfaDisable(code: string): Promise<{ success: boolean; message: string }> {
   return getApiClient().post('/api/auth/mfa/disable', { code });
+}
+
+export interface SaveUserSettingsResponse {
+  success: boolean;
+  message: string;
+  user_id: string;
+}
+
+/** Load the current authenticated account's persisted UI preferences. */
+export async function getUserSettings<T extends object>(): Promise<T> {
+  return getApiClient().get<T>('/api/settings');
+}
+
+/** Persist the current authenticated account's UI preferences. */
+export async function saveUserSettings<T extends object>(settings: T): Promise<SaveUserSettingsResponse> {
+  return getApiClient().post<SaveUserSettingsResponse>('/api/settings', settings);
 }
 
 // ============================================================================
@@ -689,9 +852,20 @@ export async function downloadMedicalRecord(
   return getApiClient().post('/api/records/download', data);
 }
 
+/**
+ * A patient's encrypted document references.
+ *
+ * Returns the bare array, not the `{patient_id, records, total}` envelope the
+ * endpoint sends: `ApiClient.request` normalises any response carrying a
+ * `records` array down to that array (see "Response Normalization" in
+ * `client.ts`). The declared type used to describe the wire shape instead, so
+ * every caller that destructured `{ records }` got `undefined` and threw on the
+ * first array method — with no type error, because the annotation was simply
+ * wrong.
+ */
 export async function getPatientRecords(
   patientId: string
-): Promise<{ patient_id: string; records: MedicalRecordReference[]; total: number }> {
+): Promise<MedicalRecordReference[]> {
   return getApiClient().get(`/api/records/${patientId}`);
 }
 
@@ -1001,6 +1175,10 @@ export async function createPsych(data: unknown): Promise<AssessmentCreateResult
   return getApiClient().post('/api/clinical/psych', data);
 }
 
+export async function getPsychForPatient(patientId: string): Promise<{ assessments: unknown[] }> {
+  return getApiClient().get(`/api/clinical/psych/patient/${patientId}`);
+}
+
 export async function getPsych(assessmentId: string): Promise<PsychiatricAssessment> {
   return getApiClient().get(`/api/clinical/psych/${assessmentId}`);
 }
@@ -1052,6 +1230,22 @@ export async function getSplint(recordId: string): Promise<SplintCastRecord> {
 // ============================================================================
 // Specialty Populations (Phase 6)
 // ============================================================================
+
+/**
+ * One patient's pediatric assessments, newest first.
+ *
+ * Patient-scoped by design: the pediatrics page charts one child's growth
+ * series, and an all-patients read would expose every child's record to
+ * satisfy a single patient's page.
+ */
+export async function listPedsForPatient(
+  patientId: string,
+): Promise<{ success: boolean; items: unknown[] }> {
+  const response = await getApiClient().get<{ success?: boolean; items?: unknown[] } | null>(
+    `/api/clinical/peds/patient/${encodeURIComponent(patientId)}`,
+  );
+  return { success: true, items: response?.items ?? [] };
+}
 
 export async function createPeds(data: unknown): Promise<AssessmentCreateResult> {
   return getApiClient().post('/api/clinical/peds', data);
@@ -1173,6 +1367,26 @@ export async function getHp(hpId: string): Promise<HistoryAndPhysical> {
 
 export async function createConsult(data: unknown): Promise<ConsultCreateResult> {
   return getApiClient().post('/api/clinical/consult', data);
+}
+
+/**
+ * Record a consultant's response, completing the consultation.
+ *
+ * The response is the answer the requesting clinician is waiting on. Until
+ * this existed the portal kept it in local state only, so a specialist's
+ * assessment survived exactly as long as the browser tab.
+ */
+export async function respondToConsult(
+  consultId: string,
+  body: { assessment: string; recommendations: string; follow_up?: string }
+): Promise<{
+  success: boolean;
+  consult_id: string;
+  status: string | null;
+  completed_at: string | null;
+  consulting_provider: string;
+}> {
+  return getApiClient().put(`/api/clinical/consult/${consultId}/response`, body);
 }
 
 export async function getConsult(consultId: string): Promise<ConsultationNote> {
@@ -1396,6 +1610,54 @@ export async function createAppointment(data: unknown): Promise<AppointmentCreat
   return getApiClient().post('/api/appointments', data);
 }
 
+/** A clinician a patient can choose to book with. */
+export interface BookableProvider {
+  wallet_address: string;
+  name: string;
+  role: string;
+  username?: string;
+  specialty?: string | null;
+}
+
+/**
+ * Registered clinicians, optionally narrowed to one role (e.g. `'doctor'`).
+ *
+ * Readable by any registered caller, patients included, because choosing who
+ * to book with requires knowing who exists. Returns only professional
+ * identity - never other patients.
+ */
+export async function getProviders(
+  role?: string
+): Promise<{ success: boolean; providers: BookableProvider[]; count: number }> {
+  const query = role ? `?role=${encodeURIComponent(role)}` : '';
+  return getApiClient().get(`/api/providers${query}`);
+}
+
+/**
+ * Advance an appointment through its lifecycle.
+ *
+ * The server enforces the transition table and the caller's rights, so a
+ * rejected move comes back as 409 INVALID_TRANSITION or 403, not as a silent
+ * no-op. `reason` is required when cancelling.
+ */
+export async function setAppointmentStatus(
+  appointmentId: string,
+  status:
+    | 'scheduled'
+    | 'confirmed'
+    | 'checked_in'
+    | 'in_progress'
+    | 'completed'
+    | 'cancelled'
+    | 'no_show'
+    // The party who did not book refuses the proposed time. Distinct from
+    // 'cancelled', which either party may do to an already-agreed appointment.
+    | 'declined',
+  reason?: string
+): Promise<{ success: boolean; appointment_id: string; status: string; message: string }> {
+  return getApiClient().post(`/api/appointments/${appointmentId}/status`, { status, reason });
+}
+
 export async function getAppointment(appointmentId: string): Promise<Appointment> {
   return getApiClient().get(`/api/appointments/${appointmentId}`);
 }
@@ -1462,8 +1724,10 @@ export async function getAutopsyReport(reportId: string): Promise<AutopsyReport>
 // Patient Satisfaction (Phase 19)
 // ============================================================================
 
-export async function createSatisfactionSurvey(data: unknown): Promise<ClinicalCreateResult> {
-  return getApiClient().post('/api/surgical/satisfaction-survey', data);
+export async function createSatisfactionSurvey(
+  data: CreateSatisfactionSurveyInput
+): Promise<ClinicalCreateResult> {
+  return getApiClient().post('/api/clinical/satisfaction-survey', data);
 }
 
 export async function getSatisfactionSurvey(surveyId: string): Promise<PatientSatisfactionSurvey> {
@@ -2408,19 +2672,25 @@ export async function listCriticalValues(): Promise<ListResponse<unknown>> {
 
 /**
  * List all radiology orders and reports.
- * NOTE: the backend only has an admin list for orders, not reports — `reports` is
- * always empty until a `/api/platform/list/radiology-reports` endpoint exists.
+ *
+ * Both halves are real reads. `reports` used to be hardcoded empty because the
+ * backend had no reports registry; it now has one, so a finalized report is
+ * reachable from a list view rather than only through the order that produced
+ * it.
  */
 export async function listRadiology(): Promise<{
   success: boolean;
   orders: { total: number; items: unknown[] };
   reports: { total: number; items: unknown[] };
 }> {
-  const orders = (await getApiClient().get<unknown[]>('/api/platform/list/radiology-orders')) || [];
+  const [orders, reports] = await Promise.all([
+    getApiClient().get<unknown[]>('/api/platform/list/radiology-orders'),
+    getApiClient().get<unknown[]>('/api/platform/list/radiology-reports'),
+  ]);
   return {
     success: true,
-    orders: { total: orders.length, items: orders },
-    reports: { total: 0, items: [] },
+    orders: { total: (orders || []).length, items: orders || [] },
+    reports: { total: (reports || []).length, items: reports || [] },
   };
 }
 

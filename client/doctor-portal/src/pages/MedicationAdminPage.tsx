@@ -232,15 +232,15 @@ const MedicationAdminPage: React.FC = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'given':
-        return <CheckCircle className="h-5 w-5 text-green-600" />;
+        return <CheckCircle className="h-5 w-5 text-ok-subtle-fg" />;
       case 'held':
-        return <AlertTriangle className="h-5 w-5 text-yellow-600" />;
+        return <AlertTriangle className="h-5 w-5 text-caution-subtle-fg" />;
       case 'refused':
-        return <XCircle className="h-5 w-5 text-red-600" />;
+        return <XCircle className="h-5 w-5 text-critical-subtle-fg" />;
       case 'overdue':
-        return <AlertTriangle className="h-5 w-5 text-red-600" />;
+        return <AlertTriangle className="h-5 w-5 text-critical-subtle-fg" />;
       default:
-        return <Clock className="h-5 w-5 text-gray-400" />;
+        return <Clock className="h-5 w-5 text-content-muted" />;
     }
   };
 
@@ -276,10 +276,10 @@ const MedicationAdminPage: React.FC = () => {
       </div>
 
       {/* Patient and Date Selection */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
+      <div className="bg-surface rounded-lg shadow p-4 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label htmlFor="medadmin-patient" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="medadmin-patient" className="block text-sm font-medium text-content-secondary mb-1">
               <User className="inline h-4 w-4 mr-1" />
               {t('docMedicationAdmin.patientLabel')}
             </label>
@@ -298,7 +298,7 @@ const MedicationAdminPage: React.FC = () => {
             </select>
           </div>
           <div>
-            <label htmlFor="medadmin-date" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="medadmin-date" className="block text-sm font-medium text-content-secondary mb-1">
               <Calendar className="inline h-4 w-4 mr-1" />
               {t('docMedicationAdmin.dateLabel')}
             </label>
@@ -311,7 +311,7 @@ const MedicationAdminPage: React.FC = () => {
             />
           </div>
           <div>
-            <label htmlFor="medadmin-search" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="medadmin-search" className="block text-sm font-medium text-content-secondary mb-1">
               <Search className="inline h-4 w-4 mr-1" />
               {t('docMedicationAdmin.searchMedicationLabel')}
             </label>
@@ -333,8 +333,8 @@ const MedicationAdminPage: React.FC = () => {
           onClick={() => setActiveTab('mar')}
           className={`px-4 py-2 font-medium transition-colors ${
             activeTab === 'mar'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'text-content-secondary border-b-2 border-indigo-600'
+              : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           <Activity className="inline h-4 w-4 mr-2" />
@@ -345,8 +345,8 @@ const MedicationAdminPage: React.FC = () => {
             onClick={() => setActiveTab('administerMed')}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === 'administerMed'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-content-secondary border-b-2 border-indigo-600'
+                : 'text-content-muted hover:text-content-secondary'
             }`}
           >
             <Pill className="inline h-4 w-4 mr-2" />
@@ -357,8 +357,8 @@ const MedicationAdminPage: React.FC = () => {
           onClick={() => setActiveTab('history')}
           className={`px-4 py-2 font-medium transition-colors ${
             activeTab === 'history'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'text-content-secondary border-b-2 border-indigo-600'
+              : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           <FileText className="inline h-4 w-4 mr-2" />
@@ -368,40 +368,40 @@ const MedicationAdminPage: React.FC = () => {
 
       {/* MAR Grid Tab */}
       {activeTab === 'mar' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-surface rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-border">
+              <thead className="bg-surface-sunken">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tablePatient')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableMedication')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDoseRoute')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableFrequency')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableScheduledTimes')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableIndication')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableAlerts')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tablePatient')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableMedication')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableDoseRoute')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableFrequency')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableScheduledTimes')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableIndication')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableAlerts')}</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-surface divide-y divide-border">
                 {filteredPatientMeds.map((med, idx) => (
-                  <tr key={med.medId ?? `m-${idx}`} className="hover:bg-gray-50">
+                  <tr key={med.medId ?? `m-${idx}`} className="hover:bg-surface-sunken">
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">{med.patientName}</div>
-                      <div className="text-xs text-gray-500">{med.patientId}</div>
+                      <div className="text-sm font-medium text-content">{med.patientName}</div>
+                      <div className="text-xs text-content-muted">{med.patientId}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{med.medicationName}</div>
-                      <div className="text-xs text-gray-500">{t('docMedicationAdmin.prescribedByLine', { name: med.prescriber })}</div>
+                      <div className="font-medium text-content">{med.medicationName}</div>
+                      <div className="text-xs text-content-muted">{t('docMedicationAdmin.prescribedByLine', { name: med.prescriber })}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-gray-900">{med.dose}</div>
-                      <div className="text-xs text-gray-500">{med.route}</div>
+                      <div className="text-sm text-content">{med.dose}</div>
+                      <div className="text-xs text-content-muted">{med.route}</div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                        med.priority === 'stat' ? 'bg-red-100 text-red-800' :
-                        med.priority === 'prn' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-gray-100 text-gray-800'
+                        med.priority === 'stat' ? 'bg-critical-subtle text-critical-subtle-fg' :
+                        med.priority === 'prn' ? 'bg-caution-subtle text-caution-subtle-fg' :
+                        'bg-surface-sunken text-content-secondary'
                       }`}>
                         {med.frequency}
                       </span>
@@ -410,12 +410,24 @@ const MedicationAdminPage: React.FC = () => {
                       {med.priority === 'prn' ? (
                         <button
                           onClick={() => handleAdministerMed(med, 'PRN')}
-                          className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded text-sm hover:bg-yellow-200"
+                          className="px-3 py-1 bg-caution-subtle text-caution-subtle-fg rounded text-sm hover:bg-yellow-200"
                         >
                           {t('docMedicationAdmin.prnGiveNowButton')}
                         </button>
                       ) : (
                         <div className="flex space-x-2">
+                          {(med.scheduledTimes ?? []).length === 0 && (
+                            // An e-prescription carries free-text directions, not a
+                            // dosing schedule, so there are no time slots to click.
+                            // Without this the row is a dead end and the drug can
+                            // never be administered.
+                            <button
+                              onClick={() => handleAdministerMed(med, '')}
+                              className="px-3 py-1 bg-notice-subtle text-notice-subtle-fg rounded text-sm hover:bg-blue-200"
+                            >
+                              {t('docMedicationAdmin.administerNowButton')}
+                            </button>
+                          )}
                           {(med.scheduledTimes ?? []).map((time, tIdx) => {
                             const status = getMedicationStatus(med, time);
                             return (
@@ -423,11 +435,11 @@ const MedicationAdminPage: React.FC = () => {
                                 key={`${med.medId}-${time}-${tIdx}`}
                                 onClick={() => handleAdministerMed(med, time)}
                                 className={`flex items-center space-x-1 px-2 py-1 rounded text-xs font-medium ${
-                                  status === 'given' ? 'bg-green-100 text-green-800' :
-                                  status === 'held' ? 'bg-yellow-100 text-yellow-800' :
-                                  status === 'refused' ? 'bg-red-100 text-red-800' :
-                                  status === 'overdue' ? 'bg-red-100 text-red-800 animate-pulse' :
-                                  'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                                  status === 'given' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                  status === 'held' ? 'bg-caution-subtle text-caution-subtle-fg' :
+                                  status === 'refused' ? 'bg-critical-subtle text-critical-subtle-fg' :
+                                  status === 'overdue' ? 'bg-critical-subtle text-critical-subtle-fg animate-pulse' :
+                                  'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                                 }`}
                               >
                                 {getStatusIcon(status)}
@@ -438,16 +450,16 @@ const MedicationAdminPage: React.FC = () => {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{med.indication}</td>
+                    <td className="px-4 py-3 text-sm text-content-muted">{med.indication}</td>
                     <td className="px-4 py-3">
                       {med.allergies && med.allergies.length > 0 && (
-                        <div className="text-xs text-red-600 flex items-center mb-1">
+                        <div className="text-xs text-critical-subtle-fg flex items-center mb-1">
                           <AlertTriangle className="h-3 w-3 mr-1" />
                           {t('docMedicationAdmin.allergiesLine', { list: med.allergies.join(', ') })}
                         </div>
                       )}
                       {med.interactions && med.interactions.length > 0 && (
-                        <div className="text-xs text-orange-600 flex items-center">
+                        <div className="text-xs text-content-secondary flex items-center">
                           <AlertTriangle className="h-3 w-3 mr-1" />
                           {t('docMedicationAdmin.interactionsLine', { list: med.interactions.join(', ') })}
                         </div>
@@ -463,75 +475,75 @@ const MedicationAdminPage: React.FC = () => {
 
       {/* Administer Medication Tab */}
       {activeTab === 'administerMed' && selectedMed && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-surface rounded-lg shadow p-6">
           <h2 className="text-xl font-bold mb-4">{t('docMedicationAdmin.administerMedicationHeading')}</h2>
 
           {/* Medication Details */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <div className="bg-notice-subtle border border-notice rounded-lg p-4 mb-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.patientDetailLabel')}</span>
-                <p className="text-gray-900">{selectedMed.patientName}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.patientDetailLabel')}</span>
+                <p className="text-content">{selectedMed.patientName}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.medicationDetailLabel')}</span>
-                <p className="text-gray-900">{selectedMed.medicationName}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.medicationDetailLabel')}</span>
+                <p className="text-content">{selectedMed.medicationName}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.doseDetailLabel')}</span>
-                <p className="text-gray-900">{selectedMed.dose}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.doseDetailLabel')}</span>
+                <p className="text-content">{selectedMed.dose}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.routeDetailLabel')}</span>
-                <p className="text-gray-900">{selectedMed.route}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.routeDetailLabel')}</span>
+                <p className="text-content">{selectedMed.route}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.scheduledTimeDetailLabel')}</span>
-                <p className="text-gray-900">{selectedTime}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.scheduledTimeDetailLabel')}</span>
+                <p className="text-content">{selectedTime}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.indicationDetailLabel')}</span>
-                <p className="text-gray-900">{selectedMed.indication}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.indicationDetailLabel')}</span>
+                <p className="text-content">{selectedMed.indication}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.prescriberDetailLabel')}</span>
-                <p className="text-gray-900">{selectedMed.prescriber}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.prescriberDetailLabel')}</span>
+                <p className="text-content">{selectedMed.prescriber}</p>
               </div>
               <div>
-                <span className="font-medium text-gray-700">{t('docMedicationAdmin.frequencyDetailLabel')}</span>
-                <p className="text-gray-900">{selectedMed.frequency}</p>
+                <span className="font-medium text-content-secondary">{t('docMedicationAdmin.frequencyDetailLabel')}</span>
+                <p className="text-content">{selectedMed.frequency}</p>
               </div>
             </div>
           </div>
 
           {/* Five Rights Verification */}
-          <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4 mb-6">
-            <h3 className="font-bold text-green-900 mb-3">{t('docMedicationAdmin.fiveRightsHeading')}</h3>
+          <div className="bg-ok-subtle border-2 border-ok rounded-lg p-4 mb-6">
+            <h3 className="font-bold text-ok-subtle-fg mb-3">{t('docMedicationAdmin.fiveRightsHeading')}</h3>
             <div className="space-y-2">
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
                 <span className="font-medium">{t('docMedicationAdmin.rightPatientLabel')}</span>
-                <span className="ml-2 text-gray-700">{selectedMed.patientName} ({selectedMed.patientId})</span>
+                <span className="ml-2 text-content-secondary">{selectedMed.patientName} ({selectedMed.patientId})</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
                 <span className="font-medium">{t('docMedicationAdmin.rightDrugLabel')}</span>
-                <span className="ml-2 text-gray-700">{selectedMed.medicationName}</span>
+                <span className="ml-2 text-content-secondary">{selectedMed.medicationName}</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
                 <span className="font-medium">{t('docMedicationAdmin.rightDoseLabel')}</span>
-                <span className="ml-2 text-gray-700">{selectedMed.dose}</span>
+                <span className="ml-2 text-content-secondary">{selectedMed.dose}</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
                 <span className="font-medium">{t('docMedicationAdmin.rightRouteLabel')}</span>
-                <span className="ml-2 text-gray-700">{selectedMed.route}</span>
+                <span className="ml-2 text-content-secondary">{selectedMed.route}</span>
               </label>
               <label className="flex items-center text-sm">
                 <input type="checkbox" className="mr-2" disabled checked />
                 <span className="font-medium">{t('docMedicationAdmin.rightTimeLabel')}</span>
-                <span className="ml-2 text-gray-700">{selectedTime}</span>
+                <span className="ml-2 text-content-secondary">{selectedTime}</span>
               </label>
               <div className="mt-4 pt-4 border-t">
                 <label htmlFor="medadmin-five-rights" className="flex items-center">
@@ -542,7 +554,7 @@ const MedicationAdminPage: React.FC = () => {
                     onChange={(e) => setFiveRightsVerified(e.target.checked)}
                     className="mr-2"
                   />
-                  <span className="font-bold text-green-900">{t('docMedicationAdmin.fiveRightsConfirm')}</span>
+                  <span className="font-bold text-ok-subtle-fg">{t('docMedicationAdmin.fiveRightsConfirm')}</span>
                 </label>
               </div>
             </div>
@@ -552,7 +564,7 @@ const MedicationAdminPage: React.FC = () => {
           <form onSubmit={handleSubmitAdministration}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label htmlFor="medadmin-status" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="medadmin-status" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docMedicationAdmin.administrationStatusRequired')} <span className="text-red-500">*</span>
                 </label>
                 <select
@@ -570,7 +582,7 @@ const MedicationAdminPage: React.FC = () => {
               </div>
 
               <div>
-                <label htmlFor="medadmin-actual-time" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="medadmin-actual-time" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docMedicationAdmin.actualTimeRequired')} <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -585,7 +597,7 @@ const MedicationAdminPage: React.FC = () => {
 
               {(status === 'not-given' || status === 'held' || status === 'refused') && (
                 <div className="md:col-span-2">
-                  <label htmlFor="medadmin-reason-not-given" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="medadmin-reason-not-given" className="block text-sm font-medium text-content-secondary mb-1">
                     {t('docMedicationAdmin.reasonNotGivenRequired')} <span className="text-red-500">*</span>
                   </label>
                   <textarea
@@ -603,7 +615,7 @@ const MedicationAdminPage: React.FC = () => {
               {status === 'given' && (
                 <>
                   <div>
-                    <label htmlFor="medadmin-site" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="medadmin-site" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docMedicationAdmin.administrationSiteLabel')}
                       {(selectedMed.route === 'IM' || selectedMed.route === 'SC' || selectedMed.route === 'IV') &&
                         <span className="text-red-500"> *</span>
@@ -621,7 +633,7 @@ const MedicationAdminPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <label htmlFor="medadmin-witnessed-by" className="block text-sm font-medium text-gray-700 mb-1">{t('docMedicationAdmin.witnessedByLabel')}</label>
+                    <label htmlFor="medadmin-witnessed-by" className="block text-sm font-medium text-content-secondary mb-1">{t('docMedicationAdmin.witnessedByLabel')}</label>
                     <input
                       id="medadmin-witnessed-by"
                       type="text"
@@ -633,7 +645,7 @@ const MedicationAdminPage: React.FC = () => {
                   </div>
 
                   <div className="md:col-span-2">
-                    <label htmlFor="medadmin-patient-response" className="block text-sm font-medium text-gray-700 mb-1">{t('docMedicationAdmin.patientResponseLabel')}</label>
+                    <label htmlFor="medadmin-patient-response" className="block text-sm font-medium text-content-secondary mb-1">{t('docMedicationAdmin.patientResponseLabel')}</label>
                     <textarea
                       id="medadmin-patient-response"
                       value={patientResponse}
@@ -655,7 +667,7 @@ const MedicationAdminPage: React.FC = () => {
                     onChange={(e) => setBarcodeScanned(e.target.checked)}
                     className="mr-2"
                   />
-                  <span className="text-sm font-medium text-gray-700">{t('docMedicationAdmin.barcodeScannedCheckbox')}</span>
+                  <span className="text-sm font-medium text-content-secondary">{t('docMedicationAdmin.barcodeScannedCheckbox')}</span>
                 </label>
               </div>
             </div>
@@ -668,7 +680,7 @@ const MedicationAdminPage: React.FC = () => {
                   setActiveTab('mar');
                   setSelectedMed(null);
                 }}
-                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 border border-border-strong rounded-md text-content-secondary hover:bg-surface-sunken"
               >
                 {t('docMedicationAdmin.cancelButton')}
               </button>
@@ -686,68 +698,68 @@ const MedicationAdminPage: React.FC = () => {
 
       {/* History Tab */}
       {activeTab === 'history' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-surface rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-border">
+              <thead className="bg-surface-sunken">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDateTime')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tablePatient')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableMedication')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDoseRoute')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableStatus')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableAdministeredBy')}</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{t('docMedicationAdmin.tableDetails')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableDateTime')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tablePatient')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableMedication')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableDoseRoute')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableStatus')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableAdministeredBy')}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-content-muted uppercase">{t('docMedicationAdmin.tableDetails')}</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-surface divide-y divide-border">
                 {filteredHistory.map((admin, idx) => (
-                  <tr key={admin.adminId ?? `a-${idx}`} className="hover:bg-gray-50">
+                  <tr key={admin.adminId ?? `a-${idx}`} className="hover:bg-surface-sunken">
                     <td className="px-4 py-3">
-                      <div className="text-sm text-gray-900">{selectedDate}</div>
-                      <div className="text-xs text-gray-500">{admin.actualTime}</div>
+                      <div className="text-sm text-content">{selectedDate}</div>
+                      <div className="text-xs text-content-muted">{admin.actualTime}</div>
                       {admin.scheduledTime !== 'PRN' && (
-                        <div className="text-xs text-gray-400">{t('docMedicationAdmin.scheduledLine', { time: admin.scheduledTime })}</div>
+                        <div className="text-xs text-content-muted">{t('docMedicationAdmin.scheduledLine', { time: admin.scheduledTime })}</div>
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-gray-900">{admin.patientName}</div>
-                      <div className="text-xs text-gray-500">{admin.patientId}</div>
+                      <div className="text-sm font-medium text-content">{admin.patientName}</div>
+                      <div className="text-xs text-content-muted">{admin.patientId}</div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">{admin.medicationName}</td>
+                    <td className="px-4 py-3 text-sm text-content">{admin.medicationName}</td>
                     <td className="px-4 py-3">
-                      <div className="text-sm text-gray-900">{admin.dose}</div>
-                      <div className="text-xs text-gray-500">{admin.route}</div>
+                      <div className="text-sm text-content">{admin.dose}</div>
+                      <div className="text-xs text-content-muted">{admin.route}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-2">
                         {getStatusIcon(admin.status)}
                         <span className={`text-sm font-medium ${
-                          admin.status === 'given' ? 'text-green-700' :
-                          admin.status === 'held' ? 'text-yellow-700' :
-                          'text-red-700'
+                          admin.status === 'given' ? 'text-ok-subtle-fg' :
+                          admin.status === 'held' ? 'text-caution-subtle-fg' :
+                          'text-critical-subtle-fg'
                         }`}>
                           {t(`docMedicationAdmin.status_${admin.status}`)}
                         </span>
                       </div>
                       {admin.reasonNotGiven && (
-                        <div className="text-xs text-gray-600 mt-1">{admin.reasonNotGiven}</div>
+                        <div className="text-xs text-content-muted mt-1">{admin.reasonNotGiven}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{admin.administeredBy}</td>
+                    <td className="px-4 py-3 text-sm text-content-secondary">{admin.administeredBy}</td>
                     <td className="px-4 py-3 text-xs">
-                      {admin.site && <div className="text-gray-600">{t('docMedicationAdmin.siteLine', { site: admin.site })}</div>}
-                      {admin.witnessedBy && <div className="text-gray-600">{t('docMedicationAdmin.witnessLine', { name: admin.witnessedBy })}</div>}
-                      {admin.patientResponse && <div className="text-gray-600">{t('docMedicationAdmin.responseLine', { text: admin.patientResponse })}</div>}
+                      {admin.site && <div className="text-content-muted">{t('docMedicationAdmin.siteLine', { site: admin.site })}</div>}
+                      {admin.witnessedBy && <div className="text-content-muted">{t('docMedicationAdmin.witnessLine', { name: admin.witnessedBy })}</div>}
+                      {admin.patientResponse && <div className="text-content-muted">{t('docMedicationAdmin.responseLine', { text: admin.patientResponse })}</div>}
                       <div className="flex items-center mt-1 space-x-2">
                         {admin.barcodeScanned && (
-                          <span className="text-green-600 flex items-center">
+                          <span className="text-ok-subtle-fg flex items-center">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             {t('docMedicationAdmin.scannedBadge')}
                           </span>
                         )}
                         {admin.fiveRightsVerified && (
-                          <span className="text-green-600 flex items-center">
+                          <span className="text-ok-subtle-fg flex items-center">
                             <CheckCircle className="h-3 w-3 mr-1" />
                             {t('docMedicationAdmin.fiveRightsBadge')}
                           </span>

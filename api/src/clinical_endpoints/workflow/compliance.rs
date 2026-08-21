@@ -88,6 +88,29 @@ pub async fn get_consent_types(
 /// policy engine, but named so it can be found and changed deliberately.
 const DEFAULT_CONSENT_VALIDITY_DAYS: i64 = 365;
 
+async fn anchor_consent_on_chain(
+    data: &web::Data<AppState>,
+    patient_account: Option<&str>,
+    consent_id: &str,
+    accessor_id: &str,
+    access_type: &str,
+) -> Result<(String, Option<String>), String> {
+    if !crate::blockchain::blockchain_enabled() {
+        return Ok(("disabled".to_string(), None));
+    }
+    let account = patient_account.ok_or("patient has no blockchain wallet")?;
+    let outcome = crate::audit_outbox::anchor_access_or_queue(
+        data,
+        "consent",
+        consent_id,
+        account,
+        accessor_id,
+        access_type,
+    )
+    .await?;
+    Ok((outcome.status, outcome.transaction_hash))
+}
+
 /// Request body for `sign_consent`.
 ///
 /// Replaces the previous untyped `serde_json::Value`, which silently accepted
@@ -231,6 +254,27 @@ pub async fn sign_consent(
     });
 
     let authority_evidence_id = access.authority_evidence_id().map(|s| s.to_string());
+
+    let patient_chain_account = match data.repositories.patients.get_by_id(&patient_id).await {
+        Ok(patient) => patient.wallet_address,
+        Err(_) if crate::blockchain::blockchain_enabled() => {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "Patient must have a wallet-bound record before consent can be anchored"
+                    .to_string(),
+                code: "PATIENT_WALLET_REQUIRED".to_string(),
+            });
+        }
+        Err(_) => None,
+    };
+    if crate::blockchain::blockchain_enabled() && patient_chain_account.is_none() {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "Patient must have a wallet-bound record before consent can be anchored"
+                .to_string(),
+            code: "PATIENT_WALLET_REQUIRED".to_string(),
+        });
+    }
 
     // A third-party capacity with no recorded guardian relationship is exactly
     // the gap the legal review flagged — refuse rather than record an
@@ -407,9 +451,42 @@ pub async fn sign_consent(
     };
 
     match data.repositories.consent_records.create(entity).await {
-        Ok(created) => HttpResponse::Created().json(serde_json::json!({
+        Ok(created) => {
+            let access_type = if created.consent_status == ConsentStatus::Granted.as_str() {
+                "CONSENT_GRANT"
+            } else {
+                "CONSENT_REFUSAL"
+            };
+            let (chain_status, chain_tx_hash) = match anchor_consent_on_chain(
+                &data,
+                patient_chain_account.as_deref(),
+                &created.id,
+                &current_user_id,
+                access_type,
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(error) => {
+                    log::error!(
+                        "Consent {} could not be durably queued: {}",
+                        created.id,
+                        error
+                    );
+                    return HttpResponse::ServiceUnavailable().json(serde_json::json!({
+                        "success": false,
+                        "consent_id": created.id,
+                        "error": "Consent was saved, but its blockchain audit could not be recorded or queued",
+                        "code": "CONSENT_CHAIN_AUDIT_UNAVAILABLE"
+                    }));
+                }
+            };
+            let pending = chain_status == "pending";
+            let payload = serde_json::json!({
             "success": true,
             "consent_id": created.id,
+            "chain_status": chain_status,
+            "blockchain_tx_hash": chain_tx_hash,
             "consent": {
                 "consent_id": created.id,
                 "consent_type": created.consent_type,
@@ -425,7 +502,13 @@ pub async fn sign_consent(
                 "emergency_basis": created.emergency_basis
             },
             "message": "Consent signed and recorded"
-        })),
+            });
+            if pending {
+                HttpResponse::Accepted().json(payload)
+            } else {
+                HttpResponse::Created().json(payload)
+            }
+        }
         Err(e) => {
             log::error!(
                 "Failed to persist consent for patient {}: {}",
@@ -464,12 +547,26 @@ pub async fn get_patient_consents(
         return HttpResponse::Forbidden().finish();
     }
 
-    let records = data
+    let records = match data
         .repositories
         .consent_records
         .get_by_patient(&patient_id)
         .await
-        .unwrap_or_default();
+    {
+        Ok(records) => records,
+        Err(error) => {
+            log::error!(
+                "Failed to load consents for patient {}: {}",
+                patient_id,
+                error
+            );
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Consent records are temporarily unavailable".to_string(),
+                code: "CONSENT_REPOSITORY_UNAVAILABLE".to_string(),
+            });
+        }
+    };
 
     let consents: Vec<serde_json::Value> = records
         .iter()
@@ -638,23 +735,57 @@ pub async fn scan_barcode(
 
     // Horizon HZ-023: this used to invent an entity from the barcode's text —
     // a specimen "for John Doe", a medication "Amoxicillin 500mg for Jane
-    // Smith" — attaching fabricated patient names to a real scan. The prefix
-    // now classifies the barcode's *kind* only, which is all the value itself
-    // can honestly tell us; anything more must come from a lookup that does
-    // not yet exist, and is reported as unresolved rather than guessed.
-    let entity_type = if barcode_value.contains("SP") {
-        "specimen"
-    } else if barcode_value.contains("MED") {
-        "medication"
-    } else {
-        "unknown"
+    // Smith" — attaching fabricated patient names to a real scan. It was then
+    // reduced to classifying the barcode's *kind* from its prefix and
+    // reporting `resolved: false`, which was honest but not useful.
+    //
+    // The lookup it said did not exist does: `SpecimenCollectionRepository`
+    // has `get_by_barcode`. A scan now resolves against the real specimen
+    // register, and falls back to the prefix classification only when the
+    // barcode is genuinely unknown — still reported as unresolved, never
+    // guessed.
+    let specimen = data
+        .repositories
+        .specimen_collections
+        .get_by_barcode(barcode_value)
+        .await
+        .unwrap_or(None);
+
+    let (entity_type, entity_info) = match specimen {
+        Some(specimen) => (
+            "specimen",
+            serde_json::json!({
+                "type": "specimen",
+                "id": specimen.id,
+                "resolved": true,
+                "patient_id": specimen.patient_id,
+                "specimen_type": specimen.specimen_type,
+                "submission_id": specimen.submission_id,
+                "collected_at": specimen.collected_at.to_rfc3339(),
+                "collected_by": specimen.collector_id
+            }),
+        ),
+        None => {
+            // Kind inferred from the prefix; nothing else is asserted.
+            let kind = if barcode_value.contains("SP") {
+                "specimen"
+            } else if barcode_value.contains("MED") {
+                "medication"
+            } else {
+                "unknown"
+            };
+            (
+                kind,
+                serde_json::json!({
+                    "type": kind,
+                    "id": barcode_value,
+                    "resolved": false,
+                    "note": "No registered specimen matches this barcode; only the \
+                             barcode kind is inferred."
+                }),
+            )
+        }
     };
-    let entity_info = serde_json::json!({
-        "type": entity_type,
-        "id": barcode_value,
-        "resolved": false,
-        "note": "Barcode registry lookup is not implemented; only the barcode kind is inferred."
-    });
 
     let scanned_at = chrono::Utc::now();
     let scan = serde_json::json!({
@@ -955,4 +1086,70 @@ pub async fn use_note_template(
         "generated_note": generated_note,
         "timestamp": chrono::Utc::now().timestamp()
     }))
+}
+
+#[cfg(test)]
+mod consent_endpoint_regression_tests {
+    use super::*;
+    use actix_web::test;
+
+    fn active_patient_user(wallet: &str, patient_id: &str) -> User {
+        User {
+            wallet_address: wallet.to_string(),
+            username: None,
+            name: "Consent Test Patient".to_string(),
+            role: Role::Patient,
+            created_at: Utc::now(),
+            created_by: None,
+            linked_patient_id: Some(patient_id.to_string()),
+            email: None,
+            phone: None,
+            department: None,
+            specialty: None,
+            license_number: None,
+            status: "active".to_string(),
+            last_login: None,
+        }
+    }
+
+    #[actix_web::test]
+    async fn patient_consent_endpoint_returns_zero_one_and_many_real_records() {
+        for expected in [0usize, 1, 3] {
+            let state = AppState::new();
+            let patient_id = format!("PAT-CONSENT-{expected}");
+            let wallet = format!("wallet-consent-{expected}");
+            state
+                .users
+                .write()
+                .unwrap()
+                .insert(wallet.clone(), active_patient_user(&wallet, &patient_id));
+            for index in 0..expected {
+                let record = ConsentRecordEntity {
+                    id: format!("CONS-{expected}-{index}"),
+                    patient_id: patient_id.clone(),
+                    consent_type: format!("TYPE-{index}"),
+                    ..ConsentRecordEntity::default()
+                };
+                state
+                    .repositories
+                    .consent_records
+                    .create(record)
+                    .await
+                    .unwrap();
+            }
+            let app = test::init_service(
+                actix_web::App::new()
+                    .app_data(web::Data::new(state))
+                    .service(get_patient_consents),
+            )
+            .await;
+            let request = test::TestRequest::get()
+                .uri(&format!("/api/consent/patient/{patient_id}"))
+                .insert_header(("X-User-Id", wallet))
+                .to_request();
+            let response: serde_json::Value = test::call_and_read_body_json(&app, request).await;
+            assert_eq!(response["total"].as_u64(), Some(expected as u64));
+            assert_eq!(response["consents"].as_array().unwrap().len(), expected);
+        }
+    }
 }

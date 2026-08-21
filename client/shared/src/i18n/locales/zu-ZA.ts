@@ -7,6 +7,8 @@ import type { TranslationRecord } from '../index';
 
 const zu_ZA: TranslationRecord = {
   common: {
+    // South Africa: 10177 ambulance, 112 from any mobile.
+    emergencyNumber: '10177',
     save: 'Londoloza',
     cancel: 'Khansela',
     delete: 'Susa',

@@ -7,6 +7,8 @@ import type { TranslationRecord } from '../index';
 
 const sw_KE: TranslationRecord = {
   common: {
+    // Kenya: 999, or 112 from any mobile.
+    emergencyNumber: '999',
     save: 'Hifadhi',
     cancel: 'Ghairi',
     delete: 'Futa',

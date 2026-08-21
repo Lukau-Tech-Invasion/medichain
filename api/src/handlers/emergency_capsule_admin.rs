@@ -93,15 +93,23 @@ pub async fn publish_emergency_capsule(
     };
 
     match crate::emergency_capsule::publish_capsule(&data, &profile.emergency_info, &caller).await {
-        Ok(stored) => HttpResponse::Ok().json(serde_json::json!({
-            "success": true,
-            "patient_id": stored.patient_id,
-            "version": stored.version,
-            "commitment": stored.commitment,
-            // Anchoring is spawned, so it has not completed yet. Reporting it
-            // as pending is honest; reporting success would not be.
-            "anchoring": "submitted",
-        })),
+        Ok(stored) => {
+            let anchoring = if stored.chain_finalized {
+                "finalized"
+            } else if crate::blockchain::blockchain_enabled() {
+                "pending"
+            } else {
+                "disabled"
+            };
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "patient_id": stored.patient_id,
+                "version": stored.version,
+                "commitment": stored.commitment,
+                "anchoring": anchoring,
+                "blockchain_tx_hash": stored.chain_tx_hash,
+            }))
+        }
         Err(e) => {
             log::error!("Capsule publication failed for {patient_id}: {e}");
             HttpResponse::InternalServerError().json(error_envelope_json(

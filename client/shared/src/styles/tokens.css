@@ -1,0 +1,153 @@
+/**
+ * MediChain semantic design tokens.
+ *
+ * # Why these exist
+ *
+ * The doctor portal used 7,886 raw Tailwind colour utilities across 268
+ * distinct classes, chosen per page, with no shared vocabulary
+ * (docs/WORKFLOW_AUDIT.md, WF-022). Two screens showing the same idea — a
+ * warning, a muted caption, a card surface — picked different colours, and
+ * nothing recorded what any colour was *for*.
+ *
+ * A token says what a colour means, not what it looks like. `--danger` is "this
+ * is dangerous"; its value differs between light and dark, and that is the
+ * point. Use `bg-surface`, `text-muted`, `border-default` rather than
+ * `bg-white`, `text-gray-500`, `border-gray-200`.
+ *
+ * # Contrast
+ *
+ * Every foreground/background pair below is checked by
+ * `scripts/check-contrast.py`, which fails if a pair drops under WCAG AA
+ * (4.5:1 for body text, 3:1 for large text and UI boundaries). The `-fg` values
+ * are chosen to clear that bar against their matching `-bg`, in both themes.
+ * Clinical alerts are held to the body-text bar regardless of size: a critical
+ * value that is merely *legible* is not good enough.
+ *
+ * Values are raw `R G B` triples so Tailwind can apply opacity modifiers
+ * (`bg-surface/50`).
+ */
+
+:root {
+  /* Structure */
+  --app-bg: 249 250 251; /* page behind everything */
+  --surface: 255 255 255; /* cards, panels */
+  --surface-raised: 255 255 255; /* modals, popovers, menus */
+  --surface-sunken: 243 244 246; /* wells, table headers, inset areas */
+  --border-default: 229 231 235; /* hairlines: separation, not information */
+  --border-strong: 209 213 219; /* dividers that must read as structure */
+  /* The edge of a control. WCAG 1.4.11 requires 3:1 for anything needed to
+     identify a component, and the outline of a text input is exactly that -
+     unlike a table rule, which carries no information. */
+  --border-interactive: 107 114 128;
+
+  /* Text */
+  --text-primary: 17 24 39; /* 16.1:1 on surface */
+  --text-secondary: 55 65 81; /* 10.4:1 — supporting copy, still full-strength */
+  --text-muted: 87 96 111; /* 5.9:1 — captions. Not below AA, deliberately. */
+  --text-inverse: 255 255 255;
+
+  /* Brand */
+  /* blue-700, not blue-600. `text-brand` is routinely rendered on
+     `--primary-subtle-bg` (role chips, avatar initials, the active nav item),
+     and blue-600 on that tint measures 4.24:1 -- below AA. blue-700 measures
+     5.49:1 there and 6.70:1 on a white surface, so the brand colour is safe on
+     both without the caller having to know which background it landed on.
+     Hover moves down a step to keep the two visibly distinct. */
+  --primary: 29 78 216;
+  --primary-hover: 30 64 175;
+  --primary-fg: 255 255 255;
+  --primary-subtle-bg: 219 234 254;
+  --primary-subtle-fg: 30 58 138; /* 8.6:1 on its subtle bg */
+
+  /* Status. Each pair is a filled variant (solid bg + -fg) and a subtle
+     variant (tinted bg + -subtle-fg) for inline alerts. */
+  --success: 21 128 61;
+  --success-fg: 255 255 255;
+  --success-subtle-bg: 220 252 231;
+  --success-subtle-fg: 20 83 45; /* 9.9:1 — the pair the audit found illegible */
+
+  --warning: 180 83 9;
+  --warning-fg: 255 255 255;
+  --warning-subtle-bg: 254 243 199;
+  --warning-subtle-fg: 120 53 15; /* 8.4:1 */
+
+  --danger: 185 28 28;
+  --danger-fg: 255 255 255;
+  --danger-subtle-bg: 254 226 226;
+  --danger-subtle-fg: 127 29 29; /* 9.4:1 */
+
+  --info: 29 78 216;
+  --info-fg: 255 255 255;
+  --info-subtle-bg: 219 234 254;
+  --info-subtle-fg: 30 58 138;
+
+  /* Interaction */
+  --focus-ring: 37 99 235;
+  --hover-overlay: 0 0 0 / 0.04;
+  --selected-bg: 219 234 254;
+  --selected-fg: 30 58 138;
+  --disabled-bg: 243 244 246;
+  --disabled-fg: 75 85 99; /* disabled is not an excuse to be unreadable */
+}
+
+/**
+ * Dark theme.
+ *
+ * Only the values change; every token keeps its meaning, so no component needs
+ * a `dark:` variant for colour. That is the whole reason the previous approach
+ * failed: it globally rewrote `.dark .bg-white` to a dark surface without
+ * touching the foregrounds sitting on it.
+ *
+ * Subtle status backgrounds become dark tints with light foregrounds, rather
+ * than staying pale — a bright patch on a dark page is both ugly and, once a
+ * global rule lightens the text on it, unreadable.
+ */
+.dark {
+  --app-bg: 15 23 42;
+  --surface: 30 41 59;
+  --surface-raised: 51 65 85;
+  --surface-sunken: 15 23 42;
+  --border-default: 51 65 85;
+  --border-strong: 71 85 105;
+  --border-interactive: 148 163 184;
+
+  --text-primary: 248 250 252; /* 14.8:1 on surface */
+  --text-secondary: 226 232 240; /* 11.9:1 */
+  --text-muted: 156 163 175; /* 5.4:1 */
+  --text-inverse: 15 23 42;
+
+  /* blue-300, not blue-400: same pairing, same reasoning. blue-400 on the dark
+     subtle tint measures 4.07:1; blue-300 measures 5.74:1. */
+  --primary: 147 197 253;
+  --primary-hover: 191 219 254;
+  --primary-fg: 15 23 42; /* dark text on a light-blue button */
+  --primary-subtle-bg: 30 58 138;
+  --primary-subtle-fg: 219 234 254;
+
+  --success: 74 222 128;
+  --success-fg: 15 23 42;
+  --success-subtle-bg: 20 83 45;
+  --success-subtle-fg: 187 247 208;
+
+  --warning: 251 191 36;
+  --warning-fg: 15 23 42;
+  --warning-subtle-bg: 120 53 15;
+  --warning-subtle-fg: 254 243 199;
+
+  --danger: 248 113 113;
+  --danger-fg: 15 23 42;
+  --danger-subtle-bg: 127 29 29;
+  --danger-subtle-fg: 254 226 226;
+
+  --info: 96 165 250;
+  --info-fg: 15 23 42;
+  --info-subtle-bg: 30 58 138;
+  --info-subtle-fg: 219 234 254;
+
+  --focus-ring: 147 197 253;
+  --hover-overlay: 255 255 255 / 0.06;
+  --selected-bg: 30 58 138;
+  --selected-fg: 219 234 254;
+  --disabled-bg: 51 65 85;
+  --disabled-fg: 203 213 225;
+}

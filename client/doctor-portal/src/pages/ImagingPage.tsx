@@ -48,7 +48,7 @@ const bodyParts = [
 const ImagingPage: React.FC = () => {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const { showSuccess, showWarning } = useToastActions();
+  const { showSuccess, showWarning, showError } = useToastActions();
 
   const modalityLabel = (m: ImagingModality): string => {
     switch (m) {
@@ -101,6 +101,7 @@ const ImagingPage: React.FC = () => {
   const [allergies, setAllergies] = useState('');
   const [creatinine, setCreatinine] = useState<number | undefined>();
   const [pregnant, setPregnant] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -126,27 +127,44 @@ const ImagingPage: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          const fetchedOrders = Array.isArray(data) ? data : (data.orders || []);
-          if (fetchedOrders.length > 0) {
-            setOrders(prev => {
-              const existingIds = new Set(prev.map(o => o.id));
-              return [...prev, ...fetchedOrders.filter((o: ImagingOrder) => !existingIds.has(o.id))];
-            });
-          }
+          const rawOrders = Array.isArray(data) ? data : (data.orders || []);
+          const fetchedOrders: ImagingOrder[] = rawOrders.map((entity: any) => {
+            if (entity.patientId && entity.modality) return entity as ImagingOrder;
+            const raw = entity.data && typeof entity.data === 'object' ? entity.data : entity;
+            const patient = patients.find(p => p.patient_id === (raw.patient_id || entity.patient_id));
+            return {
+              id: raw.order_id || entity.id,
+              patientId: raw.patient_id || entity.patient_id,
+              patientName: patient?.full_name || raw.patient_id || entity.patient_id,
+              modality: ({ XRay: 'xray', CT: 'ct', CTWithContrast: 'ct', MRI: 'mri', MRIWithContrast: 'mri', Ultrasound: 'ultrasound', Nuclear: 'nuclear', PET: 'pet', Fluoroscopy: 'fluoro', Mammography: 'mammo', Angiography: 'ct' } as Record<string, ImagingModality>)[raw.study_type] || 'xray',
+              study: raw.special_instructions || raw.study_type || entity.study_type,
+              bodyPart: raw.body_part || entity.body_part,
+              laterality: String(raw.laterality || entity.laterality || 'NA').toLowerCase() as ImagingOrder['laterality'],
+              indication: raw.indication || entity.clinical_indication,
+              priority: String(raw.priority || entity.priority || 'Routine').toLowerCase() as ImagingPriority,
+              status: ({ Ordered: 'ordered', Scheduled: 'scheduled', InProgress: 'in-progress', Completed: 'completed', Preliminary: 'prelim', Final: 'final' } as Record<string, ImagingStatus>)[raw.status] || 'ordered',
+              orderedBy: raw.ordering_provider || entity.ordering_provider_id,
+              orderedAt: raw.order_time ? new Date(raw.order_time * 1000).toISOString() : entity.created_at,
+              contrast: Boolean(raw.contrast), allergies: raw.allergies_reviewed ? 'Reviewed' : '',
+              criticalValue: false,
+            };
+          });
+          setOrders(fetchedOrders);
         }
       } catch (err) {
         console.error('Failed to fetch imaging orders:', err);
       }
     };
     fetchOrders();
-  }, [user]);
+  }, [user, patients]);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedPatient || !indication) {
       showWarning(t('docImaging.fillRequired'));
       return;
     }
     const patient = patients.find(p => p.patient_id === selectedPatient);
+    if (!user) return;
     const order: ImagingOrder = {
       id: `IMG-${Date.now()}`,
       patientId: selectedPatient,
@@ -157,27 +175,64 @@ const ImagingPage: React.FC = () => {
       orderedAt: new Date().toISOString(),
       contrast, allergies, creatinine, pregnant, criticalValue: false
     };
-    setOrders([order, ...orders]);
-    showSuccess(t('docImaging.orderPlaced'));
-    setActiveTab('orders');
+    const studyTypes: Record<ImagingModality, string> = {
+      xray: 'XRay', ct: contrast ? 'CTWithContrast' : 'CT',
+      mri: contrast ? 'MRIWithContrast' : 'MRI', ultrasound: 'Ultrasound',
+      fluoro: 'Fluoroscopy', mammo: 'Mammography', dexa: 'XRay',
+      pet: 'PET', nuclear: 'Nuclear',
+    };
+    setSubmitting(true);
+    try {
+      const response = await fetch(apiUrl('/api/surgical/radiology/order'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': user.walletAddress,
+          'X-Provider-Role': user.role,
+        },
+        body: JSON.stringify({
+          order_id: order.id, patient_id: order.patientId,
+          study_type: studyTypes[modality], body_part: bodyPart,
+          laterality: ({ left: 'Left', right: 'Right', bilateral: 'Bilateral', na: 'NA' } as const)[laterality],
+          indication, priority: priority[0].toUpperCase() + priority.slice(1),
+          ordering_provider: user.walletAddress,
+          order_time: Math.floor(Date.now() / 1000), contrast,
+          allergies_reviewed: Boolean(allergies.trim()),
+          creatinine_checked: contrast ? creatinine !== undefined : null,
+          pregnancy_checked: pregnant ? pregnant === 'no' : null,
+          special_instructions: study || null, status: 'Ordered',
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Imaging order could not be saved.');
+      }
+      setOrders(current => [order, ...current]);
+      showSuccess(t('docImaging.orderPlaced'));
+      setActiveTab('orders');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'Imaging order could not be saved.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const getStatusBadge = (status: ImagingStatus) => {
     const styles: Record<ImagingStatus, string> = {
-      ordered: 'bg-blue-100 text-blue-700',
-      scheduled: 'bg-purple-100 text-purple-700',
-      'in-progress': 'bg-yellow-100 text-yellow-700',
-      completed: 'bg-gray-100 text-gray-700',
-      prelim: 'bg-orange-100 text-orange-700',
-      final: 'bg-green-100 text-green-700'
+      ordered: 'bg-notice-subtle text-notice-subtle-fg',
+      scheduled: 'bg-surface-sunken text-content-secondary',
+      'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
+      completed: 'bg-surface-sunken text-content-secondary',
+      prelim: 'bg-surface-sunken text-content-secondary',
+      final: 'bg-ok-subtle text-ok-subtle-fg'
     };
     return styles[status];
   };
 
   const getPriorityBadge = (p: ImagingPriority) => {
-    if (p === 'stat') return 'bg-red-600 text-white';
+    if (p === 'stat') return 'bg-critical text-white';
     if (p === 'urgent') return 'bg-orange-500 text-white';
-    return 'bg-gray-200 text-gray-700';
+    return 'bg-surface-sunken text-content-secondary';
   };
 
   const filteredOrders = orders.filter(o => {
@@ -189,7 +244,7 @@ const ImagingPage: React.FC = () => {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-slate-700 to-gray-600 text-white p-6">
         <div className="flex items-center gap-3">
@@ -202,15 +257,15 @@ const ImagingPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {[{ id: 'orders', label: t('docImaging.tabOrders') }, { id: 'new', label: t('docImaging.tabNew') }, { id: 'results', label: t('docImaging.tabResults') }].map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as 'orders' | 'new' | 'results')}
               className={`px-6 py-3 font-medium flex items-center gap-2 ${activeTab === tab.id
-                ? 'text-slate-700 border-b-2 border-slate-700'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                ? 'text-content-secondary border-b-2 border-slate-700'
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab.id === 'new' && <Plus className="w-4 h-4" />}
               {tab.label}
@@ -223,9 +278,9 @@ const ImagingPage: React.FC = () => {
         {activeTab === 'orders' && (
           <div className="space-y-4">
             {/* Search & Filters */}
-            <div className="bg-white rounded-lg shadow p-4 flex gap-4 items-center flex-wrap">
+            <div className="bg-surface rounded-lg shadow p-4 flex gap-4 items-center flex-wrap">
               <div className="flex items-center gap-2 flex-1 min-w-64">
-                <Search className="w-5 h-5 text-gray-400" />
+                <Search className="w-5 h-5 text-content-muted" />
                 <input
                   type="text"
                   placeholder={t('docImaging.searchPlaceholder')}
@@ -260,23 +315,23 @@ const ImagingPage: React.FC = () => {
 
             {/* Orders List */}
             {filteredOrders.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docImaging.noOrders')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docImaging.noOrders')}</div>
             ) : (
               <div className="space-y-3">
                 {filteredOrders.map(o => (
-                  <div key={o.id} className={`bg-white rounded-lg shadow p-4 border-l-4 ${o.criticalValue ? 'border-red-500' : 'border-transparent'}`}>
+                  <div key={o.id} className={`bg-surface rounded-lg shadow p-4 border-l-4 ${o.criticalValue ? 'border-red-500' : 'border-transparent'}`}>
                     <div className="flex justify-between items-start">
                       <div>
                         <div className="flex items-center gap-2">
                           <h3 className="font-semibold">{o.patientName}</h3>
                           {o.criticalValue && (
-                            <span className="flex items-center gap-1 text-red-600 text-xs font-medium">
+                            <span className="flex items-center gap-1 text-critical-subtle-fg text-xs font-medium">
                               <AlertCircle className="w-4 h-4" /> {t('docImaging.critical')}
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-gray-600">{o.study}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-sm text-content-muted">{o.study}</p>
+                        <p className="text-xs text-content-muted">
                           {t('docImaging.orderedByLine', { date: new Date(o.orderedAt).toLocaleString(), by: o.orderedBy })}
                         </p>
                       </div>
@@ -290,9 +345,9 @@ const ImagingPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="mt-2 flex gap-4 text-sm">
-                      <span className="text-gray-500">{t('docImaging.modalityInline')}<strong>{modalityLabel(o.modality)}</strong></span>
-                      <span className="text-gray-500">{t('docImaging.bodyPartInline')}<strong>{o.bodyPart}</strong></span>
-                      {o.contrast && <span className="text-orange-600">{t('docImaging.contrast')}</span>}
+                      <span className="text-content-muted">{t('docImaging.modalityInline')}<strong>{modalityLabel(o.modality)}</strong></span>
+                      <span className="text-content-muted">{t('docImaging.bodyPartInline')}<strong>{o.bodyPart}</strong></span>
+                      {o.contrast && <span className="text-content-secondary">{t('docImaging.contrast')}</span>}
                     </div>
                   </div>
                 ))}
@@ -303,13 +358,13 @@ const ImagingPage: React.FC = () => {
 
         {activeTab === 'new' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docImaging.patientStudy')}
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="imaging-patient" className="text-sm text-gray-600">{t('docImaging.patientRequired')}</label>
+                  <label htmlFor="imaging-patient" className="text-sm text-content-muted">{t('docImaging.patientRequired')}</label>
                   <select
                     id="imaging-patient"
                     value={selectedPatient}
@@ -323,7 +378,7 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="imaging-modality" className="text-sm text-gray-600">{t('docImaging.modality')}</label>
+                  <label htmlFor="imaging-modality" className="text-sm text-content-muted">{t('docImaging.modality')}</label>
                   <select
                     id="imaging-modality"
                     value={modality}
@@ -336,7 +391,7 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="imaging-body-part" className="text-sm text-gray-600">{t('docImaging.bodyPart')}</label>
+                  <label htmlFor="imaging-body-part" className="text-sm text-content-muted">{t('docImaging.bodyPart')}</label>
                   <select
                     id="imaging-body-part"
                     value={bodyPart}
@@ -347,7 +402,7 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="imaging-laterality" className="text-sm text-gray-600">{t('docImaging.laterality')}</label>
+                  <label htmlFor="imaging-laterality" className="text-sm text-content-muted">{t('docImaging.laterality')}</label>
                   <select
                     id="imaging-laterality"
                     value={laterality}
@@ -361,7 +416,7 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="imaging-priority" className="text-sm text-gray-600">{t('docImaging.priority')}</label>
+                  <label htmlFor="imaging-priority" className="text-sm text-content-muted">{t('docImaging.priority')}</label>
                   <select
                     id="imaging-priority"
                     value={priority}
@@ -374,7 +429,7 @@ const ImagingPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="imaging-study-name" className="text-sm text-gray-600">{t('docImaging.studyName')}</label>
+                  <label htmlFor="imaging-study-name" className="text-sm text-content-muted">{t('docImaging.studyName')}</label>
                   <input
                     id="imaging-study-name"
                     type="text"
@@ -386,7 +441,7 @@ const ImagingPage: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4">
-                <label htmlFor="imaging-clinical-indication" className="text-sm text-gray-600">{t('docImaging.clinicalIndication')}</label>
+                <label htmlFor="imaging-clinical-indication" className="text-sm text-content-muted">{t('docImaging.clinicalIndication')}</label>
                 <textarea
                   id="imaging-clinical-indication"
                   value={indication}
@@ -398,7 +453,7 @@ const ImagingPage: React.FC = () => {
             </div>
 
             {/* Safety Screening */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docImaging.safetyScreening')}</h2>
               <div className="grid md:grid-cols-4 gap-4">
                 <div className="flex items-center gap-2">
@@ -411,7 +466,7 @@ const ImagingPage: React.FC = () => {
                   <label htmlFor="imaging-contrast-required" className="text-sm">{t('docImaging.contrastRequired')}</label>
                 </div>
                 <div>
-                  <label htmlFor="imaging-allergies" className="text-sm text-gray-600">{t('docImaging.allergies')}</label>
+                  <label htmlFor="imaging-allergies" className="text-sm text-content-muted">{t('docImaging.allergies')}</label>
                   <input
                     id="imaging-allergies"
                     type="text"
@@ -423,7 +478,7 @@ const ImagingPage: React.FC = () => {
                 </div>
                 {contrast && (
                   <div>
-                    <label htmlFor="imaging-creatinine" className="text-sm text-gray-600">{t('docImaging.creatinine')}</label>
+                    <label htmlFor="imaging-creatinine" className="text-sm text-content-muted">{t('docImaging.creatinine')}</label>
                     <input
                       id="imaging-creatinine"
                       type="number"
@@ -435,7 +490,7 @@ const ImagingPage: React.FC = () => {
                   </div>
                 )}
                 <div>
-                  <label htmlFor="imaging-pregnancy-status" className="text-sm text-gray-600">{t('docImaging.pregnancyStatus')}</label>
+                  <label htmlFor="imaging-pregnancy-status" className="text-sm text-content-muted">{t('docImaging.pregnancyStatus')}</label>
                   <select
                     id="imaging-pregnancy-status"
                     value={pregnant}
@@ -453,6 +508,7 @@ const ImagingPage: React.FC = () => {
 
             <button
               onClick={handleSubmit}
+              disabled={submitting}
               className="w-full py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-800"
             >
               {t('docImaging.submitOrder')}
@@ -463,10 +519,10 @@ const ImagingPage: React.FC = () => {
         {activeTab === 'results' && (
           <div className="space-y-4">
             {orders.filter(o => o.status === 'final' || o.status === 'prelim').length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docImaging.noResults')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docImaging.noResults')}</div>
             ) : (
               orders.filter(o => o.status === 'final' || o.status === 'prelim').map(o => (
-                <div key={o.id} className="bg-white rounded-lg shadow p-4">
+                <div key={o.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-3">
                     <div>
                       <h3 className="font-semibold">{o.patientName}</h3>
@@ -478,17 +534,17 @@ const ImagingPage: React.FC = () => {
                   </div>
                   {o.findings && (
                     <div className="mb-2">
-                      <p className="text-sm font-medium text-gray-700">{t('docImaging.findings')}</p>
-                      <p className="text-sm text-gray-600">{o.findings}</p>
+                      <p className="text-sm font-medium text-content-secondary">{t('docImaging.findings')}</p>
+                      <p className="text-sm text-content-muted">{o.findings}</p>
                     </div>
                   )}
                   {o.impression && (
                     <div className="border-t pt-2">
-                      <p className="text-sm font-medium text-gray-700">{t('docImaging.impression')}</p>
+                      <p className="text-sm font-medium text-content-secondary">{t('docImaging.impression')}</p>
                       <p className="text-sm">{o.impression}</p>
                     </div>
                   )}
-                  {o.radiologist && <p className="text-xs text-gray-500 mt-2">{t('docImaging.readBy', { radiologist: o.radiologist })}</p>}
+                  {o.radiologist && <p className="text-xs text-content-muted mt-2">{t('docImaging.readBy', { radiologist: o.radiologist })}</p>}
                 </div>
               ))
             )}

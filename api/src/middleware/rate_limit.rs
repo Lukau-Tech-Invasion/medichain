@@ -10,6 +10,14 @@
 //!
 //! © 2025-2026 Lukau Invasion (Pty) Ltd. All rights reserved.
 
+// This middleware is reachable only from `main` (`.wrap(rate_limit)`), and
+// `cargo test` on a binary crate substitutes its own harness `main` — so under
+// `cfg(test)` every item here looks unreachable and `dead_code` fires on five
+// of them. They are live in the real binary: `cargo clippy --bin medichain-api`
+// reports zero. Scope the allow to test builds so genuine dead code in this
+// module is still reported for the shipped binary.
+#![cfg_attr(test, allow(dead_code))]
+
 use actix_web::{
     body::EitherBody,
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},

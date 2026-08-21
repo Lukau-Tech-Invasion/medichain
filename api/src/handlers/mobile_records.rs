@@ -1,7 +1,7 @@
 //! Patient-authorised mobile device and protected record capability endpoints.
 
 use super::*;
-use crate::mobile_records::MobilePlatform;
+use crate::mobile_records::{MobileDeviceStatus, MobilePlatform};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterMobileDeviceRequest {
@@ -19,6 +19,14 @@ pub struct AuthoriseMobileRecordRequest {
 #[derive(Debug, Deserialize)]
 pub struct RevokeMobileDeviceRequest {
     pub reason: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LockscreenTokenResponse {
+    pub token: String,
+    pub token_type: &'static str,
+    pub expires_in: i64,
+    pub device_id: String,
 }
 
 fn authenticated_patient_id(
@@ -102,6 +110,54 @@ pub async fn authorise_mobile_record(
     }
 }
 
+/// Issue a short-lived patient-authenticated capability for one active device.
+#[post("/api/mobile/devices/{id}/lockscreen-token")]
+pub async fn issue_mobile_lockscreen_token(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    let patient_id = match authenticated_patient_id(&data, &req) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    let device_id = path.into_inner();
+    match data.mobile_records.get_device(&device_id) {
+        Some(device)
+            if device.patient_id == patient_id && device.status == MobileDeviceStatus::Active => {}
+        Some(_) => {
+            return HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "Mobile device is not active for this patient".into(),
+                code: "MOBILE_DEVICE_BINDING_REQUIRED".into(),
+            });
+        }
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Mobile device not found".into(),
+                code: "MOBILE_DEVICE_NOT_FOUND".into(),
+            });
+        }
+    }
+    match crate::mobile_records::issue_lockscreen_token(&patient_id, &device_id) {
+        Ok(token) => HttpResponse::Ok().json(LockscreenTokenResponse {
+            token,
+            token_type: "Bearer",
+            expires_in: crate::mobile_records::LOCKSCREEN_TOKEN_TTL_SECS,
+            device_id,
+        }),
+        Err(error) => {
+            log::error!("Lockscreen token issuance failed: {}", error);
+            HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Lockscreen token could not be issued".into(),
+                code: "TOKEN_ISSUE_FAILED".into(),
+            })
+        }
+    }
+}
+
 /// Revoke a patient mobile device and invalidate its active content capabilities.
 #[post("/api/mobile/devices/{id}/revoke")]
 pub async fn revoke_patient_mobile_device(
@@ -137,13 +193,20 @@ pub async fn revoke_patient_mobile_device(
         .revoke_device(&device_id, body.reason.clone(), Utc::now())
     {
         Ok(device) => {
-            let _ = data.audit_outbox.record(
-                "patient_mobile_device_revoked".into(),
-                "patient_mobile_device".into(),
-                device.id.clone(),
-                serde_json::json!({"event":"remote_mobile_device_revocation"}),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "patient_mobile_device_revoked".into(),
+                    "patient_mobile_device".into(),
+                    device.id.clone(),
+                    serde_json::json!({"event":"remote_mobile_device_revocation"}),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(device)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {

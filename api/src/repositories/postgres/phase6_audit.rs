@@ -26,6 +26,37 @@ impl PgComplianceReportRepository {
 
 #[async_trait]
 impl ComplianceReportRepository for PgComplianceReportRepository {
+    /// Reports whose reporting period ends within `days`.
+    ///
+    /// A non-positive window returns nothing rather than the whole table: "due
+    /// in the next 0 days" is an empty question.
+    async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>> {
+        if days <= 0 {
+            return Ok(Vec::new());
+        }
+        let items = sqlx::query_as::<_, ComplianceReportEntity>(
+            "SELECT * FROM compliance_reports \n             WHERE reporting_period_end >= CURRENT_DATE \n               AND reporting_period_end <= CURRENT_DATE + ($1 || ' days')::interval \n             ORDER BY reporting_period_end ASC",
+        )
+        .bind(days.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(items)
+    }
+
+    /// Reports generated within the last `days`, newest first.
+    async fn get_recent(&self, days: i32) -> RepositoryResult<Vec<ComplianceReportEntity>> {
+        if days <= 0 {
+            return Ok(Vec::new());
+        }
+        let items = sqlx::query_as::<_, ComplianceReportEntity>(
+            "SELECT * FROM compliance_reports \n             WHERE COALESCE(generated_at, created_at) >= NOW() - ($1 || ' days')::interval \n             ORDER BY COALESCE(generated_at, created_at) DESC",
+        )
+        .bind(days.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(items)
+    }
+
     async fn create(
         &self,
         report: ComplianceReportEntity,
@@ -234,6 +265,21 @@ impl PgDataRetentionPolicyRepository {
 
 #[async_trait]
 impl DataRetentionPolicyRepository for PgDataRetentionPolicyRepository {
+    /// Policies whose scheduled review has come due.
+    ///
+    /// A policy that has never been reviewed is due as soon as it is effective:
+    /// `last_reviewed_date IS NULL` is "not yet reviewed", not "reviewed at the
+    /// dawn of time", and treating it as the latter would hide exactly the
+    /// policies nobody has looked at.
+    async fn get_due_for_review(&self) -> RepositoryResult<Vec<DataRetentionPolicyEntity>> {
+        let items = sqlx::query_as::<_, DataRetentionPolicyEntity>(
+            "SELECT * FROM data_retention_policies \n             WHERE is_active = true \n               AND review_frequency_days IS NOT NULL \n               AND ( \n                 last_reviewed_date IS NULL \n                 OR last_reviewed_date + (review_frequency_days || ' days')::interval <= CURRENT_DATE \n               ) \n             ORDER BY last_reviewed_date ASC NULLS FIRST",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(items)
+    }
+
     async fn create(
         &self,
         policy: DataRetentionPolicyEntity,
@@ -594,6 +640,47 @@ impl PgConsentRecordRepository {
 
 #[async_trait]
 impl ConsentRecordRepository for PgConsentRecordRepository {
+    /// The patient's live consent of one type, if any.
+    ///
+    /// "Active" means granted, not revoked, and not past its expiry — the same
+    /// three conditions the in-memory backend applies. Without this override the
+    /// trait default returned `get_active_by_type not implemented`, so a consent
+    /// check that worked in demo mode failed on PostgreSQL. A consent lookup
+    /// that errors is a consent that cannot be honoured.
+    async fn get_active_by_type(
+        &self,
+        patient_id: &str,
+        consent_type: &str,
+    ) -> RepositoryResult<Option<ConsentRecordEntity>> {
+        let record = sqlx::query_as::<_, ConsentRecordEntity>(
+            "SELECT * FROM consent_records \
+             WHERE patient_id = $1 AND consent_type = $2 \
+               AND COALESCE(revoked, false) = false \
+               AND (expiration_datetime IS NULL OR expiration_datetime > NOW()) \
+             ORDER BY consent_datetime DESC LIMIT 1",
+        )
+        .bind(patient_id)
+        .bind(consent_type)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(record)
+    }
+
+    /// Every live consent the patient currently holds.
+    async fn get_active(&self, patient_id: &str) -> RepositoryResult<Vec<ConsentRecordEntity>> {
+        let records = sqlx::query_as::<_, ConsentRecordEntity>(
+            "SELECT * FROM consent_records \
+             WHERE patient_id = $1 \
+               AND COALESCE(revoked, false) = false \
+               AND (expiration_datetime IS NULL OR expiration_datetime > NOW()) \
+             ORDER BY consent_datetime DESC",
+        )
+        .bind(patient_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(records)
+    }
+
     async fn create(&self, record: ConsentRecordEntity) -> RepositoryResult<ConsentRecordEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO consent_records (

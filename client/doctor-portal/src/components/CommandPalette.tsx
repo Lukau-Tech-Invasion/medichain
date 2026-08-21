@@ -143,10 +143,10 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
 
       {/* Dialog */}
       <div className="fixed inset-0 flex items-start justify-center pt-[15vh] px-4">
-        <div className="relative w-full max-w-lg bg-white rounded-xl shadow-2xl overflow-hidden">
+        <div className="relative w-full max-w-lg bg-surface rounded-xl shadow-2xl overflow-hidden">
           {/* Search Input */}
           <div className="flex items-center gap-3 px-4 py-3 border-b">
-            <Search className="text-gray-400" size={20} />
+            <Search className="text-content-muted" size={20} />
             <input
               ref={inputRef}
               autoFocus
@@ -155,12 +155,12 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Search pages..."
-              className="flex-1 outline-none text-gray-900 placeholder:text-gray-400"
+              className="flex-1 outline-none text-content placeholder:text-content-muted"
               aria-label="Command palette search"
             />
-            <kbd className="hidden sm:inline-flex px-2 py-1 text-xs bg-gray-100 text-gray-500 rounded border">esc</kbd>
-            <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded" aria-label="Close">
-              <X size={18} className="text-gray-400" />
+            <kbd className="hidden sm:inline-flex px-2 py-1 text-xs bg-surface-sunken text-content-muted rounded border">esc</kbd>
+            <button onClick={onClose} className="p-1 hover:bg-surface-sunken rounded" aria-label="Close">
+              <X size={18} className="text-content-muted" />
             </button>
           </div>
 
@@ -169,7 +169,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
             {Object.entries(groupedItems).length > 0 ? (
               Object.entries(groupedItems).map(([category, items]) => (
                 <div key={category}>
-                  <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase bg-gray-50">
+                  <div className="px-4 py-2 text-xs font-semibold text-content-muted uppercase bg-surface-sunken">
                     {category}
                   </div>
                   {items.map((item) => {
@@ -179,10 +179,10 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                         key={item.id}
                         onClick={() => handleSelect(item)}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                          isSelected ? 'bg-primary-50 text-primary-700' : 'hover:bg-gray-50 text-gray-700'
+                          isSelected ? 'bg-brand-subtle text-brand-subtle-fg' : 'hover:bg-surface-sunken text-content-secondary'
                         }`}
                       >
-                        <span className={isSelected ? 'text-primary-600' : 'text-gray-400'}>{item.icon}</span>
+                        <span className={isSelected ? 'text-brand' : 'text-content-muted'}>{item.icon}</span>
                         <span className="flex-1 font-medium">{item.label}</span>
                         <ChevronRight size={16} className={isSelected ? 'text-primary-400' : 'text-gray-300'} />
                       </button>
@@ -191,20 +191,20 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                 </div>
               ))
             ) : (
-              <div className="px-4 py-8 text-center text-gray-500">No results for "{query}"</div>
+              <div className="px-4 py-8 text-center text-content-muted">No results for "{query}"</div>
             )}
           </div>
 
           {/* Footer */}
-          <div className="px-4 py-3 border-t bg-gray-50 text-xs text-gray-500 flex items-center gap-4">
+          <div className="px-4 py-3 border-t bg-surface-sunken text-xs text-content-muted flex items-center gap-4">
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-white border rounded">↑↓</kbd> navigate
+              <kbd className="px-1.5 py-0.5 bg-surface border rounded">↑↓</kbd> navigate
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-white border rounded">↵</kbd> select
+              <kbd className="px-1.5 py-0.5 bg-surface border rounded">↵</kbd> select
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-white border rounded">esc</kbd> close
+              <kbd className="px-1.5 py-0.5 bg-surface border rounded">esc</kbd> close
             </span>
           </div>
         </div>

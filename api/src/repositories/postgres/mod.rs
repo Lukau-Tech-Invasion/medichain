@@ -53,6 +53,8 @@ mod emergency_capsules;
 pub use emergency_capsules::PgEmergencyCapsuleRepository;
 mod retention_execution;
 pub use retention_execution::PgRetentionExecutionRepository;
+mod patient_access;
+pub use patient_access::PgPatientAccessRepository;
 
 // Phase 7-10: Wearables & IoT, Telehealth, Clinical Decision Support, Insurance & Billing
 mod phase5_cds;
@@ -189,14 +191,19 @@ pub use phase7::{
     PgAutopsyRequestRepository,
     // Horizon HZ-023: stores replacing fabricated literals
     PgBarcodeScanRepository,
+    // Final durability sweep (migration 20260811000002)
+    PgBloodTypeScreenRecordRepository,
     // Phase 4.3: CDS thresholds + audit
     PgCdsAuditEntryRepository,
     PgCdsThresholdConfigRepository,
+    PgDeathCertificateRecordRepository,
     // Round 6: shape-mismatch domains
     PgDrugInteractionCheckRepository,
+    PgEPrescriptionRecordRepository,
     PgEPrescriptionV2Repository,
     PgEligibilityCheckRepository,
     PgFamilyGroupRepository,
+    PgFamilyHistoryRecordRepository,
     PgInsuranceCardRepository,
     PgInsuranceClaimRepository,
     PgLabResultSubmissionRepository,
@@ -213,6 +220,9 @@ pub use phase7::{
     PgSyncQueueItemRepository,
     // Round 5: wearables + telehealth
     PgTelehealthSessionRecordRepository,
+    PgTransfusionEventRecordRepository,
+    PgUsedEmergencyTokenRepository,
+    PgUserSettingRecordRepository,
     PgWearableAlertRecordRepository,
     PgWearableAlertRuleRepository,
     PgWearableDeviceRecordRepository,

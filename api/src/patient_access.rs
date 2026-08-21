@@ -10,79 +10,38 @@
 //! decision-maker, matching MediChain's "patients control who accesses their
 //! records" model.
 //!
-//! In-memory, mirroring [`crate::emergency_grants::EmergencyGrantStore`]: the
-//! demo/synthetic backend keeps this state in the process. A PostgreSQL-backed
-//! implementation is tracked in `docs/TECHNICAL_DEBT_REGISTER.md`.
+//! This module owns the *state machine* — what a valid request looks like,
+//! which transitions are legal, how identifiers are minted. Storage lives
+//! behind [`PatientAccessRepository`], so a consent decision survives a
+//! restart: an HTTP 200 on "revoke Dr X's access" that a redeploy undoes is a
+//! consent failure, not a caching detail.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
-use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+use crate::repositories::traits::{
+    AccessGrantEntity, AccessRequestEntity, PatientAccessRepository,
+};
+
+/// How much of the record a grant opens up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessType {
     Full,
     Limited,
     Emergency,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum GrantStatus {
-    Active,
-    Expired,
-    Revoked,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum RequestStatus {
-    Pending,
-    Approved,
-    Denied,
-}
-
-// The response shapes are serialized `camelCase` on purpose: the patient-app
-// page reads `providerName`, `accessType`, `grantedAt`, `accessCount`, … . A
-// serde rename mismatch here would leave the UI rendering `undefined`
-// (exactly the HZ-015 class of bug), so do not drop `rename_all` below.
-
-/// A standing access grant the patient has approved. `patient_id` is internal
-/// (used for ownership checks) and never serialized to the client.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccessGrant {
-    pub id: String,
-    #[serde(skip)]
-    pub patient_id: String,
-    pub provider_id: String,
-    pub provider_name: String,
-    pub provider_role: String,
-    pub organization: String,
-    pub access_type: AccessType,
-    pub granted_at: DateTime<Utc>,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub status: GrantStatus,
-    pub last_accessed: Option<DateTime<Utc>>,
-    pub access_count: u32,
-}
-
-/// A provider's pending request for access, awaiting the patient's decision.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccessRequest {
-    pub id: String,
-    #[serde(skip)]
-    pub patient_id: String,
-    pub provider_id: String,
-    pub provider_name: String,
-    pub provider_role: String,
-    pub organization: String,
-    pub requested_at: DateTime<Utc>,
-    pub reason: String,
-    pub status: RequestStatus,
+impl AccessType {
+    /// The stored/serialized form. Must match the `access_type` CHECK
+    /// constraint in migration `20260809000001_patient_access.sql`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AccessType::Full => "full",
+            AccessType::Limited => "limited",
+            AccessType::Emergency => "emergency",
+        }
+    }
 }
 
 /// Details carried from a request into the grant it becomes on approval.
@@ -94,33 +53,49 @@ pub struct RequestingProvider {
     pub reason: String,
 }
 
-pub struct PatientAccessStore {
-    grants: RwLock<HashMap<String, AccessGrant>>,
-    requests: RwLock<HashMap<String, AccessRequest>>,
+// Stable, caller-facing failure messages. The handlers surface these verbatim,
+// so they are part of the API contract.
+
+/// Storage is unreachable. Handlers map this to 503, never to 400 — the caller
+/// did nothing wrong and retrying is the right advice.
+pub const STORE_UNAVAILABLE: &str = "Patient access records are unavailable";
+const REQUEST_NOT_FOUND: &str = "Access request not found";
+const REQUEST_ALREADY_DECIDED: &str = "Access request has already been decided";
+const GRANT_NOT_FOUND: &str = "Access grant not found";
+const GRANT_NOT_ACTIVE: &str = "Access grant is not active";
+
+/// The consent state machine over a [`PatientAccessRepository`].
+#[derive(Clone)]
+pub struct PatientAccessService {
+    repo: Arc<dyn PatientAccessRepository>,
 }
 
-impl PatientAccessStore {
-    pub fn new() -> Self {
-        Self {
-            grants: RwLock::new(HashMap::new()),
-            requests: RwLock::new(HashMap::new()),
-        }
+impl std::fmt::Debug for PatientAccessService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PatientAccessService")
+            .finish_non_exhaustive()
+    }
+}
+
+impl PatientAccessService {
+    pub fn new(repo: Arc<dyn PatientAccessRepository>) -> Self {
+        Self { repo }
     }
 
     /// A provider asks the patient for access. Creates a `pending` request.
-    pub fn create_request(
+    pub async fn create_request(
         &self,
         patient_id: String,
         provider: RequestingProvider,
         now: DateTime<Utc>,
-    ) -> Result<AccessRequest, &'static str> {
+    ) -> Result<AccessRequestEntity, &'static str> {
         if patient_id.is_empty() || provider.provider_id.is_empty() {
             return Err("Patient and provider are required");
         }
         if provider.reason.trim().is_empty() {
             return Err("A reason for the access request is required");
         }
-        let request = AccessRequest {
+        let request = AccessRequestEntity {
             id: format!("REQ-{}", Uuid::new_v4()),
             patient_id,
             provider_id: provider.provider_id,
@@ -129,152 +104,173 @@ impl PatientAccessStore {
             organization: provider.organization,
             requested_at: now,
             reason: provider.reason,
-            status: RequestStatus::Pending,
+            status: "pending".to_string(),
         };
-        self.requests
-            .write()
-            .map_err(|_| "Access request store is unavailable")?
-            .insert(request.id.clone(), request.clone());
-        Ok(request)
+        self.repo.create_request(request).await.map_err(|e| {
+            log::error!("patient access: create_request failed: {e}");
+            STORE_UNAVAILABLE
+        })
     }
 
-    pub fn list_requests_by_patient(&self, patient_id: &str) -> Vec<AccessRequest> {
-        self.requests
-            .read()
-            .map(|map| {
-                let mut out: Vec<AccessRequest> = map
-                    .values()
-                    .filter(|r| r.patient_id == patient_id)
-                    .cloned()
-                    .collect();
-                out.sort_by(|a, b| b.requested_at.cmp(&a.requested_at));
-                out
+    /// This patient's requests, newest first.
+    ///
+    /// Returns `Err` rather than an empty list when storage is unreachable: an
+    /// empty consent list reads as "nobody has asked for your records", which
+    /// is a materially different — and false — statement.
+    pub async fn list_requests_by_patient(
+        &self,
+        patient_id: &str,
+    ) -> Result<Vec<AccessRequestEntity>, &'static str> {
+        self.repo
+            .list_requests_by_patient(patient_id)
+            .await
+            .map_err(|e| {
+                log::error!("patient access: list_requests_by_patient failed: {e}");
+                STORE_UNAVAILABLE
             })
-            .unwrap_or_default()
     }
 
-    /// Active grants for a patient, with lazy expiry applied so a caller never
-    /// sees an "active" grant whose `expires_at` has passed.
-    pub fn list_grants_by_patient(&self, patient_id: &str, now: DateTime<Utc>) -> Vec<AccessGrant> {
-        let mut grants = match self.grants.write() {
-            Ok(g) => g,
-            Err(_) => return Vec::new(),
-        };
-        for grant in grants.values_mut() {
-            if grant.status == GrantStatus::Active {
-                if let Some(expiry) = grant.expires_at {
-                    if now >= expiry {
-                        grant.status = GrantStatus::Expired;
-                    }
-                }
-            }
-        }
-        let mut out: Vec<AccessGrant> = grants
-            .values()
-            .filter(|g| g.patient_id == patient_id)
-            .cloned()
-            .collect();
-        out.sort_by(|a, b| b.granted_at.cmp(&a.granted_at));
-        out
+    /// This patient's grants, newest first, with lazy expiry applied so a
+    /// caller never sees an "active" grant whose `expires_at` has passed.
+    pub async fn list_grants_by_patient(
+        &self,
+        patient_id: &str,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<AccessGrantEntity>, &'static str> {
+        self.repo
+            .list_grants_by_patient(patient_id, now)
+            .await
+            .map_err(|e| {
+                log::error!("patient access: list_grants_by_patient failed: {e}");
+                STORE_UNAVAILABLE
+            })
     }
 
-    pub fn get_request(&self, request_id: &str) -> Option<AccessRequest> {
-        self.requests.read().ok()?.get(request_id).cloned()
+    pub async fn get_request(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<AccessRequestEntity>, &'static str> {
+        self.repo.get_request(request_id).await.map_err(|e| {
+            log::error!("patient access: get_request failed: {e}");
+            STORE_UNAVAILABLE
+        })
     }
 
-    pub fn get_grant(&self, grant_id: &str) -> Option<AccessGrant> {
-        self.grants.read().ok()?.get(grant_id).cloned()
+    pub async fn get_grant(
+        &self,
+        grant_id: &str,
+    ) -> Result<Option<AccessGrantEntity>, &'static str> {
+        self.repo.get_grant(grant_id).await.map_err(|e| {
+            log::error!("patient access: get_grant failed: {e}");
+            STORE_UNAVAILABLE
+        })
     }
 
-    /// Patient approves a pending request: marks it `approved` and creates a new
-    /// active grant carrying the provider's details. Idempotency: a request that
-    /// is not `pending` is refused (mirrors the emergency-grant revoke replay
-    /// rule) so a double-approve cannot mint two grants.
-    pub fn approve_request(
+    /// Patient approves a pending request: marks it `approved` and creates a
+    /// new active grant carrying the provider's details, in one atomic step.
+    ///
+    /// A request that is not `pending` is refused, so a double-approve cannot
+    /// mint two grants.
+    pub async fn approve_request(
         &self,
         request_id: &str,
         access_type: AccessType,
         expires_at: Option<DateTime<Utc>>,
         now: DateTime<Utc>,
-    ) -> Result<(AccessRequest, AccessGrant), &'static str> {
-        let mut requests = self
-            .requests
-            .write()
-            .map_err(|_| "Access request store is unavailable")?;
-        let request = requests
-            .get_mut(request_id)
-            .ok_or("Access request not found")?;
-        if request.status != RequestStatus::Pending {
-            return Err("Access request has already been decided");
-        }
-        request.status = RequestStatus::Approved;
-        let grant = AccessGrant {
+    ) -> Result<(AccessRequestEntity, AccessGrantEntity), &'static str> {
+        let request = match self.get_request(request_id).await? {
+            Some(r) => r,
+            None => return Err(REQUEST_NOT_FOUND),
+        };
+        let grant = AccessGrantEntity {
             id: format!("GRANT-{}", Uuid::new_v4()),
             patient_id: request.patient_id.clone(),
             provider_id: request.provider_id.clone(),
             provider_name: request.provider_name.clone(),
             provider_role: request.provider_role.clone(),
             organization: request.organization.clone(),
-            access_type,
+            access_type: access_type.as_str().to_string(),
             granted_at: now,
             expires_at,
-            status: GrantStatus::Active,
+            status: "active".to_string(),
             last_accessed: None,
             access_count: 0,
+            source_request_id: Some(request.id.clone()),
         };
-        let decided = request.clone();
-        drop(requests);
-        self.grants
-            .write()
-            .map_err(|_| "Access grant store is unavailable")?
-            .insert(grant.id.clone(), grant.clone());
-        Ok((decided, grant))
+
+        match self.repo.approve_request(request_id, grant).await {
+            Ok(Some(approved)) => Ok(approved),
+            // The conditional update matched nothing: the request was decided
+            // between the read above and the write, or was already decided.
+            Ok(None) => Err(REQUEST_ALREADY_DECIDED),
+            Err(e) => {
+                log::error!("patient access: approve_request failed: {e}");
+                Err(STORE_UNAVAILABLE)
+            }
+        }
     }
 
     /// Patient denies a pending request. Only a `pending` request can be denied.
-    pub fn deny_request(&self, request_id: &str) -> Result<AccessRequest, &'static str> {
-        let mut requests = self
-            .requests
-            .write()
-            .map_err(|_| "Access request store is unavailable")?;
-        let request = requests
-            .get_mut(request_id)
-            .ok_or("Access request not found")?;
-        if request.status != RequestStatus::Pending {
-            return Err("Access request has already been decided");
+    pub async fn deny_request(
+        &self,
+        request_id: &str,
+    ) -> Result<AccessRequestEntity, &'static str> {
+        match self.repo.deny_request(request_id).await {
+            Ok(Some(request)) => Ok(request),
+            Ok(None) => Err(self.why_request_refused(request_id).await),
+            Err(e) => {
+                log::error!("patient access: deny_request failed: {e}");
+                Err(STORE_UNAVAILABLE)
+            }
         }
-        request.status = RequestStatus::Denied;
-        Ok(request.clone())
     }
 
-    /// Patient revokes an active grant. Only an `active` grant can be revoked.
-    pub fn revoke_grant(
+    /// Patient revokes an active grant. Only a grant that is active *and*
+    /// unexpired can be revoked — reporting an already-lapsed grant as freshly
+    /// revoked would misdescribe what happened.
+    pub async fn revoke_grant(
         &self,
         grant_id: &str,
-        _now: DateTime<Utc>,
-    ) -> Result<AccessGrant, &'static str> {
-        let mut grants = self
-            .grants
-            .write()
-            .map_err(|_| "Access grant store is unavailable")?;
-        let grant = grants.get_mut(grant_id).ok_or("Access grant not found")?;
-        if grant.status != GrantStatus::Active {
-            return Err("Access grant is not active");
+        now: DateTime<Utc>,
+    ) -> Result<AccessGrantEntity, &'static str> {
+        match self.repo.revoke_grant(grant_id, now).await {
+            Ok(Some(grant)) => Ok(grant),
+            Ok(None) => Err(self.why_grant_refused(grant_id).await),
+            Err(e) => {
+                log::error!("patient access: revoke_grant failed: {e}");
+                Err(STORE_UNAVAILABLE)
+            }
         }
-        grant.status = GrantStatus::Revoked;
-        Ok(grant.clone())
     }
-}
 
-impl Default for PatientAccessStore {
-    fn default() -> Self {
-        Self::new()
+    /// Distinguish "no such request" from "already decided" for the caller's
+    /// message only. Advisory: the row may change again after this read.
+    async fn why_request_refused(&self, request_id: &str) -> &'static str {
+        match self.repo.get_request(request_id).await {
+            Ok(Some(_)) => REQUEST_ALREADY_DECIDED,
+            Ok(None) => REQUEST_NOT_FOUND,
+            Err(_) => STORE_UNAVAILABLE,
+        }
+    }
+
+    async fn why_grant_refused(&self, grant_id: &str) -> &'static str {
+        match self.repo.get_grant(grant_id).await {
+            Ok(Some(_)) => GRANT_NOT_ACTIVE,
+            Ok(None) => GRANT_NOT_FOUND,
+            Err(_) => STORE_UNAVAILABLE,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repositories::memory::MemoryPatientAccessRepository;
+    use chrono::Duration;
+
+    fn service() -> PatientAccessService {
+        PatientAccessService::new(Arc::new(MemoryPatientAccessRepository::new()))
+    }
 
     fn provider() -> RequestingProvider {
         RequestingProvider {
@@ -286,87 +282,188 @@ mod tests {
         }
     }
 
-    #[test]
-    fn approve_creates_one_active_grant_and_is_not_replayable() {
-        let store = PatientAccessStore::new();
+    #[tokio::test]
+    async fn approve_creates_one_active_grant_and_is_not_replayable() {
+        let svc = service();
         let now = Utc::now();
-        let req = store
+        let req = svc
             .create_request("PAT-1".into(), provider(), now)
+            .await
             .unwrap();
-        assert_eq!(req.status, RequestStatus::Pending);
+        assert_eq!(req.status, "pending");
 
-        let (decided, grant) = store
+        let (decided, grant) = svc
             .approve_request(&req.id, AccessType::Limited, None, now)
+            .await
             .unwrap();
-        assert_eq!(decided.status, RequestStatus::Approved);
-        assert_eq!(grant.status, GrantStatus::Active);
+        assert_eq!(decided.status, "approved");
+        assert_eq!(grant.status, "active");
         assert_eq!(grant.patient_id, "PAT-1");
-        assert_eq!(store.list_grants_by_patient("PAT-1", now).len(), 1);
+        assert_eq!(grant.source_request_id.as_deref(), Some(req.id.as_str()));
+        assert_eq!(
+            svc.list_grants_by_patient("PAT-1", now)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         // Replaying the approval is refused; no second grant is minted.
         assert_eq!(
-            store
-                .approve_request(&req.id, AccessType::Limited, None, now)
+            svc.approve_request(&req.id, AccessType::Limited, None, now)
+                .await
                 .unwrap_err(),
-            "Access request has already been decided"
+            REQUEST_ALREADY_DECIDED
         );
-        assert_eq!(store.list_grants_by_patient("PAT-1", now).len(), 1);
-    }
-
-    #[test]
-    fn deny_blocks_a_later_approve() {
-        let store = PatientAccessStore::new();
-        let now = Utc::now();
-        let req = store
-            .create_request("PAT-1".into(), provider(), now)
-            .unwrap();
-        store.deny_request(&req.id).unwrap();
         assert_eq!(
-            store
-                .approve_request(&req.id, AccessType::Limited, None, now)
-                .unwrap_err(),
-            "Access request has already been decided"
+            svc.list_grants_by_patient("PAT-1", now)
+                .await
+                .unwrap()
+                .len(),
+            1
         );
-        assert!(store.list_grants_by_patient("PAT-1", now).is_empty());
     }
 
-    #[test]
-    fn revoke_is_idempotent_and_only_for_active() {
-        let store = PatientAccessStore::new();
+    #[tokio::test]
+    async fn deny_blocks_a_later_approve() {
+        let svc = service();
         let now = Utc::now();
-        let req = store
+        let req = svc
             .create_request("PAT-1".into(), provider(), now)
+            .await
             .unwrap();
-        let (_, grant) = store
+        svc.deny_request(&req.id).await.unwrap();
+        assert_eq!(
+            svc.approve_request(&req.id, AccessType::Limited, None, now)
+                .await
+                .unwrap_err(),
+            REQUEST_ALREADY_DECIDED
+        );
+        assert!(svc
+            .list_grants_by_patient("PAT-1", now)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn revoke_is_idempotent_and_only_for_active() {
+        let svc = service();
+        let now = Utc::now();
+        let req = svc
+            .create_request("PAT-1".into(), provider(), now)
+            .await
+            .unwrap();
+        let (_, grant) = svc
             .approve_request(&req.id, AccessType::Limited, None, now)
+            .await
             .unwrap();
-        store.revoke_grant(&grant.id, now).unwrap();
+        svc.revoke_grant(&grant.id, now).await.unwrap();
         assert_eq!(
-            store.revoke_grant(&grant.id, now).unwrap_err(),
-            "Access grant is not active"
+            svc.revoke_grant(&grant.id, now).await.unwrap_err(),
+            GRANT_NOT_ACTIVE
         );
     }
 
-    #[test]
-    fn a_reason_is_required_for_a_request() {
-        let store = PatientAccessStore::new();
+    /// A grant whose window has closed is not "revoked" — it already lapsed.
+    /// Reporting success here would tell the patient they had just withdrawn
+    /// access that had in fact expired on its own.
+    #[tokio::test]
+    async fn a_lapsed_grant_cannot_be_revoked() {
+        let svc = service();
+        let now = Utc::now();
+        let req = svc
+            .create_request("PAT-1".into(), provider(), now)
+            .await
+            .unwrap();
+        let (_, grant) = svc
+            .approve_request(
+                &req.id,
+                AccessType::Limited,
+                Some(now + Duration::hours(1)),
+                now,
+            )
+            .await
+            .unwrap();
+
+        let later = now + Duration::hours(2);
+        assert_eq!(
+            svc.revoke_grant(&grant.id, later).await.unwrap_err(),
+            GRANT_NOT_ACTIVE
+        );
+    }
+
+    /// Expiry is applied on read, so the patient's own consent screen never
+    /// shows a lapsed grant as still active.
+    #[tokio::test]
+    async fn listing_applies_expiry() {
+        let svc = service();
+        let now = Utc::now();
+        let req = svc
+            .create_request("PAT-1".into(), provider(), now)
+            .await
+            .unwrap();
+        svc.approve_request(
+            &req.id,
+            AccessType::Limited,
+            Some(now + Duration::hours(1)),
+            now,
+        )
+        .await
+        .unwrap();
+
+        let listed = svc
+            .list_grants_by_patient("PAT-1", now + Duration::hours(2))
+            .await
+            .unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].status, "expired");
+    }
+
+    #[tokio::test]
+    async fn a_reason_is_required_for_a_request() {
+        let svc = service();
         let mut p = provider();
         p.reason = "   ".into();
-        assert!(store.create_request("PAT-1".into(), p, Utc::now()).is_err());
+        assert!(svc
+            .create_request("PAT-1".into(), p, Utc::now())
+            .await
+            .is_err());
     }
 
-    #[test]
-    fn grants_and_requests_are_scoped_per_patient() {
-        let store = PatientAccessStore::new();
+    #[tokio::test]
+    async fn approving_an_unknown_request_is_not_found() {
+        let svc = service();
+        assert_eq!(
+            svc.approve_request("REQ-nope", AccessType::Limited, None, Utc::now())
+                .await
+                .unwrap_err(),
+            REQUEST_NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn grants_and_requests_are_scoped_per_patient() {
+        let svc = service();
         let now = Utc::now();
-        store
-            .create_request("PAT-1".into(), provider(), now)
+        svc.create_request("PAT-1".into(), provider(), now)
+            .await
             .unwrap();
-        store
-            .create_request("PAT-2".into(), provider(), now)
+        svc.create_request("PAT-2".into(), provider(), now)
+            .await
             .unwrap();
-        assert_eq!(store.list_requests_by_patient("PAT-1").len(), 1);
-        assert_eq!(store.list_requests_by_patient("PAT-2").len(), 1);
-        assert!(store.list_requests_by_patient("PAT-3").is_empty());
+        assert_eq!(
+            svc.list_requests_by_patient("PAT-1").await.unwrap().len(),
+            1
+        );
+        assert_eq!(
+            svc.list_requests_by_patient("PAT-2").await.unwrap().len(),
+            1
+        );
+        assert!(svc
+            .list_requests_by_patient("PAT-3")
+            .await
+            .unwrap()
+            .is_empty());
     }
 }

@@ -165,6 +165,41 @@ pub async fn get_medication_reminders(
     }))
 }
 
+/// Classifies a nursing order into the task kind the worklist groups by.
+///
+/// The order book stores the clinical instruction as free text, so the kind is
+/// read from what the order actually says. Anything that is neither an
+/// observation nor a dressing stays `nursing_care` rather than being forced
+/// into one of the two: a mislabelled task sends the nurse to the bedside
+/// expecting the wrong equipment.
+fn nursing_task_kind(order: &crate::repositories::traits::PhysicianOrderEntity) -> &'static str {
+    let haystack = format!(
+        "{} {} {}",
+        order.order_details,
+        order.indication.as_deref().unwrap_or(""),
+        order.special_instructions.as_deref().unwrap_or("")
+    )
+    .to_lowercase();
+
+    const VITALS: [&str; 6] = [
+        "vital",
+        "observation",
+        "blood pressure",
+        "temperature",
+        "pulse",
+        "saturation",
+    ];
+    const WOUND: [&str; 4] = ["wound", "dressing", "incision", "pressure ulcer"];
+
+    if VITALS.iter().any(|k| haystack.contains(k)) {
+        "vital_signs"
+    } else if WOUND.iter().any(|k| haystack.contains(k)) {
+        "wound_care"
+    } else {
+        "nursing_care"
+    }
+}
+
 /// Get nurse tasks (medication administrations, monitoring)
 #[get("/api/nurse/tasks")]
 pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -> impl Responder {
@@ -210,25 +245,50 @@ pub async fn get_nurse_tasks(data: web::Data<AppState>, http_req: HttpRequest) -
         })
         .collect();
 
-    // Monitoring tasks from repository (Placeholder for actual monitoring schedule)
-    let monitoring_tasks = vec![
-        serde_json::json!({
-            "id": "mon-001",
-            "type": "vital_signs",
-            "patient_id": "0xPATIENT1",
-            "frequency": "q4h",
-            "last_done": chrono::Utc::now().timestamp() - 7200,
-            "priority": "medium"
-        }),
-        serde_json::json!({
-            "id": "mon-002",
-            "type": "wound_care",
-            "patient_id": "0xPATIENT2",
-            "frequency": "daily",
-            "last_done": chrono::Utc::now().timestamp() - 80000,
-            "priority": "low"
-        }),
-    ];
+    // Monitoring tasks.
+    //
+    // These were two hardcoded rows against the invented patient ids
+    // `0xPATIENT1` and `0xPATIENT2` — a nurse's shift worklist showing work for
+    // patients who do not exist, while genuine nursing orders on the ward were
+    // absent from it entirely. Both failure directions are unsafe: the invented
+    // rows waste the nurse's attention, and the missing ones are care that never
+    // reaches the queue.
+    //
+    // The real source is the physician order book: `order_type = 'nursing'`
+    // orders that are still outstanding are exactly the recurring nursing work
+    // (observations, wound care, positioning) a shift queue exists to surface.
+    let monitoring_tasks: Vec<serde_json::Value> = data
+        .repositories
+        .physician_orders
+        .get_pending_orders()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|o| o.order_type.eq_ignore_ascii_case("nursing"))
+        .map(|o| {
+            // `last_done` is the last recorded execution; a never-executed order
+            // falls back to when it was due to start, so an overdue first
+            // observation still sorts as outstanding rather than as done now.
+            let last_done = o
+                .executed_at
+                .or(o.start_datetime)
+                .unwrap_or(o.order_datetime)
+                .timestamp();
+            serde_json::json!({
+                "id": o.id,
+                "type": nursing_task_kind(&o),
+                "patient_id": o.patient_id,
+                "frequency": o.frequency.clone().unwrap_or_else(|| "as ordered".to_string()),
+                "last_done": last_done,
+                "priority": match o.priority.to_lowercase().as_str() {
+                    "stat" | "urgent" | "asap" => "high",
+                    "routine" | "scheduled" => "medium",
+                    _ => "low",
+                },
+                "instructions": o.special_instructions
+            })
+        })
+        .collect();
 
     let mut tasks = med_tasks;
     tasks.extend(monitoring_tasks);

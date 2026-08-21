@@ -182,6 +182,20 @@ impl MemoryLabPanelRepository {
 
 #[async_trait]
 impl LabPanelRepository for MemoryLabPanelRepository {
+    /// Deployment-wide read, newest first, matching the ordering the PostgreSQL
+    /// implementation uses so the two backends agree on what "the latest 500"
+    /// means.
+    async fn list_all(&self) -> RepositoryResult<Vec<LabPanelEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<LabPanelEntity> = data.values().cloned().collect();
+        items.sort_by_key(|item| std::cmp::Reverse(item.collected_at));
+        items.truncate(500);
+        Ok(items)
+    }
+
     async fn create(&self, panel: LabPanelEntity) -> RepositoryResult<LabPanelEntity> {
         let mut data = self
             .data
@@ -748,6 +762,20 @@ impl MemoryLabTrendRepository {
 
 #[async_trait]
 impl LabTrendRepository for MemoryLabTrendRepository {
+    /// Deployment-wide read, newest first, matching the ordering the PostgreSQL
+    /// implementation uses so the two backends agree on what "the latest 500"
+    /// means.
+    async fn list_all(&self) -> RepositoryResult<Vec<LabTrendEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<LabTrendEntity> = data.values().cloned().collect();
+        items.sort_by_key(|item| std::cmp::Reverse(item.created_at));
+        items.truncate(500);
+        Ok(items)
+    }
+
     async fn create(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity> {
         let mut data = self
             .data
@@ -996,6 +1024,20 @@ impl MemoryOperativeNoteRepository {
 
 #[async_trait]
 impl OperativeNoteRepository for MemoryOperativeNoteRepository {
+    /// Deployment-wide read, newest first, matching the ordering the PostgreSQL
+    /// implementation uses so the two backends agree on what "the latest 500"
+    /// means.
+    async fn list_all(&self) -> RepositoryResult<Vec<OperativeNoteEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<OperativeNoteEntity> = data.values().cloned().collect();
+        items.sort_by_key(|item| std::cmp::Reverse(item.created_at));
+        items.truncate(500);
+        Ok(items)
+    }
+
     async fn create(&self, note: OperativeNoteEntity) -> RepositoryResult<OperativeNoteEntity> {
         let mut data = self
             .data
@@ -1146,7 +1188,7 @@ impl PostOpNoteRepository for MemoryPostOpNoteRepository {
             .map_err(|e| RepositoryError::Internal(e.to_string()))?;
         let mut items: Vec<_> = data
             .values()
-            .filter(|n| n.operative_note_id == operative_note_id)
+            .filter(|n| n.operative_note_id.as_deref() == Some(operative_note_id))
             .cloned()
             .collect();
         items.sort_by_key(|n| n.post_op_day);
@@ -1346,6 +1388,20 @@ impl MemoryIntubationRecordRepository {
 
 #[async_trait]
 impl IntubationRecordRepository for MemoryIntubationRecordRepository {
+    /// Deployment-wide read, newest first, matching the ordering the PostgreSQL
+    /// implementation uses so the two backends agree on what "the latest 500"
+    /// means.
+    async fn list_all(&self) -> RepositoryResult<Vec<IntubationRecordEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<IntubationRecordEntity> = data.values().cloned().collect();
+        items.sort_by_key(|item| std::cmp::Reverse(item.performed_at));
+        items.truncate(500);
+        Ok(items)
+    }
+
     async fn create(
         &self,
         record: IntubationRecordEntity,
@@ -1453,6 +1509,20 @@ impl MemoryLacerationRepairRepository {
 
 #[async_trait]
 impl LacerationRepairRepository for MemoryLacerationRepairRepository {
+    /// Deployment-wide read, newest first, matching the ordering the PostgreSQL
+    /// implementation uses so the two backends agree on what "the latest 500"
+    /// means.
+    async fn list_all(&self) -> RepositoryResult<Vec<LacerationRepairEntity>> {
+        let data = self
+            .data
+            .read()
+            .map_err(|e| RepositoryError::Internal(e.to_string()))?;
+        let mut items: Vec<LacerationRepairEntity> = data.values().cloned().collect();
+        items.sort_by_key(|item| std::cmp::Reverse(item.performed_at));
+        items.truncate(500);
+        Ok(items)
+    }
+
     async fn create(
         &self,
         repair: LacerationRepairEntity,

@@ -97,6 +97,9 @@ pub struct RepositoryContainer {
     pub emergency_capsules: Arc<dyn EmergencyCapsuleRepository>,
     /// Retention approvals, processing restrictions, and the deletion register.
     pub retention_execution: Arc<dyn RetentionExecutionRepository>,
+    /// Patient-controlled standing access grants and the provider requests
+    /// they are minted from (supersedes the in-process `PatientAccessStore`).
+    pub patient_access: Arc<dyn PatientAccessRepository>,
 
     // Emergency Protocol repositories
     pub code_blue: Arc<dyn CodeBlueRepository>,
@@ -260,6 +263,18 @@ pub struct RepositoryContainer {
     pub messages: Arc<dyn JsonRecordRepository>,
     pub symptom_entries: Arc<dyn JsonRecordRepository>,
     pub barcode_scans: Arc<dyn JsonRecordRepository>,
+
+    // Final durability sweep (migration 20260811000002): the last of the
+    // process-memory clinical maps. `used_emergency_tokens` is the spent-token
+    // set behind one-time emergency access — losing it makes a redeemed token
+    // replayable, so its durability is a security property.
+    pub blood_type_screen_records: Arc<dyn JsonRecordRepository>,
+    pub transfusion_event_records: Arc<dyn JsonRecordRepository>,
+    pub e_prescription_records: Arc<dyn JsonRecordRepository>,
+    pub death_certificate_records: Arc<dyn JsonRecordRepository>,
+    pub family_history_records: Arc<dyn JsonRecordRepository>,
+    pub user_setting_records: Arc<dyn JsonRecordRepository>,
+    pub used_emergency_tokens: Arc<dyn JsonRecordRepository>,
 }
 
 /// The `[start, end)` instant range an appointment occupies.
@@ -322,6 +337,7 @@ impl RepositoryContainer {
             legal_holds: Arc::new(memory::MemoryLegalHoldRepository::new()),
             emergency_capsules: Arc::new(memory::MemoryEmergencyCapsuleRepository::new()),
             retention_execution: Arc::new(memory::MemoryRetentionExecutionRepository::new()),
+            patient_access: Arc::new(memory::MemoryPatientAccessRepository::new()),
 
             // Emergency Protocol repositories (memory)
             code_blue: Arc::new(memory::MemoryCodeBlueRepository::new()),
@@ -486,6 +502,13 @@ impl RepositoryContainer {
             messages: Arc::new(memory::MemoryJsonRecordRepository::new()),
             symptom_entries: Arc::new(memory::MemoryJsonRecordRepository::new()),
             barcode_scans: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            blood_type_screen_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            transfusion_event_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            e_prescription_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            death_certificate_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            family_history_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            user_setting_records: Arc::new(memory::MemoryJsonRecordRepository::new()),
+            used_emergency_tokens: Arc::new(memory::MemoryJsonRecordRepository::new()),
         }
     }
 
@@ -798,6 +821,7 @@ impl RepositoryContainer {
             retention_execution: Arc::new(postgres::PgRetentionExecutionRepository::new(
                 pool.clone(),
             )),
+            patient_access: Arc::new(postgres::PgPatientAccessRepository::new(pool.clone())),
 
             // Emergency Protocol repositories (PostgreSQL — JSONB-persisted, C1)
             code_blue: Arc::new(postgres::PgCodeBlueRepository::new(pool.clone())),
@@ -1027,6 +1051,27 @@ impl RepositoryContainer {
             messages: Arc::new(postgres::PgMessageRepository::new(pool.clone())),
             symptom_entries: Arc::new(postgres::PgSymptomEntryRepository::new(pool.clone())),
             barcode_scans: Arc::new(postgres::PgBarcodeScanRepository::new(pool.clone())),
+            blood_type_screen_records: Arc::new(postgres::PgBloodTypeScreenRecordRepository::new(
+                pool.clone(),
+            )),
+            transfusion_event_records: Arc::new(postgres::PgTransfusionEventRecordRepository::new(
+                pool.clone(),
+            )),
+            e_prescription_records: Arc::new(postgres::PgEPrescriptionRecordRepository::new(
+                pool.clone(),
+            )),
+            death_certificate_records: Arc::new(postgres::PgDeathCertificateRecordRepository::new(
+                pool.clone(),
+            )),
+            family_history_records: Arc::new(postgres::PgFamilyHistoryRecordRepository::new(
+                pool.clone(),
+            )),
+            user_setting_records: Arc::new(postgres::PgUserSettingRecordRepository::new(
+                pool.clone(),
+            )),
+            used_emergency_tokens: Arc::new(postgres::PgUsedEmergencyTokenRepository::new(
+                pool.clone(),
+            )),
 
             consent_records: Arc::new(postgres::PgConsentRecordRepository::new(pool)),
         })

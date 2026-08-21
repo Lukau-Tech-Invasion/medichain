@@ -78,4 +78,17 @@ gzip/brotli treemap to `dist/stats.html` (via `rollup-plugin-visualizer`). A pla
       bundle analysis (`ANALYZE=1` → `rollup-plugin-visualizer`); both apps measured
       under budget (doctor ~104 KB, patient ~89 KB gzip initial JS).
 - [ ] Wire client-side NFC-segment instrumentation + RUM reporting.
-- [ ] Add `cargo flamegraph` / load-test step to CI (manual for now).
+- [x] **The emergency-read budget is now asserted, not just documented.**
+      `scripts/synthetic-e2e-test.sh` §17 times the break-glass emergency card
+      read against the 400 ms server-segment budget above (five samples, each
+      minting its own single-spend token, worst-case compared). Until this
+      landed, §1 of this document was prose that nothing checked — the suite
+      exercised the emergency path thoroughly for *correctness* and never once
+      for *latency*, which is the half of the promise the product is named for.
+      Deliberately a smoke measurement on a local stack, not a production p95:
+      it is sized to catch an order-of-magnitude regression (an N+1, a dropped
+      index), which is what this budget exists to prevent.
+- [ ] `cargo flamegraph` / sustained-load step in CI (still manual). Distinct
+      from the above: this measures a *single* warm request, not behaviour under
+      concurrency. A real p95 needs `k6`/`oha` driving load against a deployed
+      instance, which needs an environment CI does not have today.

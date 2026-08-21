@@ -21,6 +21,136 @@ pub struct CreateTelehealthSessionRequest {
     pub recording_enabled: Option<bool>,
 }
 
+/// How long before the scheduled start a session may be joined, and how long
+/// after it stays joinable.
+///
+/// A telehealth room is a private clinical space. Leaving it open indefinitely
+/// means a link shared once works forever; opening it weeks early means the
+/// room exists long before anyone should be in it. The window is generous
+/// enough for an early patient and an overrunning clinic, and no more.
+pub(crate) const JOIN_OPENS_BEFORE_SECS: i64 = 15 * 60;
+pub(crate) const JOIN_CLOSES_AFTER_SECS: i64 = 4 * 60 * 60;
+
+/// Whether `now` falls inside the joinable window for a session starting at
+/// `scheduled_start`.
+pub(crate) fn within_join_window(scheduled_start: i64, now: i64) -> bool {
+    now >= scheduled_start - JOIN_OPENS_BEFORE_SECS
+        && now <= scheduled_start + JOIN_CLOSES_AFTER_SECS
+}
+
+/// A freshly provisioned session, plus which backend produced its URLs.
+pub(crate) struct ProvisionedSession {
+    pub session: crate::clinical::TelehealthSession,
+    /// The video backend that issued the room, or `jitsi-fallback` when the
+    /// configured provider was unreachable. Reported so an operator can tell
+    /// which sessions were created while the primary provider was down.
+    pub platform: String,
+}
+
+/// Provision a telehealth session and persist it.
+///
+/// Extracted from `create_telehealth_session` so that booking a telehealth
+/// appointment can create the session too. Before this, the only way a session
+/// came into existence was a clinician separately filling in the Telehealth
+/// screen — re-entering the patient — so a "telehealth" appointment and an
+/// actual meeting were unrelated objects (`docs/WORKFLOW_AUDIT.md`, WF-014).
+///
+/// Returns the session on success. Errors are surfaced to the caller rather
+/// than swallowed: an appointment that believes it has a meeting when none was
+/// created is the exact failure this work exists to remove.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn provision_session(
+    data: &crate::AppState,
+    patient_id: &str,
+    provider_id: &str,
+    appointment_id: Option<String>,
+    scheduled_start: i64,
+    session_type: crate::clinical::TelehealthType,
+    recording_enabled: bool,
+) -> Result<ProvisionedSession, String> {
+    let session_id = format!("TH-{}", uuid::Uuid::new_v4());
+    let scheduled_at =
+        chrono::DateTime::from_timestamp(scheduled_start, 0).unwrap_or_else(chrono::Utc::now);
+
+    let service_params = crate::telehealth::CreateSessionParams {
+        session_id: session_id.clone(),
+        patient_id: patient_id.to_string(),
+        provider_id: provider_id.to_string(),
+        scheduled_at,
+        duration_minutes: 60,
+    };
+    let (provider_join_url, patient_join_url, platform) =
+        match data.telehealth_service.create_session(service_params).await {
+            Ok(info) => (
+                info.provider_join_url,
+                info.patient_join_url,
+                info.provider_name,
+            ),
+            Err(e) => {
+                // The configured provider is unavailable. Fall back to a Jitsi
+                // room rather than failing the booking: the appointment is
+                // still real and the room is still a real, joinable place.
+                log::warn!("TelehealthService::create_session failed ({e}); falling back to Jitsi");
+                let room = format!(
+                    "medichain-{}-{}",
+                    session_id.to_lowercase().replace('_', "-"),
+                    &uuid::Uuid::new_v4().to_string()[..8]
+                );
+                (
+                    format!("https://meet.jit.si/{room}#userInfo.displayName=%22Provider%22"),
+                    format!("https://meet.jit.si/{room}#userInfo.displayName=%22Patient%22"),
+                    "jitsi-fallback".to_string(),
+                )
+            }
+        };
+
+    let session = crate::clinical::TelehealthSession {
+        session_id: session_id.clone(),
+        appointment_id,
+        patient_id: patient_id.to_string(),
+        provider_id: provider_id.to_string(),
+        session_type,
+        scheduled_start,
+        actual_start: None,
+        actual_end: None,
+        status: crate::clinical::TelehealthStatus::Scheduled,
+        video_room_url: provider_join_url,
+        waiting_room_url: patient_join_url,
+        join_instructions: "Use the provided link to join your telehealth session. \
+            Ensure camera and microphone are enabled."
+            .to_string(),
+        technical_requirements: vec![
+            "Modern web browser (Chrome, Firefox, Safari, Edge)".to_string(),
+            "Stable internet connection (2+ Mbps)".to_string(),
+            "Camera and microphone access".to_string(),
+        ],
+        patient_joined_at: None,
+        provider_joined_at: None,
+        recording_enabled,
+        recording_consent: false,
+        chat_enabled: true,
+        screen_share_enabled: true,
+        quality_metrics: None,
+        visit_notes: None,
+        follow_up_scheduled: None,
+    };
+
+    let now_dt = chrono::Utc::now();
+    data.repositories
+        .telehealth_session_records
+        .create(crate::repositories::traits::JsonRecordEntity {
+            id: session_id,
+            owner_id: session.patient_id.clone(),
+            data: serde_json::to_value(&session).unwrap_or_default(),
+            created_at: now_dt,
+            updated_at: now_dt,
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(ProvisionedSession { session, platform })
+}
+
 /// Create a new telehealth session
 #[post("/api/telehealth/sessions")]
 pub async fn create_telehealth_session(
@@ -56,104 +186,36 @@ pub async fn create_telehealth_session(
         _ => crate::clinical::TelehealthType::VideoVisit,
     };
 
-    let session_id = format!("TH-{}", uuid::Uuid::new_v4());
-
-    // Delegate URL generation to the configured TelehealthService provider
-    // (internal / Daily.co / Twilio). Falls back gracefully to Jitsi-style URLs.
-    let scheduled_at =
-        chrono::DateTime::from_timestamp(req.scheduled_start, 0).unwrap_or_else(chrono::Utc::now);
-    let service_params = crate::telehealth::CreateSessionParams {
-        session_id: session_id.clone(),
-        patient_id: req.patient_id.clone(),
-        provider_id: current_user_id.clone(),
-        scheduled_at,
-        duration_minutes: 60,
-    };
-    let session_info = data.telehealth_service.create_session(service_params).await;
-
-    let (provider_join_url, patient_join_url, video_room_url, waiting_room_url, platform) =
-        match session_info {
-            Ok(ref info) => (
-                info.provider_join_url.clone(),
-                info.patient_join_url.clone(),
-                info.provider_join_url.clone(),
-                info.patient_join_url.clone(),
-                info.provider_name.clone(),
-            ),
-            Err(ref e) => {
-                // Graceful fallback to Jitsi if the provider call fails
-                log::warn!(
-                    "TelehealthService::create_session failed ({}); falling back to Jitsi",
-                    e
-                );
-                let room_name = format!(
-                    "medichain-{}-{}",
-                    session_id.to_lowercase().replace('_', "-"),
-                    &uuid::Uuid::new_v4().to_string()[..8]
-                );
-                (
-                    format!(
-                        "https://meet.jit.si/{}#userInfo.displayName=%22Provider%22",
-                        room_name
-                    ),
-                    format!(
-                        "https://meet.jit.si/{}#userInfo.displayName=%22Patient%22",
-                        room_name
-                    ),
-                    format!("https://meet.jit.si/{}", room_name),
-                    format!("https://meet.jit.si/{}", room_name),
-                    "jitsi-fallback".to_string(),
-                )
-            }
-        };
-
-    let session = crate::clinical::TelehealthSession {
-        session_id: session_id.clone(),
-        appointment_id: req.appointment_id.clone(),
-        patient_id: req.patient_id.clone(),
-        provider_id: current_user_id.clone(),
+    // Same provisioning path the appointment booking uses, so a session
+    // created here and one created by booking a telehealth appointment are the
+    // same object with the same guarantees.
+    let provisioned = match provision_session(
+        &data,
+        &req.patient_id,
+        &current_user_id,
+        req.appointment_id.clone(),
+        req.scheduled_start,
         session_type,
-        scheduled_start: req.scheduled_start,
-        actual_start: None,
-        actual_end: None,
-        status: crate::clinical::TelehealthStatus::Scheduled,
-        video_room_url: video_room_url.clone(),
-        waiting_room_url: waiting_room_url.clone(),
-        join_instructions: "Use the provided link to join your telehealth session. \
-            Ensure camera and microphone are enabled."
-            .to_string(),
-        technical_requirements: vec![
-            "Modern web browser (Chrome, Firefox, Safari, Edge)".to_string(),
-            "Stable internet connection (2+ Mbps)".to_string(),
-            "Camera and microphone access".to_string(),
-        ],
-        patient_joined_at: None,
-        provider_joined_at: None,
-        recording_enabled: req.recording_enabled.unwrap_or(false),
-        recording_consent: false,
-        chat_enabled: true,
-        screen_share_enabled: true,
-        quality_metrics: None,
-        visit_notes: None,
-        follow_up_scheduled: None,
-    };
-
+        req.recording_enabled.unwrap_or(false),
+    )
+    .await
     {
-        // Persist via repository (was: in-memory data.telehealth_sessions HashMap)
-        let now_dt = chrono::Utc::now();
-        let entity = crate::repositories::traits::JsonRecordEntity {
-            id: session_id.clone(),
-            owner_id: session.patient_id.clone(),
-            data: serde_json::to_value(&session).unwrap_or_default(),
-            created_at: now_dt,
-            updated_at: now_dt,
-        };
-        let _ = data
-            .repositories
-            .telehealth_session_records
-            .create(entity)
-            .await;
-    }
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("telehealth session provisioning failed: {e}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "The telehealth session could not be created".to_string(),
+                code: "TELEHEALTH_UNAVAILABLE".to_string(),
+            });
+        }
+    };
+    let session_id = provisioned.session.session_id.clone();
+    let provider_join_url = provisioned.session.video_room_url.clone();
+    let patient_join_url = provisioned.session.waiting_room_url.clone();
+    let video_room_url = provider_join_url.clone();
+    let waiting_room_url = patient_join_url.clone();
+    let platform = provisioned.platform;
 
     HttpResponse::Created().json(serde_json::json!({
         "success": true,
@@ -200,8 +262,15 @@ pub async fn get_telehealth_session(
         }
     };
 
-    // Only patient or provider can view session
-    if session.patient_id != current_user_id && session.provider_id != current_user_id {
+    // Only patient or provider can view session.
+    //
+    // `session.patient_id` is a `PAT-…` record id and `current_user_id` is an
+    // SS58 wallet: comparing them directly is never true for a real patient
+    // account, so the data subject was denied their own session.
+    // `caller_owns_patient_record` bridges the two namespaces.
+    let caller_is_patient =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id);
+    if !caller_is_patient && session.provider_id != current_user_id {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Access denied".to_string(),
@@ -249,7 +318,12 @@ pub async fn join_telehealth_session(
     };
 
     let now = chrono::Utc::now().timestamp();
-    let is_patient = session.patient_id == current_user_id;
+    // Same namespace bridge as the view handler above: a wallet address is
+    // never equal to a `PAT-…` record id, so this used to tell the patient
+    // "You are not part of this session" about their own consultation —
+    // i.e. a patient could never join their own video call.
+    let is_patient =
+        crate::support::caller_owns_patient_record(&data, &current_user_id, &session.patient_id);
     let is_provider = session.provider_id == current_user_id;
 
     if !is_patient && !is_provider {
@@ -257,6 +331,32 @@ pub async fn join_telehealth_session(
             success: false,
             error: "You are not part of this session".to_string(),
             code: "FORBIDDEN".to_string(),
+        });
+    }
+
+    // A finished consultation is not a room you can walk back into. Without
+    // this, a link from a completed visit kept working indefinitely.
+    if matches!(
+        session.status,
+        crate::clinical::TelehealthStatus::Completed
+            | crate::clinical::TelehealthStatus::Cancelled
+            | crate::clinical::TelehealthStatus::NoShow
+    ) {
+        return HttpResponse::Conflict().json(ErrorResponse {
+            success: false,
+            error: "This consultation has ended".to_string(),
+            code: "SESSION_ENDED".to_string(),
+        });
+    }
+
+    // Nor is it a room that exists from the moment it is booked. The window is
+    // enforced here, not merely hidden in the UI, so a saved link cannot be
+    // used weeks early or long afterwards.
+    if !within_join_window(session.scheduled_start, now) {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "This consultation is not open to join yet".to_string(),
+            code: "OUTSIDE_JOIN_WINDOW".to_string(),
         });
     }
 
@@ -298,6 +398,49 @@ pub async fn join_telehealth_session(
             .await;
     }
 
+    // Entering a patient's live consultation is an access to their care, and
+    // it was the one telehealth event that left no trace: recording-start and
+    // recording-stop both audited, joining did not. A provider could sit in a
+    // patient's video visit and the access trail would show nothing — in a
+    // system whose central claim is a tamper-evident record of who reached a
+    // patient, that is the entry an auditor would look for first.
+    {
+        let joined_at = chrono::Utc::now();
+        let accessor_role = if is_provider {
+            crate::support::get_user(&data, &current_user_id)
+                .map(|u| u.role.to_string())
+                .unwrap_or_else(|| "Doctor".to_string())
+        } else {
+            "Patient".to_string()
+        };
+        let log = crate::repositories::traits::AccessLogEntity {
+            id: uuid::Uuid::new_v4().to_string(),
+            accessor_id: current_user_id.clone(),
+            accessor_role,
+            patient_id: Some(session.patient_id.clone()),
+            resource_type: "telehealth_session".to_string(),
+            resource_id: Some(session_id.clone()),
+            // MUST be a value `access_logs_action_check` accepts. The first
+            // draft of this used "joined", which the constraint rejects — the
+            // insert would have failed on PostgreSQL and, because this write
+            // only logs its error, the audit row would have been silently lost
+            // while the join succeeded. That is the exact bug this block exists
+            // to fix, reintroduced one layer down. The in-memory backend
+            // enforces no CHECK constraint, so it would have looked fine here.
+            action: TELEHEALTH_JOIN_ACTION.to_string(),
+            access_reason: Some("telehealth consultation".to_string()),
+            is_emergency_access: false,
+            ip_address: None,
+            user_agent: None,
+            blockchain_tx_hash: None,
+            accessed_at: joined_at,
+            facility_id: None,
+        };
+        if let Err(e) = data.repositories.access_logs.create(log).await {
+            log::error!("telehealth join audit write failed for {session_id}: {e}");
+        }
+    }
+
     // Phase 1: issue Jitsi IFrame-API credentials (domain, room, JWT) mapped to
     // the caller's role. `jitsi` is null for providers that don't support JWT.
     let role_str = if is_provider {
@@ -330,7 +473,15 @@ pub async fn join_telehealth_session(
         "success": true,
         "session_id": session_id,
         "status": format!("{:?}", session.status),
-        "video_room_url": session.video_room_url,
+        // Role-appropriate room URL. This always returned the *provider*
+        // URL, so a patient using the non-IFrame fallback joined labelled
+        // "Care Provider" and bypassed the waiting room the session model
+        // had just put them in.
+        "video_room_url": if is_provider {
+            session.video_room_url.clone()
+        } else {
+            session.waiting_room_url.clone()
+        },
         "role": role_str,
         "jitsi": jitsi,
         "subject": room_config.subject,
@@ -380,9 +531,42 @@ pub async fn telehealth_health(data: web::Data<crate::AppState>) -> impl Respond
     }
 }
 
+/// Telehealth lifecycle events a client may report.
+///
+/// Deliberately a closed set. `event_type` is written verbatim into
+/// `access_logs.action`, which is CHECK-constrained, so an unvalidated value
+/// would be accepted here and then fail the audit insert on PostgreSQL. Because
+/// the audit path fails closed, that turns a typo in a client — or a caller
+/// choosing an arbitrary string — into a refused request whose error blames the
+/// audit trail rather than the input. Rejecting it at the boundary gives a 400
+/// that names the real problem, and keeps the audit vocabulary enumerable.
+///
+/// These are the events `JitsiMeetComponent` emits. Adding one here means adding
+/// it to the `access_logs_action_check` constraint in the same change;
+/// `test_pg_access_log_accepts_every_action_the_handlers_write` enforces that.
+pub const TELEHEALTH_EVENT_TYPES: &[&str] = &[
+    "conference-joined",
+    "conference-left",
+    "participant-joined",
+    "participant-left",
+    "error",
+    // Written by `join_telehealth_session` when a participant enters the room.
+    // Listed here so `test_pg_telehealth_event_types_are_all_accepted_by_the_schema`
+    // proves the schema accepts it, rather than a paramedic-hours discovery
+    // that telehealth joins stopped being audited on PostgreSQL.
+    TELEHEALTH_JOIN_ACTION,
+];
+
+/// The `access_logs.action` value recorded when someone joins a consultation.
+///
+/// Constrained by `access_logs_action_check` in the schema, so it cannot be an
+/// arbitrary string. Kept as a named constant so the writer and the vocabulary
+/// test above can never disagree about which value that is.
+pub const TELEHEALTH_JOIN_ACTION: &str = "conference-joined";
+
 #[derive(serde::Deserialize)]
 pub struct TelehealthEventRequest {
-    /// e.g. "participant-joined", "participant-left", "error".
+    /// One of [`TELEHEALTH_EVENT_TYPES`].
     pub event_type: String,
     pub detail: Option<String>,
 }
@@ -402,6 +586,21 @@ pub async fn telehealth_event(
         Ok(u) => u.wallet_address,
         Err(resp) => return resp,
     };
+    // Validate before broadcasting: an event that cannot be audited must not be
+    // relayed to other clients either, or viewers would see something the audit
+    // trail has no record of.
+    if !TELEHEALTH_EVENT_TYPES.contains(&body.event_type.as_str()) {
+        return HttpResponse::BadRequest().json(ErrorResponse {
+            success: false,
+            error: format!(
+                "unsupported event_type {:?}; expected one of: {}",
+                body.event_type,
+                TELEHEALTH_EVENT_TYPES.join(", ")
+            ),
+            code: "UNSUPPORTED_EVENT_TYPE".to_string(),
+        });
+    }
+
     let now = chrono::Utc::now();
 
     // Broadcast to connected SSE clients.
@@ -462,14 +661,23 @@ pub async fn telehealth_recording(
         Err(resp) => return resp,
     };
 
-    // Only a healthcare provider (moderator) may control recording.
+    // Only a session moderator may control recording.
+    //
+    // This used to ask `is_healthcare_provider()`, which is true for
+    // Pharmacist and LabTechnician as well — so a pharmacist could start
+    // recording a patient's consultation. Meanwhile `role_is_moderator` in
+    // `crate::telehealth` (the mapping that decides the Jitsi JWT's moderator
+    // claim) already excluded Pharmacist. Two definitions of "moderator" in one
+    // feature, and the security-relevant gate happened to use the wider one.
+    // There is now exactly one definition, so the room's moderator claim and
+    // the API's recording gate cannot drift apart again.
     let is_moderator = crate::support::get_user(&data, &actor)
-        .map(|u| u.role.is_healthcare_provider())
+        .map(|u| crate::telehealth::role_is_moderator(&u.role.to_string()))
         .unwrap_or(false);
     if !is_moderator {
         return HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
-            error: "Only the provider can control recording".to_string(),
+            error: "Only a session moderator can control recording".to_string(),
             code: "FORBIDDEN".to_string(),
         });
     }
@@ -536,7 +744,12 @@ pub async fn telehealth_recording(
     let log = crate::repositories::traits::AccessLogEntity {
         id: uuid::Uuid::new_v4().to_string(),
         accessor_id: actor.clone(),
-        accessor_role: "moderator".to_string(),
+        // The caller's actual role, not the literal "moderator". Audit
+        // consumers filter and group by role, and "moderator" is not one —
+        // these rows silently fell outside every role-based audit query.
+        accessor_role: crate::support::get_user(&data, &actor)
+            .map(|u| u.role.to_string())
+            .unwrap_or_else(|| "Doctor".to_string()),
         patient_id: Some(session.patient_id.clone()),
         resource_type: "telehealth_recording".to_string(),
         resource_id: Some(session_id.clone()),
@@ -549,7 +762,9 @@ pub async fn telehealth_recording(
         accessed_at: now,
         facility_id: None,
     };
-    let _ = data.repositories.access_logs.create(log).await;
+    if let Err(e) = data.repositories.access_logs.create(log).await {
+        log::error!("telehealth {action} audit write failed for {session_id}: {e}");
+    }
     data.ws_manager.push_event(crate::websocket::PushEvent {
         event_type: "telehealth".to_string(),
         patient_id: Some(session.patient_id.clone()),
@@ -886,5 +1101,127 @@ pub async fn telehealth_join_qr(
             error: "Failed to generate QR code".to_string(),
             code: "QR_ERROR".to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod join_window_tests {
+    use super::{within_join_window, JOIN_CLOSES_AFTER_SECS, JOIN_OPENS_BEFORE_SECS};
+
+    const START: i64 = 1_800_000_000;
+
+    #[test]
+    fn the_room_is_open_around_the_appointment() {
+        assert!(within_join_window(START, START), "at the scheduled minute");
+        assert!(within_join_window(
+            START,
+            START - JOIN_OPENS_BEFORE_SECS + 1
+        ));
+        assert!(within_join_window(
+            START,
+            START + JOIN_CLOSES_AFTER_SECS - 1
+        ));
+    }
+
+    /// A link is a private clinical space, not a permanent address. Booking an
+    /// appointment must not make its room reachable from that moment on.
+    #[test]
+    fn the_room_is_shut_well_before_the_appointment() {
+        assert!(!within_join_window(
+            START,
+            START - JOIN_OPENS_BEFORE_SECS - 1
+        ));
+        assert!(!within_join_window(START, START - 7 * 24 * 3600));
+    }
+
+    #[test]
+    fn the_room_does_not_stay_open_forever_afterwards() {
+        assert!(!within_join_window(
+            START,
+            START + JOIN_CLOSES_AFTER_SECS + 1
+        ));
+        assert!(!within_join_window(START, START + 30 * 24 * 3600));
+    }
+
+    /// The boundaries are inclusive, so a patient arriving exactly on the
+    /// early edge is not turned away by a rounding accident.
+    #[test]
+    fn the_window_boundaries_are_inclusive() {
+        assert!(within_join_window(START, START - JOIN_OPENS_BEFORE_SECS));
+        assert!(within_join_window(START, START + JOIN_CLOSES_AFTER_SECS));
+    }
+}
+
+/// Who may control recording of a consultation.
+///
+/// The handler asks `role_is_moderator(&user.role.to_string())`. That
+/// composition — `Role`'s `Display` feeding the Jitsi moderator mapping — is
+/// what these tests pin, because the defect they cover lived exactly there:
+/// the gate used to ask `is_healthcare_provider()`, which is *true* for
+/// Pharmacist, while the JWT's moderator claim said otherwise. The room and the
+/// API disagreed about who the moderator was.
+#[cfg(test)]
+mod recording_authority_tests {
+    use crate::telehealth::role_is_moderator;
+    use crate::Role;
+
+    fn may_control_recording(role: &Role) -> bool {
+        role_is_moderator(&role.to_string())
+    }
+
+    #[test]
+    fn a_pharmacist_cannot_start_recording_a_consultation() {
+        assert!(
+            !may_control_recording(&Role::Pharmacist),
+            "a pharmacist is not a moderator of a clinical consultation"
+        );
+    }
+
+    #[test]
+    fn a_patient_cannot_start_recording_their_own_consultation() {
+        assert!(!may_control_recording(&Role::Patient));
+    }
+
+    #[test]
+    fn the_treating_clinicians_can_control_recording() {
+        assert!(may_control_recording(&Role::Doctor));
+        assert!(may_control_recording(&Role::Nurse));
+        assert!(may_control_recording(&Role::Admin));
+    }
+
+    /// Every `Role` is decided deliberately, so adding a variant to the enum
+    /// forces a decision here rather than silently inheriting a default.
+    #[test]
+    fn every_role_has_an_explicit_recording_decision() {
+        for (role, expected) in [
+            (Role::Admin, true),
+            (Role::Doctor, true),
+            (Role::Nurse, true),
+            (Role::LabTechnician, true),
+            (Role::Pharmacist, false),
+            (Role::Patient, false),
+        ] {
+            assert_eq!(
+                may_control_recording(&role),
+                expected,
+                "recording authority for {role}"
+            );
+        }
+    }
+
+    /// The regression itself: `is_healthcare_provider()` is a wider set than
+    /// the moderator set, and using it as the recording gate is what let a
+    /// pharmacist in. If the two ever become identical this test is the place
+    /// that says the distinction was intentional.
+    #[test]
+    fn healthcare_provider_is_deliberately_wider_than_moderator() {
+        assert!(
+            Role::Pharmacist.is_healthcare_provider(),
+            "a pharmacist is still a healthcare provider"
+        );
+        assert!(
+            !may_control_recording(&Role::Pharmacist),
+            "but that does not make them a session moderator"
+        );
     }
 }

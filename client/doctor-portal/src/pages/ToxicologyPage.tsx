@@ -49,10 +49,10 @@ interface ToxCase {
 }
 
 const severityColors: Record<Severity, string> = {
-  mild: 'bg-green-100 text-green-700',
-  moderate: 'bg-yellow-100 text-yellow-700',
-  severe: 'bg-orange-100 text-orange-700',
-  'life-threatening': 'bg-red-100 text-red-700'
+  mild: 'bg-ok-subtle text-ok-subtle-fg',
+  moderate: 'bg-caution-subtle text-caution-subtle-fg',
+  severe: 'bg-surface-sunken text-content-secondary',
+  'life-threatening': 'bg-critical-subtle text-critical-subtle-fg'
 };
 
 const commonSubstances = [
@@ -167,14 +167,14 @@ const ToxicologyPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-red-600 to-rose-600 text-white p-6">
         <div className="flex items-center gap-3">
           <Skull className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docToxicology.title')}</h1>
-            <p className="text-red-100">{t('docToxicology.subtitle')}</p>
+            <p className="text-critical-fg">{t('docToxicology.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -187,15 +187,15 @@ const ToxicologyPage: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {['new', 'history'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab as 'new' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-red-600 border-b-2 border-red-600'
-                : 'text-gray-500 hover:text-gray-700'}`}
+                ? 'text-critical-subtle-fg border-b-2 border-red-600'
+                : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'new' ? t('docToxicology.tabNew') : t('docToxicology.tabHistory')}
             </button>
@@ -207,13 +207,13 @@ const ToxicologyPage: React.FC = () => {
         {activeTab === 'new' ? (
           <div className="space-y-6">
             {/* Patient & Exposure */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" /> {t('docToxicology.exposureInfo')}
               </h2>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
-                  <label htmlFor="tox-patient" className="text-sm text-gray-600">{t('docToxicology.patient')}</label>
+                  <label htmlFor="tox-patient" className="text-sm text-content-muted">{t('docToxicology.patient')}</label>
                   <select
                     id="tox-patient"
                     value={selectedPatient}
@@ -227,7 +227,7 @@ const ToxicologyPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="tox-substance" className="text-sm text-gray-600">{t('docToxicology.substance')}</label>
+                  <label htmlFor="tox-substance" className="text-sm text-content-muted">{t('docToxicology.substance')}</label>
                   <select
                     id="tox-substance"
                     value={substance}
@@ -241,7 +241,7 @@ const ToxicologyPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="tox-amount" className="text-sm text-gray-600">{t('docToxicology.amount')}</label>
+                  <label htmlFor="tox-amount" className="text-sm text-content-muted">{t('docToxicology.amount')}</label>
                   <input
                     id="tox-amount"
                     type="text"
@@ -252,7 +252,7 @@ const ToxicologyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="tox-time-of-exposure" className="text-sm text-gray-600">{t('docToxicology.timeOfExposure')}</label>
+                  <label htmlFor="tox-time-of-exposure" className="text-sm text-content-muted">{t('docToxicology.timeOfExposure')}</label>
                   <input
                     id="tox-time-of-exposure"
                     type="datetime-local"
@@ -262,7 +262,7 @@ const ToxicologyPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="tox-route" className="text-sm text-gray-600">{t('docToxicology.route')}</label>
+                  <label htmlFor="tox-route" className="text-sm text-content-muted">{t('docToxicology.route')}</label>
                   <select
                     id="tox-route"
                     value={route}
@@ -278,7 +278,7 @@ const ToxicologyPage: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="tox-severity" className="text-sm text-gray-600">{t('docToxicology.severity')}</label>
+                  <label htmlFor="tox-severity" className="text-sm text-content-muted">{t('docToxicology.severity')}</label>
                   <select
                     id="tox-severity"
                     value={severity}
@@ -306,14 +306,14 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Tox Screen */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Droplet className="w-5 h-5" /> {t('docToxicology.toxScreen')}
               </h2>
               <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mb-4">
                 {['amphetamines', 'barbiturates', 'benzodiazepines', 'cannabinoids', 'cocaine',
                   'opiates', 'pcp', 'methadone', 'fentanyl'].map(drug => (
-                    <label key={drug} className={`flex items-center gap-2 p-2 rounded border ${toxScreen[drug as keyof ToxScreen] === true ? 'bg-red-50 border-red-300' : 'bg-gray-50'}`}>
+                    <label key={drug} className={`flex items-center gap-2 p-2 rounded border ${toxScreen[drug as keyof ToxScreen] === true ? 'bg-critical-subtle border-critical' : 'bg-surface-sunken'}`}>
                       <input
                         type="checkbox"
                         checked={toxScreen[drug as keyof ToxScreen] === true}
@@ -334,15 +334,15 @@ const ToxicologyPage: React.FC = () => {
                   const value = toxScreen[item.key as keyof ToxScreen] as number | null;
                   return (
                     <div key={item.key}>
-                      <label className="text-xs text-gray-600">{item.label}</label>
+                      <label className="text-xs text-content-muted">{item.label}</label>
                       <input
                         type="number"
                         value={value ?? ''}
                         onChange={e => setToxScreen({ ...toxScreen, [item.key]: e.target.value ? Number(e.target.value) : null })}
-                        className={`w-full border rounded p-2 ${value !== null && value > item.toxic ? 'border-red-500 bg-red-50' : ''}`}
+                        className={`w-full border rounded p-2 ${value !== null && value > item.toxic ? 'border-red-500 bg-critical-subtle' : ''}`}
                         step="0.1"
                       />
-                      <p className="text-xs text-gray-400">{t('docToxicology.toxicPrefix', { value: item.toxic })}</p>
+                      <p className="text-xs text-content-muted">{t('docToxicology.toxicPrefix', { value: item.toxic })}</p>
                     </div>
                   );
                 })}
@@ -350,11 +350,11 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Symptoms */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docToxicology.signsSymptoms')}</h2>
               <div className="flex flex-wrap gap-2">
                 {symptoms.map(s => (
-                  <label key={s} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedSymptoms.includes(s) ? 'bg-red-100 border-red-300' : 'bg-gray-50'}`}>
+                  <label key={s} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedSymptoms.includes(s) ? 'bg-critical-subtle border-critical' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={selectedSymptoms.includes(s)}
@@ -371,7 +371,7 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Antidotes */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3 flex items-center gap-2">
                 <Pill className="w-5 h-5" /> {t('docToxicology.antidotes')}
               </h2>
@@ -379,12 +379,12 @@ const ToxicologyPage: React.FC = () => {
                 {antidotes.map(a => (
                   <div key={a.antidote} className="flex items-center gap-2 text-sm">
                     <span className="w-40 font-medium">{a.substance}:</span>
-                    <span className="w-40 text-gray-600">{a.antidote}</span>
+                    <span className="w-40 text-content-muted">{a.antidote}</span>
                     {a.doses.map(d => (
                       <button
                         key={d}
                         onClick={() => addAntidote(a.antidote, d)}
-                        className="px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-xs"
+                        className="px-2 py-1 bg-ok-subtle text-ok-subtle-fg rounded hover:bg-green-200 text-xs"
                       >
                         {d}
                       </button>
@@ -393,11 +393,11 @@ const ToxicologyPage: React.FC = () => {
                 ))}
               </div>
               {givenAntidotes.length > 0 && (
-                <div className="border rounded p-3 bg-green-50">
-                  <h3 className="font-medium text-green-800 mb-2">{t('docToxicology.antidotesGiven')}</h3>
+                <div className="border rounded p-3 bg-ok-subtle">
+                  <h3 className="font-medium text-ok-subtle-fg mb-2">{t('docToxicology.antidotesGiven')}</h3>
                   {givenAntidotes.map((a, i) => (
                     <div key={i} className="flex items-center gap-2 text-sm">
-                      <Clock className="w-4 h-4 text-gray-400" />
+                      <Clock className="w-4 h-4 text-content-muted" />
                       <span>{a.time}</span>
                       <span className="font-medium">{a.name}</span>
                       <span>{a.dose}</span>
@@ -408,11 +408,11 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Decontamination */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docToxicology.decontamination')}</h2>
               <div className="flex flex-wrap gap-2">
                 {decontaminationMethods.map(m => (
-                  <label key={m} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedDecon.includes(m) ? 'bg-blue-100 border-blue-300' : 'bg-gray-50'}`}>
+                  <label key={m} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedDecon.includes(m) ? 'bg-notice-subtle border-notice' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={selectedDecon.includes(m)}
@@ -429,7 +429,7 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Poison Control */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <div className="flex items-center gap-4">
                 <label htmlFor="tox-poison-control" className="flex items-center gap-2">
                   <input
@@ -453,7 +453,7 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Disposition */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docToxicology.disposition')}</h2>
               <select
                 value={disposition}
@@ -472,7 +472,7 @@ const ToxicologyPage: React.FC = () => {
             </div>
 
             {/* Notes */}
-            <div className="bg-white rounded-lg shadow p-4">
+            <div className="bg-surface rounded-lg shadow p-4">
               <h2 className="font-semibold mb-3">{t('docToxicology.notes')}</h2>
               <textarea
                 value={notes}
@@ -485,7 +485,7 @@ const ToxicologyPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+              className="w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold hover:bg-critical"
             >
               {t('docToxicology.save')}
             </button>
@@ -493,14 +493,14 @@ const ToxicologyPage: React.FC = () => {
         ) : (
           <div className="space-y-4">
             {cases.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">{t('docToxicology.noCases')}</div>
+              <div className="text-center py-8 text-content-muted">{t('docToxicology.noCases')}</div>
             ) : (
               cases.map(c => (
-                <div key={c.id} className="bg-white rounded-lg shadow p-4">
+                <div key={c.id} className="bg-surface rounded-lg shadow p-4">
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <h3 className="font-semibold">{c.patientName}</h3>
-                      <p className="text-sm text-gray-500">{new Date(c.assessedAt).toLocaleString()}</p>
+                      <p className="text-sm text-content-muted">{new Date(c.assessedAt).toLocaleString()}</p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${severityColors[c.severity]}`}>
                       {c.severity.toUpperCase()}

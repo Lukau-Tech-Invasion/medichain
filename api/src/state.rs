@@ -58,9 +58,11 @@ pub struct AppState {
     /// Patient-controlled standing access: provider requests + patient-approved
     /// grants backing the Consent Management page (consent-based, revocable —
     /// the counterpart to the break-glass `emergency_grants`).
-    pub patient_access: crate::patient_access::PatientAccessStore,
+    pub patient_access: crate::patient_access::PatientAccessService,
     /// Phase 6 patient-owned mobile devices and ciphertext access capabilities.
     pub mobile_records: crate::mobile_records::MobileRecordStore,
+    /// One-time emergency-token JTIs retained until their expiry.
+    pub used_emergency_tokens: RwLock<HashMap<String, i64>>,
     /// Phase 7 policy metadata for sensitive telehealth artifact retention.
     pub telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore,
     /// Phase 8 local audit events for retryable chain anchoring and governance.
@@ -74,25 +76,10 @@ pub struct AppState {
     pub triage_assessments: RwLock<HashMap<String, TriageAssessment>>,
     /// SOAP notes (note_id -> SOAPNote)
     pub soap_notes: RwLock<HashMap<String, SOAPNote>>,
-    /// SAMPLE histories (patient_id -> SAMPLEHistory)
-    pub sample_histories: RwLock<HashMap<String, SAMPLEHistory>>,
     /// Glasgow Coma Scale assessments (assessment_id -> GlasgowComaScale)
     pub gcs_assessments: RwLock<HashMap<String, GlasgowComaScale>>,
     /// Vital signs flowsheets (patient_id -> VitalSignsFlowsheet)
     pub vital_signs: RwLock<HashMap<String, VitalSignsFlowsheet>>,
-    // ============================================================================
-    // Clinical Documentation Storage (Phase 2-8) - New Types
-    // ============================================================================
-    /// Code Blue records (event_id -> CodeBlueRecord)
-    pub code_blue_records: RwLock<HashMap<String, CodeBlueRecord>>,
-    /// Trauma assessments (assessment_id -> TraumaAssessment)
-    pub trauma_assessments: RwLock<HashMap<String, TraumaAssessment>>,
-    /// Stroke assessments (assessment_id -> StrokeAssessment)
-    pub stroke_assessments: RwLock<HashMap<String, StrokeAssessment>>,
-    /// Cardiac events (event_id -> CardiacEvent)
-    pub cardiac_events: RwLock<HashMap<String, CardiacEvent>>,
-    /// Sepsis assessments (assessment_id -> SepsisAssessment)
-    pub sepsis_assessments: RwLock<HashMap<String, SepsisAssessment>>,
     /// EMS handoff reports (report_id -> EMSHandoff)
     pub ems_handoffs: RwLock<HashMap<String, EMSHandoff>>,
     /// Medication Administration Records (patient_id+date -> MAR)
@@ -113,16 +100,10 @@ pub struct AppState {
     pub fall_risk_assessments: RwLock<HashMap<String, FallRiskAssessment>>,
     /// Burn assessments (assessment_id -> BurnAssessment)
     pub burn_assessments: RwLock<HashMap<String, BurnAssessment>>,
-    /// Psychiatric assessments (assessment_id -> PsychiatricAssessment)
-    pub psych_assessments: RwLock<HashMap<String, PsychiatricAssessment>>,
-    /// Toxicology assessments (assessment_id -> ToxicologyAssessment)
-    pub tox_assessments: RwLock<HashMap<String, ToxicologyAssessment>>,
     /// Mass casualty incidents (incident_id -> MassCasualtyIncident)
     pub mci_records: RwLock<HashMap<String, MassCasualtyIncident>>,
     /// Intubation records (record_id -> IntubationRecord)
     pub intubation_records: RwLock<HashMap<String, IntubationRecord>>,
-    /// Laceration repairs (record_id -> LacerationRepair)
-    pub laceration_records: RwLock<HashMap<String, LacerationRepair>>,
     /// Splint/cast records (record_id -> SplintCastRecord)
     pub splint_cast_records: RwLock<HashMap<String, SplintCastRecord>>,
     /// Pediatric assessments (assessment_id -> PediatricAssessment)
@@ -147,8 +128,6 @@ pub struct AppState {
     pub ama_discharges: RwLock<HashMap<String, AMADischarge>>,
     /// History & Physical documents (hp_id -> HistoryAndPhysical)
     pub history_physicals: RwLock<HashMap<String, HistoryAndPhysical>>,
-    /// Consultation notes (consult_id -> ConsultationNote)
-    pub consult_notes: RwLock<HashMap<String, ConsultationNote>>,
     /// Progress notes (note_id -> ProgressNote)
     pub progress_notes: RwLock<HashMap<String, ProgressNote>>,
     // ============================================================================
@@ -170,20 +149,8 @@ pub struct AppState {
     pub pathology_reports: RwLock<HashMap<String, PathologyReport>>,
     /// Immunization records (record_id -> ImmunizationRecord)
     pub immunization_records: RwLock<HashMap<String, ImmunizationRecord>>,
-    /// Immunization schedules (patient_id -> ImmunizationSchedule)
-    pub immunization_schedules: RwLock<HashMap<String, ImmunizationSchedule>>,
-    /// Family medical histories (patient_id -> FamilyMedicalHistory)
-    pub family_histories: RwLock<HashMap<String, FamilyMedicalHistory>>,
     /// Blood type screens (test_id -> BloodTypeScreen)
     pub blood_type_screens: RwLock<HashMap<String, BloodTypeScreen>>,
-    /// Crossmatch records (crossmatch_id -> CrossmatchRecord)
-    pub crossmatch_records: RwLock<HashMap<String, CrossmatchRecord>>,
-    /// Transfusion records (transfusion_id -> TransfusionRecord)
-    pub transfusion_records: RwLock<HashMap<String, TransfusionRecord>>,
-    /// Electronic prescriptions (rx_id -> ElectronicPrescription)
-    pub e_prescriptions: RwLock<HashMap<String, ElectronicPrescription>>,
-    /// Death certificates (certificate_id -> DeathCertificate)
-    pub death_certificates: RwLock<HashMap<String, DeathCertificate>>,
     /// Autopsy requests (request_id -> AutopsyRequest)
     pub autopsy_requests: RwLock<HashMap<String, AutopsyRequest>>,
     /// Autopsy reports (report_id -> AutopsyReport)
@@ -201,10 +168,6 @@ pub struct AppState {
     pub drug_interactions: RwLock<HashMap<String, crate::clinical::DrugInteractionResult>>,
     /// Family groups (family_id -> FamilyGroup)
     pub family_groups: RwLock<HashMap<String, crate::clinical::FamilyGroup>>,
-    /// Family link requests (request_id -> FamilyLinkRequest)
-    pub family_link_requests: RwLock<HashMap<String, crate::clinical::FamilyLinkRequest>>,
-    /// Provider schedules (provider_id -> ProviderSchedule)
-    pub provider_schedules: RwLock<HashMap<String, crate::clinical::ProviderSchedule>>,
     /// Wearable devices (device_id -> WearableDevice)
     pub wearable_devices: RwLock<HashMap<String, crate::clinical::WearableDevice>>,
     /// Wearable readings (reading_id -> WearableReading)
@@ -217,10 +180,6 @@ pub struct AppState {
     pub symptom_sessions: RwLock<HashMap<String, crate::clinical::SymptomCheckSession>>,
     /// Telehealth sessions (session_id -> TelehealthSession)
     pub telehealth_sessions: RwLock<HashMap<String, crate::clinical::TelehealthSession>>,
-    /// Device checks (check_id -> DeviceCheck)
-    pub device_checks: RwLock<HashMap<String, crate::clinical::DeviceCheck>>,
-    /// Waiting room entries (entry_id -> WaitingRoomEntry)
-    pub waiting_room: RwLock<HashMap<String, crate::clinical::WaitingRoomEntry>>,
     /// CDS alerts (alert_id -> CDSAlert)
     pub cds_alerts: RwLock<HashMap<String, crate::clinical::CDSAlert>>,
     /// Lab trend results (result_id -> LabTrendResult)
@@ -233,12 +192,6 @@ pub struct AppState {
     pub eligibility_checks: RwLock<HashMap<String, crate::clinical::EligibilityCheckResponse>>,
     /// Language preferences (user_id -> LanguagePreference)
     pub language_preferences: RwLock<HashMap<String, crate::clinical::LanguagePreference>>,
-    /// Supported languages list
-    pub supported_languages: RwLock<Vec<crate::clinical::SupportedLanguage>>,
-    /// Sync statuses (device_id -> SyncStatus)
-    pub sync_statuses: RwLock<HashMap<String, crate::clinical::SyncStatus>>,
-    /// Sync queue (queue_id -> SyncQueueItem)
-    pub sync_queue: RwLock<HashMap<String, crate::clinical::SyncQueueItem>>,
     /// Sync conflicts (conflict_id -> SyncConflict)
     pub sync_conflicts: RwLock<HashMap<String, crate::clinical::SyncConflict>>,
     /// Patient allergies (patient_id -> Vec<AllergyInfo>)
@@ -273,6 +226,10 @@ impl AppState {
         let repositories = RepositoryContainer::new_memory();
         log::info!("Repository backend: {:?}", repositories.backend);
 
+        // Bound before `repositories` is moved into the struct literal below.
+        let patient_access =
+            crate::patient_access::PatientAccessService::new(repositories.patient_access.clone());
+
         let security = crate::security::SecurityState::new(db_pool.clone());
 
         Self {
@@ -293,23 +250,18 @@ impl AppState {
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
             emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
-            patient_access: crate::patient_access::PatientAccessStore::new(),
+            patient_access,
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
+            used_emergency_tokens: RwLock::new(HashMap::new()),
             telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
             triage_assessments: RwLock::new(HashMap::new()),
             soap_notes: RwLock::new(HashMap::new()),
-            sample_histories: RwLock::new(HashMap::new()),
             gcs_assessments: RwLock::new(HashMap::new()),
             vital_signs: RwLock::new(HashMap::new()),
             // Clinical documentation storage (Phase 2-8)
-            code_blue_records: RwLock::new(HashMap::new()),
-            trauma_assessments: RwLock::new(HashMap::new()),
-            stroke_assessments: RwLock::new(HashMap::new()),
-            cardiac_events: RwLock::new(HashMap::new()),
-            sepsis_assessments: RwLock::new(HashMap::new()),
             ems_handoffs: RwLock::new(HashMap::new()),
             medication_records: RwLock::new(HashMap::new()),
             io_records: RwLock::new(HashMap::new()),
@@ -320,11 +272,8 @@ impl AppState {
             incident_reports: RwLock::new(HashMap::new()),
             fall_risk_assessments: RwLock::new(HashMap::new()),
             burn_assessments: RwLock::new(HashMap::new()),
-            psych_assessments: RwLock::new(HashMap::new()),
-            tox_assessments: RwLock::new(HashMap::new()),
             mci_records: RwLock::new(HashMap::new()),
             intubation_records: RwLock::new(HashMap::new()),
-            laceration_records: RwLock::new(HashMap::new()),
             splint_cast_records: RwLock::new(HashMap::new()),
             pediatric_assessments: RwLock::new(HashMap::new()),
             obstetric_emergencies: RwLock::new(HashMap::new()),
@@ -337,7 +286,6 @@ impl AppState {
             discharge_instructions: RwLock::new(HashMap::new()),
             ama_discharges: RwLock::new(HashMap::new()),
             history_physicals: RwLock::new(HashMap::new()),
-            consult_notes: RwLock::new(HashMap::new()),
             progress_notes: RwLock::new(HashMap::new()),
             // Clinical documentation storage (Phase 9-19)
             pre_op_assessments: RwLock::new(HashMap::new()),
@@ -348,40 +296,28 @@ impl AppState {
             radiology_reports: RwLock::new(HashMap::new()),
             pathology_reports: RwLock::new(HashMap::new()),
             immunization_records: RwLock::new(HashMap::new()),
-            immunization_schedules: RwLock::new(HashMap::new()),
-            family_histories: RwLock::new(HashMap::new()),
             blood_type_screens: RwLock::new(HashMap::new()),
-            crossmatch_records: RwLock::new(HashMap::new()),
-            transfusion_records: RwLock::new(HashMap::new()),
-            e_prescriptions: RwLock::new(HashMap::new()),
-            death_certificates: RwLock::new(HashMap::new()),
             autopsy_requests: RwLock::new(HashMap::new()),
             autopsy_reports: RwLock::new(HashMap::new()),
             satisfaction_surveys: RwLock::new(HashMap::new()),
-            // Clinical documentation storage (Phase 20-33) - Extended Features
+            // Patient portal storage
             medication_reminders: RwLock::new(HashMap::new()),
             adherence_logs: RwLock::new(HashMap::new()),
             drug_interactions: RwLock::new(HashMap::new()),
             family_groups: RwLock::new(HashMap::new()),
-            family_link_requests: RwLock::new(HashMap::new()),
-            provider_schedules: RwLock::new(HashMap::new()),
             wearable_devices: RwLock::new(HashMap::new()),
             wearable_readings: RwLock::new(HashMap::new()),
             wearable_alert_rules: RwLock::new(HashMap::new()),
             wearable_alerts: RwLock::new(HashMap::new()),
             symptom_sessions: RwLock::new(HashMap::new()),
             telehealth_sessions: RwLock::new(HashMap::new()),
-            device_checks: RwLock::new(HashMap::new()),
-            waiting_room: RwLock::new(HashMap::new()),
             cds_alerts: RwLock::new(HashMap::new()),
             lab_trends: RwLock::new(HashMap::new()),
             e_prescriptions_v2: RwLock::new(HashMap::new()),
             insurance_claims: RwLock::new(HashMap::new()),
             eligibility_checks: RwLock::new(HashMap::new()),
             language_preferences: RwLock::new(HashMap::new()),
-            supported_languages: RwLock::new(get_default_supported_languages()),
-            sync_statuses: RwLock::new(HashMap::new()),
-            sync_queue: RwLock::new(HashMap::new()),
+            // Offline sync storage
             sync_conflicts: RwLock::new(HashMap::new()),
             allergies: RwLock::new(HashMap::new()),
             start_time: std::time::Instant::now(),
@@ -433,6 +369,10 @@ impl AppState {
         };
         log::info!("Repository backend: {:?}", repositories.backend);
 
+        // Bound before `repositories` is moved into the struct literal below.
+        let patient_access =
+            crate::patient_access::PatientAccessService::new(repositories.patient_access.clone());
+
         let security = crate::security::SecurityState::new(db_pool.clone());
 
         Self {
@@ -453,23 +393,18 @@ impl AppState {
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
             emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
-            patient_access: crate::patient_access::PatientAccessStore::new(),
+            patient_access,
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
+            used_emergency_tokens: RwLock::new(HashMap::new()),
             telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),
             card_registry: CardRegistry::new(),
             // Clinical documentation storage (Phase 1)
             triage_assessments: RwLock::new(HashMap::new()),
             soap_notes: RwLock::new(HashMap::new()),
-            sample_histories: RwLock::new(HashMap::new()),
             gcs_assessments: RwLock::new(HashMap::new()),
             vital_signs: RwLock::new(HashMap::new()),
             // Clinical documentation storage (Phase 2-8)
-            code_blue_records: RwLock::new(HashMap::new()),
-            trauma_assessments: RwLock::new(HashMap::new()),
-            stroke_assessments: RwLock::new(HashMap::new()),
-            cardiac_events: RwLock::new(HashMap::new()),
-            sepsis_assessments: RwLock::new(HashMap::new()),
             ems_handoffs: RwLock::new(HashMap::new()),
             medication_records: RwLock::new(HashMap::new()),
             io_records: RwLock::new(HashMap::new()),
@@ -480,11 +415,8 @@ impl AppState {
             incident_reports: RwLock::new(HashMap::new()),
             fall_risk_assessments: RwLock::new(HashMap::new()),
             burn_assessments: RwLock::new(HashMap::new()),
-            psych_assessments: RwLock::new(HashMap::new()),
-            tox_assessments: RwLock::new(HashMap::new()),
             mci_records: RwLock::new(HashMap::new()),
             intubation_records: RwLock::new(HashMap::new()),
-            laceration_records: RwLock::new(HashMap::new()),
             splint_cast_records: RwLock::new(HashMap::new()),
             pediatric_assessments: RwLock::new(HashMap::new()),
             obstetric_emergencies: RwLock::new(HashMap::new()),
@@ -497,7 +429,6 @@ impl AppState {
             discharge_instructions: RwLock::new(HashMap::new()),
             ama_discharges: RwLock::new(HashMap::new()),
             history_physicals: RwLock::new(HashMap::new()),
-            consult_notes: RwLock::new(HashMap::new()),
             progress_notes: RwLock::new(HashMap::new()),
             // Surgical and imaging storage
             pre_op_assessments: RwLock::new(HashMap::new()),
@@ -508,13 +439,7 @@ impl AppState {
             radiology_reports: RwLock::new(HashMap::new()),
             pathology_reports: RwLock::new(HashMap::new()),
             immunization_records: RwLock::new(HashMap::new()),
-            immunization_schedules: RwLock::new(HashMap::new()),
-            family_histories: RwLock::new(HashMap::new()),
             blood_type_screens: RwLock::new(HashMap::new()),
-            crossmatch_records: RwLock::new(HashMap::new()),
-            transfusion_records: RwLock::new(HashMap::new()),
-            e_prescriptions: RwLock::new(HashMap::new()),
-            death_certificates: RwLock::new(HashMap::new()),
             autopsy_requests: RwLock::new(HashMap::new()),
             autopsy_reports: RwLock::new(HashMap::new()),
             satisfaction_surveys: RwLock::new(HashMap::new()),
@@ -523,16 +448,12 @@ impl AppState {
             adherence_logs: RwLock::new(HashMap::new()),
             drug_interactions: RwLock::new(HashMap::new()),
             family_groups: RwLock::new(HashMap::new()),
-            family_link_requests: RwLock::new(HashMap::new()),
-            provider_schedules: RwLock::new(HashMap::new()),
             wearable_devices: RwLock::new(HashMap::new()),
             wearable_readings: RwLock::new(HashMap::new()),
             wearable_alert_rules: RwLock::new(HashMap::new()),
             wearable_alerts: RwLock::new(HashMap::new()),
             symptom_sessions: RwLock::new(HashMap::new()),
             telehealth_sessions: RwLock::new(HashMap::new()),
-            device_checks: RwLock::new(HashMap::new()),
-            waiting_room: RwLock::new(HashMap::new()),
             cds_alerts: RwLock::new(HashMap::new()),
             lab_trends: RwLock::new(HashMap::new()),
             e_prescriptions_v2: RwLock::new(HashMap::new()),
@@ -540,11 +461,8 @@ impl AppState {
             eligibility_checks: RwLock::new(HashMap::new()),
             language_preferences: RwLock::new(HashMap::new()),
             // Offline sync storage
-            sync_statuses: RwLock::new(HashMap::new()),
-            sync_queue: RwLock::new(HashMap::new()),
             sync_conflicts: RwLock::new(HashMap::new()),
             allergies: RwLock::new(HashMap::new()),
-            supported_languages: RwLock::new(get_default_supported_languages()),
             start_time: std::time::Instant::now(),
             national_id_service: crate::national_id::NationalIdService::new(),
             telehealth_service: crate::telehealth::TelehealthService::new(),
@@ -556,26 +474,29 @@ impl AppState {
         Self::new_with_pool(None)
     }
 
-    /// Load demo users from PostgreSQL into in-memory store
-    /// Called at startup when DATABASE_URL is configured
+    /// Load active users and their professional profiles into the authorization cache.
     pub async fn load_demo_users_from_db(&self) -> Result<usize, String> {
         let pool = match &self.db_pool {
             Some(p) => p,
             None => return Err("No database pool configured".to_string()),
         };
 
-        let users_result = sqlx::query_as::<_, crate::models::DbUser>(
-            "SELECT * FROM users WHERE is_active = true",
+        let users_result = sqlx::query_as::<_, crate::models::DbUserWithProfile>(
+            "SELECT u.*, p.department, p.specialty, p.license_number
+             FROM users u
+             LEFT JOIN user_profiles p ON p.user_id = u.id
+             WHERE u.is_active = true AND u.status = 'active'",
         )
         .fetch_all(pool)
         .await;
 
         match users_result {
-            Ok(db_users) => {
+            Ok(rows) => {
                 let mut users = self.users.write().map_err(|e| e.to_string())?;
                 let mut count = 0;
 
-                for db_user in db_users {
+                for row in rows {
+                    let db_user = &row.user;
                     let user = User {
                         wallet_address: db_user.wallet_address.clone(),
                         username: db_user.username.clone(),
@@ -596,15 +517,11 @@ impl AppState {
                         created_by: db_user.created_by.clone(),
                         linked_patient_id: db_user.linked_patient_id.clone(),
                         email: db_user.email.clone(),
-                        phone: None,          // Loaded from profile separately
-                        department: None,     // Loaded from profile separately
-                        specialty: None,      // Loaded from profile separately
-                        license_number: None, // Loaded from profile separately
-                        status: if db_user.is_active {
-                            "active".to_string()
-                        } else {
-                            "inactive".to_string()
-                        },
+                        phone: None,
+                        department: row.department.clone(),
+                        specialty: row.specialty.clone(),
+                        license_number: row.license_number.clone(),
+                        status: db_user.status.clone(),
                         last_login: db_user.last_login_at,
                     };
                     users.insert(db_user.wallet_address.clone(), user);
@@ -633,14 +550,16 @@ impl AppState {
         };
 
         let role = user.role.to_string();
-        let is_active = user.status != "inactive";
+        let status = normalized_user_status(&user.status);
+        let is_active = status == "active";
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
-        sqlx::query(
+        let user_id: uuid::Uuid = sqlx::query_scalar(
             "INSERT INTO users (
                 wallet_address, role, name, username, email, linked_patient_id,
-                is_active, created_by, created_at
+                is_active, status, last_login_at, created_by, created_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (wallet_address) DO UPDATE SET
                 role = EXCLUDED.role,
                 name = EXCLUDED.name,
@@ -648,7 +567,10 @@ impl AppState {
                 email = EXCLUDED.email,
                 linked_patient_id = EXCLUDED.linked_patient_id,
                 is_active = EXCLUDED.is_active,
-                updated_at = NOW()",
+                status = EXCLUDED.status,
+                last_login_at = EXCLUDED.last_login_at,
+                updated_at = NOW()
+            RETURNING id",
         )
         .bind(&user.wallet_address)
         .bind(&role)
@@ -657,13 +579,62 @@ impl AppState {
         .bind(&user.email)
         .bind(&user.linked_patient_id)
         .bind(is_active)
+        .bind(status)
+        .bind(user.last_login)
         .bind(&user.created_by)
         .bind(user.created_at)
-        .execute(pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
 
+        // Always upsert the professional profile, including three NULL values.
+        // Skipping the write when every field is None would make a "clear all"
+        // profile edit survive only in memory and resurrect stale values after a
+        // restart.
+        sqlx::query(
+            "INSERT INTO user_profiles (user_id, department, specialty, license_number)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id) DO UPDATE SET
+                 department = EXCLUDED.department,
+                 specialty = EXCLUDED.specialty,
+                 license_number = EXCLUDED.license_number,
+                 updated_at = NOW()",
+        )
+        .bind(user_id)
+        .bind(&user.department)
+        .bind(&user.specialty)
+        .bind(&user.license_number)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        tx.commit().await.map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// Persist a user before publishing the change to the authorization cache.
+    pub async fn persist_then_cache_user(&self, user: User) -> Result<(), String> {
+        self.persist_user(&user).await?;
+        self.users
+            .write()
+            .map_err(|_| "User cache is unavailable".to_string())?
+            .insert(user.wallet_address.clone(), user);
+        Ok(())
+    }
+
+    /// Bootstrap must inspect durable state, not only the active-user cache.
+    pub async fn has_any_persisted_user(&self) -> Result<bool, String> {
+        let Some(pool) = &self.db_pool else {
+            return self
+                .users
+                .read()
+                .map(|users| !users.is_empty())
+                .map_err(|_| "User cache is unavailable".to_string());
+        };
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM users)")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     /// Soft-delete a user in the persistent `users` table (revoke access
@@ -676,7 +647,8 @@ impl AppState {
         };
 
         sqlx::query(
-            "UPDATE users SET is_active = false, updated_at = NOW() WHERE wallet_address = $1",
+            "UPDATE users SET is_active = false, status = 'inactive', updated_at = NOW() \
+             WHERE wallet_address = $1",
         )
         .bind(wallet_address)
         .execute(pool)
@@ -684,6 +656,18 @@ impl AppState {
         .map_err(|e| e.to_string())?;
 
         Ok(())
+    }
+
+    /// Durably deactivate an account before evicting its cached permissions.
+    pub async fn deactivate_then_evict_user(
+        &self,
+        wallet_address: &str,
+    ) -> Result<Option<User>, String> {
+        self.deactivate_user_in_db(wallet_address).await?;
+        self.users
+            .write()
+            .map_err(|_| "User cache is unavailable".to_string())
+            .map(|mut users| users.remove(wallet_address))
     }
 
     /// Load persisted MFA enrollments (decrypting secrets) and recent security
@@ -774,12 +758,15 @@ impl AppState {
         let Some(pool) = &self.db_pool else {
             return Ok(());
         };
-        sqlx::query("UPDATE user_mfa SET enabled = $2 WHERE wallet_address = $1")
+        let result = sqlx::query("UPDATE user_mfa SET enabled = $2 WHERE wallet_address = $1")
             .bind(wallet)
             .bind(enabled)
             .execute(pool)
             .await
             .map_err(|e| format!("update MFA enabled: {}", e))?;
+        if result.rows_affected() != 1 {
+            return Err("update MFA enabled: enrollment not found".to_string());
+        }
         Ok(())
     }
 
@@ -788,11 +775,14 @@ impl AppState {
         let Some(pool) = &self.db_pool else {
             return Ok(());
         };
-        sqlx::query("DELETE FROM user_mfa WHERE wallet_address = $1")
+        let result = sqlx::query("DELETE FROM user_mfa WHERE wallet_address = $1")
             .bind(wallet)
             .execute(pool)
             .await
             .map_err(|e| format!("delete MFA enrollment: {}", e))?;
+        if result.rows_affected() != 1 {
+            return Err("delete MFA enrollment: enrollment not found".to_string());
+        }
         Ok(())
     }
 
@@ -849,6 +839,9 @@ impl AppState {
             let full_name: Option<String> = row.get("full_name");
             let date_of_birth: Option<chrono::NaiveDate> = row.get("date_of_birth");
             let national_id: Option<String> = row.get("national_id");
+            // `p.gender` is already in the SELECT above; it was previously
+            // dropped on the floor here, so a stored gender never reached the UI.
+            let gender: Option<String> = row.get("gender");
             let blood_type_str: Option<String> = row.get("blood_type");
             let organ_donor: bool = row.get("organ_donor");
             let dnr_status: bool = row.get("dnr_status");
@@ -922,6 +915,7 @@ impl AppState {
                 date_of_birth: date_of_birth.map(|d| d.to_string()).unwrap_or_default(),
                 time_of_birth: None,
                 national_id: national_id.unwrap_or_default(),
+                gender,
                 phone: String::new(),
                 emergency_info,
                 address: None,
@@ -973,5 +967,17 @@ impl AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Account states persisted by the users table. Unknown values fail closed.
+pub const USER_STATUSES: [&str; 4] = ["active", "inactive", "suspended", "pending"];
+
+pub fn normalized_user_status(status: &str) -> &'static str {
+    match status {
+        "active" => "active",
+        "suspended" => "suspended",
+        "pending" => "pending",
+        _ => "inactive",
     }
 }

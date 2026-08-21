@@ -85,24 +85,33 @@ pub async fn issue_emergency_grant(
             Err(response) => return response,
         };
     match data.emergency_grants.issue(
-        body.patient_id.clone(),
-        person_id,
-        organization_id,
-        facility_id,
-        body.device_id.clone(),
+        crate::emergency_grants::EmergencyGrantBinding {
+            patient_id: body.patient_id.clone(),
+            person_id,
+            organization_id,
+            facility_id,
+            device_id: body.device_id.clone(),
+        },
         body.reason_code.clone(),
         body.reason_text.clone(),
         body.scopes.clone(),
         Utc::now(),
     ) {
         Ok(grant) => {
-            let _ = data.audit_outbox.record(
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
                 "emergency_grant_issued".into(),
                 "emergency_grant".into(),
                 grant.id.clone(),
                 serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
                 Utc::now(),
-            );
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Created().json(grant)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
@@ -188,13 +197,20 @@ pub async fn revoke_emergency_grant(
         .revoke(&existing.id, body.reason.clone(), Utc::now())
     {
         Ok(grant) => {
-            let _ = data.audit_outbox.record(
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
                 "emergency_grant_revoked".into(),
                 "emergency_grant".into(),
                 grant.id.clone(),
                 serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
                 Utc::now(),
-            );
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(grant)
         }
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {

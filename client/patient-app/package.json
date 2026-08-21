@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:gate": "vitest run src/pages/EmergencyCardPage.test.tsx src/pages/LoginPage.test.tsx src/pages/MedicalIdPage.test.tsx src/pages/MedicationRemindersPage.test.tsx src/pages/SatisfactionSurveyPage.test.tsx src/pages/SettingsPage.test.tsx src/pages/TelehealthPage.test.tsx",
     "test:coverage": "vitest run --coverage",
     "clean": "rm -rf node_modules dist .vite",
     "typecheck": "tsc --noEmit"

@@ -113,23 +113,18 @@ pub async fn get_wearable_devices(
         Err(resp) => return resp,
     };
 
-    // Repository list_all() (was: data.wearable_devices HashMap)
-    let all_records = data
+    // Scoped in the query rather than by filtering a deployment-wide read:
+    // `owner_id` is the device's `patient_id`, so this is the same set the
+    // in-Rust filter produced, without pulling every other patient's devices
+    // into memory first.
+    let user_devices: Vec<crate::clinical::WearableDevice> = data
         .repositories
         .wearable_device_records
-        .list_all()
+        .get_by_owner(&current_user_id)
         .await
-        .unwrap_or_default();
-    let user_devices: Vec<crate::clinical::WearableDevice> = all_records
+        .unwrap_or_default()
         .into_iter()
-        .filter_map(|rec| {
-            let d: crate::clinical::WearableDevice = serde_json::from_value(rec.data).ok()?;
-            if d.patient_id == current_user_id {
-                Some(d)
-            } else {
-                None
-            }
-        })
+        .filter_map(|rec| serde_json::from_value(rec.data).ok())
         .collect();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -383,11 +378,12 @@ pub async fn get_wearable_readings(
         Err(resp) => return resp,
     };
 
-    // Repository list_all() (was: data.wearable_readings HashMap)
+    // Owner-scoped in the query; the device narrowing stays in Rust because a
+    // JSON-record store indexes by owner, not by device.
     let all_records = data
         .repositories
         .wearable_reading_records
-        .list_all()
+        .get_by_owner(&current_user_id)
         .await
         .unwrap_or_default();
     let mut readings: Vec<crate::clinical::WearableReading> = all_records
@@ -509,11 +505,11 @@ pub async fn get_wearable_alerts(
         Err(resp) => return resp,
     };
 
-    // Repository list_all() (was: data.wearable_alerts HashMap)
+    // Owner-scoped in the query — see `get_wearable_devices`.
     let all_records = data
         .repositories
         .wearable_alert_records
-        .list_all()
+        .get_by_owner(&current_user_id)
         .await
         .unwrap_or_default();
     let mut user_alerts: Vec<crate::clinical::WearableAlert> = {

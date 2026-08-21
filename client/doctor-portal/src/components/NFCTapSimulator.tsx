@@ -100,32 +100,32 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6 max-w-md mx-auto">
+    <div className="bg-surface rounded-xl shadow-lg p-6 max-w-md mx-auto">
       {/* Header */}
       <div className="text-center mb-6">
         <div
           className={`w-20 h-20 mx-auto mb-4 rounded-full flex items-center justify-center ${
             tapState === 'idle'
-              ? 'bg-primary-100'
+              ? 'bg-brand-subtle'
               : tapState === 'waiting'
-              ? 'bg-yellow-100 nfc-tap-ready'
+              ? 'bg-caution-subtle nfc-tap-ready'
               : tapState === 'success'
-              ? 'bg-green-100'
-              : 'bg-red-100'
+              ? 'bg-ok-subtle'
+              : 'bg-critical-subtle'
           }`}
         >
-          {tapState === 'idle' && <Smartphone className="text-primary-600" size={40} />}
-          {tapState === 'waiting' && <Wifi className="text-yellow-600 animate-pulse" size={40} />}
-          {tapState === 'success' && <CheckCircle className="text-green-600" size={40} />}
-          {tapState === 'error' && <AlertCircle className="text-red-600" size={40} />}
+          {tapState === 'idle' && <Smartphone className="text-brand" size={40} />}
+          {tapState === 'waiting' && <Wifi className="text-caution-subtle-fg animate-pulse" size={40} />}
+          {tapState === 'success' && <CheckCircle className="text-ok-subtle-fg" size={40} />}
+          {tapState === 'error' && <AlertCircle className="text-critical-subtle-fg" size={40} />}
         </div>
-        <h2 className="text-xl font-bold text-gray-900">
+        <h2 className="text-xl font-bold text-content">
           {tapState === 'idle' && 'Ready to Scan'}
           {tapState === 'waiting' && 'Scanning...'}
           {tapState === 'success' && 'Access Granted!'}
           {tapState === 'error' && 'Access Failed'}
         </h2>
-        <p className="text-gray-500 text-sm mt-1">
+        <p className="text-content-muted text-sm mt-1">
           {tapState === 'idle' && 'Tap patient NFC card or scan QR code'}
           {tapState === 'waiting' && 'Reading patient data...'}
           {tapState === 'success' && 'Loading patient records...'}
@@ -135,7 +135,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
 
       {/* Mode selector */}
       <div className="mb-4">
-        <label htmlFor="approved-device" className="block text-sm font-medium text-gray-700 mb-1">
+        <label htmlFor="approved-device" className="block text-sm font-medium text-content-secondary mb-1">
           Approved hospital device ID
         </label>
         <input
@@ -144,10 +144,10 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           value={deviceId}
           onChange={(event) => setDeviceId(event.target.value)}
           placeholder="Registered device UUID"
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
           disabled={tapState === 'waiting'}
         />
-        <p className="mt-1 text-xs text-gray-500">Emergency access is bound to this enrolled device and a new professional work context.</p>
+        <p className="mt-1 text-xs text-content-muted">Emergency access is bound to this enrolled device and a new professional work context.</p>
       </div>
 
       <div className="flex gap-2 mb-6">
@@ -155,8 +155,8 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           onClick={() => setMode('nfc')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'nfc'
-              ? 'bg-primary-600 text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-brand text-brand-fg'
+              : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
           }`}
         >
           <Smartphone size={16} className="inline mr-2" />
@@ -166,8 +166,8 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           onClick={() => setMode('qr')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'qr'
-              ? 'bg-primary-600 text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-brand text-brand-fg'
+              : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
           }`}
         >
           <QrCode size={16} className="inline mr-2" />
@@ -177,8 +177,8 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           onClick={() => setMode('manual')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'manual'
-              ? 'bg-primary-600 text-white'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'bg-brand text-brand-fg'
+              : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
           }`}
         >
           <Search size={16} className="inline mr-2" />
@@ -190,7 +190,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       {mode === 'nfc' && (
         <div className="space-y-4">
           <div>
-            <label htmlFor="nfc-tag" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="nfc-tag" className="block text-sm font-medium text-content-secondary mb-1">
               NFC Tag ID
             </label>
             <div className="flex gap-2">
@@ -200,12 +200,12 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
                 value={nfcTagId}
                 onChange={(e) => setNfcTagId(e.target.value)}
                 placeholder="NFC-XXXX-XXXX"
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="flex-1 px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
                 disabled={tapState === 'waiting'}
               />
               <button
                 onClick={useDemoTag}
-                className="px-4 py-2 text-sm text-primary-600 hover:bg-primary-50 rounded-lg"
+                className="px-4 py-2 text-sm text-brand-subtle-fg hover:bg-brand-subtle rounded-lg"
               >
                 Demo
               </button>
@@ -214,7 +214,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           <button
             onClick={() => simulateTap(nfcTagId)}
             disabled={tapState === 'waiting'}
-            className="w-full py-3 bg-emergency-500 text-white font-semibold rounded-lg hover:bg-emergency-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed emergency-pulse"
+            className="w-full py-3 bg-critical text-critical-fg font-semibold rounded-lg hover:bg-critical transition-colors disabled:opacity-50 disabled:cursor-not-allowed emergency-pulse"
           >
             {tapState === 'waiting' ? 'Scanning...' : (
               <span className="inline-flex items-center justify-center gap-2"><Wifi size={18} aria-hidden="true" /> Simulate NFC Tap</span>
@@ -226,7 +226,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
       {mode === 'qr' && (
         <div className="space-y-4">
           <div>
-            <label htmlFor="qr-data" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="qr-data" className="block text-sm font-medium text-content-secondary mb-1">
               QR Code Data (JSON)
             </label>
             <textarea
@@ -234,7 +234,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               value={qrInput}
               onChange={(e) => setQrInput(e.target.value)}
               placeholder='{"tag_id": "NFC-DEMO-001", ...}'
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 h-24"
+              className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand h-24"
               disabled={tapState === 'waiting'}
             />
           </div>
@@ -249,7 +249,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               }
             }}
             disabled={tapState === 'waiting'}
-            className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
           >
             Verify QR Code
           </button>
@@ -258,9 +258,9 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
 
       {mode === 'manual' && (
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-content-muted">
             For manual patient lookup, use the{' '}
-            <a href="/patients" className="text-primary-600 hover:underline">
+            <a href="/patients" className="text-brand hover:underline">
               Patient Search
             </a>{' '}
             page.
@@ -275,7 +275,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
             setTapState('idle');
             setError(null);
           }}
-          className="w-full mt-4 py-2 text-gray-600 hover:text-gray-900 text-sm"
+          className="w-full mt-4 py-2 text-content-muted hover:text-content text-sm"
         >
           Reset
         </button>

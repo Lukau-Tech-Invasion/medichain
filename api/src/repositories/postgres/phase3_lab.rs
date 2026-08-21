@@ -207,6 +207,20 @@ impl PgLabPanelRepository {
 
 #[async_trait]
 impl LabPanelRepository for PgLabPanelRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<LabPanelEntity>> {
+        let rows = sqlx::query_as::<_, LabPanelEntity>(
+            "SELECT * FROM lab_panels ORDER BY collected_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, panel: LabPanelEntity) -> RepositoryResult<LabPanelEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO lab_panels (
@@ -368,6 +382,22 @@ impl PgLabQcRecordRepository {
 
 #[async_trait]
 impl LabQcRecordRepository for PgLabQcRecordRepository {
+    /// Without this the trait's default body ran, so the QC registry and the
+    /// lab dashboard both returned `list_all not implemented` on PostgreSQL
+    /// while working perfectly in memory mode — a failure only production saw.
+    ///
+    /// Bounded: these registries are deployment-wide reads and must not be
+    /// able to pull an unbounded result set into memory. Ordered on the
+    /// indexed column (`idx_lab_qc_performed`).
+    async fn list_all(&self) -> RepositoryResult<Vec<LabQcRecordEntity>> {
+        let rows = sqlx::query_as::<_, LabQcRecordEntity>(
+            "SELECT * FROM lab_qc_records ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, record: LabQcRecordEntity) -> RepositoryResult<LabQcRecordEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO lab_qc_records (
@@ -496,6 +526,10 @@ impl LabQcRecordRepository for PgLabQcRecordRepository {
             .push_bind(&record.corrective_action);
         qb.push(", reviewed_by = ").push_bind(&record.reviewed_by);
         qb.push(", reviewed_at = ").push_bind(record.reviewed_at);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&record.data);
         qb.push(" WHERE id = ").push_bind(&record.id);
         qb.push(" RETURNING *");
 
@@ -688,6 +722,17 @@ impl PgSpecimenCollectionRepository {
 
 #[async_trait]
 impl SpecimenCollectionRepository for PgSpecimenCollectionRepository {
+    /// Bounded deployment-wide read, ordered on `idx_specimen_collected`.
+    /// Previously fell through to the trait default and failed on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenCollectionEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenCollectionEntity>(
+            "SELECT * FROM specimen_collections ORDER BY collected_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         specimen: SpecimenCollectionEntity,
@@ -791,6 +836,10 @@ impl SpecimenCollectionRepository for PgSpecimenCollectionRepository {
         qb.push(", chain_of_custody = ")
             .push_bind(&specimen.chain_of_custody);
         qb.push(", notes = ").push_bind(&specimen.notes);
+        // `data` is the blob the read handlers actually serve, so an update
+        // that omits it reports success while every reader keeps seeing the
+        // values the record was first created with.
+        qb.push(", data = ").push_bind(&specimen.data);
         qb.push(", updated_at = NOW() WHERE id = ")
             .push_bind(&specimen.id);
         qb.push(" RETURNING *");
@@ -822,6 +871,18 @@ impl PgSpecimenRejectionRepository {
 
 #[async_trait]
 impl SpecimenRejectionRepository for PgSpecimenRejectionRepository {
+    /// Bounded deployment-wide read, ordered on `idx_rejection_date`.
+    /// Previously fell through to the trait default and failed on PostgreSQL,
+    /// so the lab dashboard silently lost its rejection panel in production.
+    async fn list_all(&self) -> RepositoryResult<Vec<SpecimenRejectionEntity>> {
+        let rows = sqlx::query_as::<_, SpecimenRejectionEntity>(
+            "SELECT * FROM specimen_rejections ORDER BY rejected_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         rejection: SpecimenRejectionEntity,
@@ -922,6 +983,20 @@ impl PgLabTrendRepository {
 
 #[async_trait]
 impl LabTrendRepository for PgLabTrendRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<LabTrendEntity>> {
+        let rows = sqlx::query_as::<_, LabTrendEntity>(
+            "SELECT * FROM lab_trends ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(&self, trend: LabTrendEntity) -> RepositoryResult<LabTrendEntity> {
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO lab_trends (

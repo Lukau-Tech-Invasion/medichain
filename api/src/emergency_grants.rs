@@ -45,6 +45,23 @@ pub struct EmergencyAccessGrant {
     pub status: EmergencyGrantStatus,
 }
 
+/// The five identities an emergency grant is bound to.
+///
+/// Grouped rather than passed positionally because `issue` and `validate` take
+/// all five together and four of them are plain strings — transposing, say,
+/// `person_id` and `organization_id` at a call site type-checks cleanly and
+/// silently binds the grant to the wrong party. Naming each at construction
+/// makes that mistake visible. (`EmergencyAccessGrant` keeps them flat because
+/// it is a serialized wire/storage type.)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmergencyGrantBinding {
+    pub patient_id: String,
+    pub person_id: String,
+    pub organization_id: String,
+    pub facility_id: Option<String>,
+    pub device_id: String,
+}
+
 pub struct EmergencyGrantStore {
     grants: RwLock<HashMap<String, EmergencyAccessGrant>>,
 }
@@ -59,16 +76,19 @@ impl EmergencyGrantStore {
     /// Issue a narrow emergency grant; callers must separately verify a live approved device.
     pub fn issue(
         &self,
-        patient_id: String,
-        person_id: String,
-        organization_id: String,
-        facility_id: Option<String>,
-        device_id: String,
+        binding: EmergencyGrantBinding,
         reason_code: String,
         reason_text: Option<String>,
         scopes: Vec<EmergencyGrantScope>,
         now: DateTime<Utc>,
     ) -> Result<EmergencyAccessGrant, &'static str> {
+        let EmergencyGrantBinding {
+            patient_id,
+            person_id,
+            organization_id,
+            facility_id,
+            device_id,
+        } = binding;
         if patient_id.is_empty()
             || person_id.is_empty()
             || organization_id.is_empty()
@@ -110,14 +130,17 @@ impl EmergencyGrantStore {
     pub fn validate(
         &self,
         grant_id: &str,
-        patient_id: &str,
-        person_id: &str,
-        organization_id: &str,
-        facility_id: Option<&str>,
-        device_id: &str,
+        binding: &EmergencyGrantBinding,
         required_scope: EmergencyGrantScope,
         now: DateTime<Utc>,
     ) -> Result<EmergencyAccessGrant, &'static str> {
+        let EmergencyGrantBinding {
+            patient_id,
+            person_id,
+            organization_id,
+            facility_id,
+            device_id,
+        } = binding;
         let mut grants = self
             .grants
             .write()
@@ -134,14 +157,14 @@ impl EmergencyGrantStore {
         if grant.status == EmergencyGrantStatus::Revoked {
             return Err("Emergency grant has been revoked");
         }
-        if grant.patient_id != patient_id
-            || grant.requesting_person_id != person_id
-            || grant.organization_id != organization_id
-            || grant.device_id != device_id
+        if grant.patient_id != *patient_id
+            || grant.requesting_person_id != *person_id
+            || grant.organization_id != *organization_id
+            || grant.device_id != *device_id
         {
             return Err("Emergency grant bindings do not match this request");
         }
-        if grant.facility_id.as_deref() != facility_id {
+        if grant.facility_id.as_deref() != facility_id.as_deref() {
             return Err("Emergency grant facility does not match this request");
         }
         if !grant.scopes.contains(&required_scope) {
@@ -186,14 +209,24 @@ impl Default for EmergencyGrantStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bindings every test issues against; individual tests override just
+    /// the field under test via struct-update syntax, so what differs is
+    /// visible instead of being a position in an argument list.
+    fn binding() -> EmergencyGrantBinding {
+        EmergencyGrantBinding {
+            patient_id: "patient-1".into(),
+            person_id: "person-1".into(),
+            organization_id: "org-1".into(),
+            facility_id: Some("facility-1".into()),
+            device_id: "device-1".into(),
+        }
+    }
+
     fn issue(store: &EmergencyGrantStore, now: DateTime<Utc>) -> EmergencyAccessGrant {
         store
             .issue(
-                "patient-1".into(),
-                "person-1".into(),
-                "org-1".into(),
-                Some("facility-1".into()),
-                "device-1".into(),
+                binding(),
                 "life_threatening".into(),
                 None,
                 vec![
@@ -213,11 +246,7 @@ mod tests {
             store
                 .validate(
                     &grant.id,
-                    "patient-1",
-                    "person-1",
-                    "org-1",
-                    Some("facility-1"),
-                    "device-1",
+                    &binding(),
                     EmergencyGrantScope::EmergencySummary,
                     now + Duration::minutes(16)
                 )
@@ -234,11 +263,11 @@ mod tests {
             store
                 .validate(
                     &grant.id,
-                    "patient-2",
-                    "person-1",
-                    "org-1",
-                    Some("facility-1"),
-                    "device-2",
+                    &EmergencyGrantBinding {
+                        patient_id: "patient-2".into(),
+                        device_id: "device-2".into(),
+                        ..binding()
+                    },
                     EmergencyGrantScope::EmergencySummary,
                     now
                 )

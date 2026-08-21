@@ -15,7 +15,7 @@ describe('StrokePage', () => {
 
     expect(screen.getByText(/Stroke Code Management/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/Acute stroke assessment, NIHSS scoring, and thrombolytic eligibility/i)
+      screen.getByText(/Acute stroke assessment, NIHSS scoring, and thrombolytic eligibility\./i)
     ).toBeInTheDocument();
   });
 

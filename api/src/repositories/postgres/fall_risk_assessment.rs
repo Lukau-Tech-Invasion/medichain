@@ -32,6 +32,7 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
             "INSERT INTO fall_risk_assessments (
                 id, patient_id, assessment_tool, history_of_falling, secondary_diagnosis,
                 ambulatory_aid, iv_therapy, gait_status, mental_status,
+                total_score, risk_level,
                 additional_factors, interventions, notes, assessed_by, assessed_at,
                 next_assessment_due, facility_id
             ) ",
@@ -47,6 +48,13 @@ impl FallRiskAssessmentRepository for PgFallRiskAssessmentRepository {
                 .push_bind(a.iv_therapy)
                 .push_bind(a.gait_status)
                 .push_bind(a.mental_status)
+                // The Morse total and the risk band it implies were omitted from
+                // this INSERT, so every falls assessment stored its component
+                // answers and lost the score and the band - the two values the
+                // record exists to communicate, and the ones that drive the
+                // interventions.
+                .push_bind(a.total_score)
+                .push_bind(&a.risk_level)
                 .push_bind(&a.additional_factors)
                 .push_bind(&a.interventions)
                 .push_bind(&a.notes)

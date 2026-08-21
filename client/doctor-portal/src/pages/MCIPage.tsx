@@ -147,10 +147,10 @@ export default function MCIPage() {
   });
 
   const triageCategories: { value: TriageCategory; label: string; color: string; bgColor: string; description: string }[] = [
-    { value: 'immediate', label: t('docMCI.category_immediate_label'), color: 'text-red-700', bgColor: 'bg-red-500', description: t('docMCI.category_immediate_desc') },
-    { value: 'delayed', label: t('docMCI.category_delayed_label'), color: 'text-yellow-700', bgColor: 'bg-yellow-500', description: t('docMCI.category_delayed_desc') },
-    { value: 'minor', label: t('docMCI.category_minor_label'), color: 'text-green-700', bgColor: 'bg-green-500', description: t('docMCI.category_minor_desc') },
-    { value: 'expectant', label: t('docMCI.category_expectant_label'), color: 'text-gray-700', bgColor: 'bg-gray-500', description: t('docMCI.category_expectant_desc') },
+    { value: 'immediate', label: t('docMCI.category_immediate_label'), color: 'text-critical-subtle-fg', bgColor: 'bg-red-500', description: t('docMCI.category_immediate_desc') },
+    { value: 'delayed', label: t('docMCI.category_delayed_label'), color: 'text-caution-subtle-fg', bgColor: 'bg-caution', description: t('docMCI.category_delayed_desc') },
+    { value: 'minor', label: t('docMCI.category_minor_label'), color: 'text-ok-subtle-fg', bgColor: 'bg-green-500', description: t('docMCI.category_minor_desc') },
+    { value: 'expectant', label: t('docMCI.category_expectant_label'), color: 'text-content-secondary', bgColor: 'bg-gray-500', description: t('docMCI.category_expectant_desc') },
     { value: 'deceased', label: t('docMCI.category_deceased_label'), color: 'text-black', bgColor: 'bg-black', description: t('docMCI.category_deceased_desc') }
   ];
 
@@ -311,7 +311,7 @@ export default function MCIPage() {
         <div className="bg-gradient-to-r from-red-700 to-orange-600 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-3 bg-white/20 rounded-full animate-pulse">
+              <div className="p-3 bg-surface/20 rounded-full animate-pulse">
                 <AlertTriangle className="h-10 w-10 text-white" />
               </div>
               <div>
@@ -337,14 +337,14 @@ export default function MCIPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <Activity className="h-5 w-5 mr-2" />
             {t('docMCI.savedSuccess')}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
@@ -363,7 +363,7 @@ export default function MCIPage() {
                 onClick={() => setActiveTab(tab.id as typeof activeTab)}
                 className={`flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-lg font-medium transition-all ${
                   activeTab === tab.id
-                    ? 'bg-white text-gray-900'
+                    ? 'bg-surface text-content'
                     : 'text-gray-300 hover:bg-gray-700'
                 }`}
               >
@@ -375,12 +375,12 @@ export default function MCIPage() {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="bg-white rounded-b-lg shadow-lg">
+          <div className="bg-surface rounded-b-lg shadow-lg">
             {/* Triage Tab */}
             {activeTab === 'triage' && (
               <div className="p-6">
                 <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-xl font-bold text-gray-900">{t('docMCI.patientTriageListHeading')}</h2>
+                  <h2 className="text-xl font-bold text-content">{t('docMCI.patientTriageListHeading')}</h2>
                   <button
                     type="button"
                     onClick={() => setShowAddPatient(true)}
@@ -393,18 +393,18 @@ export default function MCIPage() {
 
                 {/* Add Patient Form */}
                 {showAddPatient && (
-                  <div className="mb-6 p-6 bg-gray-50 rounded-lg border-2 border-blue-300">
+                  <div className="mb-6 p-6 bg-surface-sunken rounded-lg border-2 border-notice">
                     <h3 className="text-lg font-bold mb-4 flex items-center">
                       <Tag className="h-5 w-5 mr-2 text-blue-500" />
                       {t('docMCI.newPatientTagHeading', { num: tagCounter.toString().padStart(4, '0') })}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {/* Quick Vitals for START */}
-                      <div className="md:col-span-3 bg-yellow-50 p-4 rounded-lg">
-                        <p className="font-medium text-yellow-800 mb-3">{t('docMCI.startTriageVitalsLabel')}</p>
+                      <div className="md:col-span-3 bg-caution-subtle p-4 rounded-lg">
+                        <p className="font-medium text-caution-subtle-fg mb-3">{t('docMCI.startTriageVitalsLabel')}</p>
                         <div className="grid grid-cols-4 gap-4">
                           <div>
-                            <label htmlFor="mci-respiratory-rate" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.respiratoryRateLabel')}</label>
+                            <label htmlFor="mci-respiratory-rate" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.respiratoryRateLabel')}</label>
                             <input
                               id="mci-respiratory-rate"
                               type="number"
@@ -417,7 +417,7 @@ export default function MCIPage() {
                             />
                           </div>
                           <div>
-                            <label htmlFor="mci-radial-pulse" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.radialPulseLabel')}</label>
+                            <label htmlFor="mci-radial-pulse" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.radialPulseLabel')}</label>
                             <input
                               id="mci-radial-pulse"
                               type="number"
@@ -430,7 +430,7 @@ export default function MCIPage() {
                             />
                           </div>
                           <div>
-                            <label htmlFor="mci-cap-refill" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.capRefillLabel')}</label>
+                            <label htmlFor="mci-cap-refill" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.capRefillLabel')}</label>
                             <input
                               id="mci-cap-refill"
                               type="number"
@@ -443,7 +443,7 @@ export default function MCIPage() {
                             />
                           </div>
                           <div>
-                            <label htmlFor="mci-mental-status" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.mentalStatusLabel')}</label>
+                            <label htmlFor="mci-mental-status" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.mentalStatusLabel')}</label>
                             <select
                               id="mci-mental-status"
                               value={newPatient.vitals?.mentalStatus}
@@ -462,7 +462,7 @@ export default function MCIPage() {
                       </div>
 
                       <div>
-                        <label htmlFor="mci-age" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.ageLabel')}</label>
+                        <label htmlFor="mci-age" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.ageLabel')}</label>
                         <input
                           id="mci-age"
                           type="text"
@@ -473,7 +473,7 @@ export default function MCIPage() {
                         />
                       </div>
                       <div>
-                        <label htmlFor="mci-gender" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.genderLabel')}</label>
+                        <label htmlFor="mci-gender" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.genderLabel')}</label>
                         <select
                           id="mci-gender"
                           value={newPatient.gender}
@@ -486,7 +486,7 @@ export default function MCIPage() {
                         </select>
                       </div>
                       <div>
-                        <label htmlFor="mci-location-found" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.locationFoundLabel')}</label>
+                        <label htmlFor="mci-location-found" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.locationFoundLabel')}</label>
                         <input
                           id="mci-location-found"
                           type="text"
@@ -497,7 +497,7 @@ export default function MCIPage() {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <label htmlFor="mci-chief-complaint" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.chiefComplaintLabel')}</label>
+                        <label htmlFor="mci-chief-complaint" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.chiefComplaintLabel')}</label>
                         <input
                           id="mci-chief-complaint"
                           type="text"
@@ -508,7 +508,7 @@ export default function MCIPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.injuriesLabel')}</label>
+                        <label className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.injuriesLabel')}</label>
                         <div className="flex flex-wrap gap-1">
                           {commonInjuries.slice(0, 6).map(injury => (
                             <button
@@ -525,7 +525,7 @@ export default function MCIPage() {
                               className={`text-xs px-2 py-1 rounded ${
                                 newPatient.injuries?.includes(injury)
                                   ? 'bg-red-500 text-white'
-                                  : 'bg-gray-100 text-gray-700'
+                                  : 'bg-surface-sunken text-content-secondary'
                               }`}
                             >
                               {t(`docMCI.injury_${INJURY_KEYS[injury]}`)}
@@ -538,7 +538,7 @@ export default function MCIPage() {
                       <button
                         type="button"
                         onClick={() => setShowAddPatient(false)}
-                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                        className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                       >
                         {t('docMCI.cancelButton')}
                       </button>
@@ -565,7 +565,7 @@ export default function MCIPage() {
                         <span className="font-bold">{cat.label} ({categoryPatients.length})</span>
                         <span className="text-sm opacity-75">{cat.description}</span>
                       </div>
-                      <div className="bg-gray-50 rounded-b-lg border border-t-0">
+                      <div className="bg-surface-sunken rounded-b-lg border border-t-0">
                         {categoryPatients.map(patient => (
                           <div key={patient.id} className="p-4 border-b last:border-b-0 flex items-center justify-between">
                             <div className="flex items-center space-x-4">
@@ -576,11 +576,11 @@ export default function MCIPage() {
                                 <p className="font-medium">
                                   {patient.age} {patient.gender} - {patient.chiefComplaint || t('docMCI.unknownComplaint')}
                                 </p>
-                                <p className="text-sm text-gray-500">
+                                <p className="text-sm text-content-muted">
                                   {t('docMCI.vitalsLine', { rr: patient.vitals.respiratoryRate, pulse: patient.vitals.pulse, cap: patient.vitals.capRefill, mentalStatus: t(`docMCI.mentalStatus_${patient.vitals.mentalStatus}`) })}
                                 </p>
                                 {patient.location && (
-                                  <p className="text-xs text-gray-400 flex items-center mt-1">
+                                  <p className="text-xs text-content-muted flex items-center mt-1">
                                     <MapPin className="h-3 w-3 mr-1" /> {patient.location}
                                   </p>
                                 )}
@@ -603,20 +603,20 @@ export default function MCIPage() {
                                 <button
                                   type="button"
                                   onClick={() => markTransported(patient.id, 'Hospital')}
-                                  className="text-blue-600 hover:text-blue-700 p-2"
+                                  className="text-notice-subtle-fg hover:text-notice-subtle-fg p-2"
                                   title={t('docMCI.markTransportedTitle')}
                                 >
                                   <Truck className="h-5 w-5" />
                                 </button>
                               ) : (
-                                <span className="text-xs text-green-600 flex items-center">
+                                <span className="text-xs text-ok-subtle-fg flex items-center">
                                   <Truck className="h-4 w-4 mr-1" /> {t('docMCI.transportedLabel')}
                                 </span>
                               )}
                               <button
                                 type="button"
                                 onClick={() => removePatient(patient.id)}
-                                className="text-red-600 hover:text-red-700 p-2"
+                                className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                               >
                                 <Trash2 className="h-5 w-5" />
                               </button>
@@ -629,7 +629,7 @@ export default function MCIPage() {
                 })}
 
                 {patients.length === 0 && (
-                  <div className="text-center py-12 text-gray-500">
+                  <div className="text-center py-12 text-content-muted">
                     <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p>{t('docMCI.noPatientsTriaged', { button: t('docMCI.addPatientButton') })}</p>
                   </div>
@@ -640,27 +640,27 @@ export default function MCIPage() {
             {/* Incident Info Tab */}
             {activeTab === 'summary' && (
               <div className="p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docMCI.incidentInformationHeading')}</h2>
+                <h2 className="text-xl font-bold text-content mb-6">{t('docMCI.incidentInformationHeading')}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label htmlFor="mci-incident-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.incidentNameLabel')}</label>
+                    <label htmlFor="mci-incident-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.incidentNameLabel')}</label>
                     <input
                       id="mci-incident-name"
                       type="text"
                       value={incident.incidentName}
                       onChange={(e) => setIncident({ ...incident, incidentName: e.target.value })}
                       placeholder={t('docMCI.incidentNamePh')}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                       required
                     />
                   </div>
                   <div>
-                    <label htmlFor="mci-incident-type" className="block text-sm font-medium text-gray-700 mb-1">{t('docMCI.incidentTypeLabel')}</label>
+                    <label htmlFor="mci-incident-type" className="block text-sm font-medium text-content-secondary mb-1">{t('docMCI.incidentTypeLabel')}</label>
                     <select
                       id="mci-incident-type"
                       value={incident.incidentType}
                       onChange={(e) => setIncident({ ...incident, incidentType: e.target.value })}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                     >
                       <option value="">{t('docMCI.selectTypePh')}</option>
                       {incidentTypes.map(type => (
@@ -669,7 +669,7 @@ export default function MCIPage() {
                     </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label htmlFor="mci-location" className="flex items-center text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-location" className="flex items-center text-sm font-medium text-content-secondary mb-1">
                       <MapPin className="h-4 w-4 mr-1" /> {t('docMCI.locationLabel')}
                     </label>
                     <input
@@ -678,11 +678,11 @@ export default function MCIPage() {
                       value={incident.location}
                       onChange={(e) => setIncident({ ...incident, location: e.target.value })}
                       placeholder={t('docMCI.locationPh')}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="mci-start-time" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-start-time" className="block text-sm font-medium text-content-secondary mb-1">
                       <Clock className="h-4 w-4 inline mr-1" /> {t('docMCI.incidentStartTimeLabel')}
                     </label>
                     <input
@@ -690,11 +690,11 @@ export default function MCIPage() {
                       type="datetime-local"
                       value={incident.startTime}
                       onChange={(e) => setIncident({ ...incident, startTime: e.target.value })}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="mci-estimated-casualties" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-estimated-casualties" className="block text-sm font-medium text-content-secondary mb-1">
                       {t('docMCI.estimatedCasualtiesLabel')}
                     </label>
                     <input
@@ -702,11 +702,11 @@ export default function MCIPage() {
                       type="number"
                       value={incident.estimatedCasualties}
                       onChange={(e) => setIncident({ ...incident, estimatedCasualties: parseInt(e.target.value) })}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="mci-command-post" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-command-post" className="block text-sm font-medium text-content-secondary mb-1">
                       <Building2 className="h-4 w-4 inline mr-1" /> {t('docMCI.commandPostLocationLabel')}
                     </label>
                     <input
@@ -715,11 +715,11 @@ export default function MCIPage() {
                       value={incident.commandPost}
                       onChange={(e) => setIncident({ ...incident, commandPost: e.target.value })}
                       placeholder={t('docMCI.commandPostLocationPh')}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="mci-incident-commander" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-incident-commander" className="block text-sm font-medium text-content-secondary mb-1">
                       <Radio className="h-4 w-4 inline mr-1" /> {t('docMCI.incidentCommanderLabel')}
                     </label>
                     <input
@@ -728,11 +728,11 @@ export default function MCIPage() {
                       value={incident.incidentCommander}
                       onChange={(e) => setIncident({ ...incident, incidentCommander: e.target.value })}
                       placeholder={t('docMCI.incidentCommanderPh')}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                   <div>
-                    <label htmlFor="mci-contact-number" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mci-contact-number" className="block text-sm font-medium text-content-secondary mb-1">
                       <Phone className="h-4 w-4 inline mr-1" /> {t('docMCI.contactNumberLabel')}
                     </label>
                     <input
@@ -741,7 +741,7 @@ export default function MCIPage() {
                       value={incident.contactNumber}
                       onChange={(e) => setIncident({ ...incident, contactNumber: e.target.value })}
                       placeholder={t('docMCI.contactNumberPh')}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                      className="w-full p-3 border border-border-strong rounded-lg focus:ring-2 focus:ring-orange-500"
                     />
                   </div>
                 </div>
@@ -751,10 +751,10 @@ export default function MCIPage() {
             {/* Resources Tab */}
             {activeTab === 'resources' && (
               <div className="p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docMCI.resourcesRequestedHeading')}</h2>
+                <h2 className="text-xl font-bold text-content mb-6">{t('docMCI.resourcesRequestedHeading')}</h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {resourceOptions.map(resource => (
-                    <label key={resource} className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100">
+                    <label key={resource} className="flex items-center space-x-3 p-4 bg-surface-sunken rounded-lg cursor-pointer hover:bg-surface-sunken">
                       <input
                         type="checkbox"
                         checked={incident.resourcesRequested.includes(resource)}
@@ -765,19 +765,19 @@ export default function MCIPage() {
                             setIncident({ ...incident, resourcesRequested: incident.resourcesRequested.filter(r => r !== resource) });
                           }
                         }}
-                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500 h-5 w-5"
+                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500 h-5 w-5"
                       />
-                      <span className="font-medium text-gray-700">{t(`docMCI.resource_${RESOURCE_KEYS[resource]}`)}</span>
+                      <span className="font-medium text-content-secondary">{t(`docMCI.resource_${RESOURCE_KEYS[resource]}`)}</span>
                     </label>
                   ))}
                 </div>
 
                 {incident.resourcesRequested.length > 0 && (
-                  <div className="mt-6 p-4 bg-orange-50 rounded-lg">
-                    <h3 className="font-medium text-orange-800 mb-2">{t('docMCI.resourcesRequestedLabel')}</h3>
+                  <div className="mt-6 p-4 bg-surface-sunken rounded-lg">
+                    <h3 className="font-medium text-content-secondary mb-2">{t('docMCI.resourcesRequestedLabel')}</h3>
                     <div className="flex flex-wrap gap-2">
                       {incident.resourcesRequested.map(resource => (
-                        <span key={resource} className="bg-orange-200 text-orange-800 px-3 py-1 rounded-full text-sm">
+                        <span key={resource} className="bg-orange-200 text-content-secondary px-3 py-1 rounded-full text-sm">
                           {t(`docMCI.resource_${RESOURCE_KEYS[resource]}`)}
                         </span>
                       ))}
@@ -800,7 +800,7 @@ export default function MCIPage() {
             <button
               type="submit"
               disabled={isSubmitting || patients.length === 0}
-              className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

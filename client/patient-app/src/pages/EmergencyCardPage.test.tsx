@@ -3,6 +3,11 @@ import { BrowserRouter } from 'react-router-dom';
 import { I18nProvider, ToastProvider } from '@medichain/shared';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { EmergencyCardPage } from './EmergencyCardPage';
+import { usePatientAuthStore } from '../store/authStore';
+
+vi.mock('../store/authStore', () => ({
+  usePatientAuthStore: vi.fn(),
+}));
 
 // Generate a deterministic data URL so the QR <img> renders predictably.
 vi.mock('qrcode', () => ({
@@ -33,13 +38,19 @@ describe('EmergencyCardPage (Patient)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock localStorage
-    const authData = JSON.stringify({ patientId: mockPatientId });
-    localStorage.getItem = vi.fn().mockReturnValue(authData);
+    (usePatientAuthStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: (state: unknown) => unknown) => selector({
+        patient: {
+          healthId: mockPatientId,
+          walletAddress: '5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS60Z',
+        },
+      }),
+    );
 
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           patient_id: 'HEALTH123',
           full_name: 'Test Patient',

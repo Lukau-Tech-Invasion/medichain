@@ -14,7 +14,6 @@ use crate::security::{jwt, mfa};
 pub struct JwtIssueRequest {
     pub wallet_address: String,
     /// Hex-encoded sr25519 signature over `<timestamp>:<wallet_address>`.
-    /// Optional only in demo mode (`IS_DEMO=true`).
     pub signature: Option<String>,
     /// Unix timestamp that was signed.
     pub timestamp: Option<i64>,
@@ -33,12 +32,19 @@ pub struct JwtIssueResponse {
     pub mfa_required: bool,
 }
 
+fn wallet_login_proof(signature: Option<&str>, timestamp: Option<i64>) -> Option<(&str, i64)> {
+    match (signature.map(str::trim), timestamp) {
+        (Some(signature), Some(timestamp)) if !signature.is_empty() => Some((signature, timestamp)),
+        _ => None,
+    }
+}
+
 /// Issue access + refresh JWTs after verifying a wallet signature challenge.
 ///
 /// POST /api/auth/jwt
 ///
 /// The signed message format matches the challenge from `/api/auth/challenge`:
-/// `<timestamp>:<wallet_address>`. In demo mode the signature may be omitted.
+/// `<timestamp>:<wallet_address>`. Demo mode does not bypass wallet ownership.
 #[post("/api/auth/jwt")]
 pub async fn issue_jwt(
     data: web::Data<AppState>,
@@ -52,15 +58,15 @@ pub async fn issue_jwt(
         });
     }
 
-    let is_demo = std::env::var("IS_DEMO").unwrap_or_else(|_| "false".to_string()) == "true";
-
-    // Verify the wallet signature unless we are in demo mode without one.
-    match (&body.signature, body.timestamp) {
-        (Some(sig), Some(ts)) => {
-            let message = format!("{}:{}", ts, body.wallet_address);
+    // JWTs always prove wallet ownership. Demo mode may relax per-request
+    // middleware for synthetic data, but it never mints a bearer token for a
+    // caller that cannot sign the login challenge.
+    match wallet_login_proof(body.signature.as_deref(), body.timestamp) {
+        Some((signature, timestamp)) => {
+            let message = format!("{}:{}", timestamp, body.wallet_address);
             let now = Utc::now().timestamp();
-            if let Err(e) = medichain_crypto::signature::verify_wallet_signature(
-                sig,
+            if let Err(error) = medichain_crypto::signature::verify_wallet_signature(
+                signature,
                 &message,
                 &body.wallet_address,
                 now,
@@ -68,18 +74,18 @@ pub async fn issue_jwt(
                 data.security
                     .observe_failed_auth(&data.ws_manager, &body.wallet_address)
                     .await;
+                log::warn!("JWT wallet signature verification failed: {error}");
                 return HttpResponse::Unauthorized().json(ErrorResponse {
                     success: false,
-                    error: format!("Signature verification failed: {}", e),
+                    error: "Signature verification failed".to_string(),
                     code: "SIGNATURE_VERIFICATION_FAILED".to_string(),
                 });
             }
         }
-        _ if is_demo => { /* demo mode: accept without signature */ }
         _ => {
             return HttpResponse::Unauthorized().json(ErrorResponse {
                 success: false,
-                error: "signature and timestamp are required outside demo mode".to_string(),
+                error: "signature and timestamp are required".to_string(),
                 code: "SIGNATURE_REQUIRED".to_string(),
             });
         }
@@ -98,6 +104,22 @@ pub async fn issue_jwt(
     };
 
     issue_token_pair(&data, &body.wallet_address, &user.role.to_string())
+}
+
+#[cfg(test)]
+mod jwt_issue_tests {
+    use super::wallet_login_proof;
+
+    #[test]
+    fn wallet_proof_is_mandatory_even_for_demo_runtime_configuration() {
+        assert!(wallet_login_proof(None, None).is_none());
+        assert!(wallet_login_proof(Some(""), Some(1)).is_none());
+        assert!(wallet_login_proof(Some("signature"), None).is_none());
+        assert_eq!(
+            wallet_login_proof(Some(" signature "), Some(42)),
+            Some(("signature", 42))
+        );
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,7 +145,17 @@ pub async fn refresh_jwt(
             });
         }
     };
-    issue_token_pair(&data, &claims.sub, &claims.role)
+    let user = match get_user(&data, &claims.sub) {
+        Some(user) => user,
+        None => {
+            return HttpResponse::Unauthorized().json(ErrorResponse {
+                success: false,
+                error: "Account is inactive or no longer registered".to_string(),
+                code: "ACCOUNT_INACTIVE".to_string(),
+            });
+        }
+    };
+    issue_token_pair(&data, &claims.sub, &user.role.to_string())
 }
 
 /// Issue an access+refresh pair for a wallet. The access token's `mfa` claim is
@@ -154,9 +186,10 @@ fn issue_token_pair(data: &web::Data<AppState>, wallet: &str, role: &str) -> Htt
 }
 
 fn jwt_error(e: jsonwebtoken::errors::Error) -> HttpResponse {
+    log::error!("JWT issuance failed: {}", e);
     HttpResponse::InternalServerError().json(ErrorResponse {
         success: false,
-        error: format!("Failed to issue token: {}", e),
+        error: "Failed to issue authentication token".to_string(),
         code: "TOKEN_ISSUE_FAILED".to_string(),
     })
 }
@@ -198,19 +231,36 @@ pub async fn mfa_enroll(data: web::Data<AppState>, req: HttpRequest) -> impl Res
     };
     let qr = generate_qr_code_base64(&uri);
 
-    if let Ok(mut m) = data.security.mfa.write() {
-        m.insert(
-            wallet.clone(),
-            crate::security::mfa::MfaRecord {
-                secret_base32: secret.clone(),
-                enabled: false,
-                created_at: Utc::now(),
-            },
-        );
+    // Persist before publishing the enrollment into the runtime cache. A
+    // success response for a memory-only enrollment would disappear on restart
+    // and make server-side assurance checks disagree across replicas.
+    if let Err(error) = data.persist_mfa_enrollment(&wallet, &secret, false).await {
+        log::error!("Failed to persist MFA enrollment for {}: {}", wallet, error);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "MFA enrollment is temporarily unavailable".to_string(),
+            code: "MFA_PERSISTENCE_REQUIRED".to_string(),
+        });
     }
-    // Write-through to PostgreSQL (encrypted at rest); no-op on memory backend.
-    if let Err(e) = data.persist_mfa_enrollment(&wallet, &secret, false).await {
-        log::warn!("Failed to persist MFA enrollment for {}: {}", wallet, e);
+    let record = crate::security::mfa::MfaRecord {
+        secret_base32: secret.clone(),
+        enabled: false,
+        created_at: Utc::now(),
+    };
+    match data.security.mfa.write() {
+        Ok(mut enrollments) => {
+            enrollments.insert(wallet.clone(), record);
+        }
+        Err(_) => {
+            log::error!("MFA cache is unavailable after persisting enrollment for {wallet}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error:
+                    "MFA enrollment was stored but cannot be activated until the service recovers"
+                        .to_string(),
+                code: "MFA_CACHE_UNAVAILABLE".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(MfaEnrollResponse {
@@ -269,13 +319,35 @@ pub async fn mfa_verify(
         });
     }
 
-    if let Ok(mut m) = data.security.mfa.write() {
-        if let Some(rec) = m.get_mut(&wallet) {
-            rec.enabled = true;
-        }
+    if let Err(error) = data.update_mfa_enabled(&wallet, true).await {
+        log::error!("Failed to persist MFA activation for {}: {}", wallet, error);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "MFA activation is temporarily unavailable".to_string(),
+            code: "MFA_PERSISTENCE_REQUIRED".to_string(),
+        });
     }
-    if let Err(e) = data.update_mfa_enabled(&wallet, true).await {
-        log::warn!("Failed to persist MFA activation for {}: {}", wallet, e);
+    match data.security.mfa.write() {
+        Ok(mut enrollments) => match enrollments.get_mut(&wallet) {
+            Some(record) => record.enabled = true,
+            None => {
+                log::error!("Persisted MFA activation has no cache record for {wallet}");
+                return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                    success: false,
+                    error: "MFA was stored but cannot be used until the service recovers"
+                        .to_string(),
+                    code: "MFA_CACHE_UNAVAILABLE".to_string(),
+                });
+            }
+        },
+        Err(_) => {
+            log::error!("MFA cache is unavailable after activation for {wallet}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "MFA was stored but cannot be used until the service recovers".to_string(),
+                code: "MFA_CACHE_UNAVAILABLE".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -402,11 +474,27 @@ pub async fn mfa_disable(
         });
     }
 
-    if let Ok(mut m) = data.security.mfa.write() {
-        m.remove(&wallet);
+    if let Err(error) = data.delete_mfa_enrollment(&wallet).await {
+        log::error!("Failed to delete MFA enrollment for {}: {}", wallet, error);
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "MFA could not be disabled because the durable record is unavailable"
+                .to_string(),
+            code: "MFA_PERSISTENCE_REQUIRED".to_string(),
+        });
     }
-    if let Err(e) = data.delete_mfa_enrollment(&wallet).await {
-        log::warn!("Failed to delete MFA enrollment for {}: {}", wallet, e);
+    match data.security.mfa.write() {
+        Ok(mut enrollments) => {
+            enrollments.remove(&wallet);
+        }
+        Err(_) => {
+            log::error!("MFA cache is unavailable after disabling enrollment for {wallet}");
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "MFA was disabled but the local session cache has not recovered".to_string(),
+                code: "MFA_CACHE_UNAVAILABLE".to_string(),
+            });
+        }
     }
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -456,8 +544,9 @@ pub async fn declare_breach(
         Ok(()) => {}
         Err(resp) => return resp,
     }
-    // Sensitive action: enforce MFA step-up for JWT-authenticated admins.
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    // Sensitive action: privileged operations require an MFA-enrolled caller
+    // with verified step-up (H2 / issue #8).
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -523,20 +612,145 @@ pub(crate) fn require_admin(
     Ok(())
 }
 
-/// Enforce MFA step-up for sensitive operations.
+/// What a caller has actually demonstrated on **this** request.
 ///
-/// Returns `Some(403)` only when the request is JWT-authenticated by a wallet
-/// that has MFA enabled but has not stepped up this session. Pure `X-User-Id`
-/// requests (no JWT claims) are exempt so demo mode and legacy clients still
-/// work — production should run with JWT + `REQUIRE_SIGNATURES=true`.
-pub(crate) fn enforce_mfa_step_up(req: &HttpRequest) -> Option<HttpResponse> {
-    let claims = get_current_claims(req)?; // None → no JWT → exempt
-    if claims.mfa {
-        return None;
+/// Deliberately separate from *how* they authenticated. The H2 bypass existed
+/// because the old control keyed off credential type ("is there an
+/// `Authorization` header?") rather than assurance, so a caller carrying no
+/// JWT skipped the check entirely instead of failing it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CallerAssurance {
+    /// No caller could be resolved at all.
+    Anonymous,
+    /// Identity established — a JWT subject, or an `X-User-Id` the signature
+    /// middleware has verified — but no step-up proven on this request.
+    Identified,
+    /// Identity established *and* step-up verified.
+    SteppedUp,
+}
+
+/// Why a privileged operation was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AssuranceDenial {
+    /// No resolvable caller → 401.
+    NoCaller,
+    /// Caller is not MFA-enrolled, so cannot reach a privileged route at all.
+    EnrollmentRequired,
+    /// Caller is enrolled but has not stepped up on this request.
+    StepUpRequired,
+}
+
+/// The privileged-operation policy, as a **pure function**.
+///
+/// Posture and enrollment are parameters rather than globals for two reasons:
+/// it makes the decision exhaustively testable without mutating process-global
+/// `IS_DEMO` (which races other tests — see `DEMO_ENV_GUARD` in `support.rs`),
+/// and it keeps the security rule readable as one expression instead of being
+/// spread across environment lookups.
+///
+/// The property this encodes (owner decision, 2026-08-08):
+///
+/// > No **production** privileged route may be executed without a caller who is
+/// > MFA-enrolled **and** has verified step-up.
+///
+/// Note the ordering: `Anonymous` is refused *before* the demo exemption is
+/// considered, so demo mode never turns a privileged route into an open one.
+pub(crate) fn privileged_assurance_decision(
+    is_demo: bool,
+    enrolled: bool,
+    assurance: CallerAssurance,
+) -> Result<(), AssuranceDenial> {
+    if assurance == CallerAssurance::Anonymous {
+        return Err(AssuranceDenial::NoCaller);
     }
-    Some(HttpResponse::Forbidden().json(ErrorResponse {
-        success: false,
-        error: "MFA step-up required for this operation. Call /api/auth/mfa/challenge.".to_string(),
-        code: "MFA_REQUIRED".to_string(),
-    }))
+    // Demo mode trusts `X-User-Id` by design and warns so at startup; demo
+    // admins have no MFA enrollment, so enforcing here would only break the
+    // demo without protecting anything real.
+    if is_demo {
+        return Ok(());
+    }
+    if !enrolled {
+        return Err(AssuranceDenial::EnrollmentRequired);
+    }
+    match assurance {
+        CallerAssurance::SteppedUp => Ok(()),
+        _ => Err(AssuranceDenial::StepUpRequired),
+    }
+}
+
+/// Resolve what the request actually proves.
+///
+/// An expired or malformed JWT yields no claims, and `get_current_user_id`
+/// then falls back to `X-User-Id` (`support.rs:227-233`). That fallback must
+/// downgrade the caller to `Identified` — never leave them stepped-up on the
+/// strength of a claim that is no longer valid.
+fn caller_assurance(req: &HttpRequest) -> CallerAssurance {
+    match get_current_claims(req) {
+        Some(claims) if stepped_up_claim_is_fresh(&claims, chrono::Utc::now().timestamp()) => {
+            CallerAssurance::SteppedUp
+        }
+        Some(_) => CallerAssurance::Identified,
+        None => match req.headers().get("X-User-Id") {
+            Some(_) => CallerAssurance::Identified,
+            None => CallerAssurance::Anonymous,
+        },
+    }
+}
+
+/// A boolean MFA flag alone is not step-up proof: the verification must be
+/// recent and must not claim a time in the future.
+pub(crate) fn stepped_up_claim_is_fresh(claims: &jwt::Claims, now: i64) -> bool {
+    let Some(auth_time) = claims.auth_time else {
+        return false;
+    };
+    claims.mfa && auth_time <= now && now.saturating_sub(auth_time) <= jwt::MFA_STEP_UP_TTL_SECS
+}
+
+/// Whether `wallet` has a durable, enabled MFA enrollment.
+///
+/// Read per request from server-side state (`user_mfa` → `security.mfa`), which
+/// is what makes the policy work for callers who present no JWT: enrollment is
+/// keyed by wallet, not by credential.
+/// Gate a privileged operation on caller assurance.
+///
+/// This is the single policy every sensitive endpoint consumes. It replaces
+/// `enforce_mfa_step_up`, which exempted any caller without a JWT — issue #8
+/// (H2). Returns `Some(response)` when the operation must be refused.
+pub(crate) fn require_privileged_assurance(
+    data: &web::Data<AppState>,
+    req: &HttpRequest,
+) -> Option<HttpResponse> {
+    let assurance = caller_assurance(req);
+    // Enrollment is read per request from durable server-side state
+    // (`user_mfa` → `security.mfa`). That is what makes this work for callers
+    // presenting no JWT: enrollment is keyed by wallet, not by credential.
+    let enrolled = get_current_user_id(req)
+        .map(|wallet| data.security.mfa_enabled(&wallet))
+        .unwrap_or(false);
+
+    match privileged_assurance_decision(crate::support::is_demo_mode(), enrolled, assurance) {
+        Ok(()) => None,
+        Err(AssuranceDenial::NoCaller) => Some(HttpResponse::Unauthorized().json(ErrorResponse {
+            success: false,
+            error: "Authentication required for this operation.".to_string(),
+            code: "UNAUTHORIZED".to_string(),
+        })),
+        Err(AssuranceDenial::EnrollmentRequired) => Some(
+            HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "This operation requires MFA. Enroll via /api/auth/mfa/enroll, then \
+                        step up via /api/auth/mfa/challenge."
+                    .to_string(),
+                code: "MFA_ENROLLMENT_REQUIRED".to_string(),
+            }),
+        ),
+        Err(AssuranceDenial::StepUpRequired) => Some(
+            HttpResponse::Forbidden().json(ErrorResponse {
+                success: false,
+                error: "MFA step-up required for this operation. Call /api/auth/mfa/challenge."
+                    .to_string(),
+                code: "MFA_REQUIRED".to_string(),
+            }),
+        ),
+    }
 }

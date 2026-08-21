@@ -53,11 +53,19 @@ export default defineConfig({
         // Add timeout and error handling
         configure: (proxy) => {
           proxy.on('error', (err, _req, res) => {
-            console.log('Proxy error:', err);
-            if (res && 'writeHead' in res) {
-              res.writeHead(503, { 'Content-Type': 'application/json' });
+            console.log('Proxy error:', err.message);
+            // /api/events is an SSE stream, so `res` here can be a raw socket
+            // with no writeHead. Leaving that case unhandled let a dropped API
+            // connection take the whole dev server down mid-session.
+            if (!res) return;
+            if ('writeHead' in res) {
+              if (!res.headersSent) {
+                res.writeHead(503, { 'Content-Type': 'application/json' });
+              }
               res.end(JSON.stringify({ error: 'API server unavailable', details: err.message }));
+              return;
             }
+            if ('destroy' in res) res.destroy();
           });
           proxy.on('proxyReq', (_proxyReq, req) => {
               console.log('Proxying:', req.method, req.url, '-> http://127.0.0.1');

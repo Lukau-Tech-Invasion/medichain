@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -30,23 +35,42 @@ describe('ProgressNotePage', () => {
     (shared.getPatients as any).mockResolvedValue([]);
   });
 
-  it('renders progress note page', () => {
+  it('renders progress note page', async () => {
     render(<ProgressNotePage />);
+
+    // The SOAP fields live in the 'New Note' tab, not the default note list.
+    // The page fetches on mount, so the tab strip is not present on the
+    // first synchronous render — wait for it before navigating.
+    await waitFor(() => expect(screen.getByText(/New Note/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/New Note/i));
 
     expect(screen.getAllByText(/Progress Notes/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Documentation of interval patient progress and updated plan/i)).toBeInTheDocument();
+    expect(screen.getByText(/Clinical documentation and patient timeline/i)).toBeInTheDocument();
   });
 
-  it('displays note sections', () => {
+  it('displays note sections', async () => {
     render(<ProgressNotePage />);
 
-    expect(screen.getByText(/Subjective/i)).toBeInTheDocument();
-    expect(screen.getByText(/Objective/i)).toBeInTheDocument();
-    expect(screen.getByText(/Assessment & Plan/i)).toBeInTheDocument();
+    // The SOAP fields live in the 'New Note' tab, not the default note list.
+    // The page fetches on mount, so the tab strip is not present on the
+    // first synchronous render — wait for it before navigating.
+    await waitFor(() => expect(screen.getByText(/New Note/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/New Note/i));
+
+    expect(screen.getByText(/Subjective \*/i)).toBeInTheDocument();
+    expect(screen.getByText(/Objective \*/i)).toBeInTheDocument();
+    expect(screen.getByText(/Assessment \*/i)).toBeInTheDocument();
+    expect(screen.getByText(/Plan \*/i)).toBeInTheDocument();
   });
 
-  it('allows entering subjective note', () => {
+  it('allows entering subjective note', async () => {
     render(<ProgressNotePage />);
+
+    // The SOAP fields live in the 'New Note' tab, not the default note list.
+    // The page fetches on mount, so the tab strip is not present on the
+    // first synchronous render — wait for it before navigating.
+    await waitFor(() => expect(screen.getByText(/New Note/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText(/New Note/i));
 
     const input = screen.getByLabelText(/Subjective/i);
     fireEvent.change(input, { target: { value: 'Patient reports feeling better today.' } });

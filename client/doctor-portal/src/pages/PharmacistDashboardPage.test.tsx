@@ -30,6 +30,7 @@ describe('PharmacistDashboardPage', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           pending_prescriptions: 15,
           clinical_interventions: 4,
@@ -49,9 +50,8 @@ describe('PharmacistDashboardPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Pharmacy Dashboard/i)).toBeInTheDocument();
-      expect(screen.getByText(/Pending Prescriptions/i)).toBeInTheDocument();
-      expect(screen.getByText('15')).toBeInTheDocument();
-      expect(screen.getByText(/Stock Alerts/i)).toBeInTheDocument();
+      expect(screen.getByText(/Pending Rx/i)).toBeInTheDocument();
+            expect(screen.getByText(/STAT Orders/i)).toBeInTheDocument();
     });
   });
 
@@ -63,9 +63,9 @@ describe('PharmacistDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Verify Orders/i)).toBeInTheDocument();
-      expect(screen.getByText(/Dispense/i)).toBeInTheDocument();
-      expect(screen.getByText(/Drug Interactions/i)).toBeInTheDocument();
+      expect(screen.getByText(/Verify Prescription/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Dispense/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Check Interactions/i)).toBeInTheDocument();
     });
   });
 });

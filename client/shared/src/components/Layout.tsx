@@ -1,4 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { ErrorBoundary } from './ErrorBoundary';
 import {
   LayoutDashboard,
   FileText,
@@ -217,20 +218,20 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Offline Banner */}
       {!isOnline && (
-        <div className="bg-amber-600 text-white px-4 py-2 text-center text-sm font-medium animate-pulse flex items-center justify-center gap-2 sticky top-0 z-50">
+        <div className="bg-caution text-caution-fg px-4 py-2 text-center text-sm font-medium animate-pulse flex items-center justify-center gap-2 sticky top-0 z-50">
           <WifiOff className="w-4 h-4" />
           <span>You are currently offline. Changes will be synced when connection is restored.</span>
           {queueSize > 0 && (
-            <span className="bg-white/20 px-2 py-0.5 rounded-lg ml-2 border border-white/30 text-xs">
+            <span className="bg-surface/20 px-2 py-0.5 rounded-lg ml-2 border border-white/30 text-xs">
               {queueSize} pending
             </span>
           )}
           <button 
             onClick={() => checkConnection()} 
-            className="ml-4 px-3 py-1 bg-white/20 hover:bg-white/30 rounded-lg transition-colors border border-white/30 text-xs"
+            className="ml-4 px-3 py-1 bg-surface/20 hover:bg-surface/30 rounded-lg transition-colors border border-white/30 text-xs"
           >
             Retry
           </button>
@@ -238,7 +239,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
       )}
 
       {/* Top Navigation */}
-      <nav className="bg-white border-b border-neutral-200 sticky top-0 z-40">
+      <nav className="bg-surface border-b border-border sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
@@ -247,8 +248,8 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                 <Heart className="w-6 h-6 text-white" />
               </div>
               <div className="hidden sm:block">
-                <span className="text-xl font-semibold text-neutral-900">MediChain</span>
-                <span className="text-sm text-neutral-500 ml-2">
+                <span className="text-xl font-semibold text-content">MediChain</span>
+                <span className="text-sm text-content-muted ml-2">
                   {variant === 'doctor' ? 'Provider' : 'Patient'}
                 </span>
               </div>
@@ -266,7 +267,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-colors ${
                       isActive
                         ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                        : 'text-neutral-600 hover:bg-neutral-100'
+                        : 'text-content-muted hover:bg-surface-sunken'
                     }`}
                   >
                     <Icon className="w-5 h-5" />
@@ -280,17 +281,17 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
             <div className="flex items-center gap-3">
               <button 
                 onClick={() => navigate('/notifications')}
-                className="relative p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors"
+                className="relative p-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
                 title={isSSEConnected ? 'Live Connection Active' : 'Connecting to Live Events...'}
               >
-                <Bell className={`w-6 h-6 ${isSSEConnected ? 'text-blue-600' : 'text-neutral-600'}`} />
+                <Bell className={`w-6 h-6 ${isSSEConnected ? 'text-notice-subtle-fg' : 'text-content-muted'}`} />
                 {isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />}
                 {!isSSEConnected && <span className="absolute top-1 right-1 w-2 h-2 bg-red-400 rounded-full" />}
               </button>
 
               <button
                 onClick={handleLogout}
-                className="hidden sm:flex items-center gap-2 px-4 py-2 text-neutral-600 hover:bg-neutral-100 rounded-xl transition-colors"
+                className="hidden sm:flex items-center gap-2 px-4 py-2 text-content-muted hover:bg-surface-sunken rounded-xl transition-colors"
               >
                 <LogOut className="w-5 h-5" />
               </button>
@@ -298,7 +299,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
               {/* Mobile Menu Button */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 text-neutral-600 hover:bg-neutral-100 rounded-xl"
+                className="md:hidden p-2 text-content-muted hover:bg-surface-sunken rounded-xl"
               >
                 {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
               </button>
@@ -308,13 +309,13 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-neutral-200 bg-white max-h-[80vh] overflow-y-auto">
+          <div className="md:hidden border-t border-border bg-surface max-h-[80vh] overflow-y-auto">
             <div className="px-4 py-2">
               {variant === 'patient' ? (
                 // Sectioned navigation for patient
                 patientNavSections.map((section) => (
                   <div key={section.label} className="mb-4">
-                    <p className="text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-2">
+                    <p className="text-xs font-semibold text-content-muted uppercase tracking-wider px-4 py-2">
                       {section.label}
                     </p>
                     <div className="space-y-1">
@@ -329,7 +330,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                             className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
                               isActive
                                 ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                                : 'text-neutral-600 hover:bg-neutral-100'
+                                : 'text-content-muted hover:bg-surface-sunken'
                             }`}
                           >
                             <Icon className="w-5 h-5" />
@@ -354,7 +355,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
                         className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
                           isActive
                             ? `bg-${brandColor}-50 text-${brandColor}-600 font-medium`
-                            : 'text-neutral-600 hover:bg-neutral-100'
+                            : 'text-content-muted hover:bg-surface-sunken'
                         }`}
                       >
                         <Icon className="w-5 h-5" />
@@ -366,7 +367,7 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
               )}
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors mt-4"
+                className="w-full flex items-center gap-3 px-4 py-3 text-critical-subtle-fg hover:bg-critical-subtle rounded-xl transition-colors mt-4"
               >
                 <LogOut className="w-5 h-5" />
                 <span>Sign Out</span>
@@ -376,9 +377,17 @@ export function Layout({ variant = 'doctor' }: LayoutProps) {
         )}
       </nav>
 
-      {/* Main Content */}
+      {/* Main Content
+          The boundary sits inside the layout, not around it, so a page that
+          throws leaves the navigation usable instead of blanking the whole app
+          — which is what happened when a single malformed record crashed the
+          patient portal and took the emergency medical ID down with it.
+          Keying it on the path resets the boundary when the user navigates
+          away; without that, one crash would latch for the rest of the session. */}
       <main className="max-w-7xl mx-auto">
-        <Outlet />
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );

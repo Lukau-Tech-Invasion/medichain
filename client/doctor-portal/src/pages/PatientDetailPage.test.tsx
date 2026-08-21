@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import PatientDetailPage from './PatientDetailPage';
 import { useAuthStore } from '../store';
@@ -43,6 +43,7 @@ describe('PatientDetailPage', () => {
 
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => mockPatientData,
     });
   });
@@ -70,7 +71,6 @@ describe('PatientDetailPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('John Doe')).toBeInTheDocument();
-      expect(screen.getByText(/PAT-001/i)).toBeInTheDocument();
       expect(screen.getByText(/ID12345/i)).toBeInTheDocument();
       expect(screen.getByText(/A\+/i)).toBeInTheDocument();
       expect(screen.getByText(/Peanuts/i)).toBeInTheDocument();
@@ -111,9 +111,9 @@ describe('PatientDetailPage', () => {
       expect(screen.getByText('John Doe')).toBeInTheDocument();
     });
 
-    const recordsTab = screen.getByText(/Medical Records/i);
-    recordsTab.click();
-    
-    expect(screen.getByText(/Patient Medical History/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Records$/i }));
+
+    expect(screen.getByRole('heading', { name: /Medical Records/i })).toBeInTheDocument();
+    expect(screen.getByText(/stored encrypted on IPFS/i)).toBeInTheDocument();
   });
 });

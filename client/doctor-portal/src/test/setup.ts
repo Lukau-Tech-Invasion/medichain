@@ -12,6 +12,10 @@ import '@testing-library/jest-dom';
 import React from 'react';
 import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
+// Relative rather than '@medichain/shared': the package resolves through
+// `main: src/index.ts`, which has no subpath export for test-only helpers, and
+// test utilities should not be reachable from the production bundle.
+import { installDefaultFetch } from '../../../shared/src/testing/fetchMock';
 
 /**
  * Router hooks that work without a `<Router>` wrapper.
@@ -73,25 +77,21 @@ vi.mock('react-router-dom', async (importOriginal) => {
  * Components fetch relative paths (`/api/...`). Node's fetch has no base URL, so
  * an unmocked call threw `Failed to parse URL from /api/...` inside an effect —
  * the component then rendered its error/empty branch, and assertions about real
- * content failed for reasons unrelated to the component. This returns an empty
- * but *well-shaped* success so a page renders its normal empty state.
+ * content failed for reasons unrelated to the component.
  *
- * Only installed when the test file has not supplied its own fetch. Many files
- * assign `global.fetch = mockFetch` at *module* scope and then configure that
- * same reference in their `beforeEach`; since this hook runs first, overwriting
- * unconditionally would point the component at this stub instead of their mock
- * and silently starve their assertions of data.
+ * Horizon H3 / Class B: the previous stub here resolved a single envelope
+ * (`{ success: true, data: [] }`), which broke every page that calls
+ * `data.map(...)` on the parsed body — `TypeError: data.map is not a function`
+ * sent those components into their ERROR branch, which hides tab strips and
+ * forms, so tests failed looking for elements the component was correct not to
+ * render. The stub was manufacturing failures rather than preventing them.
+ *
+ * The shared helper now returns a body that is simultaneously an array and an
+ * envelope, so both consumption styles get an empty *success* rather than an
+ * error. See `client/shared/src/testing/fetchMock.ts` for the full rationale.
  */
 beforeEach(() => {
-  if (vi.isMockFunction(global.fetch)) return;
-  global.fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    headers: new Headers({ 'content-type': 'application/json' }),
-    json: async () => ({ success: true, data: [], records: [], patients: [], items: [] }),
-    text: async () => '{"success":true}',
-    blob: async () => new Blob([]),
-  }) as unknown as typeof fetch;
+  installDefaultFetch(vi);
 });
 
 // Cleanup after each test

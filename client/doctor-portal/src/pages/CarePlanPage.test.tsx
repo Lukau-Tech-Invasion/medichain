@@ -2,10 +2,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import CarePlanPage from './CarePlanPage';
-import { useAuthStore } from '../store';
+import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
-vi.mock('../store', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -34,8 +39,24 @@ describe('CarePlanPage', () => {
     mockFetch.mockImplementation(() =>
       Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         status: 200,
-        json: () => Promise.resolve({ plans: [] }),
+        json: () =>
+          // The page hides "Recent Care Plans" when the list is empty, which is
+          // correct — this test previously mocked `{ plans: [] }` and then
+          // asserted the heading was visible, so it was asserting against a
+          // product behaviour that would have been a bug.
+          Promise.resolve({
+            plans: [
+              {
+                id: 'CP-001',
+                patient_id: 'PAT-001',
+                status: 'active',
+                created_at: 1754985000,
+                diagnoses_count: 2,
+              },
+            ],
+          }),
       })
     );
   });

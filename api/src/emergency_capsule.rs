@@ -223,11 +223,9 @@ pub struct VerifiedCapsule {
 /// allocated from storage rather than passed in, so two callers cannot mint the
 /// same version.
 ///
-/// On-chain submission is spawned rather than awaited, matching
-/// `spawn_blockchain_patient_registration`: the chain being unavailable must
-/// never fail or delay a clinical write. The submission's outcome is written
-/// back to the capsule row so it is always possible to tell an anchored
-/// commitment from an unanchored one.
+/// Chain unavailability does not lose the clinical write: a failed submission
+/// is durably queued before this function succeeds. A finalized transaction is
+/// written back to the capsule row immediately.
 pub async fn publish_capsule(
     data: &web::Data<AppState>,
     info: &EmergencyInfo,
@@ -255,7 +253,7 @@ pub async fn publish_capsule(
         .map_err(|e| format!("could not encrypt capsule: {e}"))?
         .to_bytes();
 
-    let stored = repo
+    let mut stored = repo
         .put(EmergencyCapsuleEntity {
             patient_id: info.patient_id.clone(),
             version: next_version,
@@ -273,47 +271,38 @@ pub async fn publish_capsule(
         .await
         .map_err(|e| format!("could not store capsule: {e}"))?;
 
-    spawn_commitment_anchor(data, info.patient_id.clone(), commitment, next_version);
+    let patient_account = data
+        .repositories
+        .patients
+        .get_by_id(&info.patient_id)
+        .await
+        .ok()
+        .and_then(|patient| patient.wallet_address);
+    if crate::blockchain::blockchain_enabled() && patient_account.is_none() {
+        return Err(format!(
+            "capsule {}/v{} is stored but the patient has no blockchain wallet",
+            info.patient_id, next_version
+        ));
+    }
+    let outcome = crate::audit_outbox::anchor_capsule_or_queue(
+        data,
+        &info.patient_id,
+        patient_account.as_deref().unwrap_or_default(),
+        &commitment,
+        next_version,
+    )
+    .await?;
+    if let Some(transaction_hash) = outcome.transaction_hash {
+        repo.record_chain_result(&info.patient_id, next_version, &transaction_hash, true)
+            .await
+            .map_err(|error| {
+                format!("chain finalized but its capsule result was not saved: {error}")
+            })?;
+        stored.chain_tx_hash = Some(transaction_hash);
+        stored.chain_finalized = true;
+    }
 
     Ok(stored)
-}
-
-/// Fires off (non-blocking, non-fatal) on-chain anchoring of a commitment.
-fn spawn_commitment_anchor(
-    data: &web::Data<AppState>,
-    patient_id: String,
-    commitment_hex: String,
-    version: i32,
-) {
-    let Some(client) = data.substrate_client.clone() else {
-        return;
-    };
-    let repositories = data.repositories.clone();
-
-    tokio::spawn(async move {
-        match client
-            .set_emergency_capsule_commitment_on_chain(&patient_id, &commitment_hex, version as u32)
-            .await
-        {
-            Ok(result) => {
-                log::info!(
-                    "Emergency capsule {}/v{} anchored: {} (finalized={})",
-                    patient_id,
-                    version,
-                    result.hash,
-                    result.finalized
-                );
-                if let Err(e) = repositories
-                    .emergency_capsules
-                    .record_chain_result(&patient_id, version, &result.hash, result.finalized)
-                    .await
-                {
-                    log::warn!("Could not record capsule chain result (non-fatal): {e}");
-                }
-            }
-            Err(e) => log::warn!("Emergency capsule anchoring failed (non-fatal): {e}"),
-        }
-    });
 }
 
 /// Load the current capsule for a patient and check it against its commitment.

@@ -60,13 +60,12 @@ graph TB
     MC -->|"store encrypted blobs"| IPFS
 ```
 
-Every external dependency is **optional at runtime**. Absent a national-ID API
-key the verifier falls back to a stub and reports `verification_method: Stub`
-rather than implying a verification happened. Absent a chain the API records a
-deterministic placeholder hash and reports `finalized: false`. This is what makes
-the system demonstrable on a laptop with no credentials, and it is deliberate —
-a clinical system that cannot function when a third party is down is not a
-clinical system.
+Demo-only integrations may be disabled, but production dependencies fail closed.
+Absent a national-ID API key the verifier reports `verification_method: Stub`
+rather than implying a verification happened. Blockchain-disabled demo flows
+report `disabled`; production requires a qualified node. A failed chain write is
+reported as `pending` only after its exact operation is durably stored for retry,
+and no code path fabricates a transaction hash.
 
 ---
 
@@ -149,7 +148,7 @@ graph LR
     SVC --> EC["emergency_capsule<br/>commit · verify · revoke · log"]
     SVC --> RET["retention<br/>evaluator · job · execution"]
     SVC --> LB["types::legal_basis<br/>POPIA §11/§32/§35 · Children's Act §129"]
-    SVC --> BC["blockchain<br/>subxt or placeholder"]
+    SVC --> BC["blockchain<br/>finalized subxt · durable outbox"]
 
     EC --> RP[("repositories")]
     RET --> RP
@@ -385,7 +384,7 @@ erDiagram
         char commitment "SHA3-256 hex, on-chain"
         bytea capsule_encrypted "server keyring"
         timestamptz revoked_at "revocation is not deletion"
-        boolean chain_finalized "false = placeholder"
+        boolean chain_finalized "false = pending or disabled"
     }
     emergency_capsule_access_log {
         varchar id PK

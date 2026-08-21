@@ -21,7 +21,7 @@ const colorClasses = {
   primary: {
     bg: 'bg-gradient-to-r from-primary-500 to-primary-600',
     hover: 'hover:from-primary-600 hover:to-primary-700',
-    text: 'text-primary-100',
+    text: 'text-brand-fg',
   },
   emergency: {
     bg: 'bg-gradient-to-r from-emergency-500 to-emergency-600',
@@ -79,7 +79,7 @@ export default function QuickActionsPanel({
   return (
     <div className="mb-8">
       {title && (
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
+        <h2 className="text-lg font-semibold text-content mb-4">{title}</h2>
       )}
       <div className={`grid ${gridCols[columns]} gap-4`}>
         {actions.map((action) => {

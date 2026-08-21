@@ -1,3 +1,5 @@
+@import "../../shared/src/styles/tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -37,22 +39,22 @@
     @apply border-primary-500 ring-primary-500;
   }
 
-  .dark label {
-    @apply text-gray-200;
-  }
+  /* The dark-mode overrides that used to live here targeted *bare elements* —
+     `.dark p`, `.dark h1..h6`, `.dark label`. A type selector plus a class is
+     specificity (0,1,1), which beats a utility class at (0,1,0), so they won
+     against whatever colour a component had deliberately chosen. A paragraph
+     reading `text-green-700` inside a `bg-green-50` alert was repainted
+     gray-300 — pale text on a pale background, on a critical-value screen
+     (docs/WORKFLOW_AUDIT.md, WF-018).
 
-  .dark h1,
-  .dark h2,
-  .dark h3,
-  .dark h4,
-  .dark h5,
-  .dark h6 {
-    @apply text-white;
-  }
+     They are gone. `.dark body` already sets a light default colour, which
+     every unstyled element inherits, and the utility-level overrides below
+     (`.dark .text-gray-700` and friends) still handle elements that opted into
+     a specific grey. Nothing now silently overrules a component's own choice.
 
-  .dark p {
-    @apply text-gray-300;
-  }
+     New work should use the semantic tokens (`text-content`, `bg-ok-subtle`,
+     `text-critical-subtle-fg`) which carry their own dark values and need no
+     override layer at all. */
 
   /* Dark mode cards and containers */
   .dark .bg-white {

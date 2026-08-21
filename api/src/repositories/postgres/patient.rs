@@ -309,4 +309,21 @@ impl PatientRepository for PgPatientRepository {
 
         Ok(count as u64)
     }
+
+    async fn count_by_gender(&self) -> RepositoryResult<std::collections::HashMap<String, u64>> {
+        // COALESCE before LOWER so a NULL and an empty string land in the same
+        // explicit bucket instead of becoming a NULL group the caller has to
+        // guess at. Grouping in the query keeps the population off the heap.
+        let rows = sqlx::query_as::<_, (String, i64)>(
+            "SELECT COALESCE(NULLIF(LOWER(TRIM(gender)), ''), 'not_recorded') AS bucket, \
+             COUNT(*) FROM patients WHERE is_active = true GROUP BY bucket",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(bucket, count)| (bucket, count as u64))
+            .collect())
+    }
 }

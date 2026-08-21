@@ -33,6 +33,7 @@ describe('LabResultsPage (Patient)', () => {
       if (url.includes('/api/lab/patient/')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             results: [
               {
@@ -60,6 +61,7 @@ describe('LabResultsPage (Patient)', () => {
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -73,7 +75,7 @@ describe('LabResultsPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Lab Test Results/i)).toBeInTheDocument();
+      expect(screen.getByText(/Lab Results/i)).toBeInTheDocument();
       expect(screen.getByText(/Glucose/i)).toBeInTheDocument();
       expect(screen.getByText(/Hemoglobin A1c/i)).toBeInTheDocument();
     });
@@ -94,6 +96,7 @@ describe('LabResultsPage (Patient)', () => {
   it('shows no results message when list is empty', async () => {
     mockFetch.mockImplementation(() => Promise.resolve({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: () => Promise.resolve({ results: [] }),
     }));
 

@@ -966,6 +966,45 @@ mod tests {
         assert!(provider.validate_token(&token, "SomeOtherRoom").is_err());
         assert!(provider.validate_token("not-a-jwt", &creds.room).is_err());
 
+        // An expired token is rejected even though it is correctly signed for
+        // the right room. This is the third leg of the pre-launch check in
+        // `docs/security-checklist.md` -- no token, expired token, wrong room --
+        // and it was the only one not covered. It matters because a telehealth
+        // link is a private clinical space: without `exp` enforcement, a token
+        // captured from a finished consultation would re-open the room forever.
+        let expired_claims = JitsiClaims {
+            iss: "medichain".to_string(),
+            aud: "jitsi".to_string(),
+            sub: creds.domain.clone(),
+            room: creds.room.clone(),
+            iat: Utc::now().timestamp() - 2 * TELEHEALTH_JWT_TTL_SECS,
+            nbf: Utc::now().timestamp() - 2 * TELEHEALTH_JWT_TTL_SECS,
+            exp: Utc::now().timestamp() - TELEHEALTH_JWT_TTL_SECS,
+            context: JitsiContext {
+                user: JitsiUser {
+                    id: "5Grw".to_string(),
+                    name: "Dr. Test".to_string(),
+                    email: String::new(),
+                    moderator: true,
+                },
+            },
+        };
+        let expired = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+            &expired_claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-prosody-secret"),
+        )
+        .expect("expired token signs");
+        assert!(
+            provider.validate_token(&expired, &creds.room).is_err(),
+            "a correctly signed token for the right room must still be refused once it has expired"
+        );
+
+        // And the issued token's own lifetime is the documented 30 minutes, so
+        // the check above is not vacuous.
+        let ttl = decoded.claims["exp"].as_i64().unwrap() - decoded.claims["iat"].as_i64().unwrap();
+        assert_eq!(ttl, TELEHEALTH_JWT_TTL_SECS, "telehealth JWT lifetime");
+
         // With the secret cleared, no JWT is issued (open-room fallback) and
         // validate_token accepts any token (nothing to verify).
         std::env::remove_var("JITSI_APP_SECRET");

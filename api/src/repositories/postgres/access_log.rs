@@ -230,4 +230,18 @@ impl AccessLogRepository for PgAccessLogRepository {
 
         Ok(PaginatedResult::new(logs, count.0 as u64, &pagination))
     }
+
+    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)> {
+        // One scan, two counts, so the total and the anchored subset are always
+        // taken from the same snapshot. An empty-string hash is not an anchor.
+        let row = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT COUNT(*), \
+             COUNT(*) FILTER (WHERE blockchain_tx_hash IS NOT NULL AND TRIM(blockchain_tx_hash) <> '') \
+             FROM access_logs",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok((row.0 as u64, row.1 as u64))
+    }
 }

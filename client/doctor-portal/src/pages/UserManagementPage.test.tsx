@@ -2,10 +2,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import UserManagementPage from './UserManagementPage';
-import { useAuthStore } from '../store';
+import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
-vi.mock('../store', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -29,16 +34,24 @@ describe('UserManagementPage', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        // The page maps snake_case user records: `name` (not `fullName`),
+        // `wallet_address` (not `walletAddress`), and lower-case role/status
+        // values matching its UserRole / UserStatus unions.
         json: () => Promise.resolve({
           users: [
             {
-              id: 'u1',
-              username: 'dr_smith',
-              role: 'Doctor',
-              fullName: 'John Smith',
-              walletAddress: '5ABC...XYZ',
-              status: 'Active',
-            }
+              user_id: 'u1',
+              wallet_address: '5ABC...XYZ',
+              name: 'John Smith',
+              email: 'dr_smith@example.org',
+              phone: '+27123456789',
+              role: 'doctor',
+              status: 'active',
+              department: 'Cardiology',
+              license_number: 'MP-123456',
+              permissions: [],
+            },
           ],
         }),
       });
@@ -66,9 +79,9 @@ describe('UserManagementPage', () => {
       </MemoryRouter>
     );
 
-    const rolesTab = screen.getByText(/Roles/i);
+    const rolesTab = screen.getAllByText(/Roles/i)[0];
     fireEvent.click(rolesTab);
     
-    expect(screen.getByText(/Role Permissions/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Role Permissions/i).length).toBeGreaterThan(0);
   });
 });

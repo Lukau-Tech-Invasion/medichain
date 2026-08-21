@@ -2,10 +2,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import ImagingPage from './ImagingPage';
-import { useAuthStore } from '../store';
+import { useAuthStore } from '../store/authStore';
 
 // Mock the auth store
-vi.mock('../store', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -29,17 +34,30 @@ describe('ImagingPage', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({
-          images: [
-            {
-              id: 'i1',
-              title: 'Abdominal CT',
-              date: new Date().toISOString(),
-              type: 'CT Scan',
-              thumbnail: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
-            }
-          ],
-        }),
+        headers: new Headers({ 'content-type': 'application/json' }),
+        // This page orders imaging studies; it reads radiology *orders* as a
+        // bare array (or `{ orders }`) and renders no thumbnails.
+        json: () => Promise.resolve([
+          {
+            id: 'IMG-1',
+            patientId: 'PAT-001',
+            patientName: 'Test Patient',
+            modality: 'ct',
+            study: 'Abdominal CT',
+            bodyPart: 'Abdomen',
+            laterality: 'n/a',
+            indication: 'Abdominal pain',
+            priority: 'routine',
+            status: 'ordered',
+            orderedBy: 'Dr Smith',
+            orderedAt: new Date().toISOString(),
+            contrast: true,
+            allergies: '',
+            creatinine: '',
+            pregnant: false,
+            criticalValue: false,
+          },
+        ]),
       });
     });
   });
@@ -57,16 +75,18 @@ describe('ImagingPage', () => {
     });
   });
 
-  it('displays image thumbnails', async () => {
+  it('lists ordered studies', async () => {
     render(
       <MemoryRouter>
         <ImagingPage />
       </MemoryRouter>
     );
 
-    await waitFor(() => {
-      const images = screen.getAllByRole('img');
-      expect(images.length).toBeGreaterThan(0);
-    });
+    // This is an order-entry page, not a PACS viewer: orders are listed with
+    // their study, indication and status, and no pixel data is fetched.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Abdominal CT/i).length).toBeGreaterThan(0)
+    );
+    expect(screen.getAllByText(/Test Patient/i).length).toBeGreaterThan(0);
   });
 });

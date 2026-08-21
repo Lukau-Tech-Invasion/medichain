@@ -43,8 +43,10 @@ export function useOfflineCache<T>(
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const cacheAvailable = typeof indexedDB !== 'undefined';
 
     const serveCached = async (reason: string): Promise<boolean> => {
+      if (!cacheAvailable) return false;
       const cached = await getCachedData<T>(cacheId);
       if (cached != null) {
         setData(cached);
@@ -69,10 +71,12 @@ export function useOfflineCache<T>(
       setData(fresh);
       setFromCache(false);
       // Best-effort cache write — never let a cache failure break the read.
-      try {
-        await cacheData(cacheId, category, cacheId, fresh, ttlMs, 'high');
-      } catch (e) {
-        debugLog('useOfflineCache', `Failed to cache "${cacheId}":`, e);
+      if (cacheAvailable) {
+        try {
+          await cacheData(cacheId, category, cacheId, fresh, ttlMs, 'high');
+        } catch (e) {
+          debugLog('useOfflineCache', `Failed to cache "${cacheId}":`, e);
+        }
       }
     } catch (e) {
       // Network failed despite reporting online — fall back to the cache.

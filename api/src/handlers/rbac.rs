@@ -44,7 +44,7 @@ pub async fn assign_role(
     }
 
     // Sensitive action: enforce MFA step-up for JWT-authenticated admins.
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -97,16 +97,17 @@ pub async fn assign_role(
         last_login: None,
     };
 
-    data.users
-        .write()
-        .unwrap()
-        .insert(body.wallet_address.clone(), user.clone());
-    if let Err(e) = data.persist_user(&user).await {
+    if let Err(e) = data.persist_then_cache_user(user).await {
         log::error!(
             "Failed to persist role assignment for {}: {}",
             body.wallet_address,
             e
         );
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Role assignment could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
     }
 
     log::info!(
@@ -164,7 +165,7 @@ pub async fn revoke_role(
     }
 
     // Sensitive action: enforce MFA step-up for JWT-authenticated admins.
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -177,22 +178,29 @@ pub async fn revoke_role(
         });
     }
 
-    // Remove user
-    let removed = data.users.write().unwrap().remove(&body.wallet_address);
-
-    if removed.is_none() {
+    let exists = data
+        .users
+        .read()
+        .ok()
+        .is_some_and(|users| users.contains_key(&body.wallet_address));
+    if !exists {
         return HttpResponse::NotFound().json(ErrorResponse {
             success: false,
             error: "User not found".to_string(),
             code: "USER_NOT_FOUND".to_string(),
         });
     }
-    if let Err(e) = data.deactivate_user_in_db(&body.wallet_address).await {
+    if let Err(e) = data.deactivate_then_evict_user(&body.wallet_address).await {
         log::error!(
             "Failed to persist role revocation for {}: {}",
             body.wallet_address,
             e
         );
+        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Role revocation could not be persisted".to_string(),
+            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
+        });
     }
 
     log::info!(
@@ -329,7 +337,7 @@ pub async fn verify_guardian_relationship(
         });
     }
 
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -373,18 +381,25 @@ pub async fn verify_guardian_relationship(
         .await
     {
         Ok(created) => {
-            let _ = data.audit_outbox.record(
-                "guardian_relationship_verified".into(),
-                "guardian_relationship".into(),
-                created.id.clone(),
-                serde_json::json!({
-                    "guardian_wallet": created.guardian_wallet,
-                    "ward_patient_id": created.ward_patient_id,
-                    "permissions": created.permissions,
-                    "verified_by": created.verified_by,
-                }),
-                now,
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "guardian_relationship_verified".into(),
+                    "guardian_relationship".into(),
+                    created.id.clone(),
+                    serde_json::json!({
+                        "guardian_wallet": created.guardian_wallet,
+                        "ward_patient_id": created.ward_patient_id,
+                        "permissions": created.permissions,
+                        "verified_by": created.verified_by,
+                    }),
+                    now,
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Created().json(created)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
@@ -433,7 +448,7 @@ pub async fn update_guardian_permissions(
             code: "INSUFFICIENT_ROLE".to_string(),
         });
     }
-    if let Some(resp) = enforce_mfa_step_up(&req) {
+    if let Some(resp) = require_privileged_assurance(&data, &req) {
         return resp;
     }
 
@@ -451,16 +466,23 @@ pub async fn update_guardian_permissions(
         .await
     {
         Ok(updated) => {
-            let _ = data.audit_outbox.record(
-                "guardian_relationship_permissions_updated".into(),
-                "guardian_relationship".into(),
-                updated.id.clone(),
-                serde_json::json!({
-                    "updated_by": current_user_id,
-                    "permissions": permissions,
-                }),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "guardian_relationship_permissions_updated".into(),
+                    "guardian_relationship".into(),
+                    updated.id.clone(),
+                    serde_json::json!({
+                        "updated_by": current_user_id,
+                        "permissions": permissions,
+                    }),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(updated)
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {
@@ -538,16 +560,23 @@ pub async fn revoke_guardian_relationship(
         .await
     {
         Ok(()) => {
-            let _ = data.audit_outbox.record(
-                "guardian_relationship_revoked".into(),
-                "guardian_relationship".into(),
-                body.relationship_id.clone(),
-                serde_json::json!({
-                    "revoked_by": current_user_id,
-                    "reason": body.reason,
-                }),
-                Utc::now(),
-            );
+            if let Err(error) = data
+                .audit_outbox
+                .record_durable(
+                    data.db_pool.as_ref(),
+                    "guardian_relationship_revoked".into(),
+                    "guardian_relationship".into(),
+                    body.relationship_id.clone(),
+                    serde_json::json!({
+                        "revoked_by": current_user_id,
+                        "reason": body.reason,
+                    }),
+                    Utc::now(),
+                )
+                .await
+            {
+                log::error!("audit outbox write failed: {error}");
+            }
             HttpResponse::Ok().json(serde_json::json!({ "success": true }))
         }
         Err(e) => HttpResponse::BadRequest().json(ErrorResponse {

@@ -27,30 +27,48 @@ const ToastContext = createContext<ToastContextType | null>(null);
 
 const TOAST_DURATION = 5000; // Auto-dismiss after 5 seconds
 
-const toastStyles: Record<ToastType, { bg: string; border: string; icon: React.ReactNode; iconBg: string }> = {
+/**
+ * Toast styling, in semantic tokens rather than raw palette scales.
+ *
+ * The raw scales (`bg-green-50`, `text-gray-700`, ...) have a single fixed
+ * value and no dark variant, so in dark mode a toast rendered as a near-white
+ * card whose text colour was whatever it inherited - which is how error
+ * messages ended up unreadable at exactly the moment they mattered. The
+ * `*-subtle` / `*-subtle-fg` token pairs carry their own light and dark values
+ * and are the pairs `scripts/check-contrast.py` verifies against WCAG AA, so
+ * using them here means the gate now actually covers this component.
+ */
+const toastStyles: Record<
+  ToastType,
+  { bg: string; border: string; fg: string; icon: React.ReactNode; iconBg: string }
+> = {
   success: {
-    bg: 'bg-green-50',
-    border: 'border-green-200',
-    iconBg: 'bg-green-100',
-    icon: <CheckCircle className="text-green-600" size={20} />,
+    bg: 'bg-ok-subtle',
+    border: 'border-ok',
+    fg: 'text-ok-subtle-fg',
+    iconBg: 'bg-ok-subtle',
+    icon: <CheckCircle className="text-ok-subtle-fg" size={20} />,
   },
   error: {
-    bg: 'bg-red-50',
-    border: 'border-red-200',
-    iconBg: 'bg-red-100',
-    icon: <AlertCircle className="text-red-600" size={20} />,
+    bg: 'bg-critical-subtle',
+    border: 'border-critical',
+    fg: 'text-critical-subtle-fg',
+    iconBg: 'bg-critical-subtle',
+    icon: <AlertCircle className="text-critical-subtle-fg" size={20} />,
   },
   warning: {
-    bg: 'bg-amber-50',
-    border: 'border-amber-200',
-    iconBg: 'bg-amber-100',
-    icon: <AlertTriangle className="text-amber-600" size={20} />,
+    bg: 'bg-caution-subtle',
+    border: 'border-caution',
+    fg: 'text-caution-subtle-fg',
+    iconBg: 'bg-caution-subtle',
+    icon: <AlertTriangle className="text-caution-subtle-fg" size={20} />,
   },
   info: {
-    bg: 'bg-blue-50',
-    border: 'border-blue-200',
-    iconBg: 'bg-blue-100',
-    icon: <Info className="text-blue-600" size={20} />,
+    bg: 'bg-notice-subtle',
+    border: 'border-notice',
+    fg: 'text-notice-subtle-fg',
+    iconBg: 'bg-notice-subtle',
+    icon: <Info className="text-notice-subtle-fg" size={20} />,
   },
 };
 
@@ -73,16 +91,16 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
       </div>
       <div className="flex-1 min-w-0">
         {toast.title && (
-          <p className="text-sm font-semibold text-gray-900">{toast.title}</p>
+          <p className={`text-sm font-semibold ${style.fg}`}>{toast.title}</p>
         )}
-        <p className="text-sm text-gray-700">{toast.message}</p>
+        <p className={`text-sm ${style.fg}`}>{toast.message}</p>
       </div>
       <button
         onClick={() => onRemove(toast.id)}
-        className="flex-shrink-0 p-1 rounded hover:bg-gray-200 transition-colors"
+        className="flex-shrink-0 p-1 rounded hover:opacity-70 transition-opacity"
         aria-label="Dismiss notification"
       >
-        <X size={16} className="text-gray-500" />
+        <X size={16} className={style.fg} />
       </button>
     </div>
   );

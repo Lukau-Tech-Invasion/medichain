@@ -7,6 +7,8 @@ import type { TranslationRecord } from '../index';
 
 const ha_NG: TranslationRecord = {
   common: {
+    // Nigeria: 112 national emergency line.
+    emergencyNumber: '112',
     save: 'Ajiye',
     cancel: 'Soke',
     delete: 'Share',

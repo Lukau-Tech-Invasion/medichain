@@ -28,6 +28,9 @@ export {
 } from './i18n';
 export type { SupportedLocale, LocaleConfig } from './i18n';
 
+// Credential-backed access to the clinician's signing key (staff login).
+export * from './auth/credentials';
+
 // Wallet Types and Service (Blockchain Identity)
 export * from './wallet/types';
 export * from './wallet/service';
@@ -47,6 +50,7 @@ export * from './hooks';
 
 // Utilities
 export * from './utils/cache';
+export { lookupOr, componentOr } from './utils/enumLookup';
 export { fetchWithRetry } from './utils/fetchWithRetry';
 export * from './utils/indexedDB';
 export * from './utils/offlineQueue';
@@ -66,5 +70,7 @@ export * from './components/Loading';
 export * from './components/PatientCard';
 export * from './components/QRCodeDisplay';
 export * from './components/EmergencyBanner';
+export * from './components/ErrorBoundary';
+export * from './components/RestrictedSection';
 export * from './components/JitsiMeetComponent';
-
+export * from './utils/contrast';

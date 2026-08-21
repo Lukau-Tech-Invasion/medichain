@@ -139,40 +139,40 @@ export default function CodeBluePage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-          <AlertTriangle className="h-8 w-8 text-red-600 mr-3" />
+        <h1 className="text-3xl font-bold text-content flex items-center">
+          <AlertTriangle className="h-8 w-8 text-critical-subtle-fg mr-3" />
           {t('docCodeBlue.title')}
         </h1>
-        <p className="mt-2 text-gray-600">
+        <p className="mt-2 text-content-muted">
           {t('docCodeBlue.subtitle')}
         </p>
       </div>
 
       {/* Emergency History */}
       {selectedPatient && (
-        <div className="bg-white shadow rounded-lg p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+        <div className="bg-surface shadow rounded-lg p-6 mb-8">
+          <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
             <History className="h-5 w-5 text-red-500" />
             {t('docCodeBlue.pastEvents')}
           </h2>
           {historyLoading ? (
-            <p className="text-gray-500 text-sm">{t('docCodeBlue.loadingHistory')}</p>
+            <p className="text-content-muted text-sm">{t('docCodeBlue.loadingHistory')}</p>
           ) : emergencyHistory.length === 0 ? (
-            <p className="text-gray-400 text-sm italic">{t('docCodeBlue.noEvents')}</p>
+            <p className="text-content-muted text-sm italic">{t('docCodeBlue.noEvents')}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-surface-sunken">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colEventId')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colType')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colTime')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCodeBlue.colOutcome')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colEventId')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colType')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colTime')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCodeBlue.colOutcome')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-border">
                   {emergencyHistory.map((ev) => (
-                    <tr key={ev.event_id} className="hover:bg-gray-50">
+                    <tr key={ev.event_id} className="hover:bg-surface-sunken">
                       <td className="px-4 py-2 font-mono text-xs">{ev.event_id}</td>
                       <td className="px-4 py-2">{ev.event_type || t('docCodeBlue.codeBlue')}</td>
                       <td className="px-4 py-2">
@@ -181,9 +181,9 @@ export default function CodeBluePage() {
                       </td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          ev.outcome === 'rosc' ? 'bg-green-100 text-green-700' :
-                          ev.outcome === 'expired' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-700'
+                          ev.outcome === 'rosc' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                          ev.outcome === 'expired' ? 'bg-critical-subtle text-critical-subtle-fg' :
+                          'bg-surface-sunken text-content-secondary'
                         }`}>
                           {ev.outcome || t('docCodeBlue.unknown')}
                         </span>
@@ -201,17 +201,17 @@ export default function CodeBluePage() {
         {/* Left Column: Controls & Patient */}
         <div className="lg:col-span-2 space-y-6">
           {/* Patient Selection */}
-          <div className="bg-white shadow rounded-lg p-6">
-            <label htmlFor="code-blue-patient" className="block text-sm font-medium text-gray-700 mb-2">
+          <div className="bg-surface shadow rounded-lg p-6">
+            <label htmlFor="code-blue-patient" className="block text-sm font-medium text-content-secondary mb-2">
               {t('docCodeBlue.selectPatient')}
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-5 w-5 text-gray-400" />
+                <Search className="h-5 w-5 text-content-muted" />
               </div>
               <select
                 id="code-blue-patient"
-                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={selectedPatient}
                 onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
                 disabled={isActive}
@@ -227,8 +227,8 @@ export default function CodeBluePage() {
           </div>
 
           {/* Timer & Main Controls */}
-          <div className="bg-white shadow rounded-lg p-6 text-center">
-            <div className="text-6xl font-mono font-bold text-gray-900 mb-6">
+          <div className="bg-surface shadow rounded-lg p-6 text-center">
+            <div className="text-6xl font-mono font-bold text-content mb-6">
               {formatTime(elapsedTime)}
             </div>
             
@@ -237,8 +237,15 @@ export default function CodeBluePage() {
                 <button
                   onClick={startCode}
                   disabled={!selectedPatient}
-                  className={`flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white ${
-                    selectedPatient ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'
+                  // The foreground moves with the fill. It was pinned to
+                  // `text-ok-fg` (white) while the disabled fill was gray-400 —
+                  // 2.54:1, so on the Code Blue page the button a clinician
+                  // needs during a resuscitation did not legibly say what it
+                  // was. The disabled tokens are contrast-checked for this.
+                  className={`flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md ${
+                    selectedPatient
+                      ? 'bg-ok text-ok-fg hover:bg-ok'
+                      : 'bg-disabled text-disabled-fg cursor-not-allowed'
                   }`}
                 >
                   <Play className="h-5 w-5 mr-2" />
@@ -247,7 +254,7 @@ export default function CodeBluePage() {
               ) : (
                 <button
                   onClick={stopCode}
-                  className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                  className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-critical-fg bg-critical hover:bg-critical"
                 >
                   <Square className="h-5 w-5 mr-2" />
                   {t('docCodeBlue.stopCode')}
@@ -257,77 +264,91 @@ export default function CodeBluePage() {
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-white shadow rounded-lg p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">{t('docCodeBlue.quickActions')}</h3>
+          <div className="bg-surface shadow rounded-lg p-6">
+            <h3 className="text-lg font-medium text-content mb-4">{t('docCodeBlue.quickActions')}</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <button
                 onClick={() => logEvent('CPR Cycle Started')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-blue-100 rounded-lg hover:bg-notice-subtle disabled:opacity-50"
               >
-                <Activity className="h-8 w-8 text-blue-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.cprCycle')}</span>
+                <Activity className="h-8 w-8 text-notice-subtle-fg mb-2" />
+                <span className="text-sm font-medium text-content">{t('docCodeBlue.cprCycle')}</span>
               </button>
               
               <button
                 onClick={() => logEvent('Shock Delivered - 200J')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-yellow-50 disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-yellow-100 rounded-lg hover:bg-caution-subtle disabled:opacity-50"
               >
-                <Zap className="h-8 w-8 text-yellow-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.shock')}</span>
+                <Zap className="h-8 w-8 text-caution-subtle-fg mb-2" />
+                <span className="text-sm font-medium text-content">{t('docCodeBlue.shock')}</span>
               </button>
 
               <button
                 onClick={() => logEvent('Medication: Epinephrine 1mg')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-purple-50 disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:opacity-50"
               >
-                <Syringe className="h-8 w-8 text-purple-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.epi')}</span>
+                <Syringe className="h-8 w-8 text-content-secondary mb-2" />
+                <span className="text-sm font-medium text-content">{t('docCodeBlue.epi')}</span>
+              </button>
+
+              {/* Amiodarone is the ACLS antiarrhythmic for shock-refractory
+                  VF/pVT and is given alongside epinephrine, not instead of it.
+                  Only epi was one tap away, so the drug that follows the third
+                  shock had to be typed into the narrative — the one place it is
+                  least likely to be timed accurately during a code. */}
+              <button
+                onClick={() => logEvent('Medication: Amiodarone 300mg')}
+                disabled={!isActive}
+                className="flex flex-col items-center justify-center p-4 border-2 border-amber-100 rounded-lg hover:bg-caution-subtle disabled:opacity-50"
+              >
+                <Syringe className="h-8 w-8 text-caution-subtle-fg mb-2" />
+                <span className="text-sm font-medium text-content">{t('docCodeBlue.amiodarone')}</span>
               </button>
 
               <button
                 onClick={() => logEvent('Pulse Check - Pulse Present')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-green-50 disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-green-100 rounded-lg hover:bg-ok-subtle disabled:opacity-50"
               >
-                <Heart className="h-8 w-8 text-green-600 mb-2" />
-                <span className="text-sm font-medium text-gray-900">{t('docCodeBlue.rosc')}</span>
+                <Heart className="h-8 w-8 text-ok-subtle-fg mb-2" />
+                <span className="text-sm font-medium text-content">{t('docCodeBlue.rosc')}</span>
               </button>
             </div>
           </div>
 
           {/* Documentation */}
-          <div className="bg-white shadow rounded-lg p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">{t('docCodeBlue.documentation')}</h3>
+          <div className="bg-surface shadow rounded-lg p-6">
+            <h3 className="text-lg font-medium text-content mb-4">{t('docCodeBlue.documentation')}</h3>
             <div className="space-y-4">
               <div>
-                <label htmlFor="code-blue-team" className="block text-sm font-medium text-gray-700">{t('docCodeBlue.teamMembers')}</label>
+                <label htmlFor="code-blue-team" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.teamMembers')}</label>
                 <input
                   id="code-blue-team"
                   type="text"
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   placeholder={t('docCodeBlue.teamPlaceholder')}
                   value={teamMembers}
                   onChange={(e) => setTeamMembers(e.target.value)}
                 />
               </div>
               <div>
-                <label htmlFor="code-blue-narrative" className="block text-sm font-medium text-gray-700">{t('docCodeBlue.narrativeNote')}</label>
+                <label htmlFor="code-blue-narrative" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.narrativeNote')}</label>
                 <textarea
                   id="code-blue-narrative"
                   rows={4}
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value)}
                 />
               </div>
               <div>
-                <label htmlFor="code-blue-outcome" className="block text-sm font-medium text-gray-700">{t('docCodeBlue.outcome')}</label>
+                <label htmlFor="code-blue-outcome" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.outcome')}</label>
                 <select
                   id="code-blue-outcome"
-                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   value={outcome}
                   onChange={(e) => setOutcome(e.target.value)}
                 >
@@ -342,28 +363,28 @@ export default function CodeBluePage() {
         </div>
 
         {/* Right Column: Event Log */}
-        <div className="bg-white shadow rounded-lg p-6 h-full flex flex-col">
-          <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-            <Clock className="h-5 w-5 mr-2 text-gray-500" />
+        <div className="bg-surface shadow rounded-lg p-6 h-full flex flex-col">
+          <h3 className="text-lg font-medium text-content mb-4 flex items-center">
+            <Clock className="h-5 w-5 mr-2 text-content-muted" />
             {t('docCodeBlue.eventLog')}
           </h3>
-          <div className="flex-1 overflow-y-auto bg-gray-50 rounded-md p-4 space-y-2 max-h-[600px]">
+          <div className="flex-1 overflow-y-auto bg-surface-sunken rounded-md p-4 space-y-2 max-h-[600px]">
             {events.length === 0 ? (
-              <p className="text-gray-500 text-center italic">{t('docCodeBlue.noEventsRecorded')}</p>
+              <p className="text-content-muted text-center italic">{t('docCodeBlue.noEventsRecorded')}</p>
             ) : (
               events.map((event, idx) => (
-                <div key={idx} className="text-sm text-gray-700 border-b border-gray-200 pb-2 last:border-0">
+                <div key={idx} className="text-sm text-content-secondary border-b border-border pb-2 last:border-0">
                   {event}
                 </div>
               ))
             )}
           </div>
           
-          <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="mt-6 pt-6 border-t border-border">
             <button
               onClick={handleSubmit}
               disabled={isActive || !startTime}
-              className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4 mr-2" />
               {t('docCodeBlue.finalizeRecord')}

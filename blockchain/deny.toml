@@ -1,0 +1,117 @@
+# cargo-deny configuration for the MediChain **blockchain** workspace.
+#
+# Run locally with:
+#   cargo deny --manifest-path blockchain/Cargo.toml check
+#
+# ---------------------------------------------------------------------------
+# Why this file exists separately from the repo-root deny.toml
+# ---------------------------------------------------------------------------
+# `blockchain/` is its own cargo workspace with its own Cargo.lock. The
+# repo-root `supply-chain` CI job invokes cargo-deny from the root, and a
+# workspace-scoped command reports success for crates it never looked at — the
+# same scoping trap `.github/workflows/ci.yml` already documents for the test
+# job. The result was that **1171 dependencies — the entire Substrate
+# networking, consensus and crypto stack — had no advisory, licence or source
+# scanning at all**, while the API's comparatively small tree was fully covered.
+#
+# ---------------------------------------------------------------------------
+# Licences: why this list is wider than the root's, and deliberately so
+# ---------------------------------------------------------------------------
+# The root workspace is permissive-only. This one cannot be: the Polkadot SDK
+# ships a substantial part of its node stack under the GPL. Measured against
+# the resolved lockfile on 2026-08-20:
+#
+#   * 48 crates  GPL-3.0-or-later WITH Classpath-exception-2.0  (the `sc-*`
+#     Substrate client crates). The Classpath exception explicitly permits
+#     linking without imposing the GPL on the linked work.
+#   * 17 crates  GPL-3.0-only, **no exception, no permissive alternative**
+#     (`polkadot-*`, `staging-xcm*`, `tracing-gum*`). Every one of them enters
+#     the graph through a single dependency — `frame-benchmarking-cli` — which
+#     `medichain-node` links unconditionally. They are absent from
+#     `medichain-runtime`'s graph entirely.
+#
+# That distinction is the whole point of allowing them explicitly here rather
+# than globally: the allow-list is the record of a decision, so if a GPL-3.0-only
+# crate ever appears on a *new* path this file is what makes someone look.
+# See docs/TECHNICAL_DEBT_REGISTER.md for the open question about whether the
+# node should carry that dependency at all.
+#
+# NOTE ON COMPLETENESS: this list was derived from the 1074 of 1171 locked
+# packages available in the local registry cache; 97 could not be read offline.
+# `licenses` is therefore report-only in CI for now — it is a discovery gate,
+# not yet a blocking one. Flip it once a full CI run confirms the list is
+# complete.
+
+[graph]
+# Default features only — `all-features` would switch on `runtime-benchmarks`
+# and `try-runtime`, pulling in a graph that no shipped binary contains. The
+# question this file answers is "what does the node we actually build link".
+all-features = false
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# Security advisories (RustSec)
+# ---------------------------------------------------------------------------
+# Report-only, matching the root workspace's posture. The Substrate tree
+# carries upstream advisories this project does not control and cannot patch;
+# making this blocking today would fail every future PR on pre-existing issues
+# rather than on ones it introduces.
+[advisories]
+version = 2
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    # --- permissive: same set as the root workspace ---
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "0BSD",
+    "BSL-1.0",
+    "Unlicense",
+
+    # --- GPL, unavoidable in the Polkadot SDK node stack ---
+    # Linking permitted by the exception; does not affect the licence of the
+    # work that links it.
+    "GPL-3.0-or-later WITH Classpath-exception-2.0",
+    # No exception. Present only via `frame-benchmarking-cli` in
+    # `medichain-node`. Allowed so the build is honest about what it links,
+    # NOT because the coupling is considered settled.
+    "GPL-3.0-only",
+    "GPL-3.0",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+deny = []
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Sources — the one check here that is ENFORCED.
+# ---------------------------------------------------------------------------
+# Verified clean on 2026-08-20: the lockfile resolves 1166 packages from the
+# crates.io registry and zero from any git source, and contains no reference to
+# the pre-monorepo `paritytech/substrate` repository. A git or vendored source
+# appearing in this tree would mean an unpinned, unaudited supply-chain entry
+# point into the node that signs blocks — so this one blocks.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

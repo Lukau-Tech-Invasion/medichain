@@ -256,6 +256,27 @@ impl AccessLogRepository for MemoryAccessLogRepository {
 
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+
+    async fn count_anchored(&self) -> RepositoryResult<(u64, u64)> {
+        let storage = self
+            .storage
+            .read()
+            .map_err(|e| RepositoryError::Internal(format!("Lock poisoned: {}", e)))?;
+
+        let total = storage.len() as u64;
+        // An empty-string hash is not an anchor. Treating it as one would put
+        // the coverage figure back where it started.
+        let anchored = storage
+            .values()
+            .filter(|log| {
+                log.blockchain_tx_hash
+                    .as_deref()
+                    .is_some_and(|h| !h.trim().is_empty())
+            })
+            .count() as u64;
+
+        Ok((total, anchored))
+    }
 }
 
 #[cfg(test)]

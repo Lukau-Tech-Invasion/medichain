@@ -39,6 +39,16 @@ jobs:
             - name: Every endpoint has an auth decision
               run: python scripts/check-endpoint-auth.py
 
+            # The gate above asks "is there an authorization decision here". It
+            # cannot see a decision that is present and too permissive — it
+            # counted the telehealth recording endpoint as properly authorized
+            # while `is_healthcare_provider()` was letting a pharmacist start
+            # recording a patient's consultation. This one asks the narrower
+            # question: does a state-changing handler rely on the widest
+            # clinical predicate, and was that deliberate?
+            - name: State-changing handlers narrow beyond "any clinical staff"
+              run: python scripts/check-write-authorization.py
+
     # ============================================================================
     # Rust Backend (Substrate pallets, API, crypto, node)
     # ============================================================================
@@ -238,6 +248,41 @@ jobs:
               with:
                   command: check
                   command-arguments: advisories
+
+            # ----------------------------------------------------------------
+            # The SAME checks over the `blockchain/` workspace.
+            #
+            # Everything above runs from the repo root, so it only ever sees the
+            # root workspace -- exactly the scoping trap the `blockchain` job's
+            # header describes for tests. Until this step existed, all 1171
+            # locked dependencies of the node and runtime (the whole Substrate
+            # networking, consensus and crypto stack) went unscanned: no
+            # advisories, no licence review, no source pinning. The API's much
+            # smaller tree was fully covered, which made the gap easy to miss.
+            #
+            # Config: blockchain/deny.toml (separate from the root's on purpose
+            # -- the Polkadot SDK ships GPL crates the root's permissive-only
+            # allow-list would reject outright).
+            # ----------------------------------------------------------------
+            - name: cargo-deny blockchain (sources, enforced)
+              uses: EmbarkStudios/cargo-deny-action@v2
+              with:
+                  manifest-path: blockchain/Cargo.toml
+                  command: check
+                  command-arguments: sources
+
+            # Licences and advisories start report-only for the blockchain tree.
+            # The licence allow-list was derived offline from 1074 of the 1171
+            # locked packages (the rest were not in the local registry cache),
+            # so it is a discovery gate until a full CI run confirms it is
+            # complete. `bans` is warn-level by config, not a failure.
+            - name: cargo-deny blockchain (licences + advisories, report-only)
+              uses: EmbarkStudios/cargo-deny-action@v2
+              continue-on-error: true
+              with:
+                  manifest-path: blockchain/Cargo.toml
+                  command: check
+                  command-arguments: licenses advisories bans
 
             # Licenses: NOT part of the HZ-011 advisories review — separate,
             # still-unaddressed issues (deprecated SPDX identifiers on the

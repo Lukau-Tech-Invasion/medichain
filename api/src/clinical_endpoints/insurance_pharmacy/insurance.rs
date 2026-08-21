@@ -74,8 +74,29 @@ pub async fn verify_insurance(
 
             match insurance_list.first() {
                 Some(insurance) => {
-                    // Simulate verification (in production: call external API)
-                    let coverage_active = insurance.is_active;
+                    // `coverage_active` was `is_active` alone, which reports a
+                    // lapsed policy as live: the flag says nothing about whether
+                    // today falls inside the policy's own effective/termination
+                    // window. Shared with the eligibility endpoint so the two
+                    // surfaces cannot disagree about the same policy.
+                    let today = chrono::Utc::now().date_naive();
+                    let coverage_active =
+                        crate::clinical_endpoints::policy_in_force(insurance, today);
+
+                    // The seven service benefits were hardcoded `true` and the
+                    // amounts were the literals R500/R300/R150 and R5000/R2500 —
+                    // for every patient, on every plan, regardless of the record
+                    // this handler had already loaded. A clerk reading
+                    // "mental_health: true" off this response would be quoting
+                    // cover the payer never confirmed. Benefits now come from the
+                    // payer-supplied `coverage_details` schedule and are `null`
+                    // when the payer supplied none; the amounts come from the
+                    // policy's real stored figures.
+                    let service_benefits = insurance
+                        .coverage_details
+                        .as_ref()
+                        .filter(|v| v.is_object())
+                        .cloned();
 
                     HttpResponse::Ok().json(serde_json::json!({
                         "success": true,
@@ -90,26 +111,17 @@ pub async fn verify_insurance(
                             "coverage_type": insurance.plan_type.clone(),
                             "valid_from": insurance.effective_date.to_string(),
                             "valid_to": insurance.termination_date.map(|d| d.to_string()),
-                            "benefits": {
-                                "emergency_services": true,
-                                "inpatient": true,
-                                "outpatient": true,
-                                "laboratory": true,
-                                "radiology": true,
-                                "pharmacy": true,
-                                "mental_health": true
+                            "benefits": service_benefits,
+                            "benefits_source": if insurance.coverage_details.is_some() {
+                                "payer_schedule"
+                            } else {
+                                "not_supplied_by_payer"
                             },
-                            "copay": {
-                                "emergency": "R500",
-                                "specialist": "R300",
-                                "primary_care": "R150",
-                                "pharmacy": "20%"
-                            },
-                            "deductible": {
-                                "annual": "R5000",
-                                "met": "R2500",
-                                "remaining": "R2500"
-                            }
+                            "financials": crate::clinical_endpoints::policy_financials(insurance),
+                            "prior_auth_required": insurance.prior_auth_required,
+                            "prior_auth_phone": insurance.prior_auth_phone.clone(),
+                            "last_verified_date": insurance.last_verified_date.map(|d| d.to_string()),
+                            "verification_status": insurance.verification_status.clone()
                         }
                     }))
                 }

@@ -181,20 +181,20 @@ export default function CarePlanPage() {
 
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
-      case 'high': return 'bg-red-100 text-red-700 border-red-300';
-      case 'medium': return 'bg-yellow-100 text-yellow-700 border-yellow-300';
-      case 'low': return 'bg-green-100 text-green-700 border-green-300';
+      case 'high': return 'bg-critical-subtle text-critical-subtle-fg border-critical';
+      case 'medium': return 'bg-caution-subtle text-caution-subtle-fg border-caution';
+      case 'low': return 'bg-ok-subtle text-ok-subtle-fg border-ok';
     }
   };
 
   const getStatusColor = (status: GoalStatus) => {
     switch (status) {
       case 'met': return 'bg-green-500 text-white';
-      case 'partially-met': return 'bg-yellow-500 text-white';
+      case 'partially-met': return 'bg-caution text-white';
       case 'in-progress': return 'bg-blue-500 text-white';
       case 'not-met': return 'bg-red-500 text-white';
       case 'revised': return 'bg-purple-500 text-white';
-      default: return 'bg-gray-300 text-gray-700';
+      default: return 'bg-gray-300 text-content-secondary';
     }
   };
 
@@ -321,13 +321,13 @@ export default function CarePlanPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-teal-600 to-cyan-600 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-3 bg-white/20 rounded-full">
+              <div className="p-3 bg-surface/20 rounded-full">
                 <ClipboardList className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -345,14 +345,14 @@ export default function CarePlanPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <CheckCircle2 className="h-5 w-5 mr-2" />
             {success}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
@@ -360,32 +360,32 @@ export default function CarePlanPage() {
 
         {/* Care Plans List */}
         {carePlans.length > 0 && (
-          <div className="bg-white rounded-lg shadow mb-6 p-4">
-            <h2 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <div className="bg-surface rounded-lg shadow mb-6 p-4">
+            <h2 className="font-bold text-content mb-3 flex items-center gap-2">
               <ClipboardList className="h-5 w-5 text-teal-500" />
               {t('docCarePlan.recentCarePlansTitle')}
-              {plansLoading && <span className="text-sm text-gray-400 ml-2">{t('docCarePlan.loading')}</span>}
+              {plansLoading && <span className="text-sm text-content-muted ml-2">{t('docCarePlan.loading')}</span>}
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-surface-sunken">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCarePlan.colId')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCarePlan.colPatientId')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCarePlan.colStatus')}</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">{t('docCarePlan.colCreated')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colId')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colPatientId')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colStatus')}</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-content-muted">{t('docCarePlan.colCreated')}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-border">
                   {carePlans.map((plan) => (
-                    <tr key={plan.id} className="hover:bg-gray-50">
+                    <tr key={plan.id} className="hover:bg-surface-sunken">
                       <td className="px-4 py-2 font-mono text-xs">{plan.id}</td>
                       <td className="px-4 py-2">{plan.patient_id || '-'}</td>
                       <td className="px-4 py-2">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          plan.status === 'active' ? 'bg-green-100 text-green-700' :
-                          plan.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                          'bg-gray-100 text-gray-700'
+                          plan.status === 'active' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                          plan.status === 'completed' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                          'bg-surface-sunken text-content-secondary'
                         }`}>
                           {t(`docCarePlan.status_${plan.status || 'active'}`)}
                         </span>
@@ -402,19 +402,19 @@ export default function CarePlanPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Patient Selection Sidebar */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-bold text-gray-900 mb-4 flex items-center">
+            <div className="bg-surface rounded-lg shadow p-4">
+              <h2 className="font-bold text-content mb-4 flex items-center">
                 <User className="h-5 w-5 mr-2 text-teal-500" />
                 {t('docCarePlan.selectPatientTitle')}
               </h2>
               <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder={t('docCarePlan.searchPatientsPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-teal-500"
                 />
               </div>
               <div className="max-h-96 overflow-y-auto space-y-2">
@@ -424,12 +424,12 @@ export default function CarePlanPage() {
                     onClick={() => setSelectedPatient(patient)}
                     className={`w-full text-left p-3 rounded-lg transition-colors ${
                       selectedPatient?.patient_id === patient.patient_id
-                        ? 'bg-teal-100 border-2 border-teal-500'
-                        : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                        ? 'bg-surface-sunken border-2 border-teal-500'
+                        : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                     }`}
                   >
-                    <p className="font-medium text-gray-900">{patient.full_name}</p>
-                    <p className="text-sm text-gray-500">{patient.patient_id}</p>
+                    <p className="font-medium text-content">{patient.full_name}</p>
+                    <p className="text-sm text-content-muted">{patient.patient_id}</p>
                   </button>
                 ))}
               </div>
@@ -437,31 +437,31 @@ export default function CarePlanPage() {
 
             {/* Care Plan Summary */}
             {selectedPatient && (
-              <div className="bg-white rounded-lg shadow p-4 mt-4">
-                <h3 className="font-bold text-gray-900 mb-3">{t('docCarePlan.carePlanSummaryTitle')}</h3>
+              <div className="bg-surface rounded-lg shadow p-4 mt-4">
+                <h3 className="font-bold text-content mb-3">{t('docCarePlan.carePlanSummaryTitle')}</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docCarePlan.diagnosesLabel')}</span>
+                    <span className="text-content-muted">{t('docCarePlan.diagnosesLabel')}</span>
                     <span className="font-medium">{diagnoses.length}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docCarePlan.goalsLabel')}</span>
+                    <span className="text-content-muted">{t('docCarePlan.goalsLabel')}</span>
                     <span className="font-medium">{goals.length}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docCarePlan.interventionsLabel')}</span>
+                    <span className="text-content-muted">{t('docCarePlan.interventionsLabel')}</span>
                     <span className="font-medium">{interventions.length}</span>
                   </div>
                   <hr className="my-2" />
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docCarePlan.goalsMetLabel')}</span>
-                    <span className="font-medium text-green-600">
+                    <span className="text-content-muted">{t('docCarePlan.goalsMetLabel')}</span>
+                    <span className="font-medium text-ok-subtle-fg">
                       {goals.filter(g => g.status === 'met').length}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">{t('docCarePlan.inProgressLabel')}</span>
-                    <span className="font-medium text-blue-600">
+                    <span className="text-content-muted">{t('docCarePlan.inProgressLabel')}</span>
+                    <span className="font-medium text-notice-subtle-fg">
                       {goals.filter(g => g.status === 'in-progress').length}
                     </span>
                   </div>
@@ -473,7 +473,7 @@ export default function CarePlanPage() {
           {/* Main Content */}
           <div className="lg:col-span-3">
             {selectedPatient ? (
-              <div className="bg-white rounded-lg shadow">
+              <div className="bg-surface rounded-lg shadow">
                 {/* Tabs */}
                 <div className="border-b">
                   <div className="flex">
@@ -488,8 +488,8 @@ export default function CarePlanPage() {
                         onClick={() => setActiveTab(tab.id as typeof activeTab)}
                         className={`flex-1 flex items-center justify-center space-x-2 py-4 px-4 font-medium transition-colors ${
                           activeTab === tab.id
-                            ? 'border-b-2 border-teal-500 text-teal-600'
-                            : 'text-gray-500 hover:text-gray-700'
+                            ? 'border-b-2 border-teal-500 text-content-secondary'
+                            : 'text-content-muted hover:text-content-secondary'
                         }`}
                       >
                         <tab.icon className="h-5 w-5" />
@@ -505,7 +505,7 @@ export default function CarePlanPage() {
                   {activeTab === 'diagnoses' && (
                     <div>
                       <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-gray-900">{t('docCarePlan.diagnosesTitle')}</h2>
+                        <h2 className="text-xl font-bold text-content">{t('docCarePlan.diagnosesTitle')}</h2>
                         <button
                           onClick={() => setShowAddDiagnosis(true)}
                           className="flex items-center space-x-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700"
@@ -516,16 +516,16 @@ export default function CarePlanPage() {
                       </div>
 
                       {showAddDiagnosis && (
-                        <div className="mb-6 p-6 bg-gray-50 rounded-lg border-2 border-teal-300">
+                        <div className="mb-6 p-6 bg-surface-sunken rounded-lg border-2 border-teal-300">
                           <h3 className="text-lg font-bold mb-4">{t('docCarePlan.addDiagnosisTitle')}</h3>
                           <div className="space-y-4">
                             <div>
-                              <label htmlFor="careplan-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.diagnosisLabel')}</label>
+                              <label htmlFor="careplan-diagnosis" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.diagnosisLabel')}</label>
                               <select
                                 id="careplan-diagnosis"
                                 value={newDiagnosis.diagnosis}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, diagnosis: e.target.value })}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               >
                                 <option value="">{t('docCarePlan.selectDiagnosis')}</option>
                                 {commonDiagnoses.map(cat => (
@@ -538,29 +538,29 @@ export default function CarePlanPage() {
                               </select>
                             </div>
                             <div>
-                              <label htmlFor="careplan-related-to" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.relatedToLabel')}</label>
+                              <label htmlFor="careplan-related-to" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.relatedToLabel')}</label>
                               <input
                                 id="careplan-related-to"
                                 type="text"
                                 value={newDiagnosis.relatedTo}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, relatedTo: e.target.value })}
                                 placeholder={t('docCarePlan.relatedToPh')}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               />
                             </div>
                             <div>
-                              <label htmlFor="careplan-evidenced-by" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.evidencedByLabel')}</label>
+                              <label htmlFor="careplan-evidenced-by" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.evidencedByLabel')}</label>
                               <input
                                 id="careplan-evidenced-by"
                                 type="text"
                                 value={newDiagnosis.evidencedBy}
                                 onChange={(e) => setNewDiagnosis({ ...newDiagnosis, evidencedBy: e.target.value })}
                                 placeholder={t('docCarePlan.evidencedByPh')}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               />
                             </div>
                             <fieldset>
-                              <legend className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.priorityLabel')}</legend>
+                              <legend className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.priorityLabel')}</legend>
                               <div className="flex space-x-4">
                                 {(['high', 'medium', 'low'] as Priority[]).map(p => (
                                   <label key={p} htmlFor={`careplan-priority-${p}`} className="flex items-center space-x-2">
@@ -569,7 +569,7 @@ export default function CarePlanPage() {
                                       type="radio"
                                       checked={newDiagnosis.priority === p}
                                       onChange={() => setNewDiagnosis({ ...newDiagnosis, priority: p })}
-                                      className="text-teal-600"
+                                      className="text-content-secondary"
                                     />
                                     <span className={`px-2 py-1 rounded capitalize ${getPriorityColor(p)}`}>{t(`docCarePlan.priority_${p}`)}</span>
                                   </label>
@@ -580,7 +580,7 @@ export default function CarePlanPage() {
                           <div className="flex justify-end space-x-3 mt-4">
                             <button
                               onClick={() => setShowAddDiagnosis(false)}
-                              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                              className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                             >
                               {t('docCarePlan.cancelBtn')}
                             </button>
@@ -597,29 +597,29 @@ export default function CarePlanPage() {
                       <div className="space-y-4">
                         {diagnoses.map(dx => (
                           <div key={dx.id} className={`p-4 rounded-lg border-l-4 ${
-                            dx.priority === 'high' ? 'border-l-red-500 bg-red-50' :
-                            dx.priority === 'medium' ? 'border-l-yellow-500 bg-yellow-50' :
-                            'border-l-green-500 bg-green-50'
+                            dx.priority === 'high' ? 'border-l-red-500 bg-critical-subtle' :
+                            dx.priority === 'medium' ? 'border-l-yellow-500 bg-caution-subtle' :
+                            'border-l-green-500 bg-ok-subtle'
                           }`}>
                             <div className="flex justify-between items-start">
                               <div>
                                 <div className="flex items-center space-x-2">
-                                  <h3 className="font-bold text-gray-900">{dx.diagnosis}</h3>
+                                  <h3 className="font-bold text-content">{dx.diagnosis}</h3>
                                   <span className={`text-xs px-2 py-0.5 rounded ${getPriorityColor(dx.priority)}`}>
                                     {t(`docCarePlan.priority_${dx.priority}`).toUpperCase()}
                                   </span>
                                 </div>
-                                <p className="text-sm text-gray-600 mt-1">
+                                <p className="text-sm text-content-muted mt-1">
                                   <strong>{t('docCarePlan.rtPrefix')}</strong> {dx.relatedTo || t('docCarePlan.notSpecified')}
                                 </p>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-content-muted">
                                   <strong>{t('docCarePlan.aebPrefix')}</strong> {dx.evidencedBy || t('docCarePlan.notSpecified')}
                                 </p>
-                                <p className="text-xs text-gray-400 mt-2">{t('docCarePlan.identifiedLabel', { date: dx.dateIdentified })}</p>
+                                <p className="text-xs text-content-muted mt-2">{t('docCarePlan.identifiedLabel', { date: dx.dateIdentified })}</p>
                               </div>
                               <button
                                 onClick={() => removeDiagnosis(dx.id)}
-                                className="text-red-600 hover:text-red-700 p-2"
+                                className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                               >
                                 <Trash2 className="h-5 w-5" />
                               </button>
@@ -627,7 +627,7 @@ export default function CarePlanPage() {
                           </div>
                         ))}
                         {diagnoses.length === 0 && (
-                          <div className="text-center py-8 text-gray-500">
+                          <div className="text-center py-8 text-content-muted">
                             <Stethoscope className="h-12 w-12 mx-auto mb-2 opacity-50" />
                             <p>{t('docCarePlan.noDiagnosesYet')}</p>
                           </div>
@@ -640,7 +640,7 @@ export default function CarePlanPage() {
                   {activeTab === 'goals' && (
                     <div>
                       <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-gray-900">{t('docCarePlan.goalsTitle')}</h2>
+                        <h2 className="text-xl font-bold text-content">{t('docCarePlan.goalsTitle')}</h2>
                         <button
                           onClick={() => setShowAddGoal(true)}
                           disabled={diagnoses.length === 0}
@@ -652,23 +652,23 @@ export default function CarePlanPage() {
                       </div>
 
                       {diagnoses.length === 0 && (
-                        <div className="mb-6 bg-yellow-50 border border-yellow-200 text-yellow-700 p-4 rounded-lg">
+                        <div className="mb-6 bg-caution-subtle border border-caution text-caution-subtle-fg p-4 rounded-lg">
                           <AlertTriangle className="h-5 w-5 inline mr-2" />
                           {t('docCarePlan.needDiagnosisWarning')}
                         </div>
                       )}
 
                       {showAddGoal && (
-                        <div className="mb-6 p-6 bg-gray-50 rounded-lg border-2 border-teal-300">
+                        <div className="mb-6 p-6 bg-surface-sunken rounded-lg border-2 border-teal-300">
                           <h3 className="text-lg font-bold mb-4">{t('docCarePlan.addGoalTitle')}</h3>
                           <div className="space-y-4">
                             <div>
-                              <label htmlFor="careplan-goal-diagnosis" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.relatedDiagnosisLabel')}</label>
+                              <label htmlFor="careplan-goal-diagnosis" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.relatedDiagnosisLabel')}</label>
                               <select
                                 id="careplan-goal-diagnosis"
                                 value={newGoal.diagnosisId}
                                 onChange={(e) => setNewGoal({ ...newGoal, diagnosisId: e.target.value })}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               >
                                 <option value="">{t('docCarePlan.selectDiagnosis')}</option>
                                 {diagnoses.map(dx => (
@@ -677,42 +677,42 @@ export default function CarePlanPage() {
                               </select>
                             </div>
                             <div>
-                              <label htmlFor="careplan-goal-description" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.goalDescriptionLabel')}</label>
+                              <label htmlFor="careplan-goal-description" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.goalDescriptionLabel')}</label>
                               <textarea
                                 id="careplan-goal-description"
                                 value={newGoal.description}
                                 onChange={(e) => setNewGoal({ ...newGoal, description: e.target.value })}
                                 placeholder={t('docCarePlan.goalDescriptionPh')}
                                 rows={2}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               />
                             </div>
                             <div>
-                              <label htmlFor="careplan-measurable-outcome" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.measurableOutcomeLabel')}</label>
+                              <label htmlFor="careplan-measurable-outcome" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.measurableOutcomeLabel')}</label>
                               <input
                                 id="careplan-measurable-outcome"
                                 type="text"
                                 value={newGoal.measurableOutcome}
                                 onChange={(e) => setNewGoal({ ...newGoal, measurableOutcome: e.target.value })}
                                 placeholder={t('docCarePlan.measurableOutcomePh')}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               />
                             </div>
                             <div>
-                              <label htmlFor="careplan-target-date" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.targetDateLabel')}</label>
+                              <label htmlFor="careplan-target-date" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.targetDateLabel')}</label>
                               <input
                                 id="careplan-target-date"
                                 type="date"
                                 value={newGoal.targetDate}
                                 onChange={(e) => setNewGoal({ ...newGoal, targetDate: e.target.value })}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               />
                             </div>
                           </div>
                           <div className="flex justify-end space-x-3 mt-4">
                             <button
                               onClick={() => setShowAddGoal(false)}
-                              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                              className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                             >
                               {t('docCarePlan.cancelBtn')}
                             </button>
@@ -730,18 +730,18 @@ export default function CarePlanPage() {
                         {goals.map(goal => {
                           const relatedDx = diagnoses.find(d => d.id === goal.diagnosisId);
                           return (
-                            <div key={goal.id} className="p-4 rounded-lg border bg-white">
+                            <div key={goal.id} className="p-4 rounded-lg border bg-surface">
                               <div className="flex justify-between items-start">
                                 <div className="flex-1">
-                                  <p className="text-xs text-gray-500 mb-1">
+                                  <p className="text-xs text-content-muted mb-1">
                                     {t('docCarePlan.forPrefix', { value: relatedDx?.diagnosis || t('docCarePlan.unknownDiagnosis') })}
                                   </p>
-                                  <h3 className="font-bold text-gray-900">{goal.description}</h3>
-                                  <p className="text-sm text-gray-600 mt-1">
+                                  <h3 className="font-bold text-content">{goal.description}</h3>
+                                  <p className="text-sm text-content-muted mt-1">
                                     <Target className="h-4 w-4 inline mr-1" />
                                     {goal.measurableOutcome}
                                   </p>
-                                  <p className="text-xs text-gray-400 mt-2">
+                                  <p className="text-xs text-content-muted mt-2">
                                     <Clock className="h-3 w-3 inline mr-1" />
                                     {t('docCarePlan.targetPrefix', { value: goal.targetDate || t('docCarePlan.notSet') })}
                                   </p>
@@ -761,7 +761,7 @@ export default function CarePlanPage() {
                                   </select>
                                   <button
                                     onClick={() => removeGoal(goal.id)}
-                                    className="text-red-600 hover:text-red-700 p-2"
+                                    className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                                   >
                                     <Trash2 className="h-5 w-5" />
                                   </button>
@@ -771,7 +771,7 @@ export default function CarePlanPage() {
                           );
                         })}
                         {goals.length === 0 && diagnoses.length > 0 && (
-                          <div className="text-center py-8 text-gray-500">
+                          <div className="text-center py-8 text-content-muted">
                             <Target className="h-12 w-12 mx-auto mb-2 opacity-50" />
                             <p>{t('docCarePlan.noGoalsYet')}</p>
                           </div>
@@ -784,7 +784,7 @@ export default function CarePlanPage() {
                   {activeTab === 'interventions' && (
                     <div>
                       <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-gray-900">{t('docCarePlan.interventionsTitle')}</h2>
+                        <h2 className="text-xl font-bold text-content">{t('docCarePlan.interventionsTitle')}</h2>
                         <button
                           onClick={() => setShowAddIntervention(true)}
                           disabled={goals.length === 0}
@@ -796,23 +796,23 @@ export default function CarePlanPage() {
                       </div>
 
                       {goals.length === 0 && (
-                        <div className="mb-6 bg-yellow-50 border border-yellow-200 text-yellow-700 p-4 rounded-lg">
+                        <div className="mb-6 bg-caution-subtle border border-caution text-caution-subtle-fg p-4 rounded-lg">
                           <AlertTriangle className="h-5 w-5 inline mr-2" />
                           {t('docCarePlan.needGoalWarning')}
                         </div>
                       )}
 
                       {showAddIntervention && (
-                        <div className="mb-6 p-6 bg-gray-50 rounded-lg border-2 border-teal-300">
+                        <div className="mb-6 p-6 bg-surface-sunken rounded-lg border-2 border-teal-300">
                           <h3 className="text-lg font-bold mb-4">{t('docCarePlan.addInterventionTitle')}</h3>
                           <div className="space-y-4">
                             <div>
-                              <label htmlFor="careplan-intervention-goal" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.relatedGoalLabel')}</label>
+                              <label htmlFor="careplan-intervention-goal" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.relatedGoalLabel')}</label>
                               <select
                                 id="careplan-intervention-goal"
                                 value={newIntervention.goalId}
                                 onChange={(e) => setNewIntervention({ ...newIntervention, goalId: e.target.value })}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               >
                                 <option value="">{t('docCarePlan.selectGoal')}</option>
                                 {goals.map(g => (
@@ -821,24 +821,24 @@ export default function CarePlanPage() {
                               </select>
                             </div>
                             <div>
-                              <label htmlFor="careplan-intervention-description" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.interventionLabel')}</label>
+                              <label htmlFor="careplan-intervention-description" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.interventionLabel')}</label>
                               <textarea
                                 id="careplan-intervention-description"
                                 value={newIntervention.description}
                                 onChange={(e) => setNewIntervention({ ...newIntervention, description: e.target.value })}
                                 placeholder={t('docCarePlan.interventionPh')}
                                 rows={2}
-                                className="w-full p-3 border border-gray-300 rounded-lg"
+                                className="w-full p-3 border border-border-strong rounded-lg"
                               />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <label htmlFor="careplan-intervention-frequency" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.frequencyLabel')}</label>
+                                <label htmlFor="careplan-intervention-frequency" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.frequencyLabel')}</label>
                                 <select
                                   id="careplan-intervention-frequency"
                                   value={newIntervention.frequency}
                                   onChange={(e) => setNewIntervention({ ...newIntervention, frequency: e.target.value })}
-                                  className="w-full p-3 border border-gray-300 rounded-lg"
+                                  className="w-full p-3 border border-border-strong rounded-lg"
                                 >
                                   <option value="">{t('docCarePlan.selectFrequency')}</option>
                                   {frequencies.map(f => (
@@ -847,12 +847,12 @@ export default function CarePlanPage() {
                                 </select>
                               </div>
                               <div>
-                                <label htmlFor="careplan-responsible-party" className="block text-sm font-medium text-gray-700 mb-1">{t('docCarePlan.responsiblePartyLabel')}</label>
+                                <label htmlFor="careplan-responsible-party" className="block text-sm font-medium text-content-secondary mb-1">{t('docCarePlan.responsiblePartyLabel')}</label>
                                 <select
                                   id="careplan-responsible-party"
                                   value={newIntervention.responsibleParty}
                                   onChange={(e) => setNewIntervention({ ...newIntervention, responsibleParty: e.target.value })}
-                                  className="w-full p-3 border border-gray-300 rounded-lg"
+                                  className="w-full p-3 border border-border-strong rounded-lg"
                                 >
                                   <option value="">{t('docCarePlan.selectOption')}</option>
                                   <option value="RN">RN</option>
@@ -868,7 +868,7 @@ export default function CarePlanPage() {
                           <div className="flex justify-end space-x-3 mt-4">
                             <button
                               onClick={() => setShowAddIntervention(false)}
-                              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                              className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                             >
                               {t('docCarePlan.cancelBtn')}
                             </button>
@@ -886,28 +886,28 @@ export default function CarePlanPage() {
                         {interventions.map(int => {
                           const relatedGoal = goals.find(g => g.id === int.goalId);
                           return (
-                            <div key={int.id} className="p-4 rounded-lg border bg-white flex items-center justify-between">
+                            <div key={int.id} className="p-4 rounded-lg border bg-surface flex items-center justify-between">
                               <div>
-                                <p className="text-xs text-gray-500 mb-1">
+                                <p className="text-xs text-content-muted mb-1">
                                   {t('docCarePlan.forPrefix', { value: relatedGoal?.description.slice(0, 40) || t('docCarePlan.unknownGoal') })}...
                                 </p>
-                                <p className="font-medium text-gray-900">{int.description}</p>
-                                <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
+                                <p className="font-medium text-content">{int.description}</p>
+                                <div className="flex items-center space-x-4 mt-2 text-sm text-content-muted">
                                   <span><Clock className="h-4 w-4 inline mr-1" />{int.frequency}</span>
                                   <span><User className="h-4 w-4 inline mr-1" />{int.responsibleParty}</span>
                                 </div>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <span className={`px-2 py-1 rounded text-xs ${
-                                  int.status === 'active' ? 'bg-green-100 text-green-700' :
-                                  int.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                                  'bg-gray-100 text-gray-700'
+                                  int.status === 'active' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                                  int.status === 'completed' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                                  'bg-surface-sunken text-content-secondary'
                                 }`}>
                                   {t(`docCarePlan.interventionStatus_${int.status}`)}
                                 </span>
                                 <button
                                   onClick={() => removeIntervention(int.id)}
-                                  className="text-red-600 hover:text-red-700 p-2"
+                                  className="text-critical-subtle-fg hover:text-critical-subtle-fg p-2"
                                 >
                                   <Trash2 className="h-5 w-5" />
                                 </button>
@@ -916,7 +916,7 @@ export default function CarePlanPage() {
                           );
                         })}
                         {interventions.length === 0 && goals.length > 0 && (
-                          <div className="text-center py-8 text-gray-500">
+                          <div className="text-center py-8 text-content-muted">
                             <Activity className="h-12 w-12 mx-auto mb-2 opacity-50" />
                             <p>{t('docCarePlan.noInterventionsYet')}</p>
                           </div>
@@ -928,17 +928,17 @@ export default function CarePlanPage() {
                   {/* Summary Tab */}
                   {activeTab === 'summary' && (
                     <div>
-                      <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docCarePlan.summaryTitle')}</h2>
+                      <h2 className="text-xl font-bold text-content mb-6">{t('docCarePlan.summaryTitle')}</h2>
                       {diagnoses.map(dx => {
                         const dxGoals = goals.filter(g => g.diagnosisId === dx.id);
                         return (
                           <div key={dx.id} className="mb-6 p-4 rounded-lg border">
                             <div className={`-mx-4 -mt-4 px-4 py-2 mb-4 rounded-t-lg ${
-                              dx.priority === 'high' ? 'bg-red-100' :
-                              dx.priority === 'medium' ? 'bg-yellow-100' : 'bg-green-100'
+                              dx.priority === 'high' ? 'bg-critical-subtle' :
+                              dx.priority === 'medium' ? 'bg-caution-subtle' : 'bg-ok-subtle'
                             }`}>
                               <h3 className="font-bold">{dx.diagnosis}</h3>
-                              <p className="text-sm text-gray-600">R/T {dx.relatedTo} AEB {dx.evidencedBy}</p>
+                              <p className="text-sm text-content-muted">R/T {dx.relatedTo} AEB {dx.evidencedBy}</p>
                             </div>
                             {dxGoals.map(goal => {
                               const goalInts = interventions.filter(i => i.goalId === goal.id);
@@ -953,7 +953,7 @@ export default function CarePlanPage() {
                                   </div>
                                   <div className="ml-6 space-y-1">
                                     {goalInts.map(int => (
-                                      <div key={int.id} className="flex items-center text-sm text-gray-600">
+                                      <div key={int.id} className="flex items-center text-sm text-content-muted">
                                         <CheckCircle2 className="h-4 w-4 mr-2 text-teal-400" />
                                         {int.description} ({int.frequency})
                                       </div>
@@ -966,7 +966,7 @@ export default function CarePlanPage() {
                         );
                       })}
                       {diagnoses.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
+                        <div className="text-center py-8 text-content-muted">
                           <ClipboardList className="h-12 w-12 mx-auto mb-2 opacity-50" />
                           <p>{t('docCarePlan.noDataToDisplay')}</p>
                         </div>
@@ -976,7 +976,7 @@ export default function CarePlanPage() {
                 </div>
 
                 {/* Save Button */}
-                <div className="p-4 border-t bg-gray-50 flex justify-end">
+                <div className="p-4 border-t bg-surface-sunken flex justify-end">
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting || diagnoses.length === 0}
@@ -997,10 +997,10 @@ export default function CarePlanPage() {
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-lg shadow p-12 text-center">
+              <div className="bg-surface rounded-lg shadow p-12 text-center">
                 <ClipboardList className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                <h2 className="text-xl font-bold text-gray-700 mb-2">{t('docCarePlan.selectPatientEmptyTitle')}</h2>
-                <p className="text-gray-500">{t('docCarePlan.selectPatientEmptyHint')}</p>
+                <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docCarePlan.selectPatientEmptyTitle')}</h2>
+                <p className="text-content-muted">{t('docCarePlan.selectPatientEmptyHint')}</p>
               </div>
             )}
           </div>

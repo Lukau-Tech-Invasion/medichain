@@ -19,7 +19,7 @@ export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) 
 
   return (
     <Loader2
-      className={clsx('animate-spin text-blue-600', sizes[size], className)}
+      className={clsx('animate-spin text-notice-subtle-fg', sizes[size], className)}
       aria-label="Loading"
     />
   );
@@ -35,10 +35,10 @@ export interface LoadingPageProps {
 
 export function LoadingPage({ message = 'Loading...' }: LoadingPageProps) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
+    <div className="fixed inset-0 flex items-center justify-center bg-surface z-50">
       <div className="text-center">
         <LoadingSpinner size="lg" />
-        <p className="mt-4 text-gray-600">{message}</p>
+        <p className="mt-4 text-content-muted">{message}</p>
       </div>
     </div>
   );
@@ -70,7 +70,7 @@ export function Skeleton({
   return (
     <div
       className={clsx(
-        'bg-gray-200 animate-pulse',
+        'bg-surface-sunken animate-pulse',
         variants[variant],
         className
       )}
@@ -86,7 +86,7 @@ export function Skeleton({
 
 export function SkeletonCard() {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
+    <div className="bg-surface border border-border rounded-xl p-4">
       <div className="flex items-center gap-3 mb-4">
         <Skeleton variant="circular" width={40} height={40} />
         <div className="flex-1">

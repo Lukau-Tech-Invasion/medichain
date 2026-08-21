@@ -142,9 +142,9 @@ export function LoginPage() {
             <div className="w-10 h-10 bg-primary-500 rounded-xl flex items-center justify-center">
               <Heart className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-semibold text-neutral-800">MediChain</span>
+            <span className="text-xl font-semibold text-content-secondary">MediChain</span>
           </div>
-          <LanguageSwitcher className="text-sm border border-neutral-200 rounded-lg px-2 py-1 bg-white" />
+          <LanguageSwitcher className="text-sm border border-border rounded-lg px-2 py-1 bg-surface" />
         </div>
       </header>
 
@@ -153,32 +153,32 @@ export function LoginPage() {
         <div className="w-full max-w-md">
           {/* Welcome text */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-neutral-900 mb-2">
+            <h1 className="text-3xl font-bold text-content mb-2">
               {t('auth.welcomeTitle')}
             </h1>
-            <p className="text-neutral-600">
+            <p className="text-content-muted">
               {t('auth.welcomeSubtitle')}
             </p>
           </div>
 
           {/* Login card */}
-          <div className="bg-white rounded-2xl shadow-card p-8">
+          <div className="bg-surface rounded-2xl shadow-card p-8">
             <form onSubmit={handleWalletLogin} className="space-y-6">
               {/* Error message */}
               {displayError && (
-                <div className="bg-emergency-50 border border-emergency-200 text-emergency-700 px-4 py-3 rounded-xl text-sm animate-fade-in">
+                <div className="bg-emergency-50 border border-emergency-200 text-critical-subtle-fg px-4 py-3 rounded-xl text-sm animate-fade-in">
                   {displayError}
                 </div>
               )}
 
               {/* Wallet Address input */}
               <div>
-                <label htmlFor="walletAddress" className="block text-sm font-medium text-neutral-700 mb-2">
+                <label htmlFor="walletAddress" className="block text-sm font-medium text-content-secondary mb-2">
                   {t('auth.walletAddressLabel')}
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <Wallet className="h-5 w-5 text-neutral-400" />
+                    <Wallet className="h-5 w-5 text-content-muted" />
                   </div>
                   <input
                     type="text"
@@ -186,11 +186,11 @@ export function LoginPage() {
                     value={walletAddress}
                     onChange={(e) => setWalletAddress(e.target.value)}
                     placeholder={t('auth.walletPlaceholder')}
-                    className="block w-full pl-12 pr-4 py-3 border border-neutral-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors font-mono text-sm"
+                    className="block w-full pl-12 pr-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand transition-colors font-mono text-sm"
                     disabled={isLoading}
                   />
                 </div>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-content-muted">
                   {t('auth.walletHint')}
                 </p>
               </div>
@@ -199,7 +199,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-primary-500 text-white py-3 px-4 rounded-xl font-medium hover:bg-primary-600 focus:ring-4 focus:ring-primary-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full bg-primary-500 text-brand-fg py-3 px-4 rounded-xl font-medium hover:bg-brand focus:ring-4 focus:ring-primary-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -220,10 +220,10 @@ export function LoginPage() {
               <>
                 <div className="relative my-6">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-neutral-200" />
+                    <div className="w-full border-t border-border" />
                   </div>
                   <div className="relative flex justify-center text-sm">
-                    <span className="px-4 bg-white text-neutral-500 flex items-center gap-1">
+                    <span className="px-4 bg-surface text-content-muted flex items-center gap-1">
                       <UserCircle className="w-4 h-4" />
                       {t('auth.quickLoginDemo')}
                     </span>
@@ -238,17 +238,17 @@ export function LoginPage() {
                         key={patient.walletAddress}
                         onClick={() => handleDemoPatientLogin(patient)}
                         disabled={isLoading}
-                        className="p-3 border border-teal-200 rounded-xl bg-teal-50 hover:bg-teal-100 transition-all text-center disabled:opacity-50"
+                        className="p-3 border border-teal-200 rounded-xl bg-surface-sunken hover:bg-surface-sunken transition-all text-center disabled:opacity-50"
                       >
-                        <Icon className="mx-auto mb-1 text-teal-700" size={24} aria-hidden="true" />
-                        <span className="block text-xs font-semibold text-gray-800 truncate">{patient.name.split(' ')[0]}</span>
-                        <span className="block text-xs text-teal-600">{patient.condition}</span>
+                        <Icon className="mx-auto mb-1 text-content-secondary" size={24} aria-hidden="true" />
+                        <span className="block text-xs font-semibold text-content-secondary truncate">{patient.name.split(' ')[0]}</span>
+                        <span className="block text-xs text-content-secondary">{patient.condition}</span>
                       </button>
                     );
                   })}
                 </div>
 
-                <p className="mt-3 text-xs text-center text-neutral-400">
+                <p className="mt-3 text-xs text-center text-content-muted">
                   {t('auth.quickLoginHint')}
                 </p>
               </>
@@ -257,10 +257,10 @@ export function LoginPage() {
             {/* Divider */}
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-neutral-200" />
+                <div className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-neutral-500">{t('common.or')}</span>
+                <span className="px-4 bg-surface text-content-muted">{t('common.or')}</span>
               </div>
             </div>
 
@@ -268,14 +268,14 @@ export function LoginPage() {
             <div className="space-y-3">
               <button
                 type="button"
-                className="w-full border border-neutral-200 text-neutral-700 py-3 px-4 rounded-xl font-medium hover:bg-neutral-50 transition-colors flex items-center justify-center gap-2"
+                className="w-full border border-border text-content-secondary py-3 px-4 rounded-xl font-medium hover:bg-surface-sunken transition-colors flex items-center justify-center gap-2"
               >
                 <img src="/nfc-icon.svg" alt="" className="w-5 h-5" onError={(e) => e.currentTarget.style.display = 'none'} />
                 {t('auth.signInNfc')}
               </button>
               <button
                 type="button"
-                className="w-full border border-neutral-200 text-neutral-700 py-3 px-4 rounded-xl font-medium hover:bg-neutral-50 transition-colors flex items-center justify-center gap-2"
+                className="w-full border border-border text-content-secondary py-3 px-4 rounded-xl font-medium hover:bg-surface-sunken transition-colors flex items-center justify-center gap-2"
               >
                 <img src="/qr-icon.svg" alt="" className="w-5 h-5" onError={(e) => e.currentTarget.style.display = 'none'} />
                 {t('auth.scanQr')}
@@ -329,7 +329,7 @@ export function LoginPage() {
           )}
 
           {/* Security notice */}
-          <div className="mt-6 flex items-center justify-center gap-2 text-neutral-500 text-sm">
+          <div className="mt-6 flex items-center justify-center gap-2 text-content-muted text-sm">
             <Shield className="w-4 h-4" />
             <span>{t('auth.securityNotice')}</span>
           </div>
@@ -337,7 +337,7 @@ export function LoginPage() {
       </main>
 
       {/* Footer */}
-      <footer className="p-6 text-center text-sm text-neutral-500">
+      <footer className="p-6 text-center text-sm text-content-muted">
         © 2025 Lukau Invasion (Pty) Ltd. All rights reserved.
       </footer>
     </div>

@@ -50,7 +50,8 @@ impl RadiologyOrderRepository for PgRadiologyOrderRepository {
                 body_part, laterality, priority, status, clinical_indication,
                 diagnosis_codes, contrast_required, contrast_type, sedation_required,
                 patient_prep_instructions, special_instructions, scheduled_datetime,
-                completed_datetime, performing_technologist_id, accession_number
+                completed_datetime, performing_technologist_id, accession_number,
+                record_json
             ) ",
         );
 
@@ -74,7 +75,8 @@ impl RadiologyOrderRepository for PgRadiologyOrderRepository {
                 .push_bind(o.scheduled_datetime)
                 .push_bind(o.completed_datetime)
                 .push_bind(&o.performing_technologist_id)
-                .push_bind(&o.accession_number);
+                .push_bind(&o.accession_number)
+                .push_bind(&o.data);
         });
 
         qb.push(" RETURNING *");
@@ -205,6 +207,18 @@ impl PgRadiologyReportRepository {
 
 #[async_trait]
 impl RadiologyReportRepository for PgRadiologyReportRepository {
+    /// Bounded deployment-wide read. Backs the radiology reports registry,
+    /// which had no endpoint at all — the reading worklist showed orders but
+    /// never the reports written against them.
+    async fn list_all(&self) -> RepositoryResult<Vec<RadiologyReportEntity>> {
+        let rows = sqlx::query_as::<_, RadiologyReportEntity>(
+            "SELECT * FROM radiology_reports ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         report: RadiologyReportEntity,
@@ -216,7 +230,7 @@ impl RadiologyReportRepository for PgRadiologyReportRepository {
                 impression, recommendations, critical_finding,
                 critical_finding_communicated, communicated_to, communicated_at,
                 communication_method, addendum, addendum_datetime, addendum_by,
-                status, image_count, pacs_study_uid
+                status, image_count, pacs_study_uid, record_json
             ) ",
         );
 
@@ -242,7 +256,8 @@ impl RadiologyReportRepository for PgRadiologyReportRepository {
                 .push_bind(&r.addendum_by)
                 .push_bind(&r.status)
                 .push_bind(r.image_count)
-                .push_bind(&r.pacs_study_uid);
+                .push_bind(&r.pacs_study_uid)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -407,7 +422,8 @@ impl PathologyReportRepository for PgPathologyReportRepository {
                 report_date, clinical_history, gross_description, microscopic_description,
                 special_stains, immunohistochemistry, molecular_studies, diagnosis,
                 staging, tnm_classification, margin_status, lymph_node_status,
-                comments, addendum, addendum_datetime, addendum_by, status, synoptic_report
+                comments, addendum, addendum_datetime, addendum_by, status, synoptic_report,
+                record_json
             ) ",
         );
 
@@ -438,7 +454,8 @@ impl PathologyReportRepository for PgPathologyReportRepository {
                 .push_bind(r.addendum_datetime)
                 .push_bind(&r.addendum_by)
                 .push_bind(&r.status)
-                .push_bind(&r.synoptic_report);
+                .push_bind(&r.synoptic_report)
+                .push_bind(&r.data);
         });
 
         qb.push(" RETURNING *");
@@ -562,6 +579,18 @@ impl PgBloodTypeScreenRepository {
 
 #[async_trait]
 impl BloodTypeScreenRepository for PgBloodTypeScreenRepository {
+    /// Bounded deployment-wide read, ordered on `idx_blood_type_performed`.
+    /// Previously fell through to the trait default, so the blood-bank registry
+    /// returned `list_all not implemented` on PostgreSQL only.
+    async fn list_all(&self) -> RepositoryResult<Vec<BloodTypeScreenEntity>> {
+        let rows = sqlx::query_as::<_, BloodTypeScreenEntity>(
+            "SELECT * FROM blood_type_screens ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         screen: BloodTypeScreenEntity,
@@ -712,6 +741,20 @@ impl PgCrossmatchRecordRepository {
 
 #[async_trait]
 impl CrossmatchRecordRepository for PgCrossmatchRecordRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<CrossmatchRecordEntity>> {
+        let rows = sqlx::query_as::<_, CrossmatchRecordEntity>(
+            "SELECT * FROM crossmatch_records ORDER BY performed_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         record: CrossmatchRecordEntity,
@@ -881,6 +924,20 @@ impl PgTransfusionRecordRepository {
 
 #[async_trait]
 impl TransfusionRecordRepository for PgTransfusionRecordRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<TransfusionRecordEntity>> {
+        let rows = sqlx::query_as::<_, TransfusionRecordEntity>(
+            "SELECT * FROM transfusion_records ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         record: TransfusionRecordEntity,

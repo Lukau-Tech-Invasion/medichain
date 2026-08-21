@@ -347,4 +347,12 @@ impl CdsAlertRepository for PgCdsAlertRepository {
 
         Ok(PaginatedResult::new(items, total, &pagination))
     }
+    async fn count_by_severity(&self) -> RepositoryResult<(u64, u64)> {
+        let row = sqlx::query_as::<_, (i64, i64)>(
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE LOWER(severity) = 'critical')              FROM cds_alerts",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok((row.0 as u64, row.1 as u64))
+    }
 }

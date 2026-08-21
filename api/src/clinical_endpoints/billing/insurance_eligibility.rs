@@ -53,6 +53,61 @@ fn is_service_covered(plan_type_lower: &str, service_lower: &str) -> bool {
     }
 }
 
+/// Whether the policy is in force on `today`.
+///
+/// `is_active` alone is not the answer: a record can carry the flag while
+/// sitting outside its own effective/termination window, and quoting cover
+/// from a lapsed policy is a billing decision made on stale data.
+pub(crate) fn policy_in_force(
+    ins: &crate::repositories::traits::InsuranceRecordEntity,
+    today: chrono::NaiveDate,
+) -> bool {
+    let effective_ok = ins.effective_date <= today;
+    let not_terminated = ins.termination_date.map(|d| d >= today).unwrap_or(true);
+    ins.is_active && effective_ok && not_terminated
+}
+
+/// Decimal -> f64 for JSON. `rust_decimal` has no lossless JSON number, so the
+/// string round-trip is the documented conversion; `None` stays `None` rather
+/// than collapsing to `0.0`, because "no deductible recorded" and "a
+/// deductible of zero" are different statements to a billing clerk.
+fn decimal_f64(d: Option<rust_decimal::Decimal>) -> Option<f64> {
+    d.map(|v| v.to_string().parse::<f64>().unwrap_or(0.0))
+}
+
+/// The policy's real financial terms, read off the stored record.
+///
+/// Every amount here used to be a hardcoded literal on the `/api/insurance/verify`
+/// path (`R500` emergency copay, `R5000` deductible, `R2500` met) while the
+/// record it had already loaded carried the true figures. Remaining balances are
+/// derived from the stored totals rather than quoted, and the currency travels
+/// with them so a client never has to assume the denomination.
+pub(crate) fn policy_financials(
+    ins: &crate::repositories::traits::InsuranceRecordEntity,
+) -> serde_json::Value {
+    let deductible_total = decimal_f64(ins.deductible_amount);
+    let deductible_met_val = decimal_f64(ins.deductible_met).unwrap_or(0.0);
+    let deductible_remaining = deductible_total.map(|total| (total - deductible_met_val).max(0.0));
+
+    let oop_max = decimal_f64(ins.out_of_pocket_max);
+    let oop_met_val = decimal_f64(ins.out_of_pocket_met).unwrap_or(0.0);
+    let oop_remaining = oop_max.map(|max| (max - oop_met_val).max(0.0));
+
+    serde_json::json!({
+        // Currency code so the frontend formats amounts in the African
+        // denomination (default ZAR) rather than assuming US dollars.
+        "currency": ins.currency.clone().unwrap_or_else(|| "ZAR".to_string()),
+        "copay": decimal_f64(ins.copay_amount),
+        "deductible": deductible_total,
+        "deductible_met": deductible_met_val,
+        "deductible_remaining": deductible_remaining,
+        "coinsurance_percent": decimal_f64(ins.coinsurance_percent).map(|p| p as u8),
+        "out_of_pocket_max": oop_max,
+        "out_of_pocket_met": oop_met_val,
+        "out_of_pocket_remaining": oop_remaining
+    })
+}
+
 /// Builds the eligibility response for a patient with an active insurance
 /// record: policy-date checks, plan-type coverage rules, and remaining
 /// deductible/out-of-pocket calculations.
@@ -63,9 +118,7 @@ fn build_eligibility_response(
     today: chrono::NaiveDate,
     now: i64,
 ) -> serde_json::Value {
-    let effective_ok = ins.effective_date <= today;
-    let not_terminated = ins.termination_date.map(|d| d >= today).unwrap_or(true);
-    let policy_active = ins.is_active && effective_ok && not_terminated;
+    let policy_active = policy_in_force(&ins, today);
 
     let plan_type_lower = ins.plan_type.as_deref().unwrap_or("unknown").to_lowercase();
     let service_lower = req.service_type.to_lowercase();
@@ -88,33 +141,7 @@ fn build_eligibility_response(
 
     let covered = policy_active && is_service_covered(&plan_type_lower, &service_lower);
 
-    let deductible_total = ins
-        .deductible_amount
-        .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0));
-    let deductible_met_val = ins
-        .deductible_met
-        .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0))
-        .unwrap_or(0.0);
-    let deductible_remaining = deductible_total.map(|total| (total - deductible_met_val).max(0.0));
-
-    let oop_max = ins
-        .out_of_pocket_max
-        .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0));
-    let oop_met_val = ins
-        .out_of_pocket_met
-        .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0))
-        .unwrap_or(0.0);
-    let oop_remaining = oop_max.map(|max| (max - oop_met_val).max(0.0));
-
-    let copay = ins
-        .copay_amount
-        .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0));
-    let coinsurance = ins
-        .coinsurance_percent
-        .map(|d| d.to_string().parse::<f64>().unwrap_or(0.0) as u8);
-    // Currency code so the frontend formats amounts in the African
-    // denomination (default ZAR) rather than assuming US dollars.
-    let currency = ins.currency.clone().unwrap_or_else(|| "ZAR".to_string());
+    let benefits = policy_financials(&ins);
 
     serde_json::json!({
         "success": true,
@@ -132,17 +159,7 @@ fn build_eligibility_response(
         "group_number": ins.group_number,
         "effective_date": ins.effective_date.to_string(),
         "termination_date": ins.termination_date.map(|d| d.to_string()),
-        "benefits": {
-            "currency": currency,
-            "copay": copay,
-            "deductible": deductible_total,
-            "deductible_met": deductible_met_val,
-            "deductible_remaining": deductible_remaining,
-            "coinsurance_percent": coinsurance,
-            "out_of_pocket_max": oop_max,
-            "out_of_pocket_met": oop_met_val,
-            "out_of_pocket_remaining": oop_remaining
-        },
+        "benefits": benefits,
         "service_coverage": {
             "service_type": req.service_type,
             "covered": covered,

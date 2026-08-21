@@ -111,30 +111,34 @@ const HistoryAndPhysicalPage: React.FC = () => {
     examType: 'admission' as HistoryAndPhysical['examType'],
     chiefComplaint: '',
     hpi: '',
-    pmh: [] as string[],
-    psh: [] as string[],
-    medications: [] as string[],
-    allergies: [] as string[],
+    // Free text in the form, split into one entry per line on submit.
+    pmh: '',
+    psh: '',
+    medications: '',
+    allergies: '',
     socialHistory: {
       smoking: 'never',
-      alcohol: 'occasional',
+      alcohol: 'none',
       drugs: 'none',
       occupation: '',
       exercise: 'moderate'
     },
-    familyHistory: [] as string[],
+    familyHistory: '',
+    // Metric throughout, matching triage and the vitals flowsheet. This form
+    // previously asked for Fahrenheit and pounds, which in the same record as
+    // kilogram-based vitals is a dosing hazard rather than a cosmetic quirk.
     vitalSigns: {
       bloodPressure: '',
-      heartRate: 0,
-      respiratoryRate: 0,
-      temperature: 98.6,
-      oxygenSaturation: 0,
-      height: '',
-      weight: '',
-      bmi: 0
+      heartRate: '',
+      respiratoryRate: '',
+      temperature: '',
+      oxygenSaturation: '',
+      heightCm: '',
+      weightKg: '',
+      bmi: ''
     },
-    reviewOfSystems: '',
-    physicalExam: '',
+    reviewOfSystems: {} as Record<string, string>,
+    physicalExam: {} as Record<string, { status: string; findings: string }>,
     assessment: '',
     plan: ''
   });
@@ -179,6 +183,20 @@ const HistoryAndPhysicalPage: React.FC = () => {
     loadData();
   }, [user]);
 
+  /** One history entry per line; blank lines are dropped. */
+  const toLines = (text: string) =>
+    text.split('\n').map(line => line.trim()).filter(Boolean);
+
+  /** Update one vital and keep the derived BMI in step with height and weight. */
+  const updateVital = (field: string, value: string) => {
+    const vitalSigns = { ...formData.vitalSigns, [field]: value };
+    const heightM = parseFloat(vitalSigns.heightCm) / 100;
+    const weightKg = parseFloat(vitalSigns.weightKg);
+    vitalSigns.bmi =
+      heightM > 0 && weightKg > 0 ? (weightKg / (heightM * heightM)).toFixed(1) : '';
+    setFormData({ ...formData, vitalSigns });
+  };
+
   const handleSaveHp = async (status: 'in-progress' | 'signed') => {
     if (!formData.patientId || !formData.chiefComplaint) {
       showError(t('docHistoryPhysical.warningRequiredFields'));
@@ -196,12 +214,12 @@ const HistoryAndPhysicalPage: React.FC = () => {
         exam_type: formData.examType,
         chief_complaint: formData.chiefComplaint,
         history_of_present_illness: formData.hpi,
-        past_medical_history: formData.pmh,
-        past_surgical_history: formData.psh,
-        medications: formData.medications,
-        allergies: formData.allergies,
+        past_medical_history: toLines(formData.pmh),
+        past_surgical_history: toLines(formData.psh),
+        medications: toLines(formData.medications),
+        allergies: toLines(formData.allergies),
         social_history: formData.socialHistory,
-        family_history: formData.familyHistory,
+        family_history: toLines(formData.familyHistory),
         vital_signs: formData.vitalSigns,
         review_of_systems: formData.reviewOfSystems,
         physical_exam: formData.physicalExam,
@@ -243,10 +261,10 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
   const getStatusBadge = (status: HPStatus) => {
     const styles: Record<HPStatus, string> = {
-      'in-progress': 'bg-yellow-100 text-yellow-700',
-      'complete': 'bg-blue-100 text-blue-700',
-      'signed': 'bg-green-100 text-green-700',
-      'addendum': 'bg-purple-100 text-purple-700'
+      'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
+      'complete': 'bg-notice-subtle text-notice-subtle-fg',
+      'signed': 'bg-ok-subtle text-ok-subtle-fg',
+      'addendum': 'bg-surface-sunken text-content-secondary'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
@@ -257,11 +275,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
 
   const getExamTypeBadge = (type: HistoryAndPhysical['examType']) => {
     const styles: Record<string, string> = {
-      'admission': 'bg-red-100 text-red-700',
-      'annual': 'bg-green-100 text-green-700',
-      'pre-operative': 'bg-orange-100 text-orange-700',
-      'follow-up': 'bg-blue-100 text-blue-700',
-      'consultation': 'bg-purple-100 text-purple-700'
+      'admission': 'bg-critical-subtle text-critical-subtle-fg',
+      'annual': 'bg-ok-subtle text-ok-subtle-fg',
+      'pre-operative': 'bg-surface-sunken text-content-secondary',
+      'follow-up': 'bg-notice-subtle text-notice-subtle-fg',
+      'consultation': 'bg-surface-sunken text-content-secondary'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[type]}`}>
@@ -291,7 +309,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-indigo-700 to-violet-600 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -304,17 +322,17 @@ const HistoryAndPhysicalPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docHistoryPhysical.loading')}</p>
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
+          <p className="text-content-muted">{t('docHistoryPhysical.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docHistoryPhysical.apiCheckMessage')}</p>
           </div>
         </div>
@@ -324,7 +342,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
       {!loading && !error && (
         <>
           {/* Tabs */}
-          <div className="bg-white border-b">
+          <div className="bg-surface border-b">
             <div className="flex">
               {(['list', 'new', 'templates'] as const).map(tab => (
                 <button
@@ -332,8 +350,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize transition-colors ${
                     activeTab === tab
-                      ? 'text-indigo-700 border-b-2 border-indigo-700'
-                      : 'text-gray-500 hover:text-gray-700'
+                      ? 'text-content-secondary border-b-2 border-indigo-700'
+                      : 'text-content-muted hover:text-content-secondary'
                   }`}
                 >
                   {tab === 'new' ? t('docHistoryPhysical.tabNewHp') : tab === 'list' ? t('docHistoryPhysical.tabRecords') : t('docHistoryPhysical.tabTemplates')}
@@ -348,7 +366,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
               {/* Search & Filter */}
               <div className="flex flex-col sm:flex-row gap-4 mb-6">
                 <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
                   <input
                     id="hp-search"
                     type="text"
@@ -384,79 +402,79 @@ const HistoryAndPhysicalPage: React.FC = () => {
           {/* Records List */}
           <div className="space-y-4">
             {filteredRecords.map(record => (
-              <div key={record.id} className="bg-white rounded-lg shadow border overflow-hidden">
+              <div key={record.id} className="bg-surface rounded-lg shadow border overflow-hidden">
                 <div className="p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-semibold text-gray-900">{record.patientName}</h3>
+                        <h3 className="text-lg font-semibold text-content">{record.patientName}</h3>
                         {getStatusBadge(record.status)}
                         {getExamTypeBadge(record.examType)}
                       </div>
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className="text-sm text-content-muted mt-1">
                         MRN: {record.mrn} • ID: {record.id}
                       </p>
                     </div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setSelectedRecord(record)}
-                        className="p-2 hover:bg-gray-100 rounded-lg"
+                        className="p-2 hover:bg-surface-sunken rounded-lg"
                         title="View"
                       >
-                        <Eye className="w-5 h-5 text-gray-600" />
+                        <Eye className="w-5 h-5 text-content-muted" />
                       </button>
                       {record.status !== 'signed' && (
-                        <button className="p-2 hover:bg-gray-100 rounded-lg" title="Edit">
-                          <Edit className="w-5 h-5 text-gray-600" />
+                        <button className="p-2 hover:bg-surface-sunken rounded-lg" title="Edit">
+                          <Edit className="w-5 h-5 text-content-muted" />
                         </button>
                       )}
-                      <button className="p-2 hover:bg-gray-100 rounded-lg" title="Print">
-                        <Printer className="w-5 h-5 text-gray-600" />
+                      <button className="p-2 hover:bg-surface-sunken rounded-lg" title="Print">
+                        <Printer className="w-5 h-5 text-content-muted" />
                       </button>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
                     <div>
-                      <p className="text-gray-500">{t('docHistoryPhysical.dateOfExamLabel')}</p>
+                      <p className="text-content-muted">{t('docHistoryPhysical.dateOfExamLabel')}</p>
                       <p className="font-medium">{record.dateOfExam.toLocaleDateString()}</p>
                     </div>
                     <div>
-                      <p className="text-gray-500">{t('docHistoryPhysical.providerLabel')}</p>
+                      <p className="text-content-muted">{t('docHistoryPhysical.providerLabel')}</p>
                       <p className="font-medium">{record.provider}</p>
                     </div>
                     <div className="col-span-2">
-                      <p className="text-gray-500">{t('docHistoryPhysical.chiefComplaintLabel')}</p>
+                      <p className="text-content-muted">{t('docHistoryPhysical.chiefComplaintLabel')}</p>
                       <p className="font-medium">{record.chiefComplaint}</p>
                     </div>
                   </div>
 
                   {/* Vitals Summary */}
-                  <div className="flex gap-4 flex-wrap text-sm bg-gray-50 rounded-lg p-3">
+                  <div className="flex gap-4 flex-wrap text-sm bg-surface-sunken rounded-lg p-3">
                     <div className="flex items-center gap-1">
                       <Heart className="w-4 h-4 text-red-500" />
-                      <span className="text-gray-600">{t('docHistoryPhysical.bpAbbrev')}</span>
+                      <span className="text-content-muted">{t('docHistoryPhysical.bpAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.bloodPressure}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Activity className="w-4 h-4 text-blue-500" />
-                      <span className="text-gray-600">{t('docHistoryPhysical.hrAbbrev')}</span>
+                      <span className="text-content-muted">{t('docHistoryPhysical.hrAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.heartRate}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Thermometer className="w-4 h-4 text-orange-500" />
-                      <span className="text-gray-600">{t('docHistoryPhysical.tempAbbrev')}</span>
-                      <span className="font-medium">{record.vitalSigns.temperature}°F</span>
+                      <span className="text-content-muted">{t('docHistoryPhysical.tempAbbrev')}</span>
+                      <span className="font-medium">{record.vitalSigns.temperature}°C</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Scale className="w-4 h-4 text-green-500" />
-                      <span className="text-gray-600">{t('docHistoryPhysical.bmiAbbrev')}</span>
+                      <span className="text-content-muted">{t('docHistoryPhysical.bmiAbbrev')}</span>
                       <span className="font-medium">{record.vitalSigns.bmi}</span>
                     </div>
                   </div>
 
                   {record.status === 'signed' && record.signedAt && (
-                    <div className="mt-4 pt-4 border-t flex items-center text-sm text-green-600">
+                    <div className="mt-4 pt-4 border-t flex items-center text-sm text-ok-subtle-fg">
                       <CheckCircle className="w-4 h-4 mr-2" />
                       {t('docHistoryPhysical.signedByLine', { provider: record.provider, credentials: record.providerCredentials, date: record.signedAt.toLocaleString() })}
                     </div>
@@ -474,8 +492,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
           <div className="flex gap-6">
             {/* Section Navigation */}
             <div className="hidden md:block w-48 flex-shrink-0">
-              <div className="bg-white rounded-lg shadow p-4 sticky top-6">
-                <h3 className="font-semibold text-gray-900 mb-3">Sections</h3>
+              <div className="bg-surface rounded-lg shadow p-4 sticky top-6">
+                <h3 className="font-semibold text-content mb-3">Sections</h3>
                 <nav className="space-y-1">
                   {formSections.map((section, idx) => (
                     <button
@@ -483,8 +501,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       onClick={() => setCurrentSection(idx)}
                       className={`w-full text-left px-3 py-2 rounded text-sm ${
                         currentSection === idx
-                          ? 'bg-indigo-100 text-indigo-700 font-medium'
-                          : 'text-gray-600 hover:bg-gray-50'
+                          ? 'bg-surface-sunken text-content-secondary font-medium'
+                          : 'text-content-muted hover:bg-surface-sunken'
                       }`}
                     >
                       {t(`docHistoryPhysical.${section}`)}
@@ -497,25 +515,25 @@ const HistoryAndPhysicalPage: React.FC = () => {
             {/* Form Content */}
             <div className="flex-1 space-y-6">
               {/* Patient Info */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <button
                   onClick={() => toggleSection('patient-info')}
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <User className="w-5 h-5 text-indigo-600" />
+                    <User className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.patientInformationHeading')}
                   </h2>
                   {expandedSections.has('patient-info') ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-content-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-content-muted" />
                   )}
                 </button>
                 {expandedSections.has('patient-info') && (
                   <div className="mt-4 space-y-4">
-                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                      <label htmlFor="hp-patient-select" className="block text-sm font-medium text-indigo-900 mb-1">{t('docHistoryPhysical.selectExistingPatient')}</label>
+                    <div className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
+                      <label htmlFor="hp-patient-select" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.selectExistingPatient')}</label>
                       <select
                         id="hp-patient-select"
                         onChange={(e) => {
@@ -529,7 +547,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                             });
                           }
                         }}
-                        className="w-full border-indigo-200 rounded-lg px-3 py-2 bg-white"
+                        className="w-full border-indigo-200 rounded-lg px-3 py-2 bg-surface"
                       >
                         <option value="">{t('docHistoryPhysical.selectPatientPlaceholder')}</option>
                         {availablePatients.map(p => (
@@ -539,7 +557,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <label htmlFor="hp-patient-id" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.patientIdLabel')}</label>
+                        <label htmlFor="hp-patient-id" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.patientIdLabel')}</label>
                         <input
                           id="hp-patient-id"
                           type="text"
@@ -550,28 +568,28 @@ const HistoryAndPhysicalPage: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label htmlFor="hp-patient-name" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.patientNameLabel')}</label>
+                        <label htmlFor="hp-patient-name" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.patientNameLabel')}</label>
                         <input
                           id="hp-patient-name"
                           type="text"
                           value={formData.patientName}
                           onChange={(e) => setFormData({ ...formData, patientName: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 bg-gray-50"
+                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken"
                         />
                       </div>
                       <div>
-                        <label htmlFor="hp-mrn" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.mrnLabel')}</label>
+                        <label htmlFor="hp-mrn" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.mrnLabel')}</label>
                         <input
                           id="hp-mrn"
                           type="text"
                           value={formData.mrn}
                           onChange={(e) => setFormData({ ...formData, mrn: e.target.value })}
-                          className="w-full border rounded-lg px-3 py-2 bg-gray-50"
+                          className="w-full border rounded-lg px-3 py-2 bg-surface-sunken"
                         />
                       </div>
                       <div className="md:col-span-3">
                         <fieldset>
-                          <legend className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.examTypeLabel')}</legend>
+                          <legend className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.examTypeLabel')}</legend>
                           <div className="flex gap-3 flex-wrap">
                             {['admission', 'annual', 'pre-operative', 'follow-up', 'consultation'].map(type => (
                               <label key={type} htmlFor={`hp-exam-type-${type}`} className="flex items-center gap-2 cursor-pointer">
@@ -582,7 +600,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                                   value={type}
                                   checked={formData.examType === type}
                                   onChange={() => setFormData({ ...formData, examType: type as HistoryAndPhysical['examType'] })}
-                                  className="text-indigo-600"
+                                  className="text-content-secondary"
                                 />
                                 <span className="text-sm">{t(`docHistoryPhysical.examType_${type}`)}</span>
                               </label>
@@ -596,25 +614,25 @@ const HistoryAndPhysicalPage: React.FC = () => {
               </div>
 
               {/* Chief Complaint */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <button
                   onClick={() => toggleSection('chief-complaint')}
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5 text-indigo-600" />
+                    <AlertTriangle className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.chiefComplaintHpiHeading')}
                   </h2>
                   {expandedSections.has('chief-complaint') ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-content-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-content-muted" />
                   )}
                 </button>
                 {expandedSections.has('chief-complaint') && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label htmlFor="hp-chief-complaint" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.chiefComplaintRequiredLabel')}</label>
+                      <label htmlFor="hp-chief-complaint" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.chiefComplaintRequiredLabel')}</label>
                       <input
                         id="hp-chief-complaint"
                         type="text"
@@ -625,7 +643,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label htmlFor="hp-hpi" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.hpiLabel')}</label>
+                      <label htmlFor="hp-hpi" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.hpiLabel')}</label>
                       <textarea
                         id="hp-hpi"
                         value={formData.hpi}
@@ -639,77 +657,89 @@ const HistoryAndPhysicalPage: React.FC = () => {
               </div>
 
               {/* Past Medical History */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <button
                   onClick={() => toggleSection('history')}
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <History className="w-5 h-5 text-indigo-600" />
+                    <History className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.medicalHistoryHeading')}
                   </h2>
                   {expandedSections.has('history') ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-content-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-content-muted" />
                   )}
                 </button>
                 {expandedSections.has('history') && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label htmlFor="hp-pmh" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.pmhLabel')}</label>
+                      <label htmlFor="hp-pmh" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.pmhLabel')}</label>
                       <textarea
                         id="hp-pmh"
+                        value={formData.pmh}
+                        onChange={(e) => setFormData({ ...formData, pmh: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-24"
                         placeholder={t('docHistoryPhysical.pmhPh')}
                       />
                     </div>
                     <div>
-                      <label htmlFor="hp-psh" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.pshLabel')}</label>
+                      <label htmlFor="hp-psh" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.pshLabel')}</label>
                       <textarea
                         id="hp-psh"
+                        value={formData.psh}
+                        onChange={(e) => setFormData({ ...formData, psh: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-20"
                         placeholder={t('docHistoryPhysical.pshPh')}
                       />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label htmlFor="hp-medications" className="block text-sm font-medium text-gray-700 mb-1">
+                        <label htmlFor="hp-medications" className="block text-sm font-medium text-content-secondary mb-1">
                           <Pill className="w-4 h-4 inline mr-1" />
                           {t('docHistoryPhysical.currentMedicationsLabel')}
                         </label>
                         <textarea
                           id="hp-medications"
+                        value={formData.medications}
+                        onChange={(e) => setFormData({ ...formData, medications: e.target.value })}
                           className="w-full border rounded-lg px-3 py-2 h-24"
                           placeholder={t('docHistoryPhysical.medicationsPh')}
                         />
                       </div>
                       <div>
-                        <label htmlFor="hp-allergies" className="block text-sm font-medium text-gray-700 mb-1">
+                        <label htmlFor="hp-allergies" className="block text-sm font-medium text-content-secondary mb-1">
                           <AlertTriangle className="w-4 h-4 inline mr-1 text-red-500" />
                           {t('docHistoryPhysical.allergiesLabel')}
                         </label>
                         <textarea
                           id="hp-allergies"
+                        value={formData.allergies}
+                        onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
                           className="w-full border rounded-lg px-3 py-2 h-24"
                           placeholder={t('docHistoryPhysical.allergiesPh')}
                         />
                       </div>
                     </div>
                     <div>
-                      <span id="hp-social-history-heading" className="block text-sm font-medium text-gray-700 mb-2">{t('docHistoryPhysical.socialHistoryLabel')}</span>
+                      <span id="hp-social-history-heading" className="block text-sm font-medium text-content-secondary mb-2">{t('docHistoryPhysical.socialHistoryLabel')}</span>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4" role="group" aria-labelledby="hp-social-history-heading">
                         <div>
-                          <label htmlFor="hp-tobacco" className="block text-xs text-gray-500 mb-1">{t('docHistoryPhysical.tobaccoUseLabel')}</label>
-                          <select id="hp-tobacco" className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <label htmlFor="hp-tobacco" className="block text-xs text-content-muted mb-1">{t('docHistoryPhysical.tobaccoUseLabel')}</label>
+                          <select id="hp-tobacco" className="w-full border rounded-lg px-3 py-2 text-sm"
+                            value={formData.socialHistory.smoking}
+                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, smoking: e.target.value } })}>
                             <option value="never">{t('docHistoryPhysical.smoking_never')}</option>
                             <option value="former">{t('docHistoryPhysical.smoking_former')}</option>
                             <option value="current">{t('docHistoryPhysical.smoking_current')}</option>
                           </select>
                         </div>
                         <div>
-                          <label htmlFor="hp-alcohol" className="block text-xs text-gray-500 mb-1">{t('docHistoryPhysical.alcoholUseLabel')}</label>
-                          <select id="hp-alcohol" className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <label htmlFor="hp-alcohol" className="block text-xs text-content-muted mb-1">{t('docHistoryPhysical.alcoholUseLabel')}</label>
+                          <select id="hp-alcohol" className="w-full border rounded-lg px-3 py-2 text-sm"
+                            value={formData.socialHistory.alcohol}
+                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, alcohol: e.target.value } })}>
                             <option value="none">{t('docHistoryPhysical.alcohol_none')}</option>
                             <option value="social">{t('docHistoryPhysical.alcohol_social')}</option>
                             <option value="moderate">{t('docHistoryPhysical.alcohol_moderate')}</option>
@@ -717,8 +747,10 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           </select>
                         </div>
                         <div>
-                          <label htmlFor="hp-drugs" className="block text-xs text-gray-500 mb-1">{t('docHistoryPhysical.illicitDrugsLabel')}</label>
-                          <select id="hp-drugs" className="w-full border rounded-lg px-3 py-2 text-sm">
+                          <label htmlFor="hp-drugs" className="block text-xs text-content-muted mb-1">{t('docHistoryPhysical.illicitDrugsLabel')}</label>
+                          <select id="hp-drugs" className="w-full border rounded-lg px-3 py-2 text-sm"
+                            value={formData.socialHistory.drugs}
+                            onChange={(e) => setFormData({ ...formData, socialHistory: { ...formData.socialHistory, drugs: e.target.value } })}>
                             <option value="none">{t('docHistoryPhysical.drugs_none')}</option>
                             <option value="former">{t('docHistoryPhysical.drugs_former')}</option>
                             <option value="current">{t('docHistoryPhysical.drugs_current')}</option>
@@ -727,9 +759,11 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       </div>
                     </div>
                     <div>
-                      <label htmlFor="hp-family-history" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.familyHistoryLabel')}</label>
+                      <label htmlFor="hp-family-history" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.familyHistoryLabel')}</label>
                       <textarea
                         id="hp-family-history"
+                        value={formData.familyHistory}
+                        onChange={(e) => setFormData({ ...formData, familyHistory: e.target.value })}
                         className="w-full border rounded-lg px-3 py-2 h-20"
                         placeholder={t('docHistoryPhysical.familyHistoryPh')}
                       />
@@ -739,84 +773,101 @@ const HistoryAndPhysicalPage: React.FC = () => {
               </div>
 
               {/* Vital Signs */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <button
                   onClick={() => toggleSection('vitals')}
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-indigo-600" />
+                    <Activity className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.vitalSignsHeading')}
                   </h2>
                   {expandedSections.has('vitals') ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-content-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-content-muted" />
                   )}
                 </button>
                 {expandedSections.has('vitals') && (
                   <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
-                      <label htmlFor="hp-blood-pressure" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.bloodPressureLabel')}</label>
-                      <input id="hp-blood-pressure" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="120/80" />
+                      <label htmlFor="hp-blood-pressure" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.bloodPressureLabel')}</label>
+                      <input id="hp-blood-pressure" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="120/80"
+                        value={formData.vitalSigns.bloodPressure}
+                        onChange={(e) => updateVital('bloodPressure', e.target.value)} />
                     </div>
                     <div>
-                      <label htmlFor="hp-heart-rate" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.heartRateLabel')}</label>
-                      <input id="hp-heart-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="72" />
+                      <label htmlFor="hp-heart-rate" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.heartRateLabel')}</label>
+                      <input id="hp-heart-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="72"
+                        value={formData.vitalSigns.heartRate}
+                        onChange={(e) => updateVital('heartRate', e.target.value)} />
                     </div>
                     <div>
-                      <label htmlFor="hp-respiratory-rate" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.respiratoryRateLabel')}</label>
-                      <input id="hp-respiratory-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="16" />
+                      <label htmlFor="hp-respiratory-rate" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.respiratoryRateLabel')}</label>
+                      <input id="hp-respiratory-rate" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="16"
+                        value={formData.vitalSigns.respiratoryRate}
+                        onChange={(e) => updateVital('respiratoryRate', e.target.value)} />
                     </div>
                     <div>
-                      <label htmlFor="hp-temperature" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.temperatureLabel')}</label>
-                      <input id="hp-temperature" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="98.6" />
+                      <label htmlFor="hp-temperature" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.temperatureLabel')}</label>
+                      <input id="hp-temperature" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="36.8"
+                        value={formData.vitalSigns.temperature}
+                        onChange={(e) => updateVital('temperature', e.target.value)} />
                     </div>
                     <div>
-                      <label htmlFor="hp-spo2" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.spo2Label')}</label>
-                      <input id="hp-spo2" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="98" />
+                      <label htmlFor="hp-spo2" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.spo2Label')}</label>
+                      <input id="hp-spo2" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="98"
+                        value={formData.vitalSigns.oxygenSaturation}
+                        onChange={(e) => updateVital('oxygenSaturation', e.target.value)} />
                     </div>
                     <div>
-                      <label htmlFor="hp-height" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.heightLabel')}</label>
-                      <input id="hp-height" type="text" className="w-full border rounded-lg px-3 py-2" placeholder="5'10&quot;" />
+                      <label htmlFor="hp-height" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.heightLabel')}</label>
+                      <input id="hp-height" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="170"
+                        value={formData.vitalSigns.heightCm}
+                        onChange={(e) => updateVital('heightCm', e.target.value)} />
                     </div>
                     <div>
-                      <label htmlFor="hp-weight" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.weightLabel')}</label>
-                      <input id="hp-weight" type="number" className="w-full border rounded-lg px-3 py-2" placeholder="175" />
+                      <label htmlFor="hp-weight" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.weightLabel')}</label>
+                      <input id="hp-weight" type="number" step="0.1" className="w-full border rounded-lg px-3 py-2" placeholder="70"
+                        value={formData.vitalSigns.weightKg}
+                        onChange={(e) => updateVital('weightKg', e.target.value)} />
                     </div>
                     <div>
-                      <label htmlFor="hp-bmi" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.bmiCalcLabel')}</label>
-                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-gray-50" readOnly placeholder="24.5" />
+                      <label htmlFor="hp-bmi" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.bmiCalcLabel')}</label>
+                      <input id="hp-bmi" type="text" className="w-full border rounded-lg px-3 py-2 bg-surface-sunken" readOnly placeholder="24.5"
+                        value={formData.vitalSigns.bmi} />
                     </div>
                   </div>
                 )}
               </div>
 
               {/* Review of Systems */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <button
                   onClick={() => toggleSection('ros')}
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Brain className="w-5 h-5 text-indigo-600" />
+                    <Brain className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.reviewOfSystemsHeading')}
                   </h2>
                   {expandedSections.has('ros') ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-content-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-content-muted" />
                   )}
                 </button>
                 {expandedSections.has('ros') && (
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {systemsList.map(system => (
-                      <div key={system} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div key={system} className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
                         <span id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`} className="text-sm font-medium text-gray-700">{translateSystem(system)}</span>
                         <div className="flex gap-2" role="radiogroup" aria-labelledby={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-label`}>
                           {['normal', 'abnormal'].map(status => (
                             <label key={status} htmlFor={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} className="flex items-center gap-1 cursor-pointer">
-                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-indigo-600" />
+                              <input id={`hp-ros-${system.toLowerCase().replace(/\//g, '-')}-${status}`} type="radio" name={`ros-${system}`} className="text-indigo-600"
+                                checked={formData.reviewOfSystems[system] === status}
+                                onChange={() => setFormData({ ...formData, reviewOfSystems: { ...formData.reviewOfSystems, [system]: status } })} />
                               <span className="text-xs">{status === 'normal' ? t('docHistoryPhysical.negLabel') : t('docHistoryPhysical.posLabel')}</span>
                             </label>
                           ))}
@@ -828,19 +879,19 @@ const HistoryAndPhysicalPage: React.FC = () => {
               </div>
 
               {/* Physical Examination */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <button
                   onClick={() => toggleSection('pe')}
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Stethoscope className="w-5 h-5 text-indigo-600" />
+                    <Stethoscope className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.physicalExaminationHeading')}
                   </h2>
                   {expandedSections.has('pe') ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-content-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-content-muted" />
                   )}
                 </button>
                 {expandedSections.has('pe') && (
@@ -848,11 +899,13 @@ const HistoryAndPhysicalPage: React.FC = () => {
                     {['General', 'HEENT', 'Neck', 'Cardiovascular', 'Respiratory', 'Abdomen', 'Extremities', 'Neurological', 'Skin'].map(system => (
                       <div key={system} className="border rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
-                          <span id={`hp-pe-${system.toLowerCase()}-label`} className="font-medium text-gray-700">{translateSystem(system)}</span>
+                          <span id={`hp-pe-${system.toLowerCase()}-label`} className="font-medium text-content-secondary">{translateSystem(system)}</span>
                           <div className="flex gap-3" role="radiogroup" aria-labelledby={`hp-pe-${system.toLowerCase()}-label`}>
                             {['normal', 'abnormal'].map(status => (
                               <label key={status} htmlFor={`hp-pe-${system.toLowerCase()}-${status}`} className="flex items-center gap-1 cursor-pointer">
-                                <input id={`hp-pe-${system.toLowerCase()}-${status}`} type="radio" name={`pe-${system}`} className="text-indigo-600" />
+                                <input id={`hp-pe-${system.toLowerCase()}-${status}`} type="radio" name={`pe-${system}`} className="text-content-secondary"
+                                  checked={formData.physicalExam[system]?.status === status}
+                                  onChange={() => setFormData({ ...formData, physicalExam: { ...formData.physicalExam, [system]: { status, findings: formData.physicalExam[system]?.findings || '' } } })} />
                                 <span className="text-sm">{status === 'normal' ? t('docHistoryPhysical.normalLabel') : t('docHistoryPhysical.abnormalLabel')}</span>
                               </label>
                             ))}
@@ -864,6 +917,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           className="w-full border rounded px-3 py-2 text-sm"
                           placeholder={t('docHistoryPhysical.findingsPh')}
                           rows={2}
+                          value={formData.physicalExam[system]?.findings || ''}
+                          onChange={(e) => setFormData({ ...formData, physicalExam: { ...formData.physicalExam, [system]: { status: formData.physicalExam[system]?.status || '', findings: e.target.value } } })}
                         />
                       </div>
                     ))}
@@ -872,25 +927,25 @@ const HistoryAndPhysicalPage: React.FC = () => {
               </div>
 
               {/* Assessment & Plan */}
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-surface rounded-lg shadow p-6">
                 <button
                   onClick={() => toggleSection('assessment')}
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-indigo-600" />
+                    <FileText className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.assessmentPlanHeading')}
                   </h2>
                   {expandedSections.has('assessment') ? (
-                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                    <ChevronDown className="w-5 h-5 text-content-muted" />
                   ) : (
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-content-muted" />
                   )}
                 </button>
                 {expandedSections.has('assessment') && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <label htmlFor="hp-assessment" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.assessmentRequiredLabel')}</label>
+                      <label htmlFor="hp-assessment" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.assessmentRequiredLabel')}</label>
                       <textarea
                         id="hp-assessment"
                         value={formData.assessment}
@@ -900,7 +955,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label htmlFor="hp-plan" className="block text-sm font-medium text-gray-700 mb-1">{t('docHistoryPhysical.planRequiredLabel')}</label>
+                      <label htmlFor="hp-plan" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.planRequiredLabel')}</label>
                       <textarea
                         id="hp-plan"
                         value={formData.plan}
@@ -919,7 +974,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => handleSaveHp('in-progress')}
-                  className="px-6 py-2 border border-gray-300 rounded-lg font-medium"
+                  className="px-6 py-2 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docHistoryPhysical.saveAsDraft')}
                 </button>
@@ -950,15 +1005,15 @@ const HistoryAndPhysicalPage: React.FC = () => {
               { name: t('docHistoryPhysical.templatePulmonaryName'), type: 'consultation', description: t('docHistoryPhysical.templatePulmonaryDesc') },
               { name: t('docHistoryPhysical.templatePediatricName'), type: 'admission', description: t('docHistoryPhysical.templatePediatricDesc') }
             ].map((template, idx) => (
-              <div key={idx} className="bg-white rounded-lg shadow border p-6 hover:shadow-md transition-shadow cursor-pointer">
+              <div key={idx} className="bg-surface rounded-lg shadow border p-6 hover:shadow-md transition-shadow cursor-pointer">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="font-semibold text-gray-900">{template.name}</h3>
-                    <p className="text-sm text-gray-500 mt-1">{template.description}</p>
+                    <h3 className="font-semibold text-content">{template.name}</h3>
+                    <p className="text-sm text-content-muted mt-1">{template.description}</p>
                   </div>
                   {getExamTypeBadge(template.type as HistoryAndPhysical['examType'])}
                 </div>
-                <button className="mt-4 text-sm text-indigo-600 font-medium flex items-center gap-1">
+                <button className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1">
                   {t('docHistoryPhysical.useTemplate')}
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -972,34 +1027,34 @@ const HistoryAndPhysicalPage: React.FC = () => {
       {/* Detail Modal */}
       {selectedRecord && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{selectedRecord.patientName}</h2>
-                <p className="text-sm text-gray-500">{selectedRecord.id}</p>
+                <p className="text-sm text-content-muted">{selectedRecord.id}</p>
               </div>
               <button
                 onClick={() => setSelectedRecord(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-content-muted hover:text-content-muted"
               >
                 ×
               </button>
             </div>
             <div className="p-6 space-y-6">
               {/* Content would go here */}
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-semibold mb-2">{t('docHistoryPhysical.chiefComplaintLabel')}</h3>
                 <p>{selectedRecord.chiefComplaint}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-semibold mb-2">{t('docHistoryPhysical.historyOfPresentIllnessHeading')}</h3>
                 <p>{selectedRecord.historyOfPresentIllness}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-semibold mb-2">{t('docHistoryPhysical.assessmentHeading')}</h3>
                 <p>{selectedRecord.assessment}</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h3 className="font-semibold mb-2">{t('docHistoryPhysical.planHeading')}</h3>
                 <pre className="whitespace-pre-wrap font-sans">{selectedRecord.plan}</pre>
               </div>

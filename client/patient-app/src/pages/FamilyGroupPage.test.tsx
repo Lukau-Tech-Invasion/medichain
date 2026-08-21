@@ -98,19 +98,21 @@ describe('FamilyGroupPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/New Group Name/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Group name/i)).toBeInTheDocument();
     });
 
-    const input = screen.getByPlaceholderText(/New Group Name/i);
+    const input = screen.getByPlaceholderText(/Group name/i);
     fireEvent.change(input, { target: { value: 'New Family Group' } });
 
-    const createButton = screen.getByText(/Create Group/i);
+    // 'Create New Group' is the section heading; the submit control is a
+    // button labelled 'Create'.
+    const createButton = screen.getByRole('button', { name: /^Create$/i });
     fireEvent.click(createButton);
 
     await waitFor(() => {
       expect(shared.createFamilyGroup).toHaveBeenCalledWith(expect.objectContaining({
         group_name: 'New Family Group',
-        primary_contact_id: 'HEALTH123',
+        primary_contact_id: mockPatient.walletAddress,
       }));
     });
   });

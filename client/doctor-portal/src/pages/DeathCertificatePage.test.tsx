@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -15,6 +20,18 @@ vi.mock('@medichain/shared', async (importOriginal) => ({
   getPatients: vi.fn(),
   apiUrl: (path: string) => path,
 }));
+
+/**
+ * Open the certificate form and advance to the cause-of-death step.
+ *
+ * The form is the 'New Certificate' tab and runs in four steps — decedent,
+ * death info, cause, certifier — so cause of death is two Continues in.
+ */
+const goToCauseOfDeathStep = () => {
+  fireEvent.click(screen.getByRole('button', { name: /New Certificate/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Continue/i }));
+};
 
 describe('DeathCertificatePage', () => {
   const mockUser = {
@@ -34,18 +51,22 @@ describe('DeathCertificatePage', () => {
     render(<DeathCertificatePage />);
 
     expect(screen.getAllByText(/Death Certificate/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Medical Certification of Cause of Death/i)).toBeInTheDocument();
+    expect(screen.getByText(/Create and manage official death certificates/i)).toBeInTheDocument();
   });
 
   it('displays cause of death sections', () => {
     render(<DeathCertificatePage />);
 
-    expect(screen.getByText(/Part I: Immediate and Underlying Causes/i)).toBeInTheDocument();
-    expect(screen.getByText(/Part II: Other Significant Conditions/i)).toBeInTheDocument();
+    goToCauseOfDeathStep();
+
+    expect(screen.getByText(/Cause of Death/i)).toBeInTheDocument();
+    expect(screen.getByText(/Part I:/i)).toBeInTheDocument();
   });
 
   it('allows entering immediate cause', () => {
     render(<DeathCertificatePage />);
+
+    goToCauseOfDeathStep();
 
     const input = screen.getByLabelText(/Immediate Cause/i);
     fireEvent.change(input, { target: { value: 'Septic Shock' } });

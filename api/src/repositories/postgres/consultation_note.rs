@@ -22,6 +22,20 @@ impl PgConsultationNoteRepository {
 
 #[async_trait]
 impl ConsultationNoteRepository for PgConsultationNoteRepository {
+    /// Bounded deployment-wide read for the registry views.
+    ///
+    /// Without this the trait's default body ran and returned
+    /// `list_all not implemented`, so the feature worked against the in-memory
+    /// backend and failed only on PostgreSQL.
+    async fn list_all(&self) -> RepositoryResult<Vec<ConsultationNoteEntity>> {
+        let rows = sqlx::query_as::<_, ConsultationNoteEntity>(
+            "SELECT * FROM consultation_notes ORDER BY created_at DESC LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     async fn create(
         &self,
         note: ConsultationNoteEntity,
@@ -165,6 +179,12 @@ impl ConsultationNoteRepository for PgConsultationNoteRepository {
         qb.push(", urgency = ").push_bind(&note.urgency);
         qb.push(", status = ").push_bind(&note.status);
         qb.push(", completed_at = ").push_bind(note.completed_at);
+        // `data` was omitted, so it kept whatever the note was *created* with
+        // for the rest of its life. `get_consult` serves this column rather than
+        // the ones above, which meant a consult could be answered — status,
+        // findings and recommendations all written — and still read back as an
+        // unanswered request to every clinician who opened it.
+        qb.push(", data = ").push_bind(&note.data);
         qb.push(", updated_at = CURRENT_TIMESTAMP WHERE id = ")
             .push_bind(&note.id);
         qb.push(" AND is_active = true RETURNING *");

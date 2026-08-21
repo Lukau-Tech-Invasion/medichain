@@ -115,11 +115,11 @@ export default function NurseDashboardPage() {
   ];
 
   return (
-    <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
+    <div className="p-6 space-y-6 bg-surface-sunken min-h-screen">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">{t('docNurseDashboard.title')}</h1>
-        <p className="text-sm text-gray-500 mt-1">{t('docNurseDashboard.subtitle')}</p>
+        <h1 className="text-2xl font-bold text-content">{t('docNurseDashboard.title')}</h1>
+        <p className="text-sm text-content-muted mt-1">{t('docNurseDashboard.subtitle')}</p>
       </div>
 
       {/* Critical Alerts */}
@@ -131,17 +131,17 @@ export default function NurseDashboardPage() {
 
       {/* Medications Due Banner */}
       {medicationsDue.length > 0 && (
-        <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4">
+        <div className="bg-ok-subtle border-2 border-ok rounded-lg p-4">
           <div className="flex items-start justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Pill className="text-green-600" size={24} />
-              <h3 className="text-lg font-bold text-green-900">
+              <Pill className="text-ok-subtle-fg" size={24} />
+              <h3 className="text-lg font-bold text-ok-subtle-fg">
                 {t('docNurseDashboard.medsDueNow', { count: medicationsDue.length })}
               </h3>
             </div>
             <button
               onClick={() => navigate('/mar')}
-              className="text-sm text-green-700 hover:text-green-900 font-medium"
+              className="text-sm text-ok-subtle-fg hover:text-ok-subtle-fg font-medium"
             >
               {t('docNurseDashboard.openMar')}
             </button>
@@ -150,17 +150,17 @@ export default function NurseDashboardPage() {
             {medicationsDue.map((med: any) => (
               <div
                 key={med.id}
-                className="flex items-center justify-between p-3 bg-white rounded border border-green-200"
+                className="flex items-center justify-between p-3 bg-surface rounded border border-ok"
               >
                 <div className="flex-1">
-                  <p className="font-medium text-gray-900">
+                  <p className="font-medium text-content">
                     {med.patient_name} - {med.medication} {med.dose}
                   </p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-content-muted">
                     {med.route} - {t('docNurseDashboard.due')}: {med.time_due}
                   </p>
                 </div>
-                <button className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                <button className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok">
                   {t('docNurseDashboard.administer')}
                 </button>
               </div>
@@ -174,31 +174,31 @@ export default function NurseDashboardPage() {
         <StatCard
           label={t('docNurseDashboard.statMyPatients')}
           value={data?.patients?.total || 0}
-          icon={<Users className="text-green-600" size={24} />}
-          color="bg-green-100"
+          icon={<Users className="text-ok-subtle-fg" size={24} />}
+          color="bg-ok-subtle"
           onClick={() => navigate('/patients')}
           loading={loading}
         />
         <StatCard
           label={t('docNurseDashboard.statVitalsDue')}
           value={data?.tasks?.vitals_due || 0}
-          icon={<Activity className="text-amber-600" size={24} />}
-          color="bg-amber-100"
+          icon={<Activity className="text-caution-subtle-fg" size={24} />}
+          color="bg-caution-subtle"
           onClick={() => navigate('/vitals')}
           loading={loading}
         />
         <StatCard
           label={t('docNurseDashboard.statFallRisk')}
           value={data?.fall_risk_patients?.length || 0}
-          icon={<AlertTriangle className="text-red-600" size={24} />}
-          color="bg-red-100"
+          icon={<AlertTriangle className="text-critical-subtle-fg" size={24} />}
+          color="bg-critical-subtle"
           loading={loading}
         />
         <StatCard
           label={t('docNurseDashboard.statIvChecks')}
           value={data?.tasks?.ivs_to_check || 0}
-          icon={<Droplets className="text-blue-600" size={24} />}
-          color="bg-blue-100"
+          icon={<Droplets className="text-notice-subtle-fg" size={24} />}
+          color="bg-notice-subtle"
           loading={loading}
         />
       </div>
@@ -213,16 +213,16 @@ export default function NurseDashboardPage() {
         />
 
         {/* Tasks Due Timeline */}
-        <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3">
             <ClipboardList size={16} aria-hidden="true" /> {t('docNurseDashboard.tasksDue')}
           </h3>
           <div className="space-y-2">
             {tasksData.map((task, idx) => (
-              <div key={idx} className="flex items-center gap-3 p-2 border rounded hover:bg-gray-50">
-                <span className="text-sm font-medium text-gray-500 w-12">{task.time}</span>
-                <span className="flex-1 text-sm text-gray-900">{task.task}</span>
-                <span className="text-sm text-gray-500">{task.patient}</span>
+              <div key={idx} className="flex items-center gap-3 p-2 border rounded hover:bg-surface-sunken">
+                <span className="text-sm font-medium text-content-muted w-12">{task.time}</span>
+                <span className="flex-1 text-sm text-content">{task.task}</span>
+                <span className="text-sm text-content-muted">{task.patient}</span>
               </div>
             ))}
           </div>
@@ -235,15 +235,15 @@ export default function NurseDashboardPage() {
         <QuickActionsPanel actions={quickActions} />
 
         {/* I/O Summary */}
-        <div className="bg-white rounded-lg shadow p-4 border border-gray-200">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+        <div className="bg-surface rounded-lg shadow p-4 border border-border">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-content-secondary mb-3">
             <FileText size={16} aria-hidden="true" /> {t('docNurseDashboard.ioSummaryToday')}
           </h3>
           {data?.io_records && data.io_records.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-gray-500 border-b">
+                  <tr className="text-left text-content-muted border-b">
                     <th className="pb-2">{t('docNurseDashboard.colPatient')}</th>
                     <th className="pb-2">{t('docNurseDashboard.colIntake')}</th>
                     <th className="pb-2">{t('docNurseDashboard.colOutput')}</th>
@@ -266,7 +266,7 @@ export default function NurseDashboardPage() {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-gray-500">{t('docNurseDashboard.noIoRecords')}</p>
+            <p className="text-sm text-content-muted">{t('docNurseDashboard.noIoRecords')}</p>
           )}
         </div>
       </div>

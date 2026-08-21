@@ -223,34 +223,34 @@ const OrderSetsPage: React.FC = () => {
   const getTypeBadge = (type: OrderSetType) => {
     switch (type) {
       case 'admission':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-notice-subtle text-notice-subtle-fg';
       case 'discharge':
-        return 'bg-green-100 text-green-800';
+        return 'bg-ok-subtle text-ok-subtle-fg';
       case 'procedure':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'protocol':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'emergency':
-        return 'bg-red-100 text-red-800';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       case 'specialty':
-        return 'bg-indigo-100 text-indigo-800';
+        return 'bg-surface-sunken text-content-secondary';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-surface-sunken text-content-secondary';
     }
   };
 
   const getPriorityBadge = (priority: OrderPriority) => {
     switch (priority) {
       case 'stat':
-        return 'bg-red-100 text-red-800';
+        return 'bg-critical-subtle text-critical-subtle-fg';
       case 'urgent':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'routine':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-notice-subtle text-notice-subtle-fg';
       case 'prn':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-surface-sunken text-content-secondary';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-surface-sunken text-content-secondary';
     }
   };
 
@@ -279,13 +279,13 @@ const OrderSetsPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex gap-2 mb-6 border-b border-gray-300">
+      <div className="flex gap-2 mb-6 border-b border-border-strong">
         <button
           onClick={() => setActiveTab('all')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'all'
-              ? 'border-b-2 border-teal-600 text-teal-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-teal-600 text-content-secondary'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docOrderSets.tabAllOrderSets', { count: orderSets.length })}
@@ -294,8 +294,8 @@ const OrderSetsPage: React.FC = () => {
           onClick={() => setActiveTab('new')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'new'
-              ? 'border-b-2 border-teal-600 text-teal-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-teal-600 text-content-secondary'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docOrderSets.tabNewOrderSet')}
@@ -304,8 +304,8 @@ const OrderSetsPage: React.FC = () => {
           onClick={() => setActiveTab('templates')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'templates'
-              ? 'border-b-2 border-teal-600 text-teal-600'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'border-b-2 border-teal-600 text-content-secondary'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           {t('docOrderSets.tabTemplates')}
@@ -314,29 +314,29 @@ const OrderSetsPage: React.FC = () => {
 
       {activeTab === 'all' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="col-span-2">
-                <label htmlFor="orderset-search" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.searchOrderSetsLabel')}</label>
+                <label htmlFor="orderset-search" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.searchOrderSetsLabel')}</label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-content-muted w-5 h-5" />
                   <input
                     id="orderset-search"
                     type="text"
                     placeholder={t('docOrderSets.searchOrderSetsPh')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg"
+                    className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg"
                   />
                 </div>
               </div>
               <div>
-                <label htmlFor="orderset-filter-type" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.filterByTypeLabel')}</label>
+                <label htmlFor="orderset-filter-type" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.filterByTypeLabel')}</label>
                 <select
                   id="orderset-filter-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value as OrderSetType | 'all')}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                 >
                   <option value="all">{t('docOrderSets.allTypes')}</option>
                   <option value="admission">{t('docOrderSets.type_admission')}</option>
@@ -352,22 +352,22 @@ const OrderSetsPage: React.FC = () => {
             {filteredSets.length > 0 ? (
               <div className="space-y-4">
                 {filteredSets.map((set) => (
-                  <div key={set.setId} className="border border-gray-300 rounded-lg p-6 hover:shadow-md transition-shadow">
+                  <div key={set.setId} className="border border-border-strong rounded-lg p-6 hover:shadow-md transition-shadow">
                     <div className="flex items-start justify-between mb-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
-                          <h3 className="text-xl font-bold text-gray-900">{set.name}</h3>
+                          <h3 className="text-xl font-bold text-content">{set.name}</h3>
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getTypeBadge(set.type)}`}>
                             {t(`docOrderSets.type_${set.type}`).toUpperCase()}
                           </span>
                           {!set.isActive && (
-                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-surface-sunken text-content-muted">
                               {t('docOrderSets.inactiveBadge')}
                             </span>
                           )}
                         </div>
-                        <p className="text-gray-700 mb-2">{set.description}</p>
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
+                        <p className="text-content-secondary mb-2">{set.description}</p>
+                        <div className="flex items-center gap-4 text-sm text-content-muted">
                           <span className="flex items-center gap-1">
                             <Brain className="w-4 h-4" />
                             {set.specialty}
@@ -402,7 +402,7 @@ const OrderSetsPage: React.FC = () => {
                         </button>
                         <button
                           onClick={() => handleDeleteSet(set.setId)}
-                          className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+                          className="px-3 py-2 bg-red-500 hover:bg-critical text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
                         >
                           <Trash2 className="w-4 h-4" />
                           {t('docOrderSets.deleteButton')}
@@ -411,32 +411,32 @@ const OrderSetsPage: React.FC = () => {
                     </div>
 
                     {set.indication && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                        <p className="text-sm font-semibold text-yellow-900 mb-1">{t('docOrderSets.indicationLabel')}</p>
-                        <p className="text-sm text-yellow-800">{set.indication}</p>
+                      <div className="bg-caution-subtle border border-caution rounded-lg p-3 mb-4">
+                        <p className="text-sm font-semibold text-caution-subtle-fg mb-1">{t('docOrderSets.indicationLabel')}</p>
+                        <p className="text-sm text-caution-subtle-fg">{set.indication}</p>
                       </div>
                     )}
 
-                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                      <p className="text-sm font-semibold text-gray-900 mb-3">{t('docOrderSets.ordersCount', { count: set.orders.length })}</p>
+                    <div className="bg-surface-sunken rounded-lg p-4 mb-4">
+                      <p className="text-sm font-semibold text-content mb-3">{t('docOrderSets.ordersCount', { count: set.orders.length })}</p>
                       <div className="space-y-2">
                         {set.orders.map((order) => (
-                          <div key={order.orderId} className="flex items-start gap-3 bg-white border border-gray-200 rounded-lg p-3">
-                            <div className="text-gray-600">{getTypeIcon(order.type)}</div>
+                          <div key={order.orderId} className="flex items-start gap-3 bg-surface border border-border rounded-lg p-3">
+                            <div className="text-content-muted">{getTypeIcon(order.type)}</div>
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-1">
-                                <p className="font-semibold text-gray-900">{order.description}</p>
+                                <p className="font-semibold text-content">{order.description}</p>
                                 <span className={`px-2 py-1 rounded text-xs font-semibold ${getPriorityBadge(order.priority)}`}>
                                   {t(`docOrderSets.priority_${order.priority}`)}
                                 </span>
-                                <span className="px-2 py-1 rounded text-xs font-semibold bg-gray-100 text-gray-600">
+                                <span className="px-2 py-1 rounded text-xs font-semibold bg-surface-sunken text-content-muted">
                                   {t(`docOrderSets.orderType_${order.type}`)}
                                 </span>
                               </div>
                               {order.instructions && (
-                                <p className="text-sm text-gray-600 mb-1">{order.instructions}</p>
+                                <p className="text-sm text-content-muted mb-1">{order.instructions}</p>
                               )}
-                              <div className="flex gap-3 text-xs text-gray-500">
+                              <div className="flex gap-3 text-xs text-content-muted">
                                 {order.route && <span>{t('docOrderSets.routeLine', { route: order.route })}</span>}
                                 {order.frequency && <span>{t('docOrderSets.frequencyLine', { frequency: order.frequency })}</span>}
                                 {order.duration && <span>{t('docOrderSets.durationLine', { duration: order.duration })}</span>}
@@ -449,20 +449,20 @@ const OrderSetsPage: React.FC = () => {
 
                     {set.tags.length > 0 && (
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-gray-700">{t('docOrderSets.tagsLabel')}</p>
+                        <p className="text-sm font-semibold text-content-secondary">{t('docOrderSets.tagsLabel')}</p>
                         {set.tags.map((tag, idx) => (
-                          <span key={idx} className="px-3 py-1 bg-teal-100 text-teal-800 rounded-full text-xs font-semibold">
+                          <span key={idx} className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-xs font-semibold">
                             {tag}
                           </span>
                         ))}
                       </div>
                     )}
 
-                    <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm text-gray-600">
-                      <div className="bg-blue-50 rounded p-2">
+                    <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4 text-sm text-content-muted">
+                      <div className="bg-notice-subtle rounded p-2">
                         <span className="font-semibold">{t('docOrderSets.createdLabel')}</span> {formatDate(set.createdAt)}
                       </div>
-                      <div className="bg-green-50 rounded p-2">
+                      <div className="bg-ok-subtle rounded p-2">
                         <span className="font-semibold">{t('docOrderSets.lastModifiedLabel')}</span> {formatDate(set.lastModified)}
                       </div>
                     </div>
@@ -471,8 +471,8 @@ const OrderSetsPage: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-12">
-                <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600">{t('docOrderSets.noOrderSetsFound')}</p>
+                <FileText className="w-16 h-16 text-content-muted mx-auto mb-4" />
+                <p className="text-content-muted">{t('docOrderSets.noOrderSetsFound')}</p>
               </div>
             )}
           </div>
@@ -481,13 +481,13 @@ const OrderSetsPage: React.FC = () => {
 
       {activeTab === 'new' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">{t('docOrderSets.createNewOrderSetHeading')}</h2>
+          <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
+            <h2 className="text-xl font-bold text-content mb-6">{t('docOrderSets.createNewOrderSetHeading')}</h2>
 
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="orderset-name" className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="orderset-name" className="block text-sm font-semibold text-content-secondary mb-2">
                     {t('docOrderSets.orderSetNameRequired')} <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -495,20 +495,20 @@ const OrderSetsPage: React.FC = () => {
                     type="text"
                     value={newOrderSet.name || ''}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, name: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                     placeholder={t('docOrderSets.orderSetNamePh')}
                     required
                   />
                 </div>
                 <div>
-                  <label htmlFor="orderset-type" className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="orderset-type" className="block text-sm font-semibold text-content-secondary mb-2">
                     {t('docOrderSets.typeRequired')} <span className="text-red-500">*</span>
                   </label>
                   <select
                     id="orderset-type"
                     value={newOrderSet.type || 'admission'}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, type: e.target.value as OrderSetType })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                   >
                     <option value="admission">{t('docOrderSets.type_admission')}</option>
                     <option value="discharge">{t('docOrderSets.type_discharge')}</option>
@@ -522,7 +522,7 @@ const OrderSetsPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="orderset-specialty" className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label htmlFor="orderset-specialty" className="block text-sm font-semibold text-content-secondary mb-2">
                     {t('docOrderSets.specialtyRequired')} <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -530,13 +530,13 @@ const OrderSetsPage: React.FC = () => {
                     type="text"
                     value={newOrderSet.specialty || ''}
                     onChange={(e) => setNewOrderSet({ ...newOrderSet, specialty: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                     placeholder={t('docOrderSets.specialtyPh')}
                     required
                   />
                 </div>
                 <div>
-                  <label htmlFor="orderset-tags" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.tagsFieldLabel')}</label>
+                  <label htmlFor="orderset-tags" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.tagsFieldLabel')}</label>
                   <input
                     id="orderset-tags"
                     type="text"
@@ -547,14 +547,14 @@ const OrderSetsPage: React.FC = () => {
                         tags: e.target.value.split(',').map((t) => t.trim()),
                       })
                     }
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    className="w-full border border-border-strong rounded-lg px-3 py-2"
                     placeholder={t('docOrderSets.tagsFieldPh')}
                   />
                 </div>
               </div>
 
               <div>
-                <label htmlFor="orderset-description" className="block text-sm font-semibold text-gray-700 mb-2">
+                <label htmlFor="orderset-description" className="block text-sm font-semibold text-content-secondary mb-2">
                   {t('docOrderSets.descriptionRequired')} <span className="text-red-500">*</span>
                 </label>
                 <textarea
@@ -562,44 +562,44 @@ const OrderSetsPage: React.FC = () => {
                   value={newOrderSet.description || ''}
                   onChange={(e) => setNewOrderSet({ ...newOrderSet, description: e.target.value })}
                   rows={3}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                   placeholder={t('docOrderSets.descriptionPh')}
                   required
                 />
               </div>
 
               <div>
-                <label htmlFor="orderset-indication" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.indicationFieldLabel')}</label>
+                <label htmlFor="orderset-indication" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.indicationFieldLabel')}</label>
                 <textarea
                   id="orderset-indication"
                   value={newOrderSet.indication || ''}
                   onChange={(e) => setNewOrderSet({ ...newOrderSet, indication: e.target.value })}
                   rows={2}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  className="w-full border border-border-strong rounded-lg px-3 py-2"
                   placeholder={t('docOrderSets.indicationFieldPh')}
                 />
               </div>
 
               <div className="border-t pt-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4">{t('docOrderSets.ordersRequired')} <span className="text-red-500">*</span></h3>
+                <h3 className="text-lg font-bold text-content mb-4">{t('docOrderSets.ordersRequired')} <span className="text-red-500">*</span></h3>
 
                 {(newOrderSet.orders || []).length > 0 && (
                   <div className="space-y-2 mb-4">
                     {(newOrderSet.orders || []).map((order) => (
-                      <div key={order.orderId} className="flex items-start gap-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
-                        <div className="text-gray-600">{getTypeIcon(order.type)}</div>
+                      <div key={order.orderId} className="flex items-start gap-3 bg-surface-sunken border border-border rounded-lg p-3">
+                        <div className="text-content-muted">{getTypeIcon(order.type)}</div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <p className="font-semibold text-gray-900">{order.description}</p>
+                            <p className="font-semibold text-content">{order.description}</p>
                             <span className={`px-2 py-1 rounded text-xs font-semibold ${getPriorityBadge(order.priority)}`}>
                               {t(`docOrderSets.priority_${order.priority}`)}
                             </span>
                           </div>
-                          {order.instructions && <p className="text-sm text-gray-600">{order.instructions}</p>}
+                          {order.instructions && <p className="text-sm text-content-muted">{order.instructions}</p>}
                         </div>
                         <button
                           onClick={() => handleDeleteOrder(order.orderId)}
-                          className="text-red-500 hover:text-red-700"
+                          className="text-red-500 hover:text-critical-subtle-fg"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -608,16 +608,16 @@ const OrderSetsPage: React.FC = () => {
                   </div>
                 )}
 
-                <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
-                  <h4 className="font-semibold text-gray-900 mb-3">{t('docOrderSets.addOrderHeading')}</h4>
+                <div className="bg-surface-sunken border border-teal-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-content mb-3">{t('docOrderSets.addOrderHeading')}</h4>
                   <div className="grid grid-cols-2 gap-4 mb-3">
                     <div>
-                      <label htmlFor="orderset-order-type" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.orderTypeLabel')}</label>
+                      <label htmlFor="orderset-order-type" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.orderTypeLabel')}</label>
                       <select
                         id="orderset-order-type"
                         value={newOrder.type || 'medication'}
                         onChange={(e) => setNewOrder({ ...newOrder, type: e.target.value as OrderType })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className="w-full border border-border-strong rounded-lg px-3 py-2"
                       >
                         <option value="medication">{t('docOrderSets.orderTypeOption_medication')}</option>
                         <option value="lab">{t('docOrderSets.orderTypeOption_lab')}</option>
@@ -629,12 +629,12 @@ const OrderSetsPage: React.FC = () => {
                       </select>
                     </div>
                     <div>
-                      <label htmlFor="orderset-priority" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.priorityLabel')}</label>
+                      <label htmlFor="orderset-priority" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.priorityLabel')}</label>
                       <select
                         id="orderset-priority"
                         value={newOrder.priority || 'routine'}
                         onChange={(e) => setNewOrder({ ...newOrder, priority: e.target.value as OrderPriority })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className="w-full border border-border-strong rounded-lg px-3 py-2"
                       >
                         <option value="stat">{t('docOrderSets.priority_stat')}</option>
                         <option value="urgent">{t('docOrderSets.priority_urgent')}</option>
@@ -645,60 +645,60 @@ const OrderSetsPage: React.FC = () => {
                   </div>
 
                   <div className="mb-3">
-                    <label htmlFor="orderset-order-description" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.orderDescriptionLabel')}</label>
+                    <label htmlFor="orderset-order-description" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.orderDescriptionLabel')}</label>
                     <input
                       id="orderset-order-description"
                       type="text"
                       value={newOrder.description || ''}
                       onChange={(e) => setNewOrder({ ...newOrder, description: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                       placeholder={t('docOrderSets.orderDescriptionPh')}
                     />
                   </div>
 
                   <div className="mb-3">
-                    <label htmlFor="orderset-instructions" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.instructionsLabel')}</label>
+                    <label htmlFor="orderset-instructions" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.instructionsLabel')}</label>
                     <input
                       id="orderset-instructions"
                       type="text"
                       value={newOrder.instructions || ''}
                       onChange={(e) => setNewOrder({ ...newOrder, instructions: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full border border-border-strong rounded-lg px-3 py-2"
                       placeholder={t('docOrderSets.instructionsPh')}
                     />
                   </div>
 
                   <div className="grid grid-cols-3 gap-4 mb-3">
                     <div>
-                      <label htmlFor="orderset-route" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.routeLabel')}</label>
+                      <label htmlFor="orderset-route" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.routeLabel')}</label>
                       <input
                         id="orderset-route"
                         type="text"
                         value={newOrder.route || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, route: e.target.value })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className="w-full border border-border-strong rounded-lg px-3 py-2"
                         placeholder={t('docOrderSets.routePh')}
                       />
                     </div>
                     <div>
-                      <label htmlFor="orderset-frequency" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.frequencyLabel')}</label>
+                      <label htmlFor="orderset-frequency" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.frequencyLabel')}</label>
                       <input
                         id="orderset-frequency"
                         type="text"
                         value={newOrder.frequency || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, frequency: e.target.value })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className="w-full border border-border-strong rounded-lg px-3 py-2"
                         placeholder={t('docOrderSets.frequencyPh')}
                       />
                     </div>
                     <div>
-                      <label htmlFor="orderset-duration" className="block text-sm font-semibold text-gray-700 mb-2">{t('docOrderSets.durationLabel')}</label>
+                      <label htmlFor="orderset-duration" className="block text-sm font-semibold text-content-secondary mb-2">{t('docOrderSets.durationLabel')}</label>
                       <input
                         id="orderset-duration"
                         type="text"
                         value={newOrder.duration || ''}
                         onChange={(e) => setNewOrder({ ...newOrder, duration: e.target.value })}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                        className="w-full border border-border-strong rounded-lg px-3 py-2"
                         placeholder={t('docOrderSets.durationPh')}
                       />
                     </div>
@@ -727,40 +727,40 @@ const OrderSetsPage: React.FC = () => {
       )}
 
       {activeTab === 'templates' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">{t('docOrderSets.orderSetTemplatesHeading')}</h2>
-          <p className="text-gray-600 mb-6">{t('docOrderSets.templatesIntro')}</p>
+        <div className="bg-surface rounded-lg shadow-sm border border-border p-6">
+          <h2 className="text-xl font-bold text-content mb-4">{t('docOrderSets.orderSetTemplatesHeading')}</h2>
+          <p className="text-content-muted mb-6">{t('docOrderSets.templatesIntro')}</p>
 
           <div className="grid grid-cols-3 gap-4">
-            <div className="border border-gray-300 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
+            <div className="border border-border-strong rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
               <div className="flex items-center gap-2 mb-3">
-                <Heart className="w-6 h-6 text-red-600" />
-                <h3 className="font-bold text-gray-900">{t('docOrderSets.stemiName')}</h3>
+                <Heart className="w-6 h-6 text-critical-subtle-fg" />
+                <h3 className="font-bold text-content">{t('docOrderSets.stemiName')}</h3>
               </div>
-              <p className="text-sm text-gray-600 mb-3">{t('docOrderSets.stemiDesc')}</p>
-              <span className="inline-block px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-semibold">
+              <p className="text-sm text-content-muted mb-3">{t('docOrderSets.stemiDesc')}</p>
+              <span className="inline-block px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-xs font-semibold">
                 {t('docOrderSets.type_emergency')}
               </span>
             </div>
 
-            <div className="border border-gray-300 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
+            <div className="border border-border-strong rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
               <div className="flex items-center gap-2 mb-3">
-                <Brain className="w-6 h-6 text-purple-600" />
-                <h3 className="font-bold text-gray-900">{t('docOrderSets.strokeName')}</h3>
+                <Brain className="w-6 h-6 text-content-secondary" />
+                <h3 className="font-bold text-content">{t('docOrderSets.strokeName')}</h3>
               </div>
-              <p className="text-sm text-gray-600 mb-3">{t('docOrderSets.strokeDesc')}</p>
-              <span className="inline-block px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-semibold">
+              <p className="text-sm text-content-muted mb-3">{t('docOrderSets.strokeDesc')}</p>
+              <span className="inline-block px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-xs font-semibold">
                 {t('docOrderSets.type_emergency')}
               </span>
             </div>
 
-            <div className="border border-gray-300 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
+            <div className="border border-border-strong rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
               <div className="flex items-center gap-2 mb-3">
-                <Activity className="w-6 h-6 text-orange-600" />
-                <h3 className="font-bold text-gray-900">{t('docOrderSets.traumaName')}</h3>
+                <Activity className="w-6 h-6 text-content-secondary" />
+                <h3 className="font-bold text-content">{t('docOrderSets.traumaName')}</h3>
               </div>
-              <p className="text-sm text-gray-600 mb-3">{t('docOrderSets.traumaDesc')}</p>
-              <span className="inline-block px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-semibold">
+              <p className="text-sm text-content-muted mb-3">{t('docOrderSets.traumaDesc')}</p>
+              <span className="inline-block px-3 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-xs font-semibold">
                 {t('docOrderSets.type_emergency')}
               </span>
             </div>

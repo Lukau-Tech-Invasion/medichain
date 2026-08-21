@@ -317,7 +317,7 @@ const OfflineSyncPage: React.FC = () => {
       case 'appointments': return <Clock className="w-5 h-5 text-purple-500" />;
       case 'medications': return <Shield className="w-5 h-5 text-green-500" />;
       case 'lab-results': return <Database className="w-5 h-5 text-orange-500" />;
-      case 'documents': return <FileText className="w-5 h-5 text-gray-500" />;
+      case 'documents': return <FileText className="w-5 h-5 text-content-muted" />;
       case 'images': return <Image className="w-5 h-5 text-pink-500" />;
     }
   };
@@ -328,7 +328,7 @@ const OfflineSyncPage: React.FC = () => {
       case 'pending': return <Clock className="w-4 h-4 text-yellow-500" />;
       case 'syncing': return <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />;
       case 'error': return <AlertTriangle className="w-4 h-4 text-red-500" />;
-      case 'offline': return <CloudOff className="w-4 h-4 text-gray-500" />;
+      case 'offline': return <CloudOff className="w-4 h-4 text-content-muted" />;
     }
   };
 
@@ -337,17 +337,17 @@ const OfflineSyncPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-surface-sunken flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-12 h-12 text-sky-500 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">{t('offlineSync.loading')}</p>
+          <p className="text-content-muted">{t('offlineSync.loading')}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className={`bg-gradient-to-r ${isOnline ? 'from-sky-600 to-blue-500' : 'from-gray-600 to-gray-500'} text-white p-6 transition-colors`}>
         <div className="flex items-center justify-between mb-2">
@@ -370,14 +370,14 @@ const OfflineSyncPage: React.FC = () => {
           disabled={!isOnline || isSyncing}
           className={`w-full py-4 rounded-lg shadow flex items-center justify-center gap-3 font-semibold transition-all ${
             isOnline && !isSyncing
-              ? 'bg-white text-sky-600 hover:bg-sky-50'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              ? 'bg-surface text-notice-subtle-fg hover:bg-notice-subtle'
+              : 'bg-surface-sunken text-content-muted cursor-not-allowed'
           }`}
         >
           <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
           {isSyncing ? t('offlineSync.syncing') : t('offlineSync.syncNow')}
           {pendingCount > 0 && (
-            <span className="bg-yellow-500 text-white text-xs px-2 py-0.5 rounded-full">
+            <span className="bg-caution text-caution-fg text-xs px-2 py-0.5 rounded-full">
               {t('offlineSync.pendingCount', { count: pendingCount })}
             </span>
           )}
@@ -387,8 +387,8 @@ const OfflineSyncPage: React.FC = () => {
           disabled={!isOnline || isSyncing || !patient?.healthId}
           className={`w-full py-3 rounded-lg shadow flex items-center justify-center gap-3 font-semibold transition-all text-sm ${
             isOnline && !isSyncing && patient?.healthId
-              ? 'bg-white text-green-600 hover:bg-green-50'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              ? 'bg-surface text-ok-subtle-fg hover:bg-ok-subtle'
+              : 'bg-surface-sunken text-content-muted cursor-not-allowed'
           }`}
         >
           <Download className="w-4 h-4" />
@@ -398,7 +398,7 @@ const OfflineSyncPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="px-4 mb-4">
-        <div className="bg-white rounded-lg shadow p-1 flex">
+        <div className="bg-surface rounded-lg shadow p-1 flex">
           {[
             { id: 'status', label: t('offlineSync.tabStatus') },
             { id: 'cache', label: t('offlineSync.tabCache') },
@@ -410,7 +410,7 @@ const OfflineSyncPage: React.FC = () => {
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'bg-sky-500 text-white'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  : 'text-content-muted hover:bg-surface-sunken'
               }`}
             >
               {tab.label}
@@ -424,28 +424,28 @@ const OfflineSyncPage: React.FC = () => {
         <div className="px-4 pb-8 space-y-4">
           {/* Sync Conflicts — records changed both locally and on the server */}
           {conflicts.length > 0 && (
-            <div className="bg-white rounded-lg shadow p-4 border border-amber-300">
+            <div className="bg-surface rounded-lg shadow p-4 border border-caution">
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
-                <h3 className="font-medium text-gray-900">{t('offlineSync.conflictsTitle', { count: conflicts.length })}</h3>
+                <h3 className="font-medium text-content">{t('offlineSync.conflictsTitle', { count: conflicts.length })}</h3>
               </div>
-              <p className="text-sm text-gray-500 mb-3">
+              <p className="text-sm text-content-muted mb-3">
                 {t('offlineSync.conflictsBody')}
               </p>
               <div className="space-y-3">
                 {conflicts.map((c) => (
-                  <div key={c.id} className="border border-gray-200 rounded-lg p-3">
-                    <div className="text-sm font-medium text-gray-800">
+                  <div key={c.id} className="border border-border rounded-lg p-3">
+                    <div className="text-sm font-medium text-content-secondary">
                       {c.entity_type} · {c.entity_id}
                     </div>
                     <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                      <div className="bg-blue-50 rounded p-2 overflow-hidden">
-                        <div className="font-semibold text-blue-700 mb-1">{t('offlineSync.yourVersion')}</div>
-                        <pre className="whitespace-pre-wrap break-words text-gray-600 max-h-24 overflow-auto">{c.local_value ?? '—'}</pre>
+                      <div className="bg-notice-subtle rounded p-2 overflow-hidden">
+                        <div className="font-semibold text-notice-subtle-fg mb-1">{t('offlineSync.yourVersion')}</div>
+                        <pre className="whitespace-pre-wrap break-words text-content-muted max-h-24 overflow-auto">{c.local_value ?? '—'}</pre>
                       </div>
-                      <div className="bg-gray-50 rounded p-2 overflow-hidden">
-                        <div className="font-semibold text-gray-700 mb-1">{t('offlineSync.serverVersion')}</div>
-                        <pre className="whitespace-pre-wrap break-words text-gray-600 max-h-24 overflow-auto">{c.remote_value ?? '—'}</pre>
+                      <div className="bg-surface-sunken rounded p-2 overflow-hidden">
+                        <div className="font-semibold text-content-secondary mb-1">{t('offlineSync.serverVersion')}</div>
+                        <pre className="whitespace-pre-wrap break-words text-content-muted max-h-24 overflow-auto">{c.remote_value ?? '—'}</pre>
                       </div>
                     </div>
                     <div className="flex gap-2 mt-3">
@@ -457,7 +457,7 @@ const OfflineSyncPage: React.FC = () => {
                       </button>
                       <button
                         onClick={() => handleResolveConflict(c.id, 'UseServer')}
-                        className="flex-1 px-3 py-1.5 text-sm bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
+                        className="flex-1 px-3 py-1.5 text-sm bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
                       >
                         {t('offlineSync.keepServer')}
                       </button>
@@ -469,46 +469,46 @@ const OfflineSyncPage: React.FC = () => {
           )}
 
           {/* Last Sync Info */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-surface rounded-lg shadow p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-gray-900">{t('offlineSync.lastFullSync')}</h3>
-                <p className="text-sm text-gray-500">{lastFullSync ? formatDate(lastFullSync) : t('offlineSync.never')}</p>
+                <h3 className="font-medium text-content">{t('offlineSync.lastFullSync')}</h3>
+                <p className="text-sm text-content-muted">{lastFullSync ? formatDate(lastFullSync) : t('offlineSync.never')}</p>
               </div>
               <div className="flex items-center gap-2">
                 {getStatusIcon(syncStatus)}
-                <span className="text-sm font-medium text-gray-700">{statusLabel(syncStatus)}</span>
+                <span className="text-sm font-medium text-content-secondary">{statusLabel(syncStatus)}</span>
               </div>
             </div>
           </div>
 
           {/* Storage Usage */}
-          <div className="bg-white rounded-lg shadow p-4">
+          <div className="bg-surface rounded-lg shadow p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <HardDrive className="w-5 h-5 text-gray-400" />
-                <h3 className="font-medium text-gray-900">{t('offlineSync.storage')}</h3>
+                <HardDrive className="w-5 h-5 text-content-muted" />
+                <h3 className="font-medium text-content">{t('offlineSync.storage')}</h3>
               </div>
-              <span className="text-sm text-gray-500">{formatBytes(storageInfo.used)} / {formatBytes(storageInfo.quota)}</span>
+              <span className="text-sm text-content-muted">{formatBytes(storageInfo.used)} / {formatBytes(storageInfo.quota)}</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
+            <div className="w-full bg-surface-sunken rounded-full h-3">
               <div
                 className={`h-3 rounded-full transition-all ${
-                  storagePercent > 80 ? 'bg-red-500' : storagePercent > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                  storagePercent > 80 ? 'bg-red-500' : storagePercent > 60 ? 'bg-caution' : 'bg-green-500'
                 }`}
                 style={{ width: `${storagePercent}%` }}
               />
             </div>
-            <p className="text-xs text-gray-500 mt-2">{t('offlineSync.available', { size: formatBytes(storageInfo.available) })}</p>
+            <p className="text-xs text-content-muted mt-2">{t('offlineSync.available', { size: formatBytes(storageInfo.available) })}</p>
           </div>
 
           {/* Sync Queue */}
           {syncQueue.length > 0 && (
-            <div className="bg-white rounded-lg shadow p-4">
-              <h3 className="font-medium text-gray-900 mb-3">{t('offlineSync.syncQueue')}</h3>
+            <div className="bg-surface rounded-lg shadow p-4">
+              <h3 className="font-medium text-content mb-3">{t('offlineSync.syncQueue')}</h3>
               <div className="space-y-3">
                 {syncQueue.map(item => (
-                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="flex items-center gap-3">
                       {item.action === 'upload' ? (
                         <Upload className="w-4 h-4 text-blue-500" />
@@ -516,15 +516,15 @@ const OfflineSyncPage: React.FC = () => {
                         <Download className="w-4 h-4 text-green-500" />
                       )}
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{item.description}</p>
-                        <p className="text-xs text-gray-500">{formatDate(item.timestamp)}</p>
+                        <p className="text-sm font-medium text-content">{item.description}</p>
+                        <p className="text-xs text-content-muted">{formatDate(item.timestamp)}</p>
                       </div>
                     </div>
                     <span className={`text-xs px-2 py-1 rounded-full ${
-                      item.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                      item.status === 'in-progress' ? 'bg-blue-100 text-blue-700' :
-                      item.status === 'completed' ? 'bg-green-100 text-green-700' :
-                      'bg-red-100 text-red-700'
+                      item.status === 'pending' ? 'bg-caution-subtle text-caution-subtle-fg' :
+                      item.status === 'in-progress' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                      item.status === 'completed' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                      'bg-critical-subtle text-critical-subtle-fg'
                     }`}>
                       {statusLabel(item.status)}
                     </span>
@@ -536,15 +536,15 @@ const OfflineSyncPage: React.FC = () => {
 
           {/* Quick Stats */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <div className="text-2xl font-bold text-ok-subtle-fg">
                 {cachedItems.filter(i => i.status === 'synced').length}
               </div>
-              <div className="text-xs text-gray-500">{t('offlineSync.syncedItems')}</div>
+              <div className="text-xs text-content-muted">{t('offlineSync.syncedItems')}</div>
             </div>
-            <div className="bg-white rounded-lg shadow p-4 text-center">
-              <div className="text-2xl font-bold text-yellow-600">{pendingCount}</div>
-              <div className="text-xs text-gray-500">{t('offlineSync.pendingChanges')}</div>
+            <div className="bg-surface rounded-lg shadow p-4 text-center">
+              <div className="text-2xl font-bold text-caution-subtle-fg">{pendingCount}</div>
+              <div className="text-xs text-content-muted">{t('offlineSync.pendingChanges')}</div>
             </div>
           </div>
         </div>
@@ -554,8 +554,8 @@ const OfflineSyncPage: React.FC = () => {
       {activeTab === 'cache' && (
         <div className="px-4 pb-8 space-y-4">
           {/* Category Summary */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="font-medium text-gray-900 mb-3">{t('offlineSync.cachedByCategory')}</h3>
+          <div className="bg-surface rounded-lg shadow p-4">
+            <h3 className="font-medium text-content mb-3">{t('offlineSync.cachedByCategory')}</h3>
             <div className="space-y-3">
               {(['medical-records', 'medications', 'appointments', 'lab-results', 'documents', 'images'] as DataCategory[]).map(category => {
                 const items = cachedItems.filter(i => i.category === category);
@@ -563,21 +563,21 @@ const OfflineSyncPage: React.FC = () => {
                 if (items.length === 0) return null;
                 
                 return (
-                  <div key={category} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                  <div key={category} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="flex items-center gap-3">
                       {getCategoryIcon(category)}
                       <div>
-                        <p className="text-sm font-medium text-gray-900">
+                        <p className="text-sm font-medium text-content">
                           {categoryLabel(category)}
                         </p>
-                        <p className="text-xs text-gray-500">{t('offlineSync.itemsCount', { count: items.length })}</p>
+                        <p className="text-xs text-content-muted">{t('offlineSync.itemsCount', { count: items.length })}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-500">{formatBytes(totalSize)}</span>
+                      <span className="text-sm text-content-muted">{formatBytes(totalSize)}</span>
                       <button
                         onClick={() => handleClearCache(category)}
-                        className="p-1 text-gray-400 hover:text-red-500"
+                        className="p-1 text-content-muted hover:text-red-500"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -589,18 +589,18 @@ const OfflineSyncPage: React.FC = () => {
           </div>
 
           {/* Cached Items List */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-4 border-b border-gray-100">
-              <h3 className="font-medium text-gray-900">{t('offlineSync.allCached')}</h3>
+          <div className="bg-surface rounded-lg shadow overflow-hidden">
+            <div className="p-4 border-b border-border">
+              <h3 className="font-medium text-content">{t('offlineSync.allCached')}</h3>
             </div>
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-border">
               {cachedItems.map(item => (
                 <div key={item.id} className="p-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     {getCategoryIcon(item.category)}
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{item.name}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-sm font-medium text-content">{item.name}</p>
+                      <p className="text-xs text-content-muted">
                         {formatBytes(item.size)} • {t('offlineSync.lastSyncedAt', { date: formatDate(item.lastSynced) })}
                       </p>
                     </div>
@@ -608,7 +608,7 @@ const OfflineSyncPage: React.FC = () => {
                   <div className="flex items-center gap-2">
                     {getStatusIcon(item.status)}
                     {item.priority === 'high' && (
-                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">{t('offlineSync.priorityHigh')}</span>
+                      <span className="text-xs bg-critical-subtle text-critical-subtle-fg px-2 py-0.5 rounded">{t('offlineSync.priorityHigh')}</span>
                     )}
                   </div>
                 </div>
@@ -619,7 +619,7 @@ const OfflineSyncPage: React.FC = () => {
           {/* Clear All Cache */}
           <button
             onClick={() => handleClearCache()}
-            className="w-full py-3 border border-red-300 text-red-600 rounded-lg font-medium hover:bg-red-50"
+            className="w-full py-3 border border-critical text-critical-subtle-fg rounded-lg font-medium hover:bg-critical-subtle"
           >
             {t('offlineSync.clearAll')}
           </button>
@@ -629,51 +629,51 @@ const OfflineSyncPage: React.FC = () => {
       {/* Settings Tab */}
       {activeTab === 'settings' && (
         <div className="px-4 pb-8 space-y-4">
-          <div className="bg-white rounded-lg shadow divide-y divide-gray-100">
+          <div className="bg-surface rounded-lg shadow divide-y divide-border">
             <div className="p-4 flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-gray-900">{t('offlineSync.autoSync')}</h3>
-                <p className="text-sm text-gray-500">{t('offlineSync.autoSyncDesc')}</p>
+                <h3 className="font-medium text-content">{t('offlineSync.autoSync')}</h3>
+                <p className="text-sm text-content-muted">{t('offlineSync.autoSyncDesc')}</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-5 h-5 text-sky-600 rounded" />
+              <input type="checkbox" defaultChecked className="w-5 h-5 text-notice-subtle-fg rounded" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-gray-900">{t('offlineSync.backgroundSync')}</h3>
-                <p className="text-sm text-gray-500">{t('offlineSync.backgroundSyncDesc')}</p>
+                <h3 className="font-medium text-content">{t('offlineSync.backgroundSync')}</h3>
+                <p className="text-sm text-content-muted">{t('offlineSync.backgroundSyncDesc')}</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-5 h-5 text-sky-600 rounded" />
+              <input type="checkbox" defaultChecked className="w-5 h-5 text-notice-subtle-fg rounded" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-gray-900">{t('offlineSync.downloadLab')}</h3>
-                <p className="text-sm text-gray-500">{t('offlineSync.downloadLabDesc')}</p>
+                <h3 className="font-medium text-content">{t('offlineSync.downloadLab')}</h3>
+                <p className="text-sm text-content-muted">{t('offlineSync.downloadLabDesc')}</p>
               </div>
-              <input type="checkbox" defaultChecked className="w-5 h-5 text-sky-600 rounded" />
+              <input type="checkbox" defaultChecked className="w-5 h-5 text-notice-subtle-fg rounded" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-gray-900">{t('offlineSync.syncMobile')}</h3>
-                <p className="text-sm text-gray-500">{t('offlineSync.syncMobileDesc')}</p>
+                <h3 className="font-medium text-content">{t('offlineSync.syncMobile')}</h3>
+                <p className="text-sm text-content-muted">{t('offlineSync.syncMobileDesc')}</p>
               </div>
-              <input type="checkbox" className="w-5 h-5 text-sky-600 rounded" />
+              <input type="checkbox" className="w-5 h-5 text-notice-subtle-fg rounded" />
             </div>
             <div className="p-4 flex items-center justify-between">
               <div>
-                <h3 className="font-medium text-gray-900">{t('offlineSync.highPriorityOnly')}</h3>
-                <p className="text-sm text-gray-500">{t('offlineSync.highPriorityOnlyDesc')}</p>
+                <h3 className="font-medium text-content">{t('offlineSync.highPriorityOnly')}</h3>
+                <p className="text-sm text-content-muted">{t('offlineSync.highPriorityOnlyDesc')}</p>
               </div>
-              <input type="checkbox" className="w-5 h-5 text-sky-600 rounded" />
+              <input type="checkbox" className="w-5 h-5 text-notice-subtle-fg rounded" />
             </div>
           </div>
 
           {/* Service Worker Info */}
-          <div className="bg-blue-50 rounded-lg p-4">
+          <div className="bg-notice-subtle rounded-lg p-4">
             <div className="flex items-start gap-3">
               <Settings className="w-5 h-5 text-blue-500 mt-0.5" />
               <div>
-                <h4 className="font-medium text-blue-900">{t('offlineSync.swActive')}</h4>
-                <p className="text-sm text-blue-700 mt-1">
+                <h4 className="font-medium text-notice-subtle-fg">{t('offlineSync.swActive')}</h4>
+                <p className="text-sm text-notice-subtle-fg mt-1">
                   {t('offlineSync.swActiveDesc')}
                 </p>
               </div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useAuthStore, usePatientStore } from '../store';
-import { apiUrl, useTranslation } from '@medichain/shared';
+import { useAuthStore } from '../store';
+import PatientSelect from '../components/PatientSelect';
+import { apiUrl, getApiErrorMessage, useTranslation } from '@medichain/shared';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -43,6 +44,20 @@ interface VitalFlowsheet {
   patient_id: string;
   patient_name: string;
   readings: VitalReading[];
+}
+
+function normalizeFlowsheet(data: any): VitalFlowsheet {
+  return {
+    patient_id: data.patient_id,
+    patient_name: data.patient_name || '',
+    readings: (data.readings || []).map((reading: any) => ({
+      ...reading,
+      recorded_at: reading.recorded_at || new Date((reading.timestamp || 0) * 1000).toISOString(),
+      blood_pressure_systolic: reading.blood_pressure_systolic ?? reading.systolic_bp ?? null,
+      blood_pressure_diastolic: reading.blood_pressure_diastolic ?? reading.diastolic_bp ?? null,
+      gcs_total: reading.gcs_total ?? reading.gcs_score ?? null,
+    })),
+  };
 }
 
 // Normal ranges for vitals
@@ -93,7 +108,6 @@ function VitalSignsPage() {
   const { t } = useTranslation();
 
   const { user, isAuthenticated } = useAuthStore();
-  const { recentPatients } = usePatientStore();
   
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdFromUrl || '');
   const [flowsheet, setFlowsheet] = useState<VitalFlowsheet | null>(null);
@@ -152,7 +166,7 @@ function VitalSignsPage() {
         }
 
         const data = await response.json();
-        setFlowsheet(data);
+        setFlowsheet(normalizeFlowsheet(data));
       } catch (err) {
         setError(err instanceof Error ? err.message : t('docVitalSigns.errorLoadFlowsheetGeneric'));
       } finally {
@@ -176,8 +190,8 @@ function VitalSignsPage() {
         patient_id: selectedPatientId,
         heart_rate: newVitals.heart_rate ? Number(newVitals.heart_rate) : null,
         respiratory_rate: newVitals.respiratory_rate ? Number(newVitals.respiratory_rate) : null,
-        blood_pressure_systolic: newVitals.bp_systolic ? Number(newVitals.bp_systolic) : null,
-        blood_pressure_diastolic: newVitals.bp_diastolic ? Number(newVitals.bp_diastolic) : null,
+        systolic_bp: newVitals.bp_systolic ? Number(newVitals.bp_systolic) : null,
+        diastolic_bp: newVitals.bp_diastolic ? Number(newVitals.bp_diastolic) : null,
         temperature_celsius: newVitals.temperature ? Number(newVitals.temperature) : null,
         oxygen_saturation: newVitals.oxygen_saturation ? Number(newVitals.oxygen_saturation) : null,
         pain_scale: newVitals.pain_scale ? Number(newVitals.pain_scale) : null,
@@ -199,7 +213,7 @@ function VitalSignsPage() {
 
       if (!response.ok) {
         const errData = await response.json();
-        throw new Error(errData.error || t('docVitalSigns.errorRecordVitals'));
+        throw new Error(getApiErrorMessage(errData, t('docVitalSigns.errorRecordVitals')));
       }
 
       setSuccess(t('docVitalSigns.recordSuccess'));
@@ -229,7 +243,7 @@ function VitalSignsPage() {
         }
       );
       if (refreshResponse.ok) {
-        setFlowsheet(await refreshResponse.json());
+        setFlowsheet(normalizeFlowsheet(await refreshResponse.json()));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('docVitalSigns.errorRecordVitalsGeneric'));
@@ -246,46 +260,37 @@ function VitalSignsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-            <Activity className="text-primary-600" size={28} />
+          <h1 className="text-2xl font-bold text-content flex items-center gap-3">
+            <Activity className="text-brand" size={28} />
             {t('docVitalSigns.title')}
           </h1>
-          <p className="text-gray-500 mt-1">{t('docVitalSigns.subtitle')}</p>
+          <p className="text-content-muted mt-1">{t('docVitalSigns.subtitle')}</p>
         </div>
         <Link
           to="/dashboard"
-          className="text-gray-600 hover:text-gray-900 flex items-center gap-2"
+          className="text-content-muted hover:text-content flex items-center gap-2"
         >
           {t('docVitalSigns.backToDashboard')}
         </Link>
       </div>
 
       {/* Patient Selection */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-        <label htmlFor="vitals-patient-select" className="block text-sm font-medium text-gray-700 mb-2">
+      <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
+        <label htmlFor="vitals-patient-select" className="block text-sm font-medium text-content-secondary mb-2">
           {t('docVitalSigns.selectPatientLabel')}
         </label>
         <div className="flex gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <select
-              id="vitals-patient-select"
-              value={selectedPatientId}
-              onChange={(e) => setSelectedPatientId(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-primary-500 appearance-none"
-            >
-              <option value="">{t('docVitalSigns.selectPatientPlaceholder')}</option>
-              {recentPatients.map((patient) => (
-                <option key={patient.patientId} value={patient.patientId}>
-                  {patient.fullName} ({patient.patientId})
-                </option>
-              ))}
-            </select>
-          </div>
+          <PatientSelect
+            id="vitals-patient-select"
+            value={selectedPatientId}
+            onChange={setSelectedPatientId}
+            placeholder={t('docVitalSigns.selectPatientPlaceholder')}
+            className="flex-1"
+          />
           {selectedPatientId && (
             <button
               onClick={() => setShowForm(!showForm)}
-              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2"
+              className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
             >
               <Plus size={20} />
               {t('docVitalSigns.recordVitalsButton')}
@@ -296,26 +301,26 @@ function VitalSignsPage() {
 
       {/* Success/Error Messages */}
       {success && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
-          <CheckCircle className="text-green-600" size={20} />
-          <span className="text-green-800">{success}</span>
+        <div className="mb-6 p-4 bg-ok-subtle border border-ok rounded-lg flex items-center gap-3">
+          <CheckCircle className="text-ok-subtle-fg" size={20} />
+          <span className="text-ok-subtle-fg">{success}</span>
         </div>
       )}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-          <AlertTriangle className="text-red-600" size={20} />
-          <span className="text-red-800">{error}</span>
+        <div className="mb-6 p-4 bg-critical-subtle border border-critical rounded-lg flex items-center gap-3">
+          <AlertTriangle className="text-critical-subtle-fg" size={20} />
+          <span className="text-critical-subtle-fg">{error}</span>
         </div>
       )}
 
       {/* New Vitals Form */}
       {showForm && selectedPatientId && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">{t('docVitalSigns.recordNewVitalsTitle')}</h2>
+        <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
+          <h2 className="text-lg font-semibold text-content mb-4">{t('docVitalSigns.recordNewVitalsTitle')}</h2>
           <form onSubmit={handleSubmitVitals}>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div>
-                <label htmlFor="vitals-heart-rate" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-heart-rate" className="block text-sm font-medium text-content-secondary mb-1">
                   <Heart className="inline mr-1" size={14} />
                   {t('docVitalSigns.heartRateLabel')}
                 </label>
@@ -329,7 +334,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-respiratory-rate" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-respiratory-rate" className="block text-sm font-medium text-content-secondary mb-1">
                   <Wind className="inline mr-1" size={14} />
                   {t('docVitalSigns.respRateLabel')}
                 </label>
@@ -343,7 +348,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-bp-systolic" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-bp-systolic" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docVitalSigns.bpSystolicLabel')}
                 </label>
                 <input
@@ -356,7 +361,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-bp-diastolic" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-bp-diastolic" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docVitalSigns.bpDiastolicLabel')}
                 </label>
                 <input
@@ -369,7 +374,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-temperature" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-temperature" className="block text-sm font-medium text-content-secondary mb-1">
                   <Thermometer className="inline mr-1" size={14} />
                   {t('docVitalSigns.temperatureLabel')}
                 </label>
@@ -384,7 +389,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-oxygen-saturation" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-oxygen-saturation" className="block text-sm font-medium text-content-secondary mb-1">
                   <Droplet className="inline mr-1" size={14} />
                   {t('docVitalSigns.spo2Label')}
                 </label>
@@ -398,7 +403,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-pain-scale" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-pain-scale" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docVitalSigns.painScaleLabel')}
                 </label>
                 <input
@@ -413,7 +418,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-gcs-total" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-gcs-total" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docVitalSigns.gcsScoreLabel')}
                 </label>
                 <input
@@ -428,7 +433,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-blood-glucose" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-blood-glucose" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docVitalSigns.bloodGlucoseLabel')}
                 </label>
                 <input
@@ -441,7 +446,7 @@ function VitalSignsPage() {
                 />
               </div>
               <div>
-                <label htmlFor="vitals-weight" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="vitals-weight" className="block text-sm font-medium text-content-secondary mb-1">
                   {t('docVitalSigns.weightLabel')}
                 </label>
                 <input
@@ -456,7 +461,7 @@ function VitalSignsPage() {
               </div>
             </div>
             <div className="mb-4">
-              <label htmlFor="vitals-notes" className="block text-sm font-medium text-gray-700 mb-1">{t('docVitalSigns.notesLabel')}</label>
+              <label htmlFor="vitals-notes" className="block text-sm font-medium text-content-secondary mb-1">{t('docVitalSigns.notesLabel')}</label>
               <textarea
                 id="vitals-notes"
                 value={newVitals.notes}
@@ -470,7 +475,7 @@ function VitalSignsPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:opacity-50 flex items-center gap-2"
               >
                 {submitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
                 {t('docVitalSigns.saveVitalsButton')}
@@ -478,7 +483,7 @@ function VitalSignsPage() {
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="px-6 py-2 border border-border-strong rounded-lg hover:bg-surface-sunken"
               >
                 {t('docVitalSigns.cancelButton')}
               </button>
@@ -489,85 +494,85 @@ function VitalSignsPage() {
 
       {/* Loading State */}
       {loading && (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-surface rounded-xl shadow-sm p-12 text-center">
           <Loader2 className="mx-auto mb-3 text-primary-500 animate-spin" size={48} />
-          <p className="text-gray-500">{t('docVitalSigns.loadingVitals')}</p>
+          <p className="text-content-muted">{t('docVitalSigns.loadingVitals')}</p>
         </div>
       )}
 
       {/* Current Vitals Summary */}
       {!loading && flowsheet && lastReading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+        <div className="bg-surface rounded-xl shadow-sm border border-border p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">{t('docVitalSigns.latestVitalSignsTitle')}</h2>
-            <span className="text-sm text-gray-500 flex items-center gap-1">
+            <h2 className="text-lg font-semibold text-content">{t('docVitalSigns.latestVitalSignsTitle')}</h2>
+            <span className="text-sm text-content-muted flex items-center gap-1">
               <Clock size={14} />
               {new Date(lastReading.recorded_at).toLocaleString()}
             </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             {/* Heart Rate */}
-            <div className={`p-4 rounded-lg ${isCritical(lastReading.heart_rate, 'heart_rate') ? 'bg-red-50 border-2 border-red-300' : isAbnormal(lastReading.heart_rate, 'heart_rate') ? 'bg-yellow-50' : 'bg-gray-50'}`}>
-              <div className="flex items-center gap-2 text-gray-600 mb-1">
-                <Heart size={16} className={isCritical(lastReading.heart_rate, 'heart_rate') ? 'text-red-500' : 'text-gray-400'} />
+            <div className={`p-4 rounded-lg ${isCritical(lastReading.heart_rate, 'heart_rate') ? 'bg-critical-subtle border-2 border-critical' : isAbnormal(lastReading.heart_rate, 'heart_rate') ? 'bg-caution-subtle' : 'bg-surface-sunken'}`}>
+              <div className="flex items-center gap-2 text-content-muted mb-1">
+                <Heart size={16} className={isCritical(lastReading.heart_rate, 'heart_rate') ? 'text-red-500' : 'text-content-muted'} />
                 <span className="text-sm">{t('docVitalSigns.heartRateShort')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.heart_rate ?? '—'}</span>
-                <span className="text-sm text-gray-500">bpm</span>
+                <span className="text-sm text-content-muted">bpm</span>
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'up' && <TrendingUp size={16} className="text-red-500" />}
                 {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'down' && <TrendingDown size={16} className="text-green-500" />}
-                {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'stable' && <Minus size={16} className="text-gray-400" />}
+                {getTrend(lastReading.heart_rate, previousReading?.heart_rate ?? null) === 'stable' && <Minus size={16} className="text-content-muted" />}
               </div>
             </div>
 
             {/* Blood Pressure */}
-            <div className={`p-4 rounded-lg ${isCritical(lastReading.blood_pressure_systolic, 'bp_systolic') ? 'bg-red-50 border-2 border-red-300' : isAbnormal(lastReading.blood_pressure_systolic, 'bp_systolic') ? 'bg-yellow-50' : 'bg-gray-50'}`}>
-              <div className="flex items-center gap-2 text-gray-600 mb-1">
-                <Activity size={16} className="text-gray-400" />
+            <div className={`p-4 rounded-lg ${isCritical(lastReading.blood_pressure_systolic, 'bp_systolic') ? 'bg-critical-subtle border-2 border-critical' : isAbnormal(lastReading.blood_pressure_systolic, 'bp_systolic') ? 'bg-caution-subtle' : 'bg-surface-sunken'}`}>
+              <div className="flex items-center gap-2 text-content-muted mb-1">
+                <Activity size={16} className="text-content-muted" />
                 <span className="text-sm">{t('docVitalSigns.bloodPressureShort')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">
                   {lastReading.blood_pressure_systolic ?? '—'}/{lastReading.blood_pressure_diastolic ?? '—'}
                 </span>
-                <span className="text-sm text-gray-500">mmHg</span>
+                <span className="text-sm text-content-muted">mmHg</span>
               </div>
             </div>
 
             {/* SpO2 */}
-            <div className={`p-4 rounded-lg ${isCritical(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'bg-red-50 border-2 border-red-300' : isAbnormal(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'bg-yellow-50' : 'bg-gray-50'}`}>
-              <div className="flex items-center gap-2 text-gray-600 mb-1">
-                <Droplet size={16} className={isCritical(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'text-red-500' : 'text-gray-400'} />
+            <div className={`p-4 rounded-lg ${isCritical(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'bg-critical-subtle border-2 border-critical' : isAbnormal(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'bg-caution-subtle' : 'bg-surface-sunken'}`}>
+              <div className="flex items-center gap-2 text-content-muted mb-1">
+                <Droplet size={16} className={isCritical(lastReading.oxygen_saturation, 'oxygen_saturation') ? 'text-red-500' : 'text-content-muted'} />
                 <span className="text-sm">{t('docVitalSigns.spo2Short')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.oxygen_saturation ?? '—'}</span>
-                <span className="text-sm text-gray-500">%</span>
+                <span className="text-sm text-content-muted">%</span>
               </div>
             </div>
 
             {/* Temperature */}
-            <div className={`p-4 rounded-lg ${isAbnormal(lastReading.temperature_celsius, 'temperature') ? 'bg-yellow-50' : 'bg-gray-50'}`}>
-              <div className="flex items-center gap-2 text-gray-600 mb-1">
-                <Thermometer size={16} className="text-gray-400" />
+            <div className={`p-4 rounded-lg ${isAbnormal(lastReading.temperature_celsius, 'temperature') ? 'bg-caution-subtle' : 'bg-surface-sunken'}`}>
+              <div className="flex items-center gap-2 text-content-muted mb-1">
+                <Thermometer size={16} className="text-content-muted" />
                 <span className="text-sm">{t('docVitalSigns.temperatureShort')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.temperature_celsius?.toFixed(1) ?? '—'}</span>
-                <span className="text-sm text-gray-500">°C</span>
+                <span className="text-sm text-content-muted">°C</span>
               </div>
             </div>
 
             {/* Resp Rate */}
-            <div className={`p-4 rounded-lg ${isCritical(lastReading.respiratory_rate, 'respiratory_rate') ? 'bg-red-50 border-2 border-red-300' : isAbnormal(lastReading.respiratory_rate, 'respiratory_rate') ? 'bg-yellow-50' : 'bg-gray-50'}`}>
-              <div className="flex items-center gap-2 text-gray-600 mb-1">
-                <Wind size={16} className="text-gray-400" />
+            <div className={`p-4 rounded-lg ${isCritical(lastReading.respiratory_rate, 'respiratory_rate') ? 'bg-critical-subtle border-2 border-critical' : isAbnormal(lastReading.respiratory_rate, 'respiratory_rate') ? 'bg-caution-subtle' : 'bg-surface-sunken'}`}>
+              <div className="flex items-center gap-2 text-content-muted mb-1">
+                <Wind size={16} className="text-content-muted" />
                 <span className="text-sm">{t('docVitalSigns.respRateShort')}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold">{lastReading.respiratory_rate ?? '—'}</span>
-                <span className="text-sm text-gray-500">/min</span>
+                <span className="text-sm text-content-muted">/min</span>
               </div>
             </div>
           </div>
@@ -579,12 +584,12 @@ function VitalSignsPage() {
           omits the array (or sends null) used to crash the whole page on
           `.length` — a blank screen instead of a vitals chart. */}
       {!loading && flowsheet && (flowsheet.readings?.length ?? 0) > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-surface rounded-xl shadow-sm border border-border">
           <button
             onClick={() => setShowHistory(!showHistory)}
-            className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
+            className="w-full p-4 flex items-center justify-between hover:bg-surface-sunken"
           >
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-content">
               {t('docVitalSigns.vitalSignsHistoryTitle', { count: flowsheet?.readings?.length ?? 0 })}
             </h2>
             {showHistory ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
@@ -592,47 +597,47 @@ function VitalSignsPage() {
           {showHistory && (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-y">
+                <thead className="bg-surface-sunken border-y">
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">{t('docVitalSigns.timeColumn')}</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">{t('docVitalSigns.hrColumn')}</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">{t('docVitalSigns.bpColumn')}</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">{t('docVitalSigns.spo2Column')}</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">{t('docVitalSigns.tempColumn')}</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">{t('docVitalSigns.rrColumn')}</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">{t('docVitalSigns.painColumn')}</th>
-                    <th className="px-4 py-3 text-center font-medium text-gray-600">{t('docVitalSigns.gcsColumn')}</th>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">{t('docVitalSigns.recordedByColumn')}</th>
+                    <th className="px-4 py-3 text-left font-medium text-content-muted">{t('docVitalSigns.timeColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.hrColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.bpColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.spo2Column')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.tempColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.rrColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.painColumn')}</th>
+                    <th className="px-4 py-3 text-center font-medium text-content-muted">{t('docVitalSigns.gcsColumn')}</th>
+                    <th className="px-4 py-3 text-left font-medium text-content-muted">{t('docVitalSigns.recordedByColumn')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {flowsheet.readings.map((reading) => (
-                    <tr key={reading.reading_id} className="hover:bg-gray-50">
+                    <tr key={reading.reading_id} className="hover:bg-surface-sunken">
                       <td className="px-4 py-3 whitespace-nowrap">
                         {new Date(reading.recorded_at).toLocaleString()}
                       </td>
-                      <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.heart_rate, 'heart_rate') ? 'text-red-600 bg-red-50' : isAbnormal(reading.heart_rate, 'heart_rate') ? 'text-yellow-600' : ''}`}>
+                      <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.heart_rate, 'heart_rate') ? 'text-critical-subtle-fg bg-critical-subtle' : isAbnormal(reading.heart_rate, 'heart_rate') ? 'text-caution-subtle-fg' : ''}`}>
                         {reading.heart_rate ?? '—'}
                       </td>
-                      <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.blood_pressure_systolic, 'bp_systolic') ? 'text-red-600 bg-red-50' : ''}`}>
+                      <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.blood_pressure_systolic, 'bp_systolic') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
                         {reading.blood_pressure_systolic ?? '—'}/{reading.blood_pressure_diastolic ?? '—'}
                       </td>
-                      <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-red-600 bg-red-50' : isAbnormal(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-yellow-600' : ''}`}>
+                      <td className={`px-4 py-3 text-center font-medium ${isCritical(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-critical-subtle-fg bg-critical-subtle' : isAbnormal(reading.oxygen_saturation, 'oxygen_saturation') ? 'text-caution-subtle-fg' : ''}`}>
                         {reading.oxygen_saturation ?? '—'}%
                       </td>
-                      <td className={`px-4 py-3 text-center ${isAbnormal(reading.temperature_celsius, 'temperature') ? 'text-yellow-600' : ''}`}>
+                      <td className={`px-4 py-3 text-center ${isAbnormal(reading.temperature_celsius, 'temperature') ? 'text-caution-subtle-fg' : ''}`}>
                         {reading.temperature_celsius?.toFixed(1) ?? '—'}°C
                       </td>
-                      <td className={`px-4 py-3 text-center ${isCritical(reading.respiratory_rate, 'respiratory_rate') ? 'text-red-600 bg-red-50' : ''}`}>
+                      <td className={`px-4 py-3 text-center ${isCritical(reading.respiratory_rate, 'respiratory_rate') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
                         {reading.respiratory_rate ?? '—'}
                       </td>
-                      <td className={`px-4 py-3 text-center ${reading.pain_scale && reading.pain_scale > 6 ? 'text-red-600' : ''}`}>
+                      <td className={`px-4 py-3 text-center ${reading.pain_scale && reading.pain_scale > 6 ? 'text-critical-subtle-fg' : ''}`}>
                         {reading.pain_scale ?? '—'}/10
                       </td>
-                      <td className={`px-4 py-3 text-center ${isCritical(reading.gcs_total, 'gcs') ? 'text-red-600 bg-red-50' : ''}`}>
+                      <td className={`px-4 py-3 text-center ${isCritical(reading.gcs_total, 'gcs') ? 'text-critical-subtle-fg bg-critical-subtle' : ''}`}>
                         {reading.gcs_total ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{reading.recorded_by}</td>
+                      <td className="px-4 py-3 text-content-muted">{reading.recorded_by}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -644,12 +649,12 @@ function VitalSignsPage() {
 
       {/* No Data State */}
       {!loading && selectedPatientId && (!flowsheet || (flowsheet.readings?.length ?? 0) === 0) && (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-surface rounded-xl shadow-sm p-12 text-center">
           <Activity className="mx-auto mb-3 text-gray-300" size={48} />
-          <p className="text-gray-500">{t('docVitalSigns.noVitalsRecorded')}</p>
+          <p className="text-content-muted">{t('docVitalSigns.noVitalsRecorded')}</p>
           <button
             onClick={() => setShowForm(true)}
-            className="mt-4 px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            className="mt-4 px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand"
           >
             {t('docVitalSigns.recordFirstVitalsButton')}
           </button>
@@ -658,9 +663,9 @@ function VitalSignsPage() {
 
       {/* No Patient Selected */}
       {!selectedPatientId && (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-surface rounded-xl shadow-sm p-12 text-center">
           <Search className="mx-auto mb-3 text-gray-300" size={48} />
-          <p className="text-gray-500">{t('docVitalSigns.noPatientSelected')}</p>
+          <p className="text-content-muted">{t('docVitalSigns.noPatientSelected')}</p>
         </div>
       )}
     </div>

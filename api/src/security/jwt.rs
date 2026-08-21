@@ -14,13 +14,18 @@
 //! then a clearly-marked dev default). `validate_production_secrets()` at startup
 //! aborts when a demo secret is used outside demo mode.
 
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 
 /// Access-token lifetime: 1 hour. Enforces session timeout (Phase 11.3).
 pub const ACCESS_TOKEN_TTL_SECS: i64 = 3600;
 /// Refresh-token lifetime: 7 days.
 pub const REFRESH_TOKEN_TTL_SECS: i64 = 7 * 24 * 3600;
+/// A privileged request must carry MFA proof issued within this window.
+pub const MFA_STEP_UP_TTL_SECS: i64 = 15 * 60;
+
+pub const JWT_ISSUER: &str = "medichain-api";
+pub const JWT_AUDIENCE: &str = "medichain-clients";
 
 /// Token kind embedded in the `typ` claim to prevent a refresh token from being
 /// replayed as an access token.
@@ -30,6 +35,9 @@ pub const TYP_REFRESH: &str = "refresh";
 /// JWT claims for MediChain auth tokens.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
+    /// Trusted token issuer and intended audience.
+    pub iss: String,
+    pub aud: String,
     /// Subject — the SS58 wallet address.
     pub sub: String,
     /// Role string (e.g. "Doctor"); informational, RBAC still re-checks server-side.
@@ -53,8 +61,15 @@ pub struct Claims {
     pub typ: String,
     /// Issued-at (unix seconds).
     pub iat: i64,
+    /// Not valid before (unix seconds).
+    pub nbf: i64,
     /// Expiry (unix seconds).
     pub exp: i64,
+    /// Unique identifier used for traceability and future revocation support.
+    pub jti: String,
+    /// Time the second factor was verified. Absent when MFA was not verified.
+    #[serde(default)]
+    pub auth_time: Option<i64>,
 }
 
 /// Resolve the JWT signing secret from the environment.
@@ -77,6 +92,8 @@ fn issue(
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
+        iss: JWT_ISSUER.to_string(),
+        aud: JWT_AUDIENCE.to_string(),
         sub: wallet.to_string(),
         role: role.to_string(),
         context: None,
@@ -87,10 +104,13 @@ fn issue(
         mfa,
         typ: typ.to_string(),
         iat: now,
+        nbf: now,
         exp: now + ttl_secs,
+        jti: uuid::Uuid::new_v4().to_string(),
+        auth_time: mfa.then_some(now),
     };
     encode(
-        &Header::default(),
+        &Header::new(Algorithm::HS256),
         &claims,
         &EncodingKey::from_secret(jwt_secret().as_bytes()),
     )
@@ -105,6 +125,8 @@ pub fn issue_context_access_token(
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = chrono::Utc::now().timestamp();
     let claims = Claims {
+        iss: JWT_ISSUER.to_string(),
+        aud: JWT_AUDIENCE.to_string(),
         sub: context.wallet_address.clone(),
         role: context.role.clone().unwrap_or_default(),
         context: Some(
@@ -121,10 +143,13 @@ pub fn issue_context_access_token(
         mfa,
         typ: TYP_ACCESS.to_string(),
         iat: now,
+        nbf: now,
         exp: now + ACCESS_TOKEN_TTL_SECS,
+        jti: uuid::Uuid::new_v4().to_string(),
+        auth_time: mfa.then_some(now),
     };
     encode(
-        &Header::default(),
+        &Header::new(Algorithm::HS256),
         &claims,
         &EncodingKey::from_secret(jwt_secret().as_bytes()),
     )
@@ -149,11 +174,19 @@ pub fn issue_refresh_token(
 
 /// Decode and validate a token (signature + expiry). Returns the claims on success.
 pub fn decode_token(token: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-    // `Validation::default()` validates the `exp` claim with the HS256 algorithm.
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.set_issuer(&[JWT_ISSUER]);
+    validation.set_audience(&[JWT_AUDIENCE]);
+    validation.validate_nbf = true;
+    validation.required_spec_claims.extend(
+        ["exp", "nbf", "iss", "aud", "sub"]
+            .into_iter()
+            .map(str::to_string),
+    );
     let data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(jwt_secret().as_bytes()),
-        &Validation::default(),
+        &validation,
     )?;
     Ok(data.claims)
 }
@@ -192,6 +225,9 @@ mod tests {
         assert_eq!(claims.role, "Doctor");
         assert!(claims.mfa);
         assert_eq!(claims.typ, TYP_ACCESS);
+        assert_eq!(claims.iss, JWT_ISSUER);
+        assert_eq!(claims.aud, JWT_AUDIENCE);
+        assert!(claims.auth_time.is_some());
     }
 
     #[test]

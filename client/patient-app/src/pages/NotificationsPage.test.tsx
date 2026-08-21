@@ -33,6 +33,7 @@ describe('NotificationsPage (Patient)', () => {
       if (url.includes('/api/notifications')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             notifications: [
               {
@@ -48,6 +49,7 @@ describe('NotificationsPage (Patient)', () => {
       if (url.includes('/api/cds/patient/')) {
         return Promise.resolve({
           ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
           json: () => Promise.resolve({
             alerts: [
               {
@@ -63,6 +65,7 @@ describe('NotificationsPage (Patient)', () => {
       }
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({}),
       });
     });
@@ -76,7 +79,7 @@ describe('NotificationsPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Notifications & Alerts/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Notifications/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Your lab results are ready/i)).toBeInTheDocument();
     });
   });
@@ -89,7 +92,7 @@ describe('NotificationsPage (Patient)', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Inbox/i)).toBeInTheDocument();
+      expect(screen.getByText(/Clinical Alerts/i)).toBeInTheDocument();
     });
 
     const alertsTab = screen.getByText(/Clinical Alerts/i);

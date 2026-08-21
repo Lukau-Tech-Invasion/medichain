@@ -58,6 +58,60 @@ interface PatientIO {
   alerts: string[];
 }
 
+/** One stored intake/output record, as the API returns it. */
+interface IoRecordRow {
+  id: string;
+  patient_id: string;
+  record_date: string;
+  shift: string;
+  total_intake: number | null;
+  total_output: number | null;
+  net_balance: number | null;
+  intake_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string }> | null;
+  output_items: Array<{ category?: string; amount_ml?: number; recorded_at?: string }> | null;
+}
+
+/** Fold a patient's stored fluid records into the shape the ward list renders. */
+function toPatientIO(
+  person: { patient_id: string; full_name: string },
+  rows: IoRecordRow[]
+): PatientIO {
+  const mine = rows.filter(r => r.patient_id === person.patient_id);
+  const sum = (pick: (r: IoRecordRow) => number | null) =>
+    mine.reduce((total, r) => total + (pick(r) || 0), 0);
+  const entries: IOEntry[] = mine.flatMap(r =>
+    [
+      ...(r.intake_items || []).map(item => ({ item, type: 'intake' as const })),
+      ...(r.output_items || []).map(item => ({ item, type: 'output' as const })),
+    ].map(({ item, type }, index) => ({
+      id: `${r.id}-${type}-${index}`,
+      type,
+      // Categories are stored as "intake:oral" so the two directions cannot be
+      // confused when totals are recomputed; show just the category.
+      category: (item.category || '').split(':').pop() || '',
+      amount: item.amount_ml || 0,
+      unit: 'ml',
+      source: '',
+      notes: '',
+      timestamp: new Date(item.recorded_at || r.record_date || Date.now()),
+      recordedBy: '',
+    })) as IOEntry[]
+  );
+  const totalIntake24h = sum(r => r.total_intake);
+  const totalOutput24h = sum(r => r.total_output);
+  return {
+    patientId: person.patient_id,
+    patientName: person.full_name,
+    mrn: person.patient_id,
+    room: '',
+    entries,
+    totalIntake24h,
+    totalOutput24h,
+    netBalance: totalIntake24h - totalOutput24h,
+    alerts: [],
+  };
+}
+
 const IntakeOutputPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'patients' | 'entry' | 'trends'>('patients');
@@ -90,16 +144,19 @@ const IntakeOutputPage: React.FC = () => {
       }
       
       try {
-        const data = await listIntakeOutput();
-        if (Array.isArray(data)) {
-          setPatients(data.map((p: any) => ({
-            ...p,
-            entries: (p.entries || []).map((e: any) => ({
-              ...e,
-              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
-            }))
-          })));
-        }
+        // The ward list is the patient roster with each patient's fluid record
+        // folded in — not the raw io_records rows, which carry no patient name
+        // and left every card rendering the untranslated `{{mrn}}` placeholder.
+        const [rosterResponse, records] = await Promise.all([
+          fetch(apiUrl('/api/patients?limit=100'), {
+            headers: { 'Content-Type': 'application/json', 'X-User-Id': user.walletAddress },
+          }).then(r => (r.ok ? r.json() : { data: [] })),
+          listIntakeOutput().catch(() => []),
+        ]);
+
+        const rows = (Array.isArray(records) ? records : []) as unknown as IoRecordRow[];
+        const roster = (rosterResponse.data || []) as Array<{ patient_id: string; full_name: string }>;
+        setPatients(roster.map(person => toPatientIO(person, rows)));
       } catch (err) {
         console.error('Failed to fetch I/O records:', err);
         setError(t('docIntakeOutput.errorLoad'));
@@ -132,9 +189,15 @@ const IntakeOutputPage: React.FC = () => {
           const data = await response.json();
           if (data && (data.entries || data.intake || data.output)) {
             // Update the selected patient's entries with fresh data
-            const entries: IOEntry[] = (data.entries || []).map((e: IOEntry & { timestamp: string }) => ({
+            const rawEntries = Array.isArray(data.entries)
+              ? data.entries
+              : [
+                  ...(Array.isArray(data.intake) ? data.intake : []),
+                  ...(Array.isArray(data.output) ? data.output : []),
+                ];
+            const entries: IOEntry[] = rawEntries.map((e: IOEntry & { timestamp?: string; recorded_at?: string }) => ({
               ...e,
-              timestamp: new Date(e.timestamp)
+              timestamp: new Date(e.timestamp || e.recorded_at || Date.now())
             }));
             setSelectedPatient(prev => prev ? { ...prev, entries } : null);
           }
@@ -168,24 +231,24 @@ const IntakeOutputPage: React.FC = () => {
 
   const getCategoryColor = (cat: IntakeType | OutputType): string => {
     const colors: Record<string, string> = {
-      'oral': 'bg-blue-100 text-blue-700',
-      'iv': 'bg-cyan-100 text-cyan-700',
-      'tube-feeding': 'bg-purple-100 text-purple-700',
-      'blood-products': 'bg-red-100 text-red-700',
-      'urine': 'bg-yellow-100 text-yellow-700',
-      'stool': 'bg-amber-100 text-amber-700',
-      'emesis': 'bg-orange-100 text-orange-700',
-      'drainage': 'bg-green-100 text-green-700',
-      'blood-loss': 'bg-rose-100 text-rose-700'
+      'oral': 'bg-notice-subtle text-notice-subtle-fg',
+      'iv': 'bg-surface-sunken text-content-secondary',
+      'tube-feeding': 'bg-surface-sunken text-content-secondary',
+      'blood-products': 'bg-critical-subtle text-critical-subtle-fg',
+      'urine': 'bg-caution-subtle text-caution-subtle-fg',
+      'stool': 'bg-caution-subtle text-caution-subtle-fg',
+      'emesis': 'bg-surface-sunken text-content-secondary',
+      'drainage': 'bg-ok-subtle text-ok-subtle-fg',
+      'blood-loss': 'bg-critical-subtle text-critical-subtle-fg'
     };
-    return colors[cat] || 'bg-gray-100 text-gray-700';
+    return colors[cat] || 'bg-surface-sunken text-content-secondary';
   };
 
   const getBalanceStatus = (balance: number): { color: string; icon: React.ReactNode; label: string } => {
-    if (balance > 1000) return { color: 'text-red-600', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
-    if (balance > 500) return { color: 'text-yellow-600', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositive') };
-    if (balance < -500) return { color: 'text-blue-600', icon: <TrendingDown className="w-4 h-4" />, label: t('docIntakeOutput.balanceNegative') };
-    return { color: 'text-green-600', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
+    if (balance > 1000) return { color: 'text-critical-subtle-fg', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositiveHigh') };
+    if (balance > 500) return { color: 'text-caution-subtle-fg', icon: <TrendingUp className="w-4 h-4" />, label: t('docIntakeOutput.balancePositive') };
+    if (balance < -500) return { color: 'text-notice-subtle-fg', icon: <TrendingDown className="w-4 h-4" />, label: t('docIntakeOutput.balanceNegative') };
+    return { color: 'text-ok-subtle-fg', icon: <CheckCircle className="w-4 h-4" />, label: t('docIntakeOutput.balanceBalanced') };
   };
 
   // `patientName`, `mrn` and `room` are all optional in practice — a patient
@@ -253,7 +316,7 @@ const IntakeOutputPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-cyan-600 to-teal-500 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -266,17 +329,17 @@ const IntakeOutputPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-cyan-600 animate-spin mb-2" />
-          <p className="text-gray-500">{t('docIntakeOutput.loading')}</p>
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
+          <p className="text-content-muted">{t('docIntakeOutput.loading')}</p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="m-4 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+        <div className="m-4 bg-critical-subtle border border-critical rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <div>
-            <p className="text-sm text-red-700">{error}</p>
+            <p className="text-sm text-critical-subtle-fg">{error}</p>
             <p className="text-xs text-red-500 mt-1">{t('docIntakeOutput.apiCheckMessage')}</p>
           </div>
         </div>
@@ -286,14 +349,14 @@ const IntakeOutputPage: React.FC = () => {
       {!loading && !error && (
         <>
           {/* Tabs */}
-          <div className="bg-white border-b">
+          <div className="bg-surface border-b">
             <div className="flex">
               {(['patients', 'entry', 'trends'] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize ${
-                    activeTab === tab ? 'text-cyan-700 border-b-2 border-cyan-700' : 'text-gray-500'
+                    activeTab === tab ? 'text-content-secondary border-b-2 border-cyan-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'entry' ? t('docIntakeOutput.tabEntry') : tab === 'patients' ? t('docIntakeOutput.tabPatients') : t('docIntakeOutput.tabTrends')}
@@ -307,7 +370,7 @@ const IntakeOutputPage: React.FC = () => {
             <div className="p-6">
               <div className="flex gap-4 mb-6">
                 <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
                   <input
                     type="text"
                     value={searchQuery}
@@ -324,17 +387,17 @@ const IntakeOutputPage: React.FC = () => {
                   return (
                     <div
                       key={patient.patientId ?? `p-${pIdx}`}
-                      className="bg-white rounded-lg shadow border overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+                      className="bg-surface rounded-lg shadow border overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
                       onClick={() => setSelectedPatient(patient)}
                     >
                       <div className="p-6">
                         <div className="flex items-start justify-between mb-4">
                           <div>
                             <h3 className="font-semibold text-lg">{patient.patientName}</h3>
-                        <p className="text-sm text-gray-500">{t('docIntakeOutput.mrnRoomLine', { mrn: patient.mrn, room: patient.room })}</p>
+                        <p className="text-sm text-content-muted">{t('docIntakeOutput.mrnRoomLine', { mrn: patient.mrn, room: patient.room })}</p>
                       </div>
                       {(patient.alerts ?? []).length > 0 && (
-                        <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs">
+                        <div className="flex items-center gap-1 px-2 py-1 bg-critical-subtle text-critical-subtle-fg rounded-full text-xs">
                           <AlertTriangle className="w-3 h-3" />
                           {t((patient.alerts ?? []).length > 1 ? 'docIntakeOutput.alertPlural' : 'docIntakeOutput.alertSingular', { count: (patient.alerts ?? []).length })}
                         </div>
@@ -342,23 +405,23 @@ const IntakeOutputPage: React.FC = () => {
                     </div>
 
                     <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="bg-blue-50 rounded-lg p-3 text-center">
-                        <div className="flex items-center justify-center gap-1 text-blue-600 mb-1">
+                      <div className="bg-notice-subtle rounded-lg p-3 text-center">
+                        <div className="flex items-center justify-center gap-1 text-notice-subtle-fg mb-1">
                           <ArrowDown className="w-4 h-4" />
                           <span className="text-xs font-medium">{t('docIntakeOutput.intakeLabel')}</span>
                         </div>
-                        <p className="text-xl font-bold text-blue-700">{patient.totalIntake24h}</p>
+                        <p className="text-xl font-bold text-notice-subtle-fg">{patient.totalIntake24h}</p>
                         <p className="text-xs text-blue-500">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
-                      <div className="bg-amber-50 rounded-lg p-3 text-center">
-                        <div className="flex items-center justify-center gap-1 text-amber-600 mb-1">
+                      <div className="bg-caution-subtle rounded-lg p-3 text-center">
+                        <div className="flex items-center justify-center gap-1 text-caution-subtle-fg mb-1">
                           <ArrowUp className="w-4 h-4" />
                           <span className="text-xs font-medium">{t('docIntakeOutput.outputLabel')}</span>
                         </div>
-                        <p className="text-xl font-bold text-amber-700">{patient.totalOutput24h}</p>
+                        <p className="text-xl font-bold text-caution-subtle-fg">{patient.totalOutput24h}</p>
                         <p className="text-xs text-amber-500">{t('docIntakeOutput.mlPer24h')}</p>
                       </div>
-                      <div className={`rounded-lg p-3 text-center ${patient.netBalance > 500 ? 'bg-red-50' : patient.netBalance < -500 ? 'bg-blue-50' : 'bg-green-50'}`}>
+                      <div className={`rounded-lg p-3 text-center ${patient.netBalance > 500 ? 'bg-critical-subtle' : patient.netBalance < -500 ? 'bg-notice-subtle' : 'bg-ok-subtle'}`}>
                         <div className={`flex items-center justify-center gap-1 mb-1 ${balanceStatus.color}`}>
                           {balanceStatus.icon}
                           <span className="text-xs font-medium">{t('docIntakeOutput.balanceLabel')}</span>
@@ -371,10 +434,10 @@ const IntakeOutputPage: React.FC = () => {
                     </div>
 
                     {(patient.alerts ?? []).length > 0 && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <div className="bg-critical-subtle border border-critical rounded-lg p-3">
                         <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-                          <div className="text-sm text-red-700">
+                          <AlertTriangle className="w-4 h-4 text-critical-subtle-fg flex-shrink-0 mt-0.5" />
+                          <div className="text-sm text-critical-subtle-fg">
                             {(patient.alerts ?? []).map((alert, idx) => (
                               <p key={idx}>{alert}</p>
                             ))}
@@ -393,16 +456,18 @@ const IntakeOutputPage: React.FC = () => {
       {/* Quick Entry Tab */}
       {activeTab === 'entry' && (
         <div className="p-6">
-          <div className="bg-white rounded-lg shadow p-6 max-w-lg mx-auto">
+          <div className="bg-surface rounded-lg shadow p-6 max-w-lg mx-auto">
             <h2 className="text-lg font-semibold mb-4">{t('docIntakeOutput.quickEntryHeading')}</h2>
 
             <div className="space-y-4">
               <div>
                 <label htmlFor="io-patient" className="block text-sm font-medium mb-1">{t('docIntakeOutput.patientRequired')} *</label>
-                <select id="io-patient" className="w-full border rounded-lg px-3 py-2">
+                <select id="io-patient" className="w-full border rounded-lg px-3 py-2"
+                  value={selectedPatient?.patientId || ''}
+                  onChange={(e) => setSelectedPatient(patients.find(p => p.patientId === e.target.value) || null)}>
                   <option value="">{t('docIntakeOutput.selectPatientPh')}</option>
                   {patients.map(p => (
-                    <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.room}</option>
+                    <option key={p.patientId} value={p.patientId}>{p.patientName} - {p.patientId}</option>
                   ))}
                 </select>
               </div>
@@ -413,7 +478,7 @@ const IntakeOutputPage: React.FC = () => {
                   <button
                     onClick={() => { setEntryType('intake'); setNewEntry({ ...newEntry, type: 'intake', category: 'oral' }); }}
                     className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 ${
-                      entryType === 'intake' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200'
+                      entryType === 'intake' ? 'border-blue-500 bg-notice-subtle text-notice-subtle-fg' : 'border-border'
                     }`}
                   >
                     <ArrowDown className="w-5 h-5" />
@@ -422,7 +487,7 @@ const IntakeOutputPage: React.FC = () => {
                   <button
                     onClick={() => { setEntryType('output'); setNewEntry({ ...newEntry, type: 'output', category: 'urine' }); }}
                     className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 ${
-                      entryType === 'output' ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-gray-200'
+                      entryType === 'output' ? 'border-amber-500 bg-caution-subtle text-caution-subtle-fg' : 'border-border'
                     }`}
                   >
                     <ArrowUp className="w-5 h-5" />
@@ -516,19 +581,19 @@ const IntakeOutputPage: React.FC = () => {
       {/* Trends Tab */}
       {activeTab === 'trends' && (
         <div className="p-6">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold">{t('docIntakeOutput.ioTrendsHeading')}</h2>
               <div className="flex gap-2">
                 <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="border rounded-lg px-3 py-2" />
-                <button className="p-2 border rounded-lg hover:bg-gray-50"><Download className="w-5 h-5" /></button>
-                <button className="p-2 border rounded-lg hover:bg-gray-50"><Printer className="w-5 h-5" /></button>
+                <button className="p-2 border rounded-lg hover:bg-surface-sunken"><Download className="w-5 h-5" /></button>
+                <button className="p-2 border rounded-lg hover:bg-surface-sunken"><Printer className="w-5 h-5" /></button>
               </div>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-surface-sunken">
                   <tr>
                     <th className="text-left p-3">{t('docIntakeOutput.tablePatient')}</th>
                     <th className="text-left p-3">{t('docIntakeOutput.tableRoom')}</th>
@@ -542,11 +607,11 @@ const IntakeOutputPage: React.FC = () => {
                   {patients.map(p => {
                     const status = getBalanceStatus(p.netBalance);
                     return (
-                      <tr key={p.patientId} className="border-b hover:bg-gray-50">
+                      <tr key={p.patientId} className="border-b hover:bg-surface-sunken">
                         <td className="p-3 font-medium">{p.patientName}</td>
                         <td className="p-3">{p.room}</td>
-                        <td className="p-3 text-right text-blue-600">{p.totalIntake24h}</td>
-                        <td className="p-3 text-right text-amber-600">{p.totalOutput24h}</td>
+                        <td className="p-3 text-right text-notice-subtle-fg">{p.totalIntake24h}</td>
+                        <td className="p-3 text-right text-caution-subtle-fg">{p.totalOutput24h}</td>
                         <td className={`p-3 text-right font-semibold ${status.color}`}>
                           {p.netBalance > 0 ? '+' : ''}{p.netBalance}
                         </td>
@@ -569,11 +634,11 @@ const IntakeOutputPage: React.FC = () => {
       {/* Patient Detail Modal */}
       {selectedPatient && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{selectedPatient.patientName}</h2>
-                <p className="text-sm text-gray-500">{t('docIntakeOutput.roomMrnLine', { room: selectedPatient.room, mrn: selectedPatient.mrn })}</p>
+                <p className="text-sm text-content-muted">{t('docIntakeOutput.roomMrnLine', { room: selectedPatient.room, mrn: selectedPatient.mrn })}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -582,26 +647,26 @@ const IntakeOutputPage: React.FC = () => {
                 >
                   <Plus className="w-4 h-4" /> {t('docIntakeOutput.addEntryButton')}
                 </button>
-                <button onClick={() => setSelectedPatient(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+                <button onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
               </div>
             </div>
 
             <div className="p-6">
               {/* Summary */}
               <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-blue-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-blue-700">{selectedPatient.totalIntake24h}</p>
-                  <p className="text-sm text-blue-600">{t('docIntakeOutput.totalIntake24h')}</p>
+                <div className="bg-notice-subtle rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-notice-subtle-fg">{selectedPatient.totalIntake24h}</p>
+                  <p className="text-sm text-notice-subtle-fg">{t('docIntakeOutput.totalIntake24h')}</p>
                 </div>
-                <div className="bg-amber-50 rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-amber-700">{selectedPatient.totalOutput24h}</p>
-                  <p className="text-sm text-amber-600">{t('docIntakeOutput.totalOutput24h')}</p>
+                <div className="bg-caution-subtle rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold text-caution-subtle-fg">{selectedPatient.totalOutput24h}</p>
+                  <p className="text-sm text-caution-subtle-fg">{t('docIntakeOutput.totalOutput24h')}</p>
                 </div>
-                <div className={`rounded-lg p-4 text-center ${selectedPatient.netBalance > 500 ? 'bg-red-50' : 'bg-green-50'}`}>
-                  <p className={`text-2xl font-bold ${selectedPatient.netBalance > 500 ? 'text-red-700' : 'text-green-700'}`}>
+                <div className={`rounded-lg p-4 text-center ${selectedPatient.netBalance > 500 ? 'bg-critical-subtle' : 'bg-ok-subtle'}`}>
+                  <p className={`text-2xl font-bold ${selectedPatient.netBalance > 500 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>
                     {selectedPatient.netBalance > 0 ? '+' : ''}{selectedPatient.netBalance}
                   </p>
-                  <p className={`text-sm ${selectedPatient.netBalance > 500 ? 'text-red-600' : 'text-green-600'}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
+                  <p className={`text-sm ${selectedPatient.netBalance > 500 ? 'text-critical-subtle-fg' : 'text-ok-subtle-fg'}`}>{t('docIntakeOutput.netBalanceLabel')}</p>
                 </div>
               </div>
 
@@ -609,7 +674,7 @@ const IntakeOutputPage: React.FC = () => {
               <h3 className="font-semibold mb-3">{t('docIntakeOutput.todaysEntriesHeading')}</h3>
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-surface-sunken">
                     <tr>
                       <th className="text-left p-3">{t('docIntakeOutput.tableTime')}</th>
                       <th className="text-left p-3">{t('docIntakeOutput.tableType')}</th>
@@ -623,7 +688,7 @@ const IntakeOutputPage: React.FC = () => {
                       <tr key={entry.id} className="border-t">
                         <td className="p-3">{entry.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${entry.type === 'intake' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${entry.type === 'intake' ? 'bg-notice-subtle text-notice-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'}`}>
                             {entry.type === 'intake' ? <ArrowDown className="w-3 h-3 inline mr-1" /> : <ArrowUp className="w-3 h-3 inline mr-1" />}
                             {t(`docIntakeOutput.typeLabel_${entry.type}`)}
                           </span>
@@ -634,7 +699,7 @@ const IntakeOutputPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="p-3 text-right font-medium">{entry.amount} {entry.unit}</td>
-                        <td className="p-3 text-gray-500">{entry.source || entry.notes || '-'}</td>
+                        <td className="p-3 text-content-muted">{entry.source || entry.notes || '-'}</td>
                       </tr>
                     ))}
                   </tbody>

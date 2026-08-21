@@ -11,6 +11,77 @@ impl Cursorable for PatientProfile {
     }
 }
 
+/// Why an existing patient row's encrypted profile could not be read.
+///
+/// `patient_entity_to_profile` collapses every cause into `None`, which is fine
+/// for control flow but useless in a log. This distinguishes them so an
+/// operator can tell a key-management problem (recoverable: load the right
+/// `ENCRYPTION_KEYS`) from genuinely absent data.
+fn unreadable_reason(
+    entity: &crate::repositories::traits::PatientEntity,
+    keyring: &crate::encryption_keyring::EncryptionKeyring,
+) -> &'static str {
+    if entity.profile_extras_encrypted.is_none() {
+        "no encrypted profile blob stored on the row"
+    } else if keyring.get(entity.key_version as u32).is_none() {
+        "no encryption key held for the row's key_version"
+    } else {
+        "the profile blob did not decrypt or parse"
+    }
+}
+
+/// One row of the patient roster, readable or not.
+///
+/// A patient whose PHI cannot be decrypted must still appear: the alternative
+/// — silently dropping it — makes a record that exists indistinguishable from
+/// one that was never created, which in a clinical roster is a safety problem,
+/// not a cosmetic one. Unreadable rows carry only the columns that are stored
+/// in clear (id, blood type, flags) plus `content_available: false`.
+#[derive(Clone)]
+struct RosterRow {
+    ts: i64,
+    id: String,
+    value: serde_json::Value,
+}
+
+impl Cursorable for RosterRow {
+    fn cursor_ts(&self) -> i64 {
+        self.ts
+    }
+    fn cursor_id(&self) -> String {
+        self.id.clone()
+    }
+}
+
+/// Everything about a patient that is stored unencrypted, for a row whose
+/// profile blob could not be read.
+fn unreadable_roster_row(
+    entity: &crate::repositories::traits::PatientEntity,
+    reason: &'static str,
+) -> RosterRow {
+    RosterRow {
+        ts: entity.updated_at.timestamp_millis(),
+        id: entity.id.clone(),
+        value: serde_json::json!({
+            "patient_id": entity.id,
+            "health_id": entity.health_id,
+            "gender": entity.gender,
+            "national_id_type": entity.national_id_type,
+            "organ_donor": entity.organ_donor,
+            "dnr_status": entity.dnr_status,
+            "is_active": entity.is_active,
+            "created_at": entity.created_at,
+            "last_updated": entity.updated_at,
+            "emergency_info": { "blood_type": entity.blood_type },
+            // The contract for a degraded row. Clients must render these
+            // distinctly rather than showing blank fields as though the record
+            // were empty.
+            "content_available": false,
+            "content_unavailable_reason": reason,
+        }),
+    }
+}
+
 /// Get all registered patients (paginated)
 /// Requires authentication: Only healthcare providers can list all patients
 /// Query params: ?limit=20&cursor=<opaque>
@@ -71,24 +142,56 @@ pub async fn list_patients(
         }
     };
 
-    let mut patient_list: Vec<PatientProfile> = entities
-        .iter()
-        .filter_map(|e| patient_entity_to_profile(e, &data.encryption_keyring))
-        .collect();
+    // Every row is represented. This used to `filter_map` the undecryptable
+    // ones away, so the roster silently under-reported — 71 stored patients
+    // were served as 3, with no error and no log line, and the response still
+    // advertised the full `total`. A clinician could not tell "not registered"
+    // from "we hold this patient but cannot read them".
+    let mut unreadable = 0usize;
+    let mut rows: Vec<RosterRow> = Vec::with_capacity(entities.len());
+    for entity in &entities {
+        match patient_entity_to_profile(entity, &data.encryption_keyring) {
+            Some(profile) => {
+                let mut value = serde_json::to_value(&profile).unwrap_or(serde_json::Value::Null);
+                if let Some(object) = value.as_object_mut() {
+                    object.insert(
+                        "content_available".to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
+                rows.push(RosterRow {
+                    ts: profile.last_updated.timestamp_millis(),
+                    id: profile.patient_id.clone(),
+                    value,
+                });
+            }
+            None => {
+                let reason = unreadable_reason(entity, &data.encryption_keyring);
+                log::error!(
+                    "patient {} is stored but its profile is unreadable ({reason});                      listing it without PHI",
+                    entity.id
+                );
+                unreadable += 1;
+                rows.push(unreadable_roster_row(entity, reason));
+            }
+        }
+    }
 
     // Sort: timestamp DESC, then ID ASC (stable tiebreaker)
-    patient_list.sort_by(|a, b| {
-        b.last_updated
-            .cmp(&a.last_updated)
-            .then_with(|| a.patient_id.cmp(&b.patient_id))
-    });
+    rows.sort_by(|a, b| b.ts.cmp(&a.ts).then_with(|| a.id.cmp(&b.id)));
 
-    let (data, next_cursor) = paginate_cursor(&patient_list, query.cursor.as_deref(), query.limit);
+    let total = rows.len();
+    let (page, next_cursor) = paginate_cursor(&rows, query.cursor.as_deref(), query.limit);
+    let page: Vec<serde_json::Value> = page.into_iter().map(|r| r.value).collect();
 
     HttpResponse::Ok().json(serde_json::json!({
         "success": true,
-        "data": data,
-        "next_cursor": next_cursor
+        "data": page,
+        "next_cursor": next_cursor,
+        "total": total,
+        // Loud on purpose: a non-zero count here means PHI this deployment
+        // stores cannot be decrypted with the keys it currently holds.
+        "unreadable_count": unreadable
     }))
 }
 
@@ -140,11 +243,23 @@ pub async fn get_patient_by_id(
     match data.repositories.patients.get_by_id(&patient_id).await {
         Ok(entity) => match patient_entity_to_profile(&entity, &data.encryption_keyring) {
             Some(profile) => HttpResponse::Ok().json(profile),
-            None => HttpResponse::NotFound().json(ErrorResponse {
-                success: false,
-                error: format!("Patient {} not found", patient_id),
-                code: "PATIENT_NOT_FOUND".to_string(),
-            }),
+            // The row exists; its PHI just cannot be decrypted with the keys
+            // this process holds. Reporting that as `PATIENT_NOT_FOUND` told
+            // the caller the patient was never registered, which is false and
+            // clinically misleading. Unlike the list — which must stay usable
+            // and so degrades the row — there is nothing safe to return here,
+            // so this fails loudly instead.
+            None => {
+                let reason = unreadable_reason(&entity, &data.encryption_keyring);
+                log::error!("patient {patient_id} exists but its profile is unreadable ({reason})");
+                HttpResponse::InternalServerError().json(ErrorResponse {
+                    success: false,
+                    error: format!(
+                        "Patient {patient_id} is registered but their stored record could not be decrypted"
+                    ),
+                    code: "PATIENT_PROFILE_UNREADABLE".to_string(),
+                })
+            }
         },
         Err(_) => HttpResponse::NotFound().json(ErrorResponse {
             success: false,

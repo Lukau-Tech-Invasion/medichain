@@ -21,6 +21,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(register_patient)
         .service(update_patient)
         .service(add_emergency_contact)
+        .service(replace_emergency_contacts)
+        .service(update_demographics)
+        .service(list_patient_history_physicals)
+        .service(list_patient_progress_notes)
+        .service(list_patient_wounds)
         .service(emergency_access)
         .service(simulate_nfc_tap)
         .service(get_all_access_logs)
@@ -49,6 +54,11 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(wallet_login)
         .service(wallet_login_get)
         .service(wallet_lookup)
+        // Staff credential sign-in: employee identifier + password proof.
+        // Enrolment is wallet-signed; login returns the client-openable
+        // keystore, never a session (see handlers/staff_credentials.rs).
+        .service(staff_login) // POST /api/auth/staff/login
+        .service(enrol_credentials) // POST /api/auth/credentials
         // Session token endpoints
         .service(create_session_token) // POST /api/auth/session
         .service(verify_session_token) // GET  /api/auth/verify
@@ -96,6 +106,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Phase 6 encrypted patient mobile-record capabilities.
         .service(register_patient_mobile_device)
         .service(authorise_mobile_record)
+        .service(issue_mobile_lockscreen_token)
         .service(revoke_patient_mobile_device)
         // MFA / TOTP (Phase 11.3)
         .service(mfa_enroll) // POST /api/auth/mfa/enroll
@@ -144,6 +155,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(get_current_user_info)
         .service(get_all_staff)
         .service(get_providers)
+        .service(get_settings)
         .service(save_settings)
         // IPFS medical record endpoints
         .service(ipfs_health_check)
@@ -241,6 +253,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_burn)
         .service(clinical_endpoints::create_psych)
         .service(clinical_endpoints::get_psych)
+        .service(clinical_endpoints::list_psych_for_patient)
         .service(clinical_endpoints::create_tox)
         .service(clinical_endpoints::get_tox)
         .service(clinical_endpoints::create_mci)
@@ -283,6 +296,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_hp)
         .service(clinical_endpoints::list_hps)
         .service(clinical_endpoints::create_consult)
+        .service(clinical_endpoints::respond_to_consult)
         .service(clinical_endpoints::get_consult)
         .service(clinical_endpoints::create_progress_note)
         .service(clinical_endpoints::get_progress_note)
@@ -415,6 +429,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_provider_appointments)
         .service(clinical_endpoints::cancel_appointment)
         .service(clinical_endpoints::check_in_appointment)
+        .service(clinical_endpoints::transition_appointment) // POST /api/appointments/{id}/status
         .service(clinical_endpoints::get_available_slots)
         .service(clinical_endpoints::get_appointment)
         // Phase 24: Wearable Device Integration endpoints
@@ -470,6 +485,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::get_patient_analytics)
         .service(clinical_endpoints::get_appointment_analytics)
         .service(clinical_endpoints::get_quality_metrics)
+        .service(clinical_endpoints::get_operational_metrics)
         // Phase 32: Multi-language Support endpoints
         .service(clinical_endpoints::get_supported_languages)
         .service(clinical_endpoints::set_language_preference)
@@ -495,6 +511,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_lab_qc)
         .service(clinical_endpoints::list_critical_values)
         .service(clinical_endpoints::list_radiology_orders)
+        .service(clinical_endpoints::list_radiology_reports)
         .service(clinical_endpoints::list_pathology)
         .service(clinical_endpoints::list_immunizations)
         .service(clinical_endpoints::list_my_immunizations)
@@ -509,6 +526,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         .service(clinical_endpoints::list_incident_reports)
         .service(clinical_endpoints::list_intake_output)
         .service(clinical_endpoints::list_ama_discharges)
+        .service(clinical_endpoints::list_peds_for_patient)
         // SSE push-notification endpoint
         .service(crate::websocket::sse_events)
         // Item 5: National ID verification

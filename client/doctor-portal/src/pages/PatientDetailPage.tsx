@@ -118,7 +118,7 @@ function PatientDetailPage() {
         role="status"
         aria-live="polite"
       >
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand border-t-transparent"></div>
         <span className="sr-only">Loading patient information…</span>
       </div>
     );
@@ -129,9 +129,9 @@ function PatientDetailPage() {
       <div className="p-8">
         <div className="text-center py-12">
           <AlertTriangle className="mx-auto mb-4 text-red-400" size={64} />
-          <h2 className="text-xl font-semibold text-gray-700">{t('docPatientDetail.errorLoading')}</h2>
-          <p className="text-gray-500 mt-2">{error}</p>
-          <Link to="/patients" className="mt-4 inline-block text-primary-600 hover:underline">
+          <h2 className="text-xl font-semibold text-content-secondary">{t('docPatientDetail.errorLoading')}</h2>
+          <p className="text-content-muted mt-2">{error}</p>
+          <Link to="/patients" className="mt-4 inline-block text-brand hover:underline">
             {t('docPatientDetail.backToSearch')}
           </Link>
         </div>
@@ -144,9 +144,9 @@ function PatientDetailPage() {
       <div className="p-8">
         <div className="text-center py-12">
           <User className="mx-auto mb-4 text-gray-300" size={64} />
-          <h2 className="text-xl font-semibold text-gray-700">{t('docPatientDetail.notFound')}</h2>
-          <p className="text-gray-500 mt-2">{t('docPatientDetail.notExist', { id: patientId ?? '' })}</p>
-          <Link to="/patients" className="mt-4 inline-block text-primary-600 hover:underline">
+          <h2 className="text-xl font-semibold text-content-secondary">{t('docPatientDetail.notFound')}</h2>
+          <p className="text-content-muted mt-2">{t('docPatientDetail.notExist', { id: patientId ?? '' })}</p>
+          <Link to="/patients" className="mt-4 inline-block text-brand hover:underline">
             {t('docPatientDetail.backToSearch')}
           </Link>
         </div>
@@ -157,37 +157,37 @@ function PatientDetailPage() {
   return (
     <div className="p-8">
       {/* Back Button */}
-      <Link to="/patients" className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-6">
+      <Link to="/patients" className="inline-flex items-center gap-2 text-content-muted hover:text-content-secondary mb-6">
         <ArrowLeft size={20} />
         {t('docPatientDetail.backToPatients')}
       </Link>
 
       {/* Patient Header */}
-      <div className="bg-white rounded-xl shadow p-6 mb-6">
+      <div className="bg-surface rounded-xl shadow p-6 mb-6">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center">
-              <span className="text-2xl font-bold text-primary-600">
+            <div className="w-16 h-16 bg-brand-subtle rounded-full flex items-center justify-center">
+              <span className="text-2xl font-bold text-brand">
                 {patient.fullName.split(' ').map(n => n[0]).join('')}
               </span>
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{patient.fullName}</h1>
-              <p className="text-gray-500">{patient.nationalHealthId}</p>
+              <h1 className="text-2xl font-bold text-content">{patient.fullName}</h1>
+              <p className="text-content-muted">{patient.nationalHealthId}</p>
               <div className="flex items-center gap-4 mt-2">
-                <span className="text-sm bg-gray-100 px-2 py-1 rounded">
+                <span className="text-sm bg-surface-sunken px-2 py-1 rounded">
                   {t('docPatientDetail.dob', { date: patient.dateOfBirth })}
                 </span>
-                <span className="text-sm bg-emergency-100 text-emergency-700 px-2 py-1 rounded font-medium">
+                <span className="text-sm bg-emergency-100 text-critical-subtle-fg px-2 py-1 rounded font-medium">
                   {t('docPatientDetail.blood', { type: patient.bloodType })}
                 </span>
                 {patient.dnrStatus && (
-                  <span className="text-sm bg-red-100 text-red-700 px-2 py-1 rounded font-medium">
+                  <span className="text-sm bg-critical-subtle text-critical-subtle-fg px-2 py-1 rounded font-medium">
                     {t('docPatientDetail.dnr')}
                   </span>
                 )}
                 {patient.organDonor && (
-                  <span className="text-sm bg-green-100 text-green-700 px-2 py-1 rounded">
+                  <span className="text-sm bg-ok-subtle text-ok-subtle-fg px-2 py-1 rounded">
                     {t('docPatientDetail.organDonor')}
                   </span>
                 )}
@@ -196,11 +196,11 @@ function PatientDetailPage() {
           </div>
           
           <div className="flex gap-2">
-            <button className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center gap-2">
+            <button className="px-4 py-2 border border-border rounded-lg hover:bg-surface-sunken flex items-center gap-2">
               <Download size={18} />
               {t('docPatientDetail.export')}
             </button>
-            <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2">
+            <button className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2">
               <Edit size={18} />
               {t('docPatientDetail.edit')}
             </button>
@@ -209,15 +209,15 @@ function PatientDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 mb-6 bg-surface-sunken p-1 rounded-lg w-fit">
         {(['overview', 'records', 'access'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 rounded-md transition-colors ${
               activeTab === tab
-                ? 'bg-white shadow text-gray-900'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'bg-surface shadow text-content'
+                : 'text-content-muted hover:text-content-secondary'
             }`}
           >
             {tab === 'access' ? t('docPatientDetail.tabAccess') : tab === 'records' ? t('docPatientDetail.tabRecords') : t('docPatientDetail.tabOverview')}
@@ -229,76 +229,76 @@ function PatientDetailPage() {
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Allergies */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle className="text-emergency-600" size={20} />
-              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.allergies')}</h3>
+              <AlertTriangle className="text-critical-subtle-fg" size={20} />
+              <h3 className="font-semibold text-content">{t('docPatientDetail.allergies')}</h3>
             </div>
             {patient.allergies.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {patient.allergies.map((allergy, i) => (
-                  <span key={i} className="bg-emergency-100 text-emergency-700 px-3 py-1 rounded-full text-sm">
+                  <span key={i} className="bg-emergency-100 text-critical-subtle-fg px-3 py-1 rounded-full text-sm">
                     {allergy}
                   </span>
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">{t('docPatientDetail.noAllergies')}</p>
+              <p className="text-content-muted">{t('docPatientDetail.noAllergies')}</p>
             )}
           </div>
 
           {/* Medications */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
-              <Pill className="text-primary-600" size={20} />
-              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.currentMeds')}</h3>
+              <Pill className="text-brand" size={20} />
+              <h3 className="font-semibold text-content">{t('docPatientDetail.currentMeds')}</h3>
             </div>
             {patient.currentMedications.length > 0 ? (
               <ul className="space-y-2">
                 {patient.currentMedications.map((med, i) => (
-                  <li key={i} className="text-gray-700 flex items-start gap-2">
+                  <li key={i} className="text-content-secondary flex items-start gap-2">
                     <span className="w-2 h-2 bg-primary-400 rounded-full mt-2"></span>
                     {med}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-500">{t('docPatientDetail.noMeds')}</p>
+              <p className="text-content-muted">{t('docPatientDetail.noMeds')}</p>
             )}
           </div>
 
           {/* Chronic Conditions */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <Heart className="text-red-500" size={20} />
-              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.chronicConditions')}</h3>
+              <h3 className="font-semibold text-content">{t('docPatientDetail.chronicConditions')}</h3>
             </div>
             {patient.chronicConditions.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {patient.chronicConditions.map((condition, i) => (
-                  <span key={i} className="bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-sm">
+                  <span key={i} className="bg-caution-subtle text-caution-subtle-fg px-3 py-1 rounded-full text-sm">
                     {condition}
                   </span>
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">{t('docPatientDetail.noConditions')}</p>
+              <p className="text-content-muted">{t('docPatientDetail.noConditions')}</p>
             )}
           </div>
 
           {/* Emergency Contacts */}
-          <div className="bg-white rounded-xl shadow p-6">
+          <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
               <Phone className="text-success-600" size={20} />
-              <h3 className="font-semibold text-gray-900">{t('docPatientDetail.emergencyContacts')}</h3>
+              <h3 className="font-semibold text-content">{t('docPatientDetail.emergencyContacts')}</h3>
             </div>
             {patient.emergencyContacts.map((contact, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div key={i} className="flex items-center justify-between p-3 bg-surface-sunken rounded-lg">
                 <div>
-                  <p className="font-medium text-gray-900">{contact.name}</p>
-                  <p className="text-sm text-gray-500">{contact.relationship}</p>
+                  <p className="font-medium text-content">{contact.name}</p>
+                  <p className="text-sm text-content-muted">{contact.relationship}</p>
                 </div>
-                <a href={`tel:${contact.phone}`} className="text-primary-600 hover:underline">
+                <a href={`tel:${contact.phone}`} className="text-brand hover:underline">
                   {contact.phone}
                 </a>
               </div>
@@ -308,12 +308,12 @@ function PatientDetailPage() {
       )}
 
       {activeTab === 'records' && (
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-surface rounded-xl shadow p-6">
           <div className="flex items-center gap-2 mb-4">
-            <FileText className="text-gray-400" size={20} />
-            <h3 className="font-semibold text-gray-900">{t('docPatientDetail.medicalRecords')}</h3>
+            <FileText className="text-content-muted" size={20} />
+            <h3 className="font-semibold text-content">{t('docPatientDetail.medicalRecords')}</h3>
           </div>
-          <p className="text-gray-500 text-center py-8">
+          <p className="text-content-muted text-center py-8">
             {t('docPatientDetail.recordsLine1')}<br />
             {t('docPatientDetail.recordsLine2')}
           </p>
@@ -321,12 +321,12 @@ function PatientDetailPage() {
       )}
 
       {activeTab === 'access' && (
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-surface rounded-xl shadow p-6">
           <div className="flex items-center gap-2 mb-4">
-            <Clock className="text-gray-400" size={20} />
-            <h3 className="font-semibold text-gray-900">{t('docPatientDetail.accessHistory')}</h3>
+            <Clock className="text-content-muted" size={20} />
+            <h3 className="font-semibold text-content">{t('docPatientDetail.accessHistory')}</h3>
           </div>
-          <p className="text-gray-500 text-center py-8">
+          <p className="text-content-muted text-center py-8">
             {t('docPatientDetail.accessLine1')}<br />
             {t('docPatientDetail.accessLine2')}
           </p>

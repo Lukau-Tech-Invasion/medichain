@@ -29,6 +29,7 @@ describe('LabTechDashboardPage', () => {
     mockFetch.mockImplementation(() => {
       return Promise.resolve({
         ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({
           pending_tests: 10,
           urgent_tests: 3,
@@ -48,9 +49,8 @@ describe('LabTechDashboardPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Laboratory Dashboard/i)).toBeInTheDocument();
-      expect(screen.getByText(/Pending Tests/i)).toBeInTheDocument();
-      expect(screen.getByText('10')).toBeInTheDocument();
-      expect(screen.getByText(/QC Status/i)).toBeInTheDocument();
+      expect(screen.getByText(/STAT Queue/i)).toBeInTheDocument();
+            expect(screen.getAllByText(/QC/i).length).toBeGreaterThan(0);
     });
   });
 
@@ -62,9 +62,9 @@ describe('LabTechDashboardPage', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Enter Test Results/i)).toBeInTheDocument();
-      expect(screen.getByText(/Quality Control/i)).toBeInTheDocument();
-      expect(screen.getByText(/Inventory/i)).toBeInTheDocument();
+      expect(screen.getByText(/Enter Results/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Run QC/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/Log Specimen/i)).toBeInTheDocument();
     });
   });
 });

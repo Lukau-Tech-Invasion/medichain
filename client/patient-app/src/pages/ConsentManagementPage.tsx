@@ -17,7 +17,7 @@ import {
   FileText,
   PenLine,
 } from 'lucide-react';
-import { getPatientConsents, getConsentTypes, signConsent, useTranslation } from '@medichain/shared';
+import { apiUrl, getPatientConsents, getConsentTypes, signConsent, useTranslation } from '@medichain/shared';
 import { usePatientAuthStore } from '../store/authStore';
 
 interface AccessGrant {
@@ -56,13 +56,21 @@ interface AccessRequest {
 interface SignedConsent {
   consent_id: string;
   consent_type: string;
-  signed_at: string;
+  signed_at: string | number;
   status?: string;
 }
 
 interface ConsentType {
   consent_type: string;
   display_name: string;
+  description?: string;
+}
+
+interface ConsentTypeResponse {
+  consent_type?: string;
+  display_name?: string;
+  type_id?: string;
+  name?: string;
   description?: string;
 }
 
@@ -86,10 +94,11 @@ export function ConsentManagementPage() {
   const [signedConsents, setSignedConsents] = useState<SignedConsent[]>([]);
   const [consentTypes, setConsentTypes] = useState<ConsentType[]>([]);
   const [isSigning, setIsSigning] = useState<string | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [patient?.healthId]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -111,8 +120,8 @@ export function ConsentManagementPage() {
       const userId = patient?.walletAddress || patientId;
 
       // Fetch access grants from API
-      const grantsResponse = await fetch(`/api/access/patient/${patientId}/grants`, {
-        headers: { 'X-User-Id': userId },
+      const grantsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/grants`), {
+        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
       });
       if (grantsResponse.ok) {
         const data = await grantsResponse.json();
@@ -122,8 +131,8 @@ export function ConsentManagementPage() {
       }
 
       // Fetch pending access requests from API
-      const requestsResponse = await fetch(`/api/access/patient/${patientId}/requests`, {
-        headers: { 'X-User-Id': userId },
+      const requestsResponse = await fetch(apiUrl(`/api/access/patient/${patientId}/requests`), {
+        headers: { 'X-User-Id': userId, 'X-Health-Id': patientId },
       });
       if (requestsResponse.ok) {
         const data = await requestsResponse.json();
@@ -136,10 +145,14 @@ export function ConsentManagementPage() {
       try {
         const [consentsResult, typesResult] = await Promise.all([
           getPatientConsents(patientId) as Promise<{ consents: SignedConsent[] }>,
-          getConsentTypes() as Promise<{ consent_types: ConsentType[] }>,
+          getConsentTypes() as Promise<{ consent_types: ConsentTypeResponse[] }>,
         ]);
         setSignedConsents(consentsResult.consents || []);
-        setConsentTypes(typesResult.consent_types || []);
+        setConsentTypes((typesResult.consent_types || []).map(type => ({
+          consent_type: type.consent_type || type.type_id || '',
+          display_name: type.display_name || type.name || type.type_id || '',
+          description: type.description,
+        })).filter(type => Boolean(type.consent_type)));
       } catch (err) {
         console.warn('Could not load consent forms:', err);
       }
@@ -155,6 +168,7 @@ export function ConsentManagementPage() {
   const handleSignConsent = async (consentType: string) => {
     if (!patient?.healthId) return;
     setIsSigning(consentType);
+    setConsentError(null);
     try {
       await signConsent({ patient_id: patient.healthId, consent_type: consentType });
       // Reload consents
@@ -162,13 +176,15 @@ export function ConsentManagementPage() {
       setSignedConsents(result.consents || []);
     } catch (err) {
       console.error('Failed to sign consent:', err);
+      setConsentError(err instanceof Error ? err.message : 'The consent could not be signed.');
     } finally {
       setIsSigning(null);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateValue: string | number) => {
+    const date = typeof dateValue === 'number' ? new Date(dateValue * 1000) : new Date(dateValue);
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
@@ -191,9 +207,9 @@ export function ConsentManagementPage() {
       case 'limited':
         return 'bg-info-light text-info';
       case 'emergency':
-        return 'bg-emergency-100 text-emergency-600';
+        return 'bg-emergency-100 text-critical-subtle-fg';
       default:
-        return 'bg-neutral-100 text-neutral-600';
+        return 'bg-surface-sunken text-content-muted';
     }
   };
 
@@ -204,9 +220,9 @@ export function ConsentManagementPage() {
       case 'expired':
         return 'text-warning-600';
       case 'revoked':
-        return 'text-emergency-500';
+        return 'text-critical-subtle-fg';
       default:
-        return 'text-neutral-600';
+        return 'text-content-muted';
     }
   };
 
@@ -222,18 +238,16 @@ export function ConsentManagementPage() {
   };
 
   const handleRevokeAccess = async () => {
-    if (!selectedGrant) return;
+    if (!selectedGrant || !patient) return;
     
     setIsRevoking(true);
     try {
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : '';
-      
-      const response = await fetch(`/api/access/grants/${selectedGrant.id}/revoke`, {
+      const response = await fetch(apiUrl(`/api/access/grants/${selectedGrant.id}/revoke`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patientId,
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
         },
       });
       
@@ -256,15 +270,14 @@ export function ConsentManagementPage() {
   };
 
   const handleApproveRequest = async (requestId: string) => {
+    if (!patient) return;
     try {
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : '';
-      
-      const response = await fetch(`/api/access/requests/${requestId}/approve`, {
+      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/approve`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patientId,
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
         },
       });
       
@@ -281,15 +294,14 @@ export function ConsentManagementPage() {
   };
 
   const handleDenyRequest = async (requestId: string) => {
+    if (!patient) return;
     try {
-      const authData = localStorage.getItem('patient-auth');
-      const patientId = authData ? JSON.parse(authData).patientId : '';
-      
-      const response = await fetch(`/api/access/requests/${requestId}/deny`, {
+      const response = await fetch(apiUrl(`/api/access/requests/${requestId}/deny`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Id': patientId,
+          'X-User-Id': patient.walletAddress,
+          'X-Health-Id': patient.healthId,
         },
       });
       
@@ -317,10 +329,10 @@ export function ConsentManagementPage() {
   if (isLoading) {
     return (
       <div className="p-6 space-y-4 animate-pulse">
-        <div className="h-8 bg-neutral-200 rounded w-48" />
-        <div className="h-12 bg-neutral-200 rounded-xl" />
+        <div className="h-8 bg-surface-sunken rounded w-48" />
+        <div className="h-12 bg-surface-sunken rounded-xl" />
         {[1, 2, 3].map(i => (
-          <div key={i} className="h-24 bg-neutral-200 rounded-xl" />
+          <div key={i} className="h-24 bg-surface-sunken rounded-xl" />
         ))}
       </div>
     );
@@ -330,23 +342,23 @@ export function ConsentManagementPage() {
     <div className="p-4 md:p-6 space-y-6 pb-24">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">{t('consent.accessControl')}</h1>
-        <p className="text-neutral-600">{t('consent.subtitle')}</p>
+        <h1 className="text-2xl font-bold text-content">{t('consent.accessControl')}</h1>
+        <p className="text-content-muted">{t('consent.subtitle')}</p>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
         <div className="patient-card text-center">
           <div className="text-2xl font-bold text-success-600">{activeGrants.length}</div>
-          <div className="text-xs text-neutral-500">{t('consent.active')}</div>
+          <div className="text-xs text-content-muted">{t('consent.active')}</div>
         </div>
         <div className="patient-card text-center">
           <div className="text-2xl font-bold text-warning-600">{pendingRequests.length}</div>
-          <div className="text-xs text-neutral-500">{t('consent.pending')}</div>
+          <div className="text-xs text-content-muted">{t('consent.pending')}</div>
         </div>
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-neutral-400">{historyGrants.length}</div>
-          <div className="text-xs text-neutral-500">{t('consent.history')}</div>
+          <div className="text-2xl font-bold text-content-muted">{historyGrants.length}</div>
+          <div className="text-xs text-content-muted">{t('consent.history')}</div>
         </div>
       </div>
 
@@ -368,13 +380,13 @@ export function ConsentManagementPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 bg-neutral-100 p-1 rounded-xl">
+      <div className="flex gap-2 bg-surface-sunken p-1 rounded-xl">
         <button
           onClick={() => setActiveTab('grants')}
           className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
             activeTab === 'grants'
-              ? 'bg-white text-neutral-900 shadow-sm'
-              : 'text-neutral-600 hover:text-neutral-900'
+              ? 'bg-surface text-content shadow-sm'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           <Shield className="w-4 h-4 inline mr-1" />
@@ -384,8 +396,8 @@ export function ConsentManagementPage() {
           onClick={() => setActiveTab('requests')}
           className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors relative ${
             activeTab === 'requests'
-              ? 'bg-white text-neutral-900 shadow-sm'
-              : 'text-neutral-600 hover:text-neutral-900'
+              ? 'bg-surface text-content shadow-sm'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           <UserCheck className="w-4 h-4 inline mr-1" />
@@ -400,8 +412,8 @@ export function ConsentManagementPage() {
           onClick={() => setActiveTab('history')}
           className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
             activeTab === 'history'
-              ? 'bg-white text-neutral-900 shadow-sm'
-              : 'text-neutral-600 hover:text-neutral-900'
+              ? 'bg-surface text-content shadow-sm'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           <History className="w-4 h-4 inline mr-1" />
@@ -411,8 +423,8 @@ export function ConsentManagementPage() {
           onClick={() => setActiveTab('consents')}
           className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-colors ${
             activeTab === 'consents'
-              ? 'bg-white text-neutral-900 shadow-sm'
-              : 'text-neutral-600 hover:text-neutral-900'
+              ? 'bg-surface text-content shadow-sm'
+              : 'text-content-muted hover:text-content'
           }`}
         >
           <FileText className="w-4 h-4 inline mr-1" />
@@ -424,14 +436,14 @@ export function ConsentManagementPage() {
       {activeTab !== 'requests' && activeTab !== 'consents' && (
         <div className="relative">
           <label htmlFor="consent-search" className="sr-only">{t('consent.searchProviders')}</label>
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-400" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
           <input
             id="consent-search"
             type="text"
             placeholder={t('consent.searchProviders')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-neutral-100 border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
+            className="w-full pl-12 pr-4 py-3 bg-surface-sunken border-0 rounded-xl focus:ring-2 focus:ring-primary-500"
           />
         </div>
       )}
@@ -439,13 +451,14 @@ export function ConsentManagementPage() {
       {/* Consent Forms Tab */}
       {activeTab === 'consents' && (
         <div className="space-y-6">
+          {consentError && <p role="alert" className="rounded-lg bg-critical-subtle p-3 text-sm text-critical-subtle-fg">{consentError}</p>}
           {/* Signed Consents */}
           <div>
-            <h3 className="font-semibold text-neutral-800 mb-3 flex items-center gap-2">
+            <h3 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
               <CheckCircle className="w-4 h-4 text-green-500" /> {t('consent.signedForms')}
             </h3>
             {signedConsents.length === 0 ? (
-              <p className="text-sm text-neutral-500">{t('consent.noSigned')}</p>
+              <p className="text-sm text-content-muted">{t('consent.noSigned')}</p>
             ) : (
               <div className="space-y-2">
                 {signedConsents.map(c => (
@@ -453,13 +466,13 @@ export function ConsentManagementPage() {
                     <div className="flex items-center gap-3">
                       <FileText className="w-5 h-5 text-primary-500" />
                       <div>
-                        <p className="font-medium text-neutral-900">{c.consent_type}</p>
+                        <p className="font-medium text-content">{c.consent_type}</p>
                         {c.signed_at && (
-                          <p className="text-xs text-neutral-500">{t('consent.signedOn', { date: formatDate(c.signed_at) })}</p>
+                          <p className="text-xs text-content-muted">{t('consent.signedOn', { date: formatDate(c.signed_at) })}</p>
                         )}
                       </div>
                     </div>
-                    <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">{t('consent.signed')}</span>
+                    <span className="px-2 py-1 rounded-full text-xs bg-ok-subtle text-ok-subtle-fg">{t('consent.signed')}</span>
                   </div>
                 ))}
               </div>
@@ -469,7 +482,7 @@ export function ConsentManagementPage() {
           {/* Available Consent Types */}
           {consentTypes.length > 0 && (
             <div>
-              <h3 className="font-semibold text-neutral-800 mb-3 flex items-center gap-2">
+              <h3 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
                 <PenLine className="w-4 h-4 text-primary-500" /> {t('consent.availableForms')}
               </h3>
               <div className="space-y-2">
@@ -478,21 +491,21 @@ export function ConsentManagementPage() {
                   return (
                     <div key={ct.consent_type} className="patient-card flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <FileText className="w-5 h-5 text-neutral-400" />
+                        <FileText className="w-5 h-5 text-content-muted" />
                         <div>
-                          <p className="font-medium text-neutral-900">{ct.display_name || ct.consent_type}</p>
+                          <p className="font-medium text-content">{ct.display_name || ct.consent_type}</p>
                           {ct.description && (
-                            <p className="text-xs text-neutral-500">{ct.description}</p>
+                            <p className="text-xs text-content-muted">{ct.description}</p>
                           )}
                         </div>
                       </div>
                       {alreadySigned ? (
-                        <span className="px-2 py-1 rounded-full text-xs bg-green-100 text-green-700">{t('consent.signed')}</span>
+                        <span className="px-2 py-1 rounded-full text-xs bg-ok-subtle text-ok-subtle-fg">{t('consent.signed')}</span>
                       ) : (
                         <button
                           onClick={() => handleSignConsent(ct.consent_type)}
                           disabled={isSigning === ct.consent_type}
-                          className="px-3 py-1.5 bg-primary-500 text-white text-xs rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50"
+                          className="px-3 py-1.5 bg-primary-500 text-brand-fg text-xs rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
                         >
                           {isSigning === ct.consent_type ? t('consent.signing') : t('consent.sign')}
                         </button>
@@ -512,27 +525,27 @@ export function ConsentManagementPage() {
           {pendingRequests.length === 0 ? (
             <div className="text-center py-12">
               <CheckCircle className="w-12 h-12 text-success-300 mx-auto mb-4" />
-              <p className="text-neutral-500">{t('consent.noRequests')}</p>
+              <p className="text-content-muted">{t('consent.noRequests')}</p>
             </div>
           ) : (
             pendingRequests.map(request => (
               <div key={request.id} className="patient-card space-y-4">
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
+                  <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center">
                     {getRoleIcon(request.providerRole)}
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-medium text-neutral-900">{request.providerName}</h3>
-                    <p className="text-sm text-neutral-500">{request.providerRole} • {request.organization}</p>
-                    <p className="text-xs text-neutral-400 mt-1">
+                    <h3 className="font-medium text-content">{request.providerName}</h3>
+                    <p className="text-sm text-content-muted">{request.providerRole} • {request.organization}</p>
+                    <p className="text-xs text-content-muted mt-1">
                       <Clock className="w-3 h-3 inline mr-1" />
                       {t('consent.requestedOn', { date: formatDateTime(request.requestedAt) })}
                     </p>
                   </div>
                 </div>
                 
-                <div className="p-3 bg-neutral-50 rounded-xl">
-                  <p className="text-sm text-neutral-600">
+                <div className="p-3 bg-surface-sunken rounded-xl">
+                  <p className="text-sm text-content-muted">
                     <span className="font-medium">{t('consent.reasonLabel')}</span> {request.reason}
                   </p>
                 </div>
@@ -547,7 +560,7 @@ export function ConsentManagementPage() {
                   </button>
                   <button
                     onClick={() => handleDenyRequest(request.id)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emergency-500 text-white rounded-xl hover:bg-emergency-600 transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors"
                   >
                     <XCircle className="w-5 h-5" />
                     {t('consent.deny')}
@@ -562,7 +575,7 @@ export function ConsentManagementPage() {
           {filteredGrants.length === 0 ? (
             <div className="text-center py-12">
               <Shield className="w-12 h-12 text-neutral-300 mx-auto mb-4" />
-              <p className="text-neutral-500">
+              <p className="text-content-muted">
                 {activeTab === 'grants' ? t('consent.noActiveGrants') : t('consent.noHistory')}
               </p>
             </div>
@@ -570,22 +583,22 @@ export function ConsentManagementPage() {
             filteredGrants.map(grant => (
               <div
                 key={grant.id}
-                className="patient-card hover:border-primary-200 border-2 border-transparent cursor-pointer"
+                className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
                 onClick={() => setSelectedGrant(grant)}
               >
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center text-primary-600">
+                  <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center text-brand-subtle-fg">
                     {getRoleIcon(grant.providerRole)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-medium text-neutral-900 truncate">{grant.providerName}</h3>
+                      <h3 className="font-medium text-content truncate">{grant.providerName}</h3>
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${getAccessTypeColor(grant.accessType)}`}>
                         {accessTypeLabel(grant.accessType)}
                       </span>
                     </div>
-                    <p className="text-sm text-neutral-500">{grant.organization}</p>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-neutral-400">
+                    <p className="text-sm text-content-muted">{grant.organization}</p>
+                    <div className="flex items-center gap-4 mt-2 text-xs text-content-muted">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
                         {formatDate(grant.grantedAt)}
@@ -602,7 +615,7 @@ export function ConsentManagementPage() {
                       </span>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-neutral-400 flex-shrink-0" />
+                  <ChevronRight className="w-5 h-5 text-content-muted flex-shrink-0" />
                 </div>
               </div>
             ))
@@ -613,40 +626,40 @@ export function ConsentManagementPage() {
       {/* Grant Detail Modal */}
       {selectedGrant && !showRevokeConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-          <div className="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
-            <div className="sticky top-0 bg-white p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold text-neutral-900">{t('consent.accessDetails')}</h2>
+          <div className="bg-surface w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto animate-slide-up">
+            <div className="sticky top-0 bg-surface p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold text-content">{t('consent.accessDetails')}</h2>
               <button
                 onClick={() => setSelectedGrant(null)}
-                className="p-2 hover:bg-neutral-100 rounded-xl transition-colors"
+                className="p-2 hover:bg-surface-sunken rounded-xl transition-colors"
               >
-                <X className="w-6 h-6 text-neutral-500" />
+                <X className="w-6 h-6 text-content-muted" />
               </button>
             </div>
 
             <div className="p-6 space-y-6">
               {/* Provider Info */}
               <div className="flex items-start gap-4">
-                <div className="w-14 h-14 bg-primary-100 rounded-2xl flex items-center justify-center text-primary-600">
+                <div className="w-14 h-14 bg-brand-subtle rounded-2xl flex items-center justify-center text-brand-subtle-fg">
                   {getRoleIcon(selectedGrant.providerRole)}
                 </div>
                 <div>
-                  <h3 className="font-semibold text-lg text-neutral-900">{selectedGrant.providerName}</h3>
-                  <p className="text-neutral-600">{selectedGrant.providerRole}</p>
-                  <p className="text-sm text-neutral-500">{selectedGrant.organization}</p>
+                  <h3 className="font-semibold text-lg text-content">{selectedGrant.providerName}</h3>
+                  <p className="text-content-muted">{selectedGrant.providerRole}</p>
+                  <p className="text-sm text-content-muted">{selectedGrant.organization}</p>
                 </div>
               </div>
 
               {/* Access Info */}
-              <div className="space-y-4 p-4 bg-neutral-50 rounded-xl">
+              <div className="space-y-4 p-4 bg-surface-sunken rounded-xl">
                 <div className="flex justify-between items-center">
-                  <span className="text-neutral-600">{t('consent.accessType')}</span>
+                  <span className="text-content-muted">{t('consent.accessType')}</span>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${getAccessTypeColor(selectedGrant.accessType)}`}>
                     {accessTypeLabel(selectedGrant.accessType)} {t('consent.accessWord')}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-neutral-600">{t('consent.status')}</span>
+                  <span className="text-content-muted">{t('consent.status')}</span>
                   <span className={`flex items-center gap-1 font-medium ${getStatusColor(selectedGrant.status)}`}>
                     {selectedGrant.status === 'active' ? (
                       <CheckCircle className="w-4 h-4" />
@@ -657,23 +670,23 @@ export function ConsentManagementPage() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-neutral-600">{t('consent.granted')}</span>
-                  <span className="text-neutral-900">{formatDate(selectedGrant.grantedAt)}</span>
+                  <span className="text-content-muted">{t('consent.granted')}</span>
+                  <span className="text-content">{formatDate(selectedGrant.grantedAt)}</span>
                 </div>
                 {selectedGrant.expiresAt && (
                   <div className="flex justify-between items-center">
-                    <span className="text-neutral-600">{t('consent.expires')}</span>
-                    <span className="text-neutral-900">{formatDate(selectedGrant.expiresAt)}</span>
+                    <span className="text-content-muted">{t('consent.expires')}</span>
+                    <span className="text-content">{formatDate(selectedGrant.expiresAt)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center">
-                  <span className="text-neutral-600">{t('consent.totalAccesses')}</span>
-                  <span className="text-neutral-900">{t('consent.times', { count: selectedGrant.accessCount })}</span>
+                  <span className="text-content-muted">{t('consent.totalAccesses')}</span>
+                  <span className="text-content">{t('consent.times', { count: selectedGrant.accessCount })}</span>
                 </div>
                 {selectedGrant.lastAccessed && (
                   <div className="flex justify-between items-center">
-                    <span className="text-neutral-600">{t('consent.lastAccessed')}</span>
-                    <span className="text-neutral-900">{formatDateTime(selectedGrant.lastAccessed)}</span>
+                    <span className="text-content-muted">{t('consent.lastAccessed')}</span>
+                    <span className="text-content">{formatDateTime(selectedGrant.lastAccessed)}</span>
                   </div>
                 )}
               </div>
@@ -682,7 +695,7 @@ export function ConsentManagementPage() {
               {selectedGrant.status === 'active' && (
                 <button
                   onClick={() => setShowRevokeConfirm(true)}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-emergency-500 text-white rounded-xl hover:bg-emergency-600 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors"
                 >
                   <UserX className="w-5 h-5" />
                   {t('consent.revokeAccess')}
@@ -696,13 +709,13 @@ export function ConsentManagementPage() {
       {/* Revoke Confirmation Modal */}
       {showRevokeConfirm && selectedGrant && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 space-y-6 animate-slide-up">
+          <div className="bg-surface w-full max-w-sm rounded-3xl p-6 space-y-6 animate-slide-up">
             <div className="text-center">
               <div className="w-16 h-16 bg-emergency-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="w-8 h-8 text-emergency-500" />
+                <AlertTriangle className="w-8 h-8 text-critical-subtle-fg" />
               </div>
-              <h3 className="text-xl font-bold text-neutral-900 mb-2">{t('consent.revokeConfirmTitle')}</h3>
-              <p className="text-neutral-600">
+              <h3 className="text-xl font-bold text-content mb-2">{t('consent.revokeConfirmTitle')}</h3>
+              <p className="text-content-muted">
                 {t('consent.revokeConfirmBody', { name: selectedGrant.providerName })}
               </p>
             </div>
@@ -710,14 +723,14 @@ export function ConsentManagementPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowRevokeConfirm(false)}
-                className="flex-1 px-4 py-3 border-2 border-neutral-200 rounded-xl hover:bg-neutral-50 transition-colors"
+                className="flex-1 px-4 py-3 border-2 border-border rounded-xl hover:bg-surface-sunken transition-colors"
               >
                 {t('common.cancel')}
               </button>
               <button
                 onClick={handleRevokeAccess}
                 disabled={isRevoking}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emergency-500 text-white rounded-xl hover:bg-emergency-600 transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors disabled:opacity-50"
               >
                 {isRevoking ? (
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

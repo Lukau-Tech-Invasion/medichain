@@ -328,10 +328,10 @@ export default function MARPage() {
   const getStatusColor = (status: MedicationStatus) => {
     switch (status) {
       case 'given': return 'bg-green-500 text-white';
-      case 'held': return 'bg-yellow-500 text-white';
+      case 'held': return 'bg-caution text-white';
       case 'refused': return 'bg-orange-500 text-white';
       case 'not-given': return 'bg-red-500 text-white';
-      default: return 'bg-gray-200 text-gray-600';
+      default: return 'bg-surface-sunken text-content-muted';
     }
   };
 
@@ -481,13 +481,13 @@ export default function MARPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-surface-sunken p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg shadow-lg p-6 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <div className="p-3 bg-white/20 rounded-full">
+              <div className="p-3 bg-surface/20 rounded-full">
                 <Pill className="h-8 w-8 text-white" />
               </div>
               <div>
@@ -505,14 +505,14 @@ export default function MARPage() {
         </div>
 
         {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-ok-subtle border border-ok text-ok-subtle-fg p-4 rounded-lg flex items-center">
             <Check className="h-5 w-5 mr-2" />
             {success}
           </div>
         )}
 
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center">
+          <div className="mb-6 bg-critical-subtle border border-critical text-critical-subtle-fg p-4 rounded-lg flex items-center">
             <AlertTriangle className="h-5 w-5 mr-2" />
             {error}
           </div>
@@ -521,19 +521,19 @@ export default function MARPage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Patient Selection Sidebar */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow p-4">
-              <h2 className="font-bold text-gray-900 mb-4 flex items-center">
+            <div className="bg-surface rounded-lg shadow p-4">
+              <h2 className="font-bold text-content mb-4 flex items-center">
                 <User className="h-5 w-5 mr-2 text-purple-500" />
                 {t('docMAR.selectPatientHeading')}
               </h2>
               <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-content-muted" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder={t('docMAR.searchPatientsPh')}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full pl-10 pr-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
                 />
               </div>
               <div className="max-h-96 overflow-y-auto space-y-2">
@@ -546,20 +546,20 @@ export default function MARPage() {
                     }}
                     className={`w-full text-left p-3 rounded-lg transition-colors ${
                       selectedPatient?.patient_id === patient.patient_id
-                        ? 'bg-purple-100 border-2 border-purple-500'
-                        : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                        ? 'bg-surface-sunken border-2 border-purple-500'
+                        : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                     }`}
                   >
-                    <p className="font-medium text-gray-900">{patient.full_name}</p>
-                    <p className="text-sm text-gray-500">{patient.patient_id}</p>
+                    <p className="font-medium text-content">{patient.full_name}</p>
+                    <p className="text-sm text-content-muted">{patient.patient_id}</p>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Barcode Scanner */}
-            <div className="bg-white rounded-lg shadow p-4 mt-4">
-              <h3 className="font-bold text-gray-900 mb-3 flex items-center">
+            <div className="bg-surface rounded-lg shadow p-4 mt-4">
+              <h3 className="font-bold text-content mb-3 flex items-center">
                 <Scan className="h-5 w-5 mr-2 text-purple-500" />
                 {t('docMAR.barcodeScanHeading')}
               </h3>
@@ -569,7 +569,7 @@ export default function MARPage() {
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
                   placeholder={t('docMAR.barcodeScanPh')}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full p-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-purple-500"
                   onKeyDown={(e) => e.key === 'Enter' && handleBarcodeSccan()}
                 />
                 <button
@@ -586,12 +586,12 @@ export default function MARPage() {
           {/* MAR Grid */}
           <div className="lg:col-span-3">
             {selectedPatient ? (
-              <div className="bg-white rounded-lg shadow">
+              <div className="bg-surface rounded-lg shadow">
                 {/* Date Navigation */}
                 <div className="p-4 border-b flex items-center justify-between">
                   <button
                     onClick={() => navigateDate('prev')}
-                    className="p-2 hover:bg-gray-100 rounded-lg"
+                    className="p-2 hover:bg-surface-sunken rounded-lg"
                   >
                     <ChevronLeft className="h-5 w-5" />
                   </button>
@@ -608,7 +608,7 @@ export default function MARPage() {
                   </div>
                   <button
                     onClick={() => navigateDate('next')}
-                    className="p-2 hover:bg-gray-100 rounded-lg"
+                    className="p-2 hover:bg-surface-sunken rounded-lg"
                   >
                     <ChevronRight className="h-5 w-5" />
                   </button>
@@ -616,18 +616,18 @@ export default function MARPage() {
 
                 {/* Medication Orders */}
                 <div className="p-4">
-                  <h3 className="font-bold text-gray-900 mb-4">{t('docMAR.activeMedicationOrdersHeading')}</h3>
+                  <h3 className="font-bold text-content mb-4">{t('docMAR.activeMedicationOrdersHeading')}</h3>
                   <div className="space-y-3">
                     {medicationOrders.map(order => (
                       <div key={order.id} className={`p-4 rounded-lg border-l-4 ${
-                        order.highAlert ? 'border-l-red-500 bg-red-50' : 'border-l-purple-500 bg-gray-50'
+                        order.highAlert ? 'border-l-red-500 bg-critical-subtle' : 'border-l-purple-500 bg-surface-sunken'
                       }`}>
                         <div className="flex items-start justify-between">
                           <div className="flex items-start space-x-3">
                             {getRouteIcon(order.route)}
                             <div>
                               <div className="flex items-center space-x-2">
-                                <span className="font-bold text-gray-900">{order.medicationName}</span>
+                                <span className="font-bold text-content">{order.medicationName}</span>
                                 {order.highAlert && (
                                   <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.highAlertBadge')}</span>
                                 )}
@@ -635,15 +635,15 @@ export default function MARPage() {
                                   <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded">{t('docMAR.prnBadge')}</span>
                                 )}
                               </div>
-                              <p className="text-sm text-gray-600">
+                              <p className="text-sm text-content-muted">
                                 {order.dose} {order.route} {order.frequency}
                               </p>
                               {order.instructions && (
-                                <p className="text-xs text-gray-500 mt-1">{order.instructions}</p>
+                                <p className="text-xs text-content-muted mt-1">{order.instructions}</p>
                               )}
                             </div>
                           </div>
-                          <p className="text-sm text-gray-500">{t('docMAR.orderedByLine', { name: order.orderedBy })}</p>
+                          <p className="text-sm text-content-muted">{t('docMAR.orderedByLine', { name: order.orderedBy })}</p>
                         </div>
                       </div>
                     ))}
@@ -652,24 +652,24 @@ export default function MARPage() {
 
                 {/* Scheduled Administrations */}
                 <div className="p-4 border-t">
-                  <h3 className="font-bold text-gray-900 mb-4">{t('docMAR.scheduledAdministrationsHeading')}</h3>
+                  <h3 className="font-bold text-content mb-4">{t('docMAR.scheduledAdministrationsHeading')}</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
-                        <tr className="bg-gray-100">
-                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableMedication')}</th>
-                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableDoseRoute')}</th>
-                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableScheduled')}</th>
-                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableStatus')}</th>
-                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableGiven')}</th>
-                          <th className="p-3 text-left font-medium text-gray-700">{t('docMAR.tableBy')}</th>
-                          <th className="p-3 text-center font-medium text-gray-700">{t('docMAR.tableAction')}</th>
+                        <tr className="bg-surface-sunken">
+                          <th className="p-3 text-left font-medium text-content-secondary">{t('docMAR.tableMedication')}</th>
+                          <th className="p-3 text-left font-medium text-content-secondary">{t('docMAR.tableDoseRoute')}</th>
+                          <th className="p-3 text-left font-medium text-content-secondary">{t('docMAR.tableScheduled')}</th>
+                          <th className="p-3 text-left font-medium text-content-secondary">{t('docMAR.tableStatus')}</th>
+                          <th className="p-3 text-left font-medium text-content-secondary">{t('docMAR.tableGiven')}</th>
+                          <th className="p-3 text-left font-medium text-content-secondary">{t('docMAR.tableBy')}</th>
+                          <th className="p-3 text-center font-medium text-content-secondary">{t('docMAR.tableAction')}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {scheduledMeds.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)).map(med => (
-                          <tr key={med.id} className={`border-b hover:bg-gray-50 ${
-                            med.highAlert ? 'bg-red-50' : ''
+                          <tr key={med.id} className={`border-b hover:bg-surface-sunken ${
+                            med.highAlert ? 'bg-critical-subtle' : ''
                           }`}>
                             <td className="p-3">
                               <div className="flex items-center space-x-2">
@@ -691,7 +691,7 @@ export default function MARPage() {
                               </span>
                             </td>
                             <td className="p-3 font-mono">{med.administeredTime || '-'}</td>
-                            <td className="p-3 text-sm text-gray-600">{med.administeredBy || '-'}</td>
+                            <td className="p-3 text-sm text-content-muted">{med.administeredBy || '-'}</td>
                             <td className="p-3 text-center">
                               {med.status === 'scheduled' ? (
                                 <button
@@ -703,7 +703,7 @@ export default function MARPage() {
                               ) : (
                                 <button
                                   onClick={() => openAdminModal(med)}
-                                  className="text-purple-600 hover:text-purple-700 text-sm underline"
+                                  className="text-content-secondary hover:text-content-secondary text-sm underline"
                                 >
                                   {t('docMAR.editButton')}
                                 </button>
@@ -717,8 +717,8 @@ export default function MARPage() {
                 </div>
 
                 {/* PRN Medications */}
-                <div className="p-4 border-t bg-blue-50">
-                  <h3 className="font-bold text-gray-900 mb-4 flex items-center">
+                <div className="p-4 border-t bg-notice-subtle">
+                  <h3 className="font-bold text-content mb-4 flex items-center">
                     <ThermometerSun className="h-5 w-5 mr-2 text-blue-500" />
                     {t('docMAR.prnMedicationsAvailableHeading')}
                   </h3>
@@ -742,8 +742,8 @@ export default function MARPage() {
                         }}
                         className={`px-4 py-2 rounded-lg text-sm font-medium ${
                           order.highAlert 
-                            ? 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
-                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'
+                            ? 'bg-critical-subtle text-critical-subtle-fg hover:bg-red-200 border border-critical'
+                            : 'bg-notice-subtle text-notice-subtle-fg hover:bg-blue-200 border border-notice'
                         }`}
                       >
                         {order.medicationName} - {order.dose} {order.route}
@@ -753,7 +753,7 @@ export default function MARPage() {
                 </div>
 
                 {/* Save Button */}
-                <div className="p-4 border-t bg-gray-50 flex justify-end">
+                <div className="p-4 border-t bg-surface-sunken flex justify-end">
                   <button
                     onClick={handleSave}
                     disabled={isSubmitting}
@@ -774,10 +774,10 @@ export default function MARPage() {
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-lg shadow p-12 text-center">
+              <div className="bg-surface rounded-lg shadow p-12 text-center">
                 <Pill className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                <h2 className="text-xl font-bold text-gray-700 mb-2">{t('docMAR.selectPatientEmptyTitle')}</h2>
-                <p className="text-gray-500">{t('docMAR.selectPatientEmptyMessage')}</p>
+                <h2 className="text-xl font-bold text-content-secondary mb-2">{t('docMAR.selectPatientEmptyTitle')}</h2>
+                <p className="text-content-muted">{t('docMAR.selectPatientEmptyMessage')}</p>
               </div>
             )}
           </div>
@@ -787,23 +787,23 @@ export default function MARPage() {
       {/* Administration Modal */}
       {showAdminModal && selectedMed && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
-            <div className={`p-4 rounded-t-lg ${selectedMed.highAlert ? 'bg-red-600' : 'bg-purple-600'}`}>
+          <div className="bg-surface rounded-lg shadow-xl max-w-lg w-full mx-4">
+            <div className={`p-4 rounded-t-lg ${selectedMed.highAlert ? 'bg-critical' : 'bg-purple-600'}`}>
               <h3 className="text-lg font-bold text-white flex items-center">
                 {selectedMed.highAlert && <AlertTriangle className="h-5 w-5 mr-2" />}
                 {t('docMAR.documentAdministrationHeading')}
               </h3>
             </div>
             <div className="p-6">
-              <div className="mb-6 p-4 bg-gray-100 rounded-lg">
-                <p className="font-bold text-gray-900">{selectedMed.medicationName}</p>
-                <p className="text-gray-600">{t('docMAR.doseViaRouteLine', { dose: selectedMed.dose, route: selectedMed.route })}</p>
-                <p className="text-sm text-gray-500">{t('docMAR.scheduledLine', { time: selectedMed.scheduledTime })}</p>
+              <div className="mb-6 p-4 bg-surface-sunken rounded-lg">
+                <p className="font-bold text-content">{selectedMed.medicationName}</p>
+                <p className="text-content-muted">{t('docMAR.doseViaRouteLine', { dose: selectedMed.dose, route: selectedMed.route })}</p>
+                <p className="text-sm text-content-muted">{t('docMAR.scheduledLine', { time: selectedMed.scheduledTime })}</p>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('docMAR.statusLabel')}</label>
+                  <label className="block text-sm font-medium text-content-secondary mb-2">{t('docMAR.statusLabel')}</label>
                   <div className="grid grid-cols-4 gap-2">
                     {(['given', 'held', 'refused', 'not-given'] as MedicationStatus[]).map(status => (
                       <button
@@ -812,7 +812,7 @@ export default function MARPage() {
                         className={`p-2 rounded-lg text-sm font-medium ${
                           adminForm.status === status
                             ? getStatusColor(status)
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
                         }`}
                       >
                         {t(`docMAR.status_${status}`)}
@@ -823,25 +823,25 @@ export default function MARPage() {
 
                 {adminForm.status === 'given' && (
                   <div>
-                    <label htmlFor="mar-time-administered" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.timeAdministeredLabel')}</label>
+                    <label htmlFor="mar-time-administered" className="block text-sm font-medium text-content-secondary mb-1">{t('docMAR.timeAdministeredLabel')}</label>
                     <input
                       id="mar-time-administered"
                       type="time"
                       value={adminForm.administeredTime}
                       onChange={(e) => setAdminForm({ ...adminForm, administeredTime: e.target.value })}
-                      className="w-full p-2 border border-gray-300 rounded-lg"
+                      className="w-full p-2 border border-border-strong rounded-lg"
                     />
                   </div>
                 )}
 
                 {adminForm.status === 'held' && (
                   <div>
-                    <label htmlFor="mar-hold-reason" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.holdReasonLabel')}</label>
+                    <label htmlFor="mar-hold-reason" className="block text-sm font-medium text-content-secondary mb-1">{t('docMAR.holdReasonLabel')}</label>
                     <select
                       id="mar-hold-reason"
                       value={adminForm.holdReason}
                       onChange={(e) => setAdminForm({ ...adminForm, holdReason: e.target.value })}
-                      className="w-full p-2 border border-gray-300 rounded-lg"
+                      className="w-full p-2 border border-border-strong rounded-lg"
                     >
                       <option value="">{t('docMAR.selectReasonPh')}</option>
                       <option value="NPO">{t('docMAR.holdReason_npo')}</option>
@@ -857,42 +857,42 @@ export default function MARPage() {
 
                 {selectedMed.prn && (
                   <div>
-                    <label htmlFor="mar-prn-reason" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.prnReasonLabel')}</label>
+                    <label htmlFor="mar-prn-reason" className="block text-sm font-medium text-content-secondary mb-1">{t('docMAR.prnReasonLabel')}</label>
                     <input
                       id="mar-prn-reason"
                       type="text"
                       value={adminForm.prnReason}
                       onChange={(e) => setAdminForm({ ...adminForm, prnReason: e.target.value })}
                       placeholder={t('docMAR.prnReasonPh')}
-                      className="w-full p-2 border border-gray-300 rounded-lg"
+                      className="w-full p-2 border border-border-strong rounded-lg"
                     />
                   </div>
                 )}
 
                 <div>
-                  <label htmlFor="mar-notes" className="block text-sm font-medium text-gray-700 mb-1">{t('docMAR.notesLabel')}</label>
+                  <label htmlFor="mar-notes" className="block text-sm font-medium text-content-secondary mb-1">{t('docMAR.notesLabel')}</label>
                   <textarea
                     id="mar-notes"
                     value={adminForm.notes}
                     onChange={(e) => setAdminForm({ ...adminForm, notes: e.target.value })}
                     rows={2}
-                    className="w-full p-2 border border-gray-300 rounded-lg"
+                    className="w-full p-2 border border-border-strong rounded-lg"
                     placeholder={t('docMAR.notesPh')}
                   />
                 </div>
               </div>
             </div>
-            <div className="p-4 bg-gray-50 rounded-b-lg flex justify-end space-x-3">
+            <div className="p-4 bg-surface-sunken rounded-b-lg flex justify-end space-x-3">
               <button
                 onClick={() => setShowAdminModal(false)}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg hover:bg-gray-300"
               >
                 {t('docMAR.cancelButton')}
               </button>
               <button
                 onClick={handleAdminister}
-                className={`px-4 py-2 text-white rounded-lg ${
-                  selectedMed.highAlert ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-600 hover:bg-purple-700'
+                className={`px-4 py-2 text-critical-fg rounded-lg ${
+                  selectedMed.highAlert ? 'bg-critical hover:bg-critical' : 'bg-purple-600 hover:bg-purple-700'
                 }`}
               >
                 {t('docMAR.confirmButton')}

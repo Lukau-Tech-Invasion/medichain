@@ -15,6 +15,9 @@ pub struct AddVitalSignsRequest {
     pub oxygen_saturation: Option<u16>,
     pub temperature_celsius: Option<f32>,
     pub pain_scale: Option<u8>,
+    pub gcs_total: Option<u8>,
+    pub blood_glucose: Option<u16>,
+    pub weight_kg: Option<f32>,
     pub notes: Option<String>,
 }
 
@@ -26,6 +29,25 @@ pub struct VitalSignsResponse {
     pub mean_arterial_pressure: Option<u16>,
     pub critical_alerts: Vec<String>,
     pub message: String,
+}
+
+fn vital_reading_json(v: crate::repositories::traits::VitalSignsEntity) -> serde_json::Value {
+    serde_json::json!({
+        "reading_id": v.id,
+        "timestamp": v.recorded_at.timestamp(),
+        "recorded_at": v.recorded_at,
+        "recorded_by": v.recorded_by,
+        "heart_rate": v.heart_rate,
+        "respiratory_rate": v.respiratory_rate,
+        "systolic_bp": v.blood_pressure_systolic,
+        "diastolic_bp": v.blood_pressure_diastolic,
+        "temperature_celsius": v.temperature,
+        "oxygen_saturation": v.oxygen_saturation,
+        "pain_scale": v.pain_scale,
+        "gcs_total": v.gcs_score,
+        "blood_glucose": v.blood_glucose,
+        "weight_kg": v.weight_kg,
+    })
 }
 
 /// Add a vital signs reading for a patient
@@ -135,10 +157,18 @@ pub async fn add_vital_signs(
 
     // Persist vital signs via repository
     {
-        let entity: crate::repositories::traits::VitalSignsEntity =
+        let mut entity: crate::repositories::traits::VitalSignsEntity =
             (req.patient_id.clone(), reading).into();
+        entity.gcs_score = req.gcs_total.map(i32::from);
+        entity.blood_glucose = req.blood_glucose.map(i32::from);
+        entity.weight_kg = req.weight_kg.map(f64::from);
         if let Err(e) = data.repositories.vital_signs.create(entity).await {
             log::error!("Vital signs persistence failed: {}", e);
+            return HttpResponse::InternalServerError().json(ErrorResponse {
+                success: false,
+                error: "Vital signs could not be saved".to_string(),
+                code: "DATABASE_ERROR".to_string(),
+            });
         }
     }
 
@@ -236,23 +266,7 @@ pub async fn get_patient_vitals(
         .await
     {
         Ok(result) => {
-            let readings: Vec<crate::clinical::VitalSignsReading> = result
-                .items
-                .into_iter()
-                .map(|v| crate::clinical::VitalSignsReading {
-                    reading_id: v.id,
-                    timestamp: v.recorded_at.timestamp(),
-                    recorded_by: v.recorded_by,
-                    heart_rate: v.heart_rate.map(|val| val as u16),
-                    respiratory_rate: v.respiratory_rate.map(|val| val as u16),
-                    systolic_bp: v.blood_pressure_systolic.map(|val| val as u16),
-                    diastolic_bp: v.blood_pressure_diastolic.map(|val| val as u16),
-                    temperature_celsius: v.temperature.map(|val| val as f32),
-                    oxygen_saturation: v.oxygen_saturation.map(|val| val as u16),
-                    pain_scale: v.pain_scale.map(|val| val as u8),
-                    notes: None,
-                })
-                .collect();
+            let readings: Vec<_> = result.items.into_iter().map(vital_reading_json).collect();
 
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
@@ -318,23 +332,7 @@ pub async fn get_vitals_flowsheet(
         .await
     {
         Ok(result) => {
-            let readings: Vec<crate::clinical::VitalSignsReading> = result
-                .items
-                .into_iter()
-                .map(|v| crate::clinical::VitalSignsReading {
-                    reading_id: v.id,
-                    timestamp: v.recorded_at.timestamp(),
-                    recorded_by: v.recorded_by,
-                    heart_rate: v.heart_rate.map(|val| val as u16),
-                    respiratory_rate: v.respiratory_rate.map(|val| val as u16),
-                    systolic_bp: v.blood_pressure_systolic.map(|val| val as u16),
-                    diastolic_bp: v.blood_pressure_diastolic.map(|val| val as u16),
-                    temperature_celsius: v.temperature.map(|val| val as f32),
-                    oxygen_saturation: v.oxygen_saturation.map(|val| val as u16),
-                    pain_scale: v.pain_scale.map(|val| val as u8),
-                    notes: None,
-                })
-                .collect();
+            let readings: Vec<_> = result.items.into_iter().map(vital_reading_json).collect();
 
             HttpResponse::Ok().json(serde_json::json!({
                 "patient_id": patient_id,
@@ -450,6 +448,7 @@ mod cds_wiring_tests {
             date_of_birth: "1980-01-01".to_string(),
             time_of_birth: None,
             national_id: format!("NID-{id}"),
+            gender: None,
             phone: "+27000000000".to_string(),
             emergency_info: crate::EmergencyInfo {
                 patient_id: id.to_string(),

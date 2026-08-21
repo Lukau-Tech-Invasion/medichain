@@ -197,11 +197,11 @@ export function TelehealthPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('telehealth.title')}</h1>
-          <p className="text-neutral-500">{t('telehealth.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-content">{t('telehealth.title')}</h1>
+          <p className="text-content-muted">{t('telehealth.subtitle')}</p>
         </div>
         <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${
-          apiConnected ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+          apiConnected ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-caution-subtle text-caution-subtle-fg'
         }`}>
           {apiConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
           {apiConnected ? t('common.live') : t('common.demo')}
@@ -209,13 +209,13 @@ export function TelehealthPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-neutral-200">
+      <div className="flex gap-2 border-b border-border">
         <button
           onClick={() => setActiveTab('upcoming')}
           className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'upcoming'
-              ? 'border-primary-500 text-primary-600'
-              : 'border-transparent text-neutral-500 hover:text-neutral-700'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('telehealth.tabUpcoming', { count: upcomingSessions.length })}
@@ -224,8 +224,8 @@ export function TelehealthPage() {
           onClick={() => setActiveTab('past')}
           className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'past'
-              ? 'border-primary-500 text-primary-600'
-              : 'border-transparent text-neutral-500 hover:text-neutral-700'
+              ? 'border-brand text-brand'
+              : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('telehealth.tabPast', { count: pastSessions.length })}
@@ -242,12 +242,12 @@ export function TelehealthPage() {
                   <Video className="w-6 h-6 text-info" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-neutral-900">
+                  <h3 className="font-semibold text-content">
                     {session.provider_name
                       ? t('telehealth.providerPrefix', { name: session.provider_name })
                       : t('telehealth.providerFallback', { id: session.provider_id })}
                   </h3>
-                  <p className="text-sm text-neutral-500 flex items-center gap-1">
+                  <p className="text-sm text-content-muted flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
                     {formatDateTime(session.scheduled_start)}
                   </p>
@@ -255,10 +255,10 @@ export function TelehealthPage() {
               </div>
               {session.status && (
                 <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                  session.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
-                  session.status === 'in_progress' ? 'bg-green-100 text-green-700' :
-                  session.status === 'completed' ? 'bg-neutral-100 text-neutral-600' :
-                  'bg-red-100 text-red-700'
+                  session.status === 'scheduled' ? 'bg-notice-subtle text-notice-subtle-fg' :
+                  session.status === 'in_progress' ? 'bg-ok-subtle text-ok-subtle-fg' :
+                  session.status === 'completed' ? 'bg-surface-sunken text-content-muted' :
+                  'bg-critical-subtle text-critical-subtle-fg'
                 }`}>
                   {session.status === 'completed' ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                   {statusLabel(session.status)}
@@ -267,8 +267,8 @@ export function TelehealthPage() {
             </div>
 
             {formatDuration(session) && (
-              <div className="flex items-center gap-2 text-sm text-neutral-600 mb-3">
-                <Clock className="w-4 h-4 text-neutral-400" />
+              <div className="flex items-center gap-2 text-sm text-content-muted mb-3">
+                <Clock className="w-4 h-4 text-content-muted" />
                 {t('telehealth.duration', { value: formatDuration(session) })}
               </div>
             )}
@@ -284,7 +284,7 @@ export function TelehealthPage() {
             )}
 
             {activeTab === 'past' && session.status === 'completed' && (
-              <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 rounded-lg p-2">
+              <div className="flex items-center gap-2 text-sm text-ok-subtle-fg bg-ok-subtle rounded-lg p-2">
                 <CheckCircle className="w-4 h-4" />
                 {t('telehealth.sessionCompleted')}
               </div>
@@ -296,7 +296,7 @@ export function TelehealthPage() {
           (activeTab === 'past' && pastSessions.length === 0)) && (
           <div className="text-center py-12">
             <User className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-            <p className="text-neutral-500">{activeTab === 'upcoming' ? t('telehealth.noUpcoming') : t('telehealth.noPast')}</p>
+            <p className="text-content-muted">{activeTab === 'upcoming' ? t('telehealth.noUpcoming') : t('telehealth.noPast')}</p>
           </div>
         )}
       </div>
@@ -332,7 +332,7 @@ export function TelehealthPage() {
               </a>
               <button
                 onClick={() => setActiveCallUrl(null)}
-                className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700"
+                className="px-3 py-1.5 text-sm rounded-lg bg-critical hover:bg-critical"
               >
                 {t('telehealth.leaveCall')}
               </button>

@@ -12,8 +12,8 @@ import {
   Heart,
   FileSignature
 } from 'lucide-react';
-import { createPeds } from '../../../shared/src/api/endpoints';
-import { useTranslation } from '@medichain/shared';
+import { createPeds, listPedsForPatient } from '../../../shared/src/api/endpoints';
+import { getPatients, useTranslation } from '@medichain/shared';
 
 /**
  * PediatricsPage
@@ -49,6 +49,16 @@ interface PediatricPatient {
   alerts: string[];
 }
 
+/**
+ * The child's most recent growth point, or `undefined` when none is recorded.
+ *
+ * Returning `undefined` rather than indexing blindly is the point: a newly
+ * registered child has no assessment yet, and every caller here renders a dash
+ * instead of crashing the page.
+ */
+const latestGrowthOf = (patient: PediatricPatient): GrowthData | undefined =>
+  patient.growthData.length > 0 ? patient.growthData[patient.growthData.length - 1] : undefined;
+
 const PediatricsPage: React.FC = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'patients' | 'assessment' | 'growth'>('patients');
@@ -69,68 +79,114 @@ const PediatricsPage: React.FC = () => {
     notes: ''
   });
 
+  /**
+   * Load the paediatric caseload from the patient register.
+   *
+   * This effect used to `setPatients([...])` with two invented children and
+   * four hand-written growth points each. The page therefore charted the same
+   * fictional growth curves in every deployment, and no real child ever
+   * appeared on it.
+   *
+   * Patients now come from the register and are filtered to under-18s by date
+   * of birth; each child's growth series is loaded from their own pediatric
+   * assessments on selection, so nothing is charted that was not recorded.
+   */
   useEffect(() => {
-    const now = new Date();
-    const monthsAgo = (m: number) => {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - m);
-      return d;
+    const ageGroupFor = (months: number): AgeGroup => {
+      if (months < 1) return 'newborn';
+      if (months < 12) return 'infant';
+      if (months < 36) return 'toddler';
+      if (months < 60) return 'preschool';
+      if (months < 144) return 'school-age';
+      return 'adolescent';
     };
 
-    setPatients([
-      {
-        id: 'PED-001',
-        name: 'Yusuf Al-Rashid',
-        mrn: '123456',
-        dob: monthsAgo(8),
-        ageMonths: 8,
-        ageGroup: 'infant',
-        gender: 'male',
-        growthData: [
-          { date: monthsAgo(6), weight: 5.2, height: 58, headCircumference: 39, weightPercentile: 45, heightPercentile: 50 },
-          { date: monthsAgo(4), weight: 6.8, height: 63, headCircumference: 41, weightPercentile: 50, heightPercentile: 55 },
-          { date: monthsAgo(2), weight: 7.9, height: 68, headCircumference: 43, weightPercentile: 55, heightPercentile: 60 },
-          { date: now, weight: 8.5, height: 71, headCircumference: 44.5, weightPercentile: 55, heightPercentile: 58 }
-        ],
-        vaccinesUpToDate: true,
-        developmentStatus: 'on-track',
-        alerts: []
-      },
-      {
-        id: 'PED-002',
-        name: 'Sara Hassan',
-        mrn: '234567',
-        dob: monthsAgo(24),
-        ageMonths: 24,
-        ageGroup: 'toddler',
-        gender: 'female',
-        growthData: [
-          { date: monthsAgo(12), weight: 9.5, height: 76, weightPercentile: 40, heightPercentile: 45 },
-          { date: monthsAgo(6), weight: 10.8, height: 82, weightPercentile: 35, heightPercentile: 40 },
-          { date: now, weight: 11.2, height: 85, weightPercentile: 30, heightPercentile: 35, bmi: 15.5 }
-        ],
-        vaccinesUpToDate: false,
-        developmentStatus: 'monitor',
-        alerts: ['Vaccines overdue: MMR, Varicella', 'Weight tracking below curve']
-      },
-      {
-        id: 'PED-003',
-        name: 'Omar Khalil Jr.',
-        mrn: '345678',
-        dob: monthsAgo(72),
-        ageMonths: 72,
-        ageGroup: 'school-age',
-        gender: 'male',
-        growthData: [
-          { date: monthsAgo(12), weight: 18.5, height: 108, weightPercentile: 50, heightPercentile: 55, bmi: 15.9 },
-          { date: now, weight: 21, height: 115, weightPercentile: 55, heightPercentile: 60, bmi: 15.9 }
-        ],
-        vaccinesUpToDate: true,
-        developmentStatus: 'on-track',
-        alerts: []
+    const monthsBetween = (dob: Date, now: Date) =>
+      Math.max(0, (now.getFullYear() - dob.getFullYear()) * 12 + (now.getMonth() - dob.getMonth()));
+
+    const loadPatients = async () => {
+      try {
+        const register = await getPatients();
+        const now = new Date();
+        const children = (register || [])
+          .map((entry) => {
+            const raw = entry as unknown as Record<string, unknown>;
+            const dobRaw = (raw.date_of_birth ?? raw.dob ?? raw.dateOfBirth) as string | undefined;
+            if (!dobRaw) return null;
+            const dob = new Date(dobRaw);
+            if (Number.isNaN(dob.getTime())) return null;
+            const ageMonths = monthsBetween(dob, now);
+            // Paediatrics covers birth to the 18th birthday.
+            if (ageMonths >= 216) return null;
+            return {
+              id: String(raw.patient_id ?? ''),
+              name: String(raw.full_name ?? ''),
+              mrn: String(raw.mrn ?? raw.health_id ?? raw.patient_id ?? ''),
+              dob,
+              ageMonths,
+              ageGroup: ageGroupFor(ageMonths),
+              gender: String(raw.gender ?? '').toLowerCase() === 'female' ? 'female' : 'male',
+              // Filled in from the child's own assessments on selection.
+              growthData: [],
+              vaccinesUpToDate: Boolean(raw.vaccines_up_to_date ?? false),
+              developmentStatus: 'on-track',
+              alerts: [],
+            } as PediatricPatient;
+          })
+          .filter((entry): entry is PediatricPatient => entry !== null);
+        setPatients(children);
+      } catch (err) {
+        console.error('Failed to load pediatric patients:', err);
+        setPatients([]);
       }
-    ]);
+    };
+    loadPatients();
   }, []);
+
+  /** Load the selected child's recorded growth points. */
+  useEffect(() => {
+    if (!selectedPatient || selectedPatient.growthData.length > 0) return;
+    let cancelled = false;
+    const loadGrowth = async () => {
+      try {
+        const response = await listPedsForPatient(selectedPatient.id);
+        if (cancelled) return;
+        const points: GrowthData[] = (response.items || [])
+          .map((item) => {
+            const wrapper = item as { data?: Record<string, unknown>; created_at?: string };
+            const record = wrapper.data ?? (item as Record<string, unknown>);
+            const weight = Number(record.weight_kg ?? 0);
+            const height = Number(record.height_cm ?? 0);
+            if (!weight && !height) return null;
+            return {
+              date: new Date(wrapper.created_at ?? Date.now()),
+              weight,
+              height,
+              headCircumference: record.head_circumference_cm
+                ? Number(record.head_circumference_cm)
+                : undefined,
+              weightPercentile: Number(record.weight_percentile ?? 0),
+              heightPercentile: Number(record.height_percentile ?? 0),
+            } as GrowthData;
+          })
+          .filter((point): point is GrowthData => point !== null)
+          .sort((a, b) => a.date.getTime() - b.date.getTime());
+        if (points.length > 0) {
+          setSelectedPatient((current) =>
+            current && current.id === selectedPatient.id
+              ? { ...current, growthData: points }
+              : current,
+          );
+        }
+      } catch (err) {
+        console.error('Failed to load growth history:', err);
+      }
+    };
+    loadGrowth();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPatient]);
 
   const getAgeDisplay = (months: number): string => {
     if (months < 1) return 'Newborn';
@@ -142,21 +198,21 @@ const PediatricsPage: React.FC = () => {
 
   const getAgeGroupColor = (group: AgeGroup): string => {
     const colors: Record<AgeGroup, string> = {
-      'newborn': 'bg-pink-100 text-pink-700',
-      'infant': 'bg-purple-100 text-purple-700',
-      'toddler': 'bg-blue-100 text-blue-700',
-      'preschool': 'bg-green-100 text-green-700',
-      'school-age': 'bg-orange-100 text-orange-700',
-      'adolescent': 'bg-cyan-100 text-cyan-700'
+      'newborn': 'bg-surface-sunken text-content-secondary',
+      'infant': 'bg-surface-sunken text-content-secondary',
+      'toddler': 'bg-notice-subtle text-notice-subtle-fg',
+      'preschool': 'bg-ok-subtle text-ok-subtle-fg',
+      'school-age': 'bg-surface-sunken text-content-secondary',
+      'adolescent': 'bg-surface-sunken text-content-secondary'
     };
     return colors[group];
   };
 
   const getDevelopmentBadge = (status: DevelopmentStatus) => {
     const styles: Record<DevelopmentStatus, { bg: string; text: string; icon: React.ReactNode }> = {
-      'on-track': { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-      'monitor': { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Activity className="w-3 h-3" /> },
-      'concern': { bg: 'bg-red-100', text: 'text-red-700', icon: <AlertTriangle className="w-3 h-3" /> }
+      'on-track': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
+      'monitor': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Activity className="w-3 h-3" /> },
+      'concern': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
     const s = styles[status];
     return (
@@ -188,6 +244,10 @@ const PediatricsPage: React.FC = () => {
           category: (selectedPatient?.ageGroup || 'infant').charAt(0).toUpperCase() + (selectedPatient?.ageGroup || 'infant').slice(1)
         },
         weight_kg: parseFloat(assessmentForm.weightKg) || 0,
+        // Collected by the form but previously never sent, so a child's
+        // height and the clinician's notes were discarded on save.
+        length_cm: parseFloat(assessmentForm.heightCm) || null,
+        notes: assessmentForm.notes,
         weight_method: 'Measured',
         vital_signs: {
           heart_rate: parseInt(assessmentForm.heartRate) || 0,
@@ -221,7 +281,6 @@ const PediatricsPage: React.FC = () => {
           notes: ''
         },
         guardian_present: true,
-        assessed_by: 'Current Doctor',
         assessed_at: Date.now()
       };
 
@@ -250,7 +309,7 @@ const PediatricsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-surface-sunken">
       {/* Header */}
       <div className="bg-gradient-to-r from-sky-500 to-blue-400 text-white p-6">
         <div className="flex items-center gap-3 mb-2">
@@ -262,29 +321,29 @@ const PediatricsPage: React.FC = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4 p-4 -mt-4">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-gray-800">{patients.length}</p>
-          <p className="text-xs text-gray-500">{t('docPediatrics.statPatients')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-content-secondary">{patients.length}</p>
+          <p className="text-xs text-content-muted">{t('docPediatrics.statPatients')}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-yellow-600">{patients.filter(p => p.alerts.length > 0).length}</p>
-          <p className="text-xs text-gray-500">{t('docPediatrics.statNeedsAttention')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-caution-subtle-fg">{patients.filter(p => p.alerts.length > 0).length}</p>
+          <p className="text-xs text-content-muted">{t('docPediatrics.statNeedsAttention')}</p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <p className="text-2xl font-bold text-green-600">{patients.filter(p => p.vaccinesUpToDate).length}</p>
-          <p className="text-xs text-gray-500">{t('docPediatrics.statVaccinesCurrent')}</p>
+        <div className="bg-surface rounded-lg shadow p-4 text-center">
+          <p className="text-2xl font-bold text-ok-subtle-fg">{patients.filter(p => p.vaccinesUpToDate).length}</p>
+          <p className="text-xs text-content-muted">{t('docPediatrics.statVaccinesCurrent')}</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b">
+      <div className="bg-surface border-b">
         <div className="flex">
           {(['patients', 'assessment', 'growth'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-4 text-sm font-medium capitalize ${
-                activeTab === tab ? 'text-sky-700 border-b-2 border-sky-700' : 'text-gray-500'
+                activeTab === tab ? 'text-notice-subtle-fg border-b-2 border-sky-700' : 'text-content-muted'
               }`}
             >
               {tab === 'patients' ? t('docPediatrics.tabAllPatients') : tab === 'assessment' ? t('docPediatrics.tabAssessment') : t('docPediatrics.tabGrowthCharts')}
@@ -297,7 +356,7 @@ const PediatricsPage: React.FC = () => {
       {activeTab === 'patients' && (
         <div className="p-4">
           <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-content-muted" />
             <input
               type="text"
               value={searchQuery}
@@ -309,12 +368,12 @@ const PediatricsPage: React.FC = () => {
 
           <div className="space-y-3">
             {filteredPatients.map(patient => {
-              const latestGrowth = patient.growthData[patient.growthData.length - 1];
+              const latestGrowth = latestGrowthOf(patient);
               return (
                 <div
                   key={patient.id}
                   onClick={() => setSelectedPatient(patient)}
-                  className={`bg-white rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
+                  className={`bg-surface rounded-lg shadow border p-4 cursor-pointer hover:shadow-md ${
                     patient.alerts.length > 0 ? 'border-l-4 border-l-yellow-500' : ''
                   }`}
                 >
@@ -326,7 +385,7 @@ const PediatricsPage: React.FC = () => {
                           {t(`docPediatrics.ageGroup_${patient.ageGroup}`)}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-content-muted">
                         {t('docPediatrics.ageMrnLine', { age: getAgeDisplay(patient.ageMonths), mrn: patient.mrn })}
                       </p>
                     </div>
@@ -334,28 +393,28 @@ const PediatricsPage: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="bg-gray-50 rounded p-2 text-center">
-                      <Scale className="w-4 h-4 mx-auto text-gray-400 mb-1" />
-                      <p className="text-sm font-semibold">{latestGrowth.weight} kg</p>
-                      <p className="text-xs text-gray-500">{latestGrowth.weightPercentile}%ile</p>
+                    <div className="bg-surface-sunken rounded p-2 text-center">
+                      <Scale className="w-4 h-4 mx-auto text-content-muted mb-1" />
+                      <p className="text-sm font-semibold">{latestGrowth?.weight ?? '-'} kg</p>
+                      <p className="text-xs text-content-muted">{latestGrowth?.weightPercentile ?? '-'}%ile</p>
                     </div>
-                    <div className="bg-gray-50 rounded p-2 text-center">
-                      <Ruler className="w-4 h-4 mx-auto text-gray-400 mb-1" />
-                      <p className="text-sm font-semibold">{latestGrowth.height} cm</p>
-                      <p className="text-xs text-gray-500">{latestGrowth.heightPercentile}%ile</p>
+                    <div className="bg-surface-sunken rounded p-2 text-center">
+                      <Ruler className="w-4 h-4 mx-auto text-content-muted mb-1" />
+                      <p className="text-sm font-semibold">{latestGrowth?.height ?? '-'} cm</p>
+                      <p className="text-xs text-content-muted">{latestGrowth?.heightPercentile ?? '-'}%ile</p>
                     </div>
-                    <div className="bg-gray-50 rounded p-2 text-center">
-                      <Heart className="w-4 h-4 mx-auto text-gray-400 mb-1" />
+                    <div className="bg-surface-sunken rounded p-2 text-center">
+                      <Heart className="w-4 h-4 mx-auto text-content-muted mb-1" />
                       <p className="text-sm font-semibold">{patient.vaccinesUpToDate ? '✓' : '!'}</p>
-                      <p className="text-xs text-gray-500">{t('docPediatrics.vaccinesLabel')}</p>
+                      <p className="text-xs text-content-muted">{t('docPediatrics.vaccinesLabel')}</p>
                     </div>
                   </div>
 
                   {patient.alerts.length > 0 && (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded p-2">
+                    <div className="bg-caution-subtle border border-caution rounded p-2">
                       <div className="flex items-start gap-2">
-                        <AlertTriangle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-                        <div className="text-xs text-yellow-700">
+                        <AlertTriangle className="w-4 h-4 text-caution-subtle-fg flex-shrink-0 mt-0.5" />
+                        <div className="text-xs text-caution-subtle-fg">
                           {patient.alerts.map((alert, idx) => (
                             <p key={idx}>{alert}</p>
                           ))}
@@ -373,7 +432,7 @@ const PediatricsPage: React.FC = () => {
       {/* Assessment Tab */}
       {activeTab === 'assessment' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docPediatrics.newAssessmentHeading')}</h2>
 
             <div className="space-y-4">
@@ -460,7 +519,7 @@ const PediatricsPage: React.FC = () => {
                 <h3 className="text-sm font-semibold mb-3">{t('docPediatrics.patHeading')}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">{t('docPediatrics.appearanceLabel')}</label>
+                    <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.appearanceLabel')}</label>
                     <select
                       value={assessmentForm.patAppearance}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patAppearance: e.target.value })}
@@ -471,7 +530,7 @@ const PediatricsPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">{t('docPediatrics.workOfBreathingLabel')}</label>
+                    <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.workOfBreathingLabel')}</label>
                     <select
                       value={assessmentForm.patWorkOfBreathing}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patWorkOfBreathing: e.target.value })}
@@ -482,7 +541,7 @@ const PediatricsPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">{t('docPediatrics.circulationLabel')}</label>
+                    <label className="block text-xs text-content-muted mb-1">{t('docPediatrics.circulationLabel')}</label>
                     <select
                       value={assessmentForm.patCirculation}
                       onChange={(e) => setAssessmentForm({ ...assessmentForm, patCirculation: e.target.value })}
@@ -528,7 +587,7 @@ const PediatricsPage: React.FC = () => {
               <div className="flex gap-3">
                 <button
                   onClick={() => setActiveTab('patients')}
-                  className="flex-1 py-3 border border-gray-300 rounded-lg font-medium"
+                  className="flex-1 py-3 border border-border-strong rounded-lg font-medium"
                 >
                   {t('docPediatrics.cancelButton')}
                 </button>
@@ -547,7 +606,7 @@ const PediatricsPage: React.FC = () => {
       {/* Growth Charts Tab */}
       {activeTab === 'growth' && (
         <div className="p-4">
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">{t('docPediatrics.growthChartTrackingHeading')}</h2>
             <div className="space-y-4">
               {patients.map(patient => (
@@ -555,16 +614,16 @@ const PediatricsPage: React.FC = () => {
                   <div className="flex items-center justify-between mb-3">
                     <div>
                       <h3 className="font-semibold">{patient.name}</h3>
-                      <p className="text-sm text-gray-500">{getAgeDisplay(patient.ageMonths)}</p>
+                      <p className="text-sm text-content-muted">{getAgeDisplay(patient.ageMonths)}</p>
                     </div>
                     <TrendingUp className="w-5 h-5 text-green-500" />
                   </div>
-                  <div className="h-24 bg-gradient-to-r from-sky-100 to-blue-100 rounded flex items-center justify-center text-gray-400">
+                  <div className="h-24 bg-gradient-to-r from-sky-100 to-blue-100 rounded flex items-center justify-center text-content-muted">
                     <span className="text-sm">{t('docPediatrics.growthCurveVisualization')}</span>
                   </div>
-                  <div className="mt-2 flex justify-between text-xs text-gray-500">
-                    <span>{t('docPediatrics.weightPercentileLine', { pct: patient.growthData[patient.growthData.length - 1].weightPercentile })}</span>
-                    <span>{t('docPediatrics.heightPercentileLine', { pct: patient.growthData[patient.growthData.length - 1].heightPercentile })}</span>
+                  <div className="mt-2 flex justify-between text-xs text-content-muted">
+                    <span>{t('docPediatrics.weightPercentileLine', { pct: latestGrowthOf(patient)?.weightPercentile ?? '-' })}</span>
+                    <span>{t('docPediatrics.heightPercentileLine', { pct: latestGrowthOf(patient)?.heightPercentile ?? '-' })}</span>
                   </div>
                 </div>
               ))}
@@ -576,26 +635,26 @@ const PediatricsPage: React.FC = () => {
       {/* Patient Detail Modal */}
       {selectedPatient && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+          <div className="bg-surface rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-surface border-b p-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold">{selectedPatient.name}</h2>
-                <p className="text-sm text-gray-500">{getAgeDisplay(selectedPatient.ageMonths)} • {selectedPatient.gender}</p>
+                <p className="text-sm text-content-muted">{getAgeDisplay(selectedPatient.ageMonths)} • {selectedPatient.gender}</p>
               </div>
-              <button onClick={() => setSelectedPatient(null)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+              <button onClick={() => setSelectedPatient(null)} className="text-content-muted hover:text-content-muted text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-sky-50 rounded-lg p-4 text-center">
-                  <Scale className="w-6 h-6 mx-auto text-sky-600 mb-1" />
-                  <p className="text-xl font-bold">{selectedPatient.growthData[selectedPatient.growthData.length - 1].weight} kg</p>
-                  <p className="text-sm text-sky-600">{t('docPediatrics.percentileLine', { pct: selectedPatient.growthData[selectedPatient.growthData.length - 1].weightPercentile })}</p>
+                <div className="bg-notice-subtle rounded-lg p-4 text-center">
+                  <Scale className="w-6 h-6 mx-auto text-notice-subtle-fg mb-1" />
+                  <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.weight ?? '-'} kg</p>
+                  <p className="text-sm text-notice-subtle-fg">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.weightPercentile ?? '-' })}</p>
                 </div>
-                <div className="bg-purple-50 rounded-lg p-4 text-center">
-                  <Ruler className="w-6 h-6 mx-auto text-purple-600 mb-1" />
-                  <p className="text-xl font-bold">{selectedPatient.growthData[selectedPatient.growthData.length - 1].height} cm</p>
-                  <p className="text-sm text-purple-600">{t('docPediatrics.percentileLine', { pct: selectedPatient.growthData[selectedPatient.growthData.length - 1].heightPercentile })}</p>
+                <div className="bg-surface-sunken rounded-lg p-4 text-center">
+                  <Ruler className="w-6 h-6 mx-auto text-content-secondary mb-1" />
+                  <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.height ?? '-'} cm</p>
+                  <p className="text-sm text-content-secondary">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.heightPercentile ?? '-' })}</p>
                 </div>
               </div>
 
@@ -603,7 +662,7 @@ const PediatricsPage: React.FC = () => {
                 <h3 className="font-medium mb-2">{t('docPediatrics.growthHistoryHeading')}</h3>
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-surface-sunken">
                       <tr>
                         <th className="p-2 text-left">{t('docPediatrics.tableDate')}</th>
                         <th className="p-2 text-right">{t('docPediatrics.tableWeight')}</th>
@@ -624,7 +683,7 @@ const PediatricsPage: React.FC = () => {
               </div>
 
               <div className="flex gap-2">
-                <span className={`flex-1 text-center py-2 rounded-lg text-sm ${selectedPatient.vaccinesUpToDate ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                <span className={`flex-1 text-center py-2 rounded-lg text-sm ${selectedPatient.vaccinesUpToDate ? 'bg-ok-subtle text-ok-subtle-fg' : 'bg-critical-subtle text-critical-subtle-fg'}`}>
                   {t('docPediatrics.vaccinesStatusLine', { status: selectedPatient.vaccinesUpToDate ? t('docPediatrics.upToDate') : t('docPediatrics.overdue') })}
                 </span>
                 {getDevelopmentBadge(selectedPatient.developmentStatus)}

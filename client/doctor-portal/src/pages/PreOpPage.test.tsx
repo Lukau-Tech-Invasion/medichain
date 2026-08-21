@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -34,22 +39,34 @@ describe('PreOpPage', () => {
     render(<PreOpPage />);
 
     expect(screen.getByText(/Pre-Operative Assessment/i)).toBeInTheDocument();
-    expect(screen.getByText(/Pre-surgical evaluation and checklist/i)).toBeInTheDocument();
+    expect(screen.getByText(/ASA Classification & Surgical Readiness/i)).toBeInTheDocument();
   });
 
-  it('displays checklist items', () => {
+  it('displays checklist items', async () => {
     render(<PreOpPage />);
 
-    expect(screen.getByText(/Informed Consent Signed/i)).toBeInTheDocument();
-    expect(screen.getByText(/NPO Status Verified/i)).toBeInTheDocument();
-    expect(screen.getByText(/Surgical Site Marked/i)).toBeInTheDocument();
+    // The checklist is its own tab; the page opens on the assessment tab.
+    fireEvent.click(screen.getByRole('button', { name: /Pre-Op Checklist/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/All consents signed and witnessed/i)).toBeInTheDocument()
+    );
+    expect(screen.getByText(/NPO status verified/i)).toBeInTheDocument();
+    expect(screen.getByText(/Surgical site marked by surgeon/i)).toBeInTheDocument();
   });
 
   it('allows selecting ASA classification', () => {
     render(<PreOpPage />);
 
-    const select = screen.getByLabelText(/ASA Class/i);
-    fireEvent.change(select, { target: { value: '2' } });
-    expect(select).toHaveValue('2');
+    // ASA status is a radio group of option buttons, not a <select>: each
+    // class carries a description that a dropdown option cannot show.
+    const group = screen.getByLabelText(/ASA Class/i);
+    expect(group).toHaveAttribute('role', 'radiogroup');
+
+    const asaIII = screen.getByRole('radio', { name: /ASA III/i });
+    expect(asaIII).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(asaIII);
+    expect(asaIII).toHaveAttribute('aria-checked', 'true');
   });
 });

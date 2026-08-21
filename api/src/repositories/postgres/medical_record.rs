@@ -269,4 +269,10 @@ impl MedicalRecordRepository for PgMedicalRecordRepository {
 
         Ok(PaginatedResult::new(records, count.0 as u64, &pagination))
     }
+    async fn count(&self) -> RepositoryResult<u64> {
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM medical_records")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count as u64)
+    }
 }

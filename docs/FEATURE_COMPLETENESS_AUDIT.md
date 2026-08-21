@@ -3,12 +3,11 @@
 **Original audit:** February 16, 2026  
 **Last refreshed:** June 4, 2026
 
-> ⚠️ **Historical document.** This audit captured a mid-development snapshot (Feb 2026).
-> Many gaps it lists have since been closed (PostgreSQL persistence, SSE on the frontend,
-> JWT/MFA, telehealth, offline support, tests, observability, TLS). For the **current**
-> status see [`../IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) (per-feature tables)
-> and [`NEXT_WEEK_TODO.md`](NEXT_WEEK_TODO.md) (remaining work). The detail below is kept
-> for reference only.
+> ⚠️ **Historical document.** This audit captured a mid-development snapshot (Feb 2026)
+> and some of its completion claims do not include durability, authorization or
+> negative-path proof. For the **current** status, use
+> [`FEATURE_END_TO_END_AUDIT.md`](FEATURE_END_TO_END_AUDIT.md). The detail below is
+> retained only as historical implementation context.
 
 ## Summary
 
@@ -47,7 +46,7 @@ This document provides a comprehensive analysis of the feature completeness acro
 | Doctor Portal TelehealthPage missing | ✅ FIXED | Created page, added lazy import and route in App.tsx |
 | Doctor Portal DoctorSchedulePage missing routes | ✅ FIXED | Added lazy import and route for /schedule |
 | Navigation items missing | ✅ FIXED | Added My Schedule, Messages, Telehealth to navigation.ts |
-| Settings buttons unwired | ✅ FIXED | Added Help, Contact, Terms, Privacy modals to SettingsPage.tsx |
+| Settings buttons unwired | ⚠️ PARTIAL | Preferences now load/save and Medical-ID lock-screen is enforced; reviewed Terms and Privacy notices still need publication. |
 | Insurance Cards API missing | ✅ FIXED | Added GET/POST/PUT/DELETE endpoints + InsuranceCard struct |
 | TypeScript @ts-ignore issues | ✅ FIXED | Added proper interfaces to TelehealthPage, MedicationRemindersPage, FamilyGroupPage |
 

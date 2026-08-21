@@ -5,7 +5,12 @@ import { useAuthStore } from '../store/authStore';
 import * as shared from '@medichain/shared';
 
 // Mock the auth store
-vi.mock('../store/authStore', () => ({
+// Spread the real module: it also exports `isHealthcareProvider`,
+// `canEditMedicalRecords` and `isAdmin`, and replacing the whole module
+// left those undefined — which surfaces as "Element type is invalid"
+// when a component that uses one is rendered.
+vi.mock('../store/authStore', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   useAuthStore: vi.fn(),
 }));
 
@@ -63,8 +68,15 @@ describe('CriticalValuePage', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Critical Value Reporting/i)).toBeInTheDocument();
-      expect(screen.getByText(/Potassium/i)).toBeInTheDocument();
-      expect(screen.getByText(/6.5/i)).toBeInTheDocument();
+      // The value and its unit, matched together on the element that carries
+      // them. This was `/6.5/i`, where the unescaped `.` is a regex wildcard —
+      // so it also matched "6:5" inside the rendered timestamp and the query
+      // failed with "found multiple elements" only during the minutes of the
+      // day whose clock digits happen to line up (16:53:53 is one). A test that
+      // depends on the wall clock is not a test; it is a coin flip with a
+      // slow period.
+      expect(screen.getByText(/Potassium/)).toBeInTheDocument();
+      expect(screen.getByText(/6\.5\s*mmol\/L/)).toBeInTheDocument();
     });
   });
 
@@ -74,13 +86,13 @@ describe('CriticalValuePage', () => {
     const historyTab = screen.getByText(/History/i);
     fireEvent.click(historyTab);
     
-    expect(screen.getByPlaceholderText(/Search notifications/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Search by notification ID/i)).toBeInTheDocument();
   });
 
   it('allows switching to report new tab', async () => {
     render(<CriticalValuePage />);
 
-    const reportTab = screen.getByText(/Report New/i);
+    const reportTab = screen.getByText(/Report Critical Value/i);
     fireEvent.click(reportTab);
     
     expect(screen.getByText(/Report New Critical Value/i)).toBeInTheDocument();

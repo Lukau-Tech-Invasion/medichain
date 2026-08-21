@@ -191,7 +191,9 @@ pub async fn fhir_get_observations(
         }));
     }
 
-    let pg = crate::repositories::traits::Pagination::new(500, 0);
+    // (page, per_page) — not (per_page, page). Passing 0 as `per_page` made
+    // `limit()` zero, so this FHIR bundle always came back empty.
+    let pg = crate::repositories::traits::Pagination::new(0, 500);
     let readings: Vec<crate::clinical::VitalSignsReading> = match data
         .repositories
         .vital_signs
@@ -285,7 +287,9 @@ pub async fn fhir_get_encounters(
     }
 
     // Get triage assessments as encounters via repository
-    let pg = crate::repositories::traits::Pagination::new(500, 0);
+    // (page, per_page) — not (per_page, page). Passing 0 as `per_page` made
+    // `limit()` zero, so this FHIR bundle always came back empty.
+    let pg = crate::repositories::traits::Pagination::new(0, 500);
     let patient_triages = match data
         .repositories
         .triage_assessments
