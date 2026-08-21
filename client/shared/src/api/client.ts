@@ -331,11 +331,17 @@ export class ApiClient {
   ): Promise<T> {
     const maxAttempts = options?.noRetry ? 1 : this.maxRetries + 1;
     const timeout = options?.timeout ?? this.timeout;
+    // Generate once per logical mutation, outside the retry loop. Recreating a
+    // key per attempt would turn a response-loss retry into a second write.
+    const idempotencyKey = isMutationMethod(method) ? createOperationKey() : undefined;
+    const requestHeaders = idempotencyKey
+      ? { ...options?.headers, 'Idempotency-Key': idempotencyKey }
+      : options?.headers;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        const result = await this.executeRequest<T>(method, path, body, timeout, options?.headers);
+        const result = await this.executeRequest<T>(method, path, body, timeout, requestHeaders);
         
         // Success - mark as connected
         this.setConnectionStatus(true);
@@ -356,17 +362,12 @@ export class ApiClient {
           if (this.isNetworkError(error)) {
             this.setConnectionStatus(false);
             
-            // Queue for offline processing if it's a mutation and not already a retry from the queue
-            if ((method === 'POST' || method === 'PUT' || method === 'DELETE') && !options?.headers?.['X-Offline-Retry']) {
-              debugLog('ApiClient', `Network error, enqueuing ${method} ${path} for offline sync`);
-              this.offlineQueue.enqueue({
-                method,
-                path,
-                body
-              }).catch(err => debugLog('ApiClient', 'Failed to enqueue offline operation:', err));
-              
-              // Return a placeholder or throw specific error?
-              // For now, let's throw so the UI knows it's pending/failed
+            // Do not auto-submit mutations after reconnect. Durable server-side
+            // idempotency (including encrypted replay state) is not complete,
+            // so automatic replay could duplicate a clinical or governance
+            // action after a response loss. Draft/read offline support remains.
+            if (isMutationMethod(method)) {
+              debugLog('ApiClient', `Offline replay disabled for ${method} ${path}; user confirmation is required`);
             }
           }
           break;
@@ -572,6 +573,17 @@ export class ApiClient {
   getOfflineQueue(): OfflineQueue {
     return this.offlineQueue;
   }
+}
+
+function isMutationMethod(method: string): boolean {
+  return method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH';
+}
+
+function createOperationKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `op-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 /**
