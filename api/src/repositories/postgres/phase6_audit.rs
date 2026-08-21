@@ -847,14 +847,17 @@ impl ConsentRecordRepository for PgConsentRecordRepository {
         qb.push(", revoked_by = ").push_bind(revoked_by);
         qb.push(", revocation_reason = ").push_bind(reason);
         qb.push(", updated_at = NOW() WHERE id = ").push_bind(id);
+        qb.push(" AND (revoked IS NULL OR revoked = false)");
         qb.push(" RETURNING *");
 
         let result = qb
             .build_query_as::<ConsentRecordEntity>()
-            .fetch_one(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result)
+        result.ok_or_else(|| {
+            RepositoryError::Validation(format!("Consent {id} is not active or does not exist"))
+        })
     }
 
     async fn get_expiring_soon(&self, days: i32) -> RepositoryResult<Vec<ConsentRecordEntity>> {

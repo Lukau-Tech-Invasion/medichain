@@ -390,6 +390,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         // Consent Form endpoints
         .service(clinical_endpoints::get_consent_types)
         .service(clinical_endpoints::sign_consent)
+        .service(clinical_endpoints::revoke_consent)
         .service(clinical_endpoints::get_patient_consents)
         // Barcode/Sample Tracking endpoints
         .service(clinical_endpoints::generate_barcode)

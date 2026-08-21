@@ -524,6 +524,89 @@ pub async fn sign_consent(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RevokeConsentRequest {
+    pub reason: Option<String>,
+}
+
+/// Withdraw a previously granted consent.
+///
+/// The authenticated patient, an authorised guardian, or an administrator may
+/// withdraw consent. The repository transition is one-time so a stale retry
+/// cannot silently rewrite the original withdrawal evidence.
+#[post("/api/consent/{id}/revoke")]
+pub async fn revoke_consent(
+    data: web::Data<AppState>,
+    http_req: HttpRequest,
+    path: web::Path<String>,
+    body: web::Json<RevokeConsentRequest>,
+) -> impl Responder {
+    let caller = match crate::support::require_registered_caller(&data, &http_req) {
+        Ok(user) => user,
+        Err(resp) => return resp,
+    };
+    let consent_id = path.into_inner();
+    let existing = match data
+        .repositories
+        .consent_records
+        .get_by_id(&consent_id)
+        .await
+    {
+        Ok(record) => record,
+        Err(_) => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Consent record not found".to_string(),
+                code: "CONSENT_NOT_FOUND".to_string(),
+            })
+        }
+    };
+
+    let access = crate::support::resolve_patient_access(
+        &data,
+        &caller,
+        &existing.patient_id,
+        crate::repositories::traits::GuardianPermission::ConsentToDataProcessing,
+    )
+    .await;
+    if !access.is_permitted() {
+        return HttpResponse::Forbidden().json(ErrorResponse {
+            success: false,
+            error: "Not permitted to revoke this consent".to_string(),
+            code: "CONSENT_REVOKE_FORBIDDEN".to_string(),
+        });
+    }
+
+    match data
+        .repositories
+        .consent_records
+        .revoke(&consent_id, &caller.wallet_address, body.reason.as_deref())
+        .await
+    {
+        Ok(revoked) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "consent_id": revoked.id,
+            "status": revoked.consent_status,
+            "revoked_at": revoked.revoked_datetime.map(|time| time.timestamp()),
+        })),
+        Err(crate::repositories::traits::RepositoryError::Validation(_)) => {
+            HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "Consent is no longer active".to_string(),
+                code: "CONSENT_NOT_ACTIVE".to_string(),
+            })
+        }
+        Err(error) => {
+            log::error!("Consent revocation persistence failed: {error}");
+            HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Consent records are temporarily unavailable".to_string(),
+                code: "CONSENT_REPOSITORY_UNAVAILABLE".to_string(),
+            })
+        }
+    }
+}
+
 /// Get patient consents
 #[get("/api/consent/patient/{patient_id}")]
 pub async fn get_patient_consents(

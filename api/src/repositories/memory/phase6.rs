@@ -1720,6 +1720,12 @@ impl ConsentRecordRepository for MemoryConsentRecordRepository {
         let consent = records
             .get_mut(id)
             .ok_or_else(|| RepositoryError::NotFound(format!("Consent {} not found", id)))?;
+        if consent.revoked.unwrap_or(false) {
+            return Err(RepositoryError::Validation(format!(
+                "Consent {} is already revoked",
+                id
+            )));
+        }
         consent.revoked = Some(true);
         consent.revoked_by = Some(revoked_by.to_string());
         consent.revocation_reason = reason.map(|r| r.to_string());
@@ -1849,6 +1855,36 @@ mod tests {
             .await
             .unwrap();
         assert!(active.is_some());
+    }
+
+    #[tokio::test]
+    async fn consent_revocation_is_one_time_and_updates_status() {
+        let repo = MemoryConsentRecordRepository::new();
+        let consent = ConsentRecordEntity {
+            id: "CON-REVOKE-001".to_string(),
+            patient_id: "PAT-001".to_string(),
+            consent_type: "treatment".to_string(),
+            consent_given: true,
+            consent_status: crate::types::ConsentStatus::Granted.as_str().to_string(),
+            consent_datetime: chrono::Utc::now(),
+            revoked: Some(false),
+            ..Default::default()
+        };
+        repo.create(consent).await.unwrap();
+
+        let revoked = repo
+            .revoke("CON-REVOKE-001", "guardian-wallet", Some("withdrawn"))
+            .await
+            .unwrap();
+        assert!(!revoked.consent_given);
+        assert_eq!(
+            revoked.consent_status,
+            crate::types::ConsentStatus::Withdrawn.as_str()
+        );
+        assert!(repo
+            .revoke("CON-REVOKE-001", "guardian-wallet", None)
+            .await
+            .is_err());
     }
 
     // -------- Phase 2.2 coverage: Death/Organ/Sync/External methods --------
