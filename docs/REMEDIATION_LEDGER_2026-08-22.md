@@ -24,7 +24,7 @@ PRESENT`, and `UNKNOWN`.
 | APP-001 | P1 | Access requests could be self-approved and grants could be indefinite. | `api/src/handlers/access_control.rs`; retention repositories | Focused access checks plus `requester_cannot_decide_own_retention_approval` pass. | Not exercised with authenticated roles. | No PostgreSQL concurrency, stale approval, or consent-revocation evidence. | `492546e` | PARTIALLY FIXED |
 | INT-001 | P1 | Production could treat stub identity verification as verified. | `api/src/national_id.rs`, handler, startup, production compose | National-ID test module passes. | Development runtime only. | No live/sandbox provider verification. | Pending | PARTIALLY FIXED |
 | DATA-001 | P1 | Process-local idempotency and offline queue have no stable end-to-end key or durable replay state. | None in this campaign slice. | Source inspection confirms the current limitation. | Not retested because no remediation exists. | No restart, replica, or duplicate-write proof. | — | STILL PRESENT |
-| PRIV-001 | P1 | Sensitive identifiers can enter logs and related telemetry. | None in this campaign slice. | Not yet remediated. | Current startup logs still expose insecure-demo posture messages; PHI leakage suite not run. | No browser/metrics audit. | — | STILL PRESENT |
+| PRIV-001 | P1 | Sensitive identifiers can enter logs and related telemetry. | `api/src/privacy_logging.rs`, logging initialization | Sanitizer and `log::Record` sink-path leakage tests pass; API check passes. | Not yet observed under a production collector. | Direct stdout/stderr call sites and browser/metrics collector audit remain incomplete. | `4af04c7` | PARTIALLY FIXED |
 
 ## Commands and immutable evidence identifiers
 
@@ -39,6 +39,8 @@ PRESENT`, and `UNKNOWN`.
 * `cargo test --bin medichain-api` — pass: 415 passed, 0 failed, 1 ignored in
   366.74 seconds (captured after the Phase A commit and before the subsequent
   retention-only change).
+* `cargo test --bin medichain-api privacy_logging -- --nocapture` — pass (2
+  tests) after `4af04c7`.
 
 ## Remaining release blockers
 
