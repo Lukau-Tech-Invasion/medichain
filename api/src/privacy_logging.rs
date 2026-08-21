@@ -21,12 +21,35 @@ pub fn redact_message(message: &str) -> String {
 }
 
 fn redact_token(token: &str) -> String {
+    if let Some((field, value)) = token.split_once('=') {
+        if is_sensitive_field(field) || is_sensitive_value(value) {
+            return format!("{field}=[REDACTED]");
+        }
+    }
     let (prefix, core, suffix) = split_punctuation(token);
     if is_sensitive_value(core) {
         format!("{prefix}[REDACTED]{suffix}")
     } else {
         token.to_string()
     }
+}
+
+fn is_sensitive_field(field: &str) -> bool {
+    let field = field.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_');
+    matches!(
+        field.to_ascii_lowercase().as_str(),
+        "patient"
+            | "patient_id"
+            | "wallet"
+            | "wallet_address"
+            | "national_id"
+            | "token"
+            | "access_token"
+            | "refresh_token"
+            | "authorization"
+            | "email"
+            | "phone"
+    )
 }
 
 fn split_punctuation(token: &str) -> (&str, &str, &str) {
@@ -87,13 +110,13 @@ mod tests {
 
     #[test]
     fn masks_wallet_patient_email_and_uuid_values() {
-        let raw = "wallet 5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ patient PAT-001 email patient@example.test id 123e4567-e89b-12d3-a456-426614174000";
+        let raw = "wallet 5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ patient PAT-001 email patient@example.test id 123e4567-e89b-12d3-a456-426614174000 wallet_address=5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ";
         let redacted = redact_message(raw);
         assert!(!redacted.contains("5F3sa2TJAWMqDhXG6jhV4N8ko9p7w5A9Y5LwZC3FyLw7fJQ"));
         assert!(!redacted.contains("PAT-001"));
         assert!(!redacted.contains("patient@example.test"));
         assert!(!redacted.contains("123e4567-e89b-12d3-a456-426614174000"));
-        assert_eq!(redacted.matches("[REDACTED]").count(), 4);
+        assert_eq!(redacted.matches("[REDACTED]").count(), 5);
     }
 
     #[test]
