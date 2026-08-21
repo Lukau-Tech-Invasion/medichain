@@ -127,7 +127,7 @@ pub async fn issue_jwt(
         }
     };
 
-    issue_token_pair(&data, &body.wallet_address, &user.role.to_string()).await
+    issue_token_pair(&data, &body.wallet_address, &user.role.to_string(), None).await
 }
 
 #[cfg(test)]
@@ -176,35 +176,24 @@ pub async fn refresh_jwt(
             });
         }
     };
-    let Some(pool) = data.db_pool.as_ref() else {
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
-            error: "Authentication is temporarily unavailable".to_string(),
-            code: "AUTH_STORAGE_REQUIRED".to_string(),
-        });
-    };
-    match crate::auth_sessions::consume(pool, &claims.sub, &body.refresh_token, &claims.jti).await {
-        Ok(true) => issue_token_pair(&data, &claims.sub, &user.role.to_string()).await,
-        Ok(false) => HttpResponse::Unauthorized().json(ErrorResponse {
-            success: false,
-            error: "Invalid or expired refresh token".to_string(),
-            code: "INVALID_REFRESH_TOKEN".to_string(),
-        }),
-        Err(error) => {
-            log::error!("Refresh-session rotation failed: {error}");
-            HttpResponse::ServiceUnavailable().json(ErrorResponse {
-                success: false,
-                error: "Authentication is temporarily unavailable".to_string(),
-                code: "AUTH_SESSION_UNAVAILABLE".to_string(),
-            })
-        }
-    }
+    issue_token_pair(
+        &data,
+        &claims.sub,
+        &user.role.to_string(),
+        Some((&body.refresh_token, &claims.jti)),
+    )
+    .await
 }
 
 /// Issue an access+refresh pair for a wallet. The access token's `mfa` claim is
 /// `true` only when the wallet has *not* enrolled MFA; enrolled wallets receive
 /// `mfa=false` and must step up via `/api/auth/mfa/challenge`.
-async fn issue_token_pair(data: &web::Data<AppState>, wallet: &str, role: &str) -> HttpResponse {
+async fn issue_token_pair(
+    data: &web::Data<AppState>,
+    wallet: &str,
+    role: &str,
+    previous_refresh: Option<(&str, &str)>,
+) -> HttpResponse {
     let mfa_enabled = data.security.mfa_enabled(wallet);
     let mfa_satisfied = !mfa_enabled;
 
@@ -231,14 +220,50 @@ async fn issue_token_pair(data: &web::Data<AppState>, wallet: &str, role: &str) 
         Some(time) => time,
         None => return jwt_error(jsonwebtoken::errors::ErrorKind::InvalidToken.into()),
     };
-    if let Err(error) =
-        crate::auth_sessions::create(pool, wallet, &refresh, &refresh_claims.jti, expires_at).await
-    {
+    let persisted = match previous_refresh {
+        Some((token, jti)) => crate::auth_sessions::rotate(
+            pool,
+            wallet,
+            token,
+            jti,
+            &refresh,
+            &refresh_claims.jti,
+            expires_at,
+        )
+        .await
+        .and_then(|rotated| {
+            if rotated {
+                Ok(())
+            } else {
+                Err(sqlx::Error::Protocol(
+                    "refresh session is no longer active".into(),
+                ))
+            }
+        }),
+        None => {
+            crate::auth_sessions::create(pool, wallet, &refresh, &refresh_claims.jti, expires_at)
+                .await
+        }
+    };
+    if let Err(error) = persisted {
         log::error!("Refresh-session persistence failed: {error}");
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+        let mut status = if previous_refresh.is_some() {
+            HttpResponse::Unauthorized()
+        } else {
+            HttpResponse::ServiceUnavailable()
+        };
+        return status.json(ErrorResponse {
             success: false,
-            error: "Authentication is temporarily unavailable".to_string(),
-            code: "AUTH_SESSION_UNAVAILABLE".to_string(),
+            error: if previous_refresh.is_some() {
+                "Invalid or expired refresh token".to_string()
+            } else {
+                "Authentication is temporarily unavailable".to_string()
+            },
+            code: if previous_refresh.is_some() {
+                "INVALID_REFRESH_TOKEN".to_string()
+            } else {
+                "AUTH_SESSION_UNAVAILABLE".to_string()
+            },
         });
     }
 
