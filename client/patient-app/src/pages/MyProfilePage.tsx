@@ -513,7 +513,7 @@ export function MyProfilePage() {
       <div className="patient-card">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-12 h-12 bg-emergency-50 rounded-xl flex items-center justify-center">
-            <Heart className="w-6 h-6 text-emergency-500" />
+            <Heart className="w-6 h-6 text-critical-subtle-fg" />
           </div>
           <div>
             <h2 className="font-semibold text-lg text-content">{t('profile.medicalInfo')}</h2>
@@ -525,23 +525,23 @@ export function MyProfilePage() {
           {/* Blood Type */}
           <div className="flex items-center justify-between p-4 bg-emergency-50 rounded-xl">
             <div className="flex items-center gap-3">
-              <Droplets className="w-6 h-6 text-emergency-500" />
+              <Droplets className="w-6 h-6 text-critical-subtle-fg" />
               <span className="font-medium text-content">{t('profile.bloodType')}</span>
             </div>
-            <span className="text-2xl font-bold text-emergency-600">{profile?.bloodType}</span>
+            <span className="text-2xl font-bold text-critical-subtle-fg">{profile?.bloodType}</span>
           </div>
 
           {/* Allergies */}
           <div>
             <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-5 h-5 text-emergency-500" />
+              <AlertTriangle className="w-5 h-5 text-critical-subtle-fg" />
               <span className="font-medium text-content">{t('profile.allergies')}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {profile?.allergies.map((allergy, idx) => (
                 <span
                   key={idx}
-                  className="px-3 py-1.5 bg-emergency-100 text-emergency-700 rounded-full text-sm font-medium"
+                  className="px-3 py-1.5 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm font-medium"
                 >
                   {allergy}
                 </span>
@@ -608,7 +608,7 @@ export function MyProfilePage() {
             <div className="flex items-center justify-between p-3 bg-surface-sunken rounded-xl">
               <span className="text-sm font-medium text-content-secondary">{t('profile.dnrStatus')}</span>
               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                profile?.dnrStatus ? 'bg-emergency-100 text-emergency-700' : 'bg-surface-sunken text-content-muted'
+                profile?.dnrStatus ? 'bg-emergency-100 text-critical-subtle-fg' : 'bg-surface-sunken text-content-muted'
               }`}>
                 {profile?.dnrStatus ? t('common.yes') : t('common.no')}
               </span>

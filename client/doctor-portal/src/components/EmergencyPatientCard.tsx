@@ -54,7 +54,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
   return (
     <div className="bg-surface rounded-xl shadow-lg overflow-hidden">
       {/* Emergency header */}
-      <div className="bg-emergency-500 text-white p-4">
+      <div className="bg-critical text-critical-fg p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <AlertTriangle size={24} />

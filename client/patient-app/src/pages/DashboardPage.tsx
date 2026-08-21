@@ -300,7 +300,7 @@ export function DashboardPage() {
           className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
           <div className="w-14 h-14 bg-emergency-50 rounded-2xl flex items-center justify-center">
-            <QrCode className="w-7 h-7 text-emergency-500" />
+            <QrCode className="w-7 h-7 text-critical-subtle-fg" />
           </div>
           <div className="text-center">
             <div className="font-medium text-content">{t('dashboard.emergencyCard')}</div>
@@ -352,14 +352,14 @@ export function DashboardPage() {
       {patientData?.allergies && patientData.allergies.length > 0 && (
         <div className="warning-card">
           <div className="flex items-center gap-3 mb-3">
-            <AlertTriangle className="w-5 h-5 text-emergency-500" />
-            <span className="font-medium text-emergency-700">{t('dashboard.criticalAllergies')}</span>
+            <AlertTriangle className="w-5 h-5 text-critical-subtle-fg" />
+            <span className="font-medium text-critical-subtle-fg">{t('dashboard.criticalAllergies')}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {patientData.allergies.map((allergy, idx) => (
               <span
                 key={idx}
-                className="px-3 py-1 bg-emergency-100 text-emergency-700 rounded-full text-sm font-medium"
+                className="px-3 py-1 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm font-medium"
               >
                 {allergy}
               </span>

@@ -173,7 +173,7 @@ function EmergencyProtocolsPage() {
         </div>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
-          className="px-6 py-3 bg-emergency-600 text-white rounded-lg hover:bg-emergency-700 transition-colors flex items-center gap-2"
+          className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors flex items-center gap-2"
         >
           <Plus size={20} />
           {t('docEmergProto.newRecord')}
@@ -191,7 +191,7 @@ function EmergencyProtocolsPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-6 py-4 font-medium whitespace-nowrap transition-colors ${
                   activeTab === tab.id
-                    ? 'border-b-2 border-emergency-600 text-emergency-600'
+                    ? 'border-b-2 border-critical text-critical-subtle-fg'
                     : 'text-content-muted hover:text-content-secondary'
                 }`}
               >

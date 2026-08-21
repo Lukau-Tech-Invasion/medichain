@@ -166,7 +166,7 @@ export function LoginPage() {
             <form onSubmit={handleWalletLogin} className="space-y-6">
               {/* Error message */}
               {displayError && (
-                <div className="bg-emergency-50 border border-emergency-200 text-emergency-700 px-4 py-3 rounded-xl text-sm animate-fade-in">
+                <div className="bg-emergency-50 border border-emergency-200 text-critical-subtle-fg px-4 py-3 rounded-xl text-sm animate-fade-in">
                   {displayError}
                 </div>
               )}

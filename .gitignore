@@ -119,8 +119,11 @@ __pycache__/
 # Playwright run output and the screenshots captured during browser-driven
 # testing. These are per-run artifacts, not source: committing them churns the
 # diff on every test pass and the images are regenerated on demand.
-client/test-results/
-client/playwright-report/
+# Playwright run artifacts. The glob matters: these live per workspace
+# (client/doctor-portal/test-results/), not at client/ — the previous
+# non-globbed patterns matched neither, and .last-run.json was committed.
+client/**/test-results/
+client/**/playwright-report/
 client/**/*.png
 *.png
 fix-results.tsv

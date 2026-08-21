@@ -150,6 +150,15 @@ RULES: list[tuple[str, str, str]] = [
     # meaning, so they are ordinary secondary copy.
     (r"\btext-(?:purple|violet|indigo|fuchsia|pink|teal|cyan|orange|lime)-(?:600|700|800|900)\b",
      "text-content-secondary", "decorative heading colour"),
+
+    # --- Legacy emergency palette ------------------------------------------
+    # `emergency-500` is a mid-tone red and every use pairs it with white text:
+    # 3.76:1 on the break-glass "Simulate NFC Tap" button. Like `primary-*` it
+    # predates the tokens and has no dark value at all. `critical` is the same
+    # idea with a foreground defined per theme.
+    (r"\bbg-emergency-(?:500|600|700)\b", "bg-critical", "emergency fill"),
+    (r"\btext-emergency-(?:500|600|700)\b", "text-critical-subtle-fg", "emergency text"),
+    (r"\bborder-emergency-(?:400|500|600)\b", "border-critical", "emergency edge"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -339,3 +348,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -346,7 +346,7 @@ export function MyRecordsPage() {
       case 'discharge_summary':
         return 'bg-warning-50 text-warning-600';
       case 'vaccination':
-        return 'bg-emergency-50 text-emergency-500';
+        return 'bg-emergency-50 text-critical-subtle-fg';
       default:
         return 'bg-surface-sunken text-content-muted';
     }
@@ -685,7 +685,7 @@ export function MyRecordsPage() {
                             <td className="px-4 py-2 text-content">{result.parameter}</td>
                             <td className="px-4 py-2 text-right">
                               <span className={`font-medium ${
-                                result.flag === 'High' ? 'text-emergency-500' :
+                                result.flag === 'High' ? 'text-critical-subtle-fg' :
                                 result.flag === 'Low' ? 'text-warning-600' :
                                 'text-content'
                               }`}>
@@ -693,7 +693,7 @@ export function MyRecordsPage() {
                               </span>
                               {result.flag && (
                                 <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
-                                  result.flag === 'High' ? 'bg-emergency-50 text-emergency-600' :
+                                  result.flag === 'High' ? 'bg-emergency-50 text-critical-subtle-fg' :
                                   'bg-warning-50 text-warning-600'
                                 }`}>
                                   {result.flag}

@@ -207,7 +207,7 @@ export function ConsentManagementPage() {
       case 'limited':
         return 'bg-info-light text-info';
       case 'emergency':
-        return 'bg-emergency-100 text-emergency-600';
+        return 'bg-emergency-100 text-critical-subtle-fg';
       default:
         return 'bg-surface-sunken text-content-muted';
     }
@@ -220,7 +220,7 @@ export function ConsentManagementPage() {
       case 'expired':
         return 'text-warning-600';
       case 'revoked':
-        return 'text-emergency-500';
+        return 'text-critical-subtle-fg';
       default:
         return 'text-content-muted';
     }
@@ -560,7 +560,7 @@ export function ConsentManagementPage() {
                   </button>
                   <button
                     onClick={() => handleDenyRequest(request.id)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emergency-500 text-white rounded-xl hover:bg-emergency-600 transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors"
                   >
                     <XCircle className="w-5 h-5" />
                     {t('consent.deny')}
@@ -695,7 +695,7 @@ export function ConsentManagementPage() {
               {selectedGrant.status === 'active' && (
                 <button
                   onClick={() => setShowRevokeConfirm(true)}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-emergency-500 text-white rounded-xl hover:bg-emergency-600 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors"
                 >
                   <UserX className="w-5 h-5" />
                   {t('consent.revokeAccess')}
@@ -712,7 +712,7 @@ export function ConsentManagementPage() {
           <div className="bg-surface w-full max-w-sm rounded-3xl p-6 space-y-6 animate-slide-up">
             <div className="text-center">
               <div className="w-16 h-16 bg-emergency-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="w-8 h-8 text-emergency-500" />
+                <AlertTriangle className="w-8 h-8 text-critical-subtle-fg" />
               </div>
               <h3 className="text-xl font-bold text-content mb-2">{t('consent.revokeConfirmTitle')}</h3>
               <p className="text-content-muted">
@@ -730,7 +730,7 @@ export function ConsentManagementPage() {
               <button
                 onClick={handleRevokeAccess}
                 disabled={isRevoking}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emergency-500 text-white rounded-xl hover:bg-emergency-600 transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-critical text-critical-fg rounded-xl hover:bg-critical transition-colors disabled:opacity-50"
               >
                 {isRevoking ? (
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

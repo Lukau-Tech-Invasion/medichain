@@ -343,7 +343,7 @@ export default function EPrescribePage() {
           <button 
             type="submit" 
             disabled={isSubmitting || !mayPrescribe}
-            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
           >
             <Send className="h-5 w-5 mr-2" />
             {isSubmitting ? t('docEPrescribe.sending') : t('docEPrescribe.send')}

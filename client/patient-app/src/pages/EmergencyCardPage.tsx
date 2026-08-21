@@ -338,7 +338,7 @@ export function EmergencyCardPage() {
               {qrDataUrl && !qrError && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-12 h-12 bg-surface rounded-xl flex items-center justify-center shadow-lg">
-                    <Heart className="w-7 h-7 text-emergency-500" />
+                    <Heart className="w-7 h-7 text-critical-subtle-fg" />
                   </div>
                 </div>
               )}
@@ -380,8 +380,8 @@ export function EmergencyCardPage() {
               <div className="text-sm text-content-muted">{t('emergency.dob')}: {formatDate(emergencyData.dateOfBirth, locale)}</div>
             </div>
             <div className="flex items-center gap-2">
-              <Droplet className="w-5 h-5 text-emergency-500" />
-              <span className="text-xl font-bold text-emergency-600">{emergencyData.bloodType}</span>
+              <Droplet className="w-5 h-5 text-critical-subtle-fg" />
+              <span className="text-xl font-bold text-critical-subtle-fg">{emergencyData.bloodType}</span>
             </div>
           </div>
         </div>
@@ -428,13 +428,13 @@ export function EmergencyCardPage() {
             {/* Allergies */}
             {emergencyData.allergies.length > 0 ? (
               <div className="p-3 bg-emergency-50 border border-emergency-200 rounded-xl">
-                <div className="flex items-center gap-2 text-emergency-700 font-medium mb-2">
+                <div className="flex items-center gap-2 text-critical-subtle-fg font-medium mb-2">
                   <AlertTriangle className="w-4 h-4" />
                   {t('emergency.allergies')}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {emergencyData.allergies.map((allergy, i) => (
-                    <span key={i} className="px-3 py-1 bg-emergency-100 text-emergency-700 rounded-full text-sm">
+                    <span key={i} className="px-3 py-1 bg-emergency-100 text-critical-subtle-fg rounded-full text-sm">
                       {allergy}
                     </span>
                   ))}
@@ -512,7 +512,7 @@ export function EmergencyCardPage() {
               </div>
               <div className={`flex-1 p-3 rounded-xl text-center ${
                 dnrVerified
-                  ? 'bg-emergency-100 text-emergency-700'
+                  ? 'bg-emergency-100 text-critical-subtle-fg'
                   : emergencyData.dnrStatus
                   ? 'bg-warning-100 text-warning-800'
                   : 'bg-success-100 text-success-700'

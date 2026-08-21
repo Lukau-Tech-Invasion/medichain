@@ -61,7 +61,7 @@ function TriagePage() {
     {
       level: 1,
       name: t('docTriage.esi1_name'),
-      color: 'bg-critical',
+      color: 'bg-red-800',
       textColor: 'text-critical-subtle-fg',
       bgLight: 'bg-critical-subtle',
       borderColor: 'border-red-500',
@@ -72,7 +72,7 @@ function TriagePage() {
     {
       level: 2,
       name: t('docTriage.esi2_name'),
-      color: 'bg-orange-500',
+      color: 'bg-orange-700',
       textColor: 'text-content-secondary',
       bgLight: 'bg-surface-sunken',
       borderColor: 'border-orange-500',
@@ -83,7 +83,7 @@ function TriagePage() {
     {
       level: 3,
       name: t('docTriage.esi3_name'),
-      color: 'bg-caution',
+      color: 'bg-amber-700',
       textColor: 'text-caution-subtle-fg',
       bgLight: 'bg-caution-subtle',
       borderColor: 'border-yellow-500',
@@ -94,7 +94,7 @@ function TriagePage() {
     {
       level: 4,
       name: t('docTriage.esi4_name'),
-      color: 'bg-green-500',
+      color: 'bg-green-800',
       textColor: 'text-ok-subtle-fg',
       bgLight: 'bg-ok-subtle',
       borderColor: 'border-green-500',
@@ -105,7 +105,7 @@ function TriagePage() {
     {
       level: 5,
       name: t('docTriage.esi5_name'),
-      color: 'bg-blue-500',
+      color: 'bg-sky-800',
       textColor: 'text-notice-subtle-fg',
       bgLight: 'bg-notice-subtle',
       borderColor: 'border-blue-500',

@@ -252,7 +252,7 @@ export function SettingsPage() {
         </button>
       </div>
 
-      {settingsError && <div role="alert" className="rounded-xl border border-emergency-200 bg-emergency-50 p-3 text-emergency-700">{settingsError}</div>}
+      {settingsError && <div role="alert" className="rounded-xl border border-emergency-200 bg-emergency-50 p-3 text-critical-subtle-fg">{settingsError}</div>}
       {supportNotice && <div role="status" className="rounded-xl border border-warning-200 bg-warning-50 p-3 text-warning-700">{supportNotice}</div>}
 
       {/* Account Section */}
@@ -559,7 +559,7 @@ export function SettingsPage() {
       {/* Logout Button */}
       <button
         onClick={() => setShowLogoutConfirm(true)}
-        className="w-full flex items-center justify-center gap-2 py-4 text-emergency-600 hover:bg-emergency-50 rounded-xl transition-colors"
+        className="w-full flex items-center justify-center gap-2 py-4 text-critical-subtle-fg hover:bg-emergency-50 rounded-xl transition-colors"
       >
         <LogOut className="w-5 h-5" />
         <span className="font-medium">{t('settings.signOut')}</span>
@@ -577,7 +577,7 @@ export function SettingsPage() {
           <div className="bg-surface rounded-2xl w-full max-w-sm p-6">
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-emergency-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <LogOut className="w-8 h-8 text-emergency-600" />
+                <LogOut className="w-8 h-8 text-critical-subtle-fg" />
               </div>
               <h3 className="text-xl font-semibold text-content mb-2">
                 {t('settings.signOutConfirm')}
@@ -596,7 +596,7 @@ export function SettingsPage() {
               </button>
               <button
                 onClick={handleLogout}
-                className="flex-1 py-3 bg-emergency-500 text-white rounded-xl font-medium hover:bg-emergency-600 transition-colors"
+                className="flex-1 py-3 bg-critical text-critical-fg rounded-xl font-medium hover:bg-critical transition-colors"
               >
                 {t('settings.signOut')}
               </button>

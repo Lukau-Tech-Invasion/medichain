@@ -107,7 +107,7 @@ function AccessLogsPage() {
 
   const getAccessTypeIcon = (type: string, emergency: boolean) => {
     if (emergency) {
-      return <AlertTriangle className="text-emergency-600" size={16} />;
+      return <AlertTriangle className="text-critical-subtle-fg" size={16} />;
     }
     switch (type) {
       case 'nfc_tap':
@@ -204,12 +204,12 @@ function AccessLogsPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-content-muted">{t('docAccessLogs.emergencyAccesses')}</p>
-              <p className="text-2xl font-bold text-emergency-600">
+              <p className="text-2xl font-bold text-critical-subtle-fg">
                 {logs.filter(l => l.emergency).length}
               </p>
             </div>
             <div className="w-10 h-10 bg-emergency-100 rounded-lg flex items-center justify-center">
-              <AlertTriangle className="text-emergency-600" size={20} />
+              <AlertTriangle className="text-critical-subtle-fg" size={20} />
             </div>
           </div>
         </div>
@@ -347,7 +347,7 @@ function AccessLogsPage() {
                         </td>
                         <td className="px-6 py-4">
                           {log.emergency ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-emergency-100 text-emergency-700 text-xs font-medium rounded-full">
+                            <span className="inline-flex items-center gap-1 px-2 py-1 bg-emergency-100 text-critical-subtle-fg text-xs font-medium rounded-full">
                               <AlertTriangle size={12} />
                               {t('docAccessLogs.statusEmergency')}
                             </span>

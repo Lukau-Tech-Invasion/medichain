@@ -405,7 +405,7 @@ export function MessagesPage() {
                 <User className="w-6 h-6 text-brand" />
               </div>
               {conversation.unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-500 text-white text-xs rounded-full flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-critical text-critical-fg text-xs rounded-full flex items-center justify-center">
                   {conversation.unreadCount}
                 </span>
               )}

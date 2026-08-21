@@ -414,7 +414,7 @@ export function MedicationsPage() {
                 </div>
                 <div className="bg-surface-sunken rounded-lg p-3">
                   <p className="text-xs text-content-muted">{t('medications.refillsRemaining')}</p>
-                  <p className={`flex items-center gap-1 text-sm font-medium ${med.refillsRemaining <= 1 ? 'text-emergency-600' : 'text-content'}`}>
+                  <p className={`flex items-center gap-1 text-sm font-medium ${med.refillsRemaining <= 1 ? 'text-critical-subtle-fg' : 'text-content'}`}>
                     {med.refillsRemaining}
                     {med.refillsRemaining <= 1 && <AlertTriangle className="w-4 h-4" aria-label={t('medications.lowRefills')} />}
                   </p>

@@ -237,8 +237,15 @@ export default function CodeBluePage() {
                 <button
                   onClick={startCode}
                   disabled={!selectedPatient}
-                  className={`flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-ok-fg ${
-                    selectedPatient ? 'bg-ok hover:bg-ok' : 'bg-gray-400 cursor-not-allowed'
+                  // The foreground moves with the fill. It was pinned to
+                  // `text-ok-fg` (white) while the disabled fill was gray-400 —
+                  // 2.54:1, so on the Code Blue page the button a clinician
+                  // needs during a resuscitation did not legibly say what it
+                  // was. The disabled tokens are contrast-checked for this.
+                  className={`flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md ${
+                    selectedPatient
+                      ? 'bg-ok text-ok-fg hover:bg-ok'
+                      : 'bg-disabled text-disabled-fg cursor-not-allowed'
                   }`}
                 >
                   <Play className="h-5 w-5 mr-2" />
@@ -377,7 +384,7 @@ export default function CodeBluePage() {
             <button
               onClick={handleSubmit}
               disabled={isActive || !startTime}
-              className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              className="w-full flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:bg-disabled disabled:text-disabled-fg disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4 mr-2" />
               {t('docCodeBlue.finalizeRecord')}

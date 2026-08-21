@@ -205,8 +205,8 @@ function RegisterPatientPage() {
 
       {error && (
         <div className="mb-6 bg-emergency-50 border border-emergency-200 rounded-lg p-4 flex items-center gap-3">
-          <AlertTriangle className="text-emergency-600" size={20} />
-          <p className="text-emergency-700">{error}</p>
+          <AlertTriangle className="text-critical-subtle-fg" size={20} />
+          <p className="text-critical-subtle-fg">{error}</p>
         </div>
       )}
 
@@ -374,7 +374,7 @@ function RegisterPatientPage() {
                   name="dnrStatus"
                   checked={formData.dnrStatus}
                   onChange={handleChange}
-                  className="w-4 h-4 text-emergency-600 rounded focus:ring-emergency-500"
+                  className="w-4 h-4 text-critical-subtle-fg rounded focus:ring-emergency-500"
                 />
                 <span className="text-sm text-content-secondary">{t('docRegisterPatient.dnr')}</span>
               </label>

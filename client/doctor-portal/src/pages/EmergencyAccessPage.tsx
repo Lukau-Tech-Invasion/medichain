@@ -43,7 +43,7 @@ function EmergencyAccessPage() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <div className="w-10 h-10 bg-emergency-100 rounded-lg flex items-center justify-center">
-            <AlertTriangle className="text-emergency-600" size={24} />
+            <AlertTriangle className="text-critical-subtle-fg" size={24} />
           </div>
           <h1 className="text-2xl font-bold text-content">{t('docEmergencyAccess.title')}</h1>
         </div>

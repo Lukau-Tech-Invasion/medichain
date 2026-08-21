@@ -33,6 +33,16 @@ import { test, expect, Page } from '@playwright/test';
  * screen. The URL assertion below is what caught it, and is why it stays.
  */
 const ROUTES = [
+  // Clinical-risk first: on these screens a misread number or a missed alert
+  // has a consequence for a patient, not just an annoyance for a user.
+  { path: '/emergency', name: 'Emergency access' },
+  { path: '/medication-admin', name: 'Medication administration' },
+  { path: '/triage', name: 'Triage' },
+  { path: '/code-blue', name: 'Code blue' },
+  { path: '/vitals', name: 'Vital signs' },
+  { path: '/orders', name: 'Orders' },
+  { path: '/drug-interactions', name: 'Drug interactions' },
+  // Then the everyday surfaces.
   { path: '/dashboard', name: 'Dashboard' },
   { path: '/analytics', name: 'Analytics' },
   { path: '/patients', name: 'Patient search' },

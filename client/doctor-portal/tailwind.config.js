@@ -65,6 +65,16 @@ export default {
           DEFAULT: 'rgb(var(--selected-bg) / <alpha-value>)',
           fg: 'rgb(var(--selected-fg) / <alpha-value>)',
         },
+        // The disabled tokens existed in tokens.css from the start and were
+        // never exposed here, so components fell back to `disabled:bg-gray-300
+        // text-white` -- 1.47:1 on the Code Blue page's "Finalize Record"
+        // button and 2.54:1 on "Start Code". WCAG 1.4.3 does exempt inactive
+        // controls, but a clinician who cannot read WHICH action is unavailable
+        // during a resuscitation is being told nothing useful.
+        disabled: {
+          DEFAULT: 'rgb(var(--disabled-bg) / <alpha-value>)',
+          fg: 'rgb(var(--disabled-fg) / <alpha-value>)',
+        },
         muted: {
           DEFAULT: 'rgb(var(--disabled-bg) / <alpha-value>)',
           fg: 'rgb(var(--disabled-fg) / <alpha-value>)',
