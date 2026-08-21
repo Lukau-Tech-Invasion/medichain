@@ -701,7 +701,7 @@ function DischargePage() {
                   <label className="text-sm font-medium text-content-secondary flex items-center gap-1">
                     <Pill size={16} /> {t('docDischarge.dischargeMedicationsLabel')}
                   </label>
-                  <button type="button" onClick={addMedication} className="text-brand hover:text-brand text-sm flex items-center gap-1">
+                  <button type="button" onClick={addMedication} className="text-brand hover:text-brand text-sm inline-flex items-center gap-1 min-h-[24px] py-1">
                     {t('docDischarge.addMedicationBtn')}
                   </button>
                 </div>
@@ -768,7 +768,7 @@ function DischargePage() {
                   <label className="text-sm font-medium text-content-secondary flex items-center gap-1">
                     <Calendar size={16} /> {t('docDischarge.followUpAppointmentsLabel')}
                   </label>
-                  <button type="button" onClick={addFollowUp} className="text-brand hover:text-brand text-sm flex items-center gap-1">
+                  <button type="button" onClick={addFollowUp} className="text-brand hover:text-brand text-sm inline-flex items-center gap-1 min-h-[24px] py-1">
                     {t('docDischarge.addAppointmentBtn')}
                   </button>
                 </div>

@@ -320,13 +320,17 @@ const BarcodePage: React.FC = () => {
           {/* Camera View */}
           <div className="relative flex-1 bg-black min-h-[300px]">
             {isCameraActive ? (
-              // eslint-disable-next-line jsx-a11y/media-has-caption -- a live
-              // camera viewfinder carries no audio track and no recorded
-              // speech, so there is nothing a caption track could contain.
-              // What it does need is a name and an audible alternative, both
-              // below: the element is labelled, and a successful scan is
-              // announced through the live region rather than only drawn on
-              // the preview.
+              // `muted` is what satisfies jsx-a11y/media-has-caption here, and
+              // it is also simply true: a barcode viewfinder is a live camera
+              // preview with no audio track and no recorded speech, so there is
+              // nothing a caption track could contain. It still needs a name,
+              // hence the aria-label -- a screen reader otherwise announces an
+              // unlabelled video region and no more.
+              //
+              // No eslint-disable: an earlier version carried one, which became
+              // an *unused directive* once `muted` was added and failed CI. A
+              // suppression that outlives the problem it suppressed is worse
+              // than none, because it hides the next real violation.
               <video
                 ref={videoRef}
                 autoPlay

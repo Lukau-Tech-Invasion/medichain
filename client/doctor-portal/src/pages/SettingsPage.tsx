@@ -238,7 +238,7 @@ function SettingsPage() {
                     type="text"
                     value={user?.userId || ''}
                     disabled
-                    className="w-full px-4 py-2 bg-surface-sunken border border-border rounded-lg text-content-muted"
+                    className="w-full px-4 py-2 bg-surface-sunken border border-border-interactive rounded-lg text-content-muted"
                   />
                 </div>
                 
@@ -248,7 +248,7 @@ function SettingsPage() {
                     type="text"
                     value={user?.role || ''}
                     disabled
-                    className="w-full px-4 py-2 bg-surface-sunken border border-border rounded-lg text-content-muted"
+                    className="w-full px-4 py-2 bg-surface-sunken border border-border-interactive rounded-lg text-content-muted"
                   />
                 </div>
                 
@@ -257,7 +257,7 @@ function SettingsPage() {
                   <input
                     type="email"
                     defaultValue={`${user?.username || 'user'}@medichain.health`}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   />
                 </div>
                 
@@ -266,7 +266,7 @@ function SettingsPage() {
                   <input
                     type="tel"
                     defaultValue="+234-800-000-0000"
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                    className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   />
                 </div>
               </div>

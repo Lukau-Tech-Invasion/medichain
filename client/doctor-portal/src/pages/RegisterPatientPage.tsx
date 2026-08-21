@@ -224,7 +224,7 @@ function RegisterPatientPage() {
                 value={formData.fullName}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.fullNamePlaceholder')}
               />
             </div>
@@ -238,7 +238,7 @@ function RegisterPatientPage() {
                 value={formData.dateOfBirth}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               />
             </div>
 
@@ -251,7 +251,7 @@ function RegisterPatientPage() {
                 value={formData.walletAddress}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.walletAddressPlaceholder')}
               />
             </div>
@@ -265,7 +265,7 @@ function RegisterPatientPage() {
                 value={formData.nationalId}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.nationalIdPlaceholder')}
               />
             </div>
@@ -278,7 +278,7 @@ function RegisterPatientPage() {
                 value={formData.bloodType}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectBloodType')}</option>
                 {bloodTypes.map(bt => (
@@ -294,7 +294,7 @@ function RegisterPatientPage() {
                 name="gender"
                 value={formData.gender}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectGender')}</option>
                 {genders.map(g => (
@@ -319,7 +319,7 @@ function RegisterPatientPage() {
                 name="allergies"
                 value={formData.allergies}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.allergiesPlaceholder')}
               />
             </div>
@@ -334,7 +334,7 @@ function RegisterPatientPage() {
                 value={formData.currentMedications}
                 onChange={handleChange}
                 rows={2}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none resize-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none resize-none"
                 placeholder={t('docRegisterPatient.currentMedsPlaceholder')}
               />
             </div>
@@ -349,7 +349,7 @@ function RegisterPatientPage() {
                 name="chronicConditions"
                 value={formData.chronicConditions}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.chronicPlaceholder')}
               />
             </div>
@@ -395,7 +395,7 @@ function RegisterPatientPage() {
                 value={formData.emergencyContactName}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.contactNamePlaceholder')}
               />
             </div>
@@ -429,7 +429,7 @@ function RegisterPatientPage() {
                 value={formData.emergencyContactRelationship}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
+                className="w-full px-4 py-2 border border-border-interactive rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.relationshipPlaceholder')}
               />
             </div>

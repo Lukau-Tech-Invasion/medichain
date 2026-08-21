@@ -435,12 +435,6 @@ function Layout() {
    */
   const renderSidebar = (isMobile = false) => (
     <>
-      {/* Skip link for keyboard users */}
-      {!isMobile && (
-        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-16 focus:left-4 focus:z-50 px-2 py-1 bg-surface rounded shadow">
-          Skip to main content
-        </a>
-      )}
       {/* Logo with role-based gradient */}
       <div className={`p-4 bg-gradient-to-r ${theme.bgGradient}`}>
         <div className="flex items-center gap-3">
@@ -449,7 +443,18 @@ function Layout() {
           </div>
           {(!isCollapsed || isMobile) && (
             <div className="flex-1 min-w-0">
-              <h1 className="font-bold text-lg text-white">MediChain</h1>
+              {/*
+                Not an <h1>. The product name in the sidebar chrome is not the
+                heading of the page, and `renderSidebar` runs twice (desktop
+                rail + mobile drawer), so this rendered TWO `<h1>MediChain</h1>`
+                on every screen — three in total with the page's own heading.
+
+                A screen-reader user navigating by heading gets the document
+                outline from these, and an outline whose top level is the brand
+                name repeated twice tells them nothing about where they are
+                (WCAG 2.2 SC 1.3.1). The page heading is now the only h1.
+              */}
+              <span className="block font-bold text-lg text-white">MediChain</span>
               <span className="text-xs text-white/80">{portalTitle}</span>
             </div>
           )}
@@ -565,6 +570,23 @@ function Layout() {
 
   return (
     <div className="flex h-screen bg-surface-sunken dark:bg-gray-900">
+      {/*
+        The skip link is the FIRST focusable element in the document, and that
+        placement is the whole feature. It previously lived inside the sidebar,
+        which put the header controls, the collapse toggle and the navigation
+        section headers ahead of it -- so a keyboard user had to tab through the
+        navigation to reach the link offering to skip the navigation.
+
+        `min-h`/`min-w` because it is a real target once focused: WCAG 2.2
+        SC 2.5.8 asks for 24x24 CSS px, and `px-2 py-1` around a 14px line box
+        does not reach it.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 inline-flex items-center min-h-[24px] min-w-[24px] px-3 py-1.5 bg-surface text-content border border-border-interactive rounded shadow"
+      >
+        Skip to main content
+      </a>
       {/* Mobile Header */}
       <div className="fixed top-0 left-0 right-0 h-14 bg-surface dark:bg-gray-800 shadow-sm flex items-center justify-between px-4 z-40 lg:hidden">
         <button

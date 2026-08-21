@@ -42,7 +42,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               'disabled:bg-surface-sunken disabled:text-content-muted disabled:cursor-not-allowed',
               error
                 ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                : 'border-border-strong',
+                : 'border-border-interactive',
               leftIcon && 'pl-10',
               rightIcon && 'pr-10',
               className
@@ -99,7 +99,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             'disabled:bg-surface-sunken disabled:text-content-muted disabled:cursor-not-allowed',
             error
               ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-              : 'border-border-strong',
+              : 'border-border-interactive',
             className
           )}
           {...props}
@@ -152,7 +152,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
             'disabled:bg-surface-sunken disabled:text-content-muted disabled:cursor-not-allowed',
             error
               ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-              : 'border-border-strong',
+              : 'border-border-interactive',
             className
           )}
           {...props}

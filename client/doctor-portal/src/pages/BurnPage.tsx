@@ -854,7 +854,7 @@ export default function BurnPage() {
                         type="number"
                         value={totalBSA}
                         readOnly
-                        className="w-full p-2 border border-border-strong rounded bg-surface-sunken"
+                        className="w-full p-2 border border-border-interactive rounded bg-surface-sunken"
                       />
                       <p className="text-xs text-content-muted mt-1">{t('docBurn.totalBSAHint')}</p>
                     </div>

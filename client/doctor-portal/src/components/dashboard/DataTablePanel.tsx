@@ -110,7 +110,12 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
         {viewAllLink && (
           <Link 
             to={viewAllLink}
-            className="text-brand hover:text-brand text-sm flex items-center gap-1"
+            // `min-h-[24px]` and vertical padding, because a 14px line box in a
+            // flex row renders 20px tall — under WCAG 2.2 SC 2.5.8's 24x24 CSS
+            // px minimum (Level AA). The inline exception does not apply: this
+            // is a standalone control in a panel header, not a link inside a
+            // sentence.
+            className="text-brand hover:text-brand text-sm inline-flex items-center gap-1 min-h-[24px] py-1"
           >
             {viewAllLabel} <ArrowRight size={14} />
           </Link>
@@ -175,7 +180,7 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
         <div className="p-3 bg-surface-sunken text-center border-t border-border">
           <Link 
             to={viewAllLink}
-            className="text-brand hover:text-brand text-sm"
+            className="text-brand hover:text-brand text-sm inline-flex items-center gap-1 min-h-[24px] py-1"
           >
             + {remainingCount} more →
           </Link>

@@ -211,7 +211,7 @@ export default function CodeBluePage() {
               </div>
               <select
                 id="code-blue-patient"
-                className="block w-full pl-10 pr-3 py-2 border border-border-strong rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={selectedPatient}
                 onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
                 disabled={isActive}
@@ -328,7 +328,7 @@ export default function CodeBluePage() {
                 <input
                   id="code-blue-team"
                   type="text"
-                  className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   placeholder={t('docCodeBlue.teamPlaceholder')}
                   value={teamMembers}
                   onChange={(e) => setTeamMembers(e.target.value)}
@@ -339,7 +339,7 @@ export default function CodeBluePage() {
                 <textarea
                   id="code-blue-narrative"
                   rows={4}
-                  className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value)}
                 />
@@ -348,7 +348,7 @@ export default function CodeBluePage() {
                 <label htmlFor="code-blue-outcome" className="block text-sm font-medium text-content-secondary">{t('docCodeBlue.outcome')}</label>
                 <select
                   id="code-blue-outcome"
-                  className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   value={outcome}
                   onChange={(e) => setOutcome(e.target.value)}
                 >

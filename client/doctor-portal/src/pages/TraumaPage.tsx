@@ -135,7 +135,7 @@ export default function TraumaPage() {
             </div>
             <select
               id="trauma-patient"
-              className="block w-full pl-10 pr-3 py-2 border border-border-strong rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               value={selectedPatient}
               onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
               required
@@ -206,7 +206,7 @@ export default function TraumaPage() {
               <label htmlFor="trauma-type" className="block text-sm font-medium text-content-secondary">{t('docTrauma.traumaType')}</label>
               <select
                 id="trauma-type"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={traumaType}
                 onChange={(e) => setTraumaType(e.target.value)}
               >
@@ -221,7 +221,7 @@ export default function TraumaPage() {
               <input
                 id="trauma-mechanism"
                 type="text"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder={t('docTrauma.mechanismPlaceholder')}
                 value={mechanism}
                 onChange={(e) => setMechanism(e.target.value)}
@@ -235,7 +235,7 @@ export default function TraumaPage() {
                 type="number"
                 min="3"
                 max="15"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={gcsScore}
                 onChange={(e) => setGcsScore(parseInt(e.target.value))}
               />
@@ -247,7 +247,7 @@ export default function TraumaPage() {
                 type="number"
                 min="0"
                 max="75"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={issScore}
                 onChange={(e) => setIssScore(parseInt(e.target.value))}
               />
@@ -266,7 +266,7 @@ export default function TraumaPage() {
               <label htmlFor="trauma-airway" className="font-medium text-content-secondary">{t('docTrauma.airway')}</label>
               <select
                 id="trauma-airway"
-                className="md:col-span-2 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={airway}
                 onChange={(e) => setAirway(e.target.value)}
               >
@@ -280,7 +280,7 @@ export default function TraumaPage() {
               <label htmlFor="trauma-breathing" className="font-medium text-content-secondary">{t('docTrauma.breathing')}</label>
               <select
                 id="trauma-breathing"
-                className="md:col-span-2 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={breathing}
                 onChange={(e) => setBreathing(e.target.value)}
               >
@@ -294,7 +294,7 @@ export default function TraumaPage() {
               <label htmlFor="trauma-circulation" className="font-medium text-content-secondary">{t('docTrauma.circulation')}</label>
               <select
                 id="trauma-circulation"
-                className="md:col-span-2 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={circulation}
                 onChange={(e) => setCirculation(e.target.value)}
               >
@@ -309,7 +309,7 @@ export default function TraumaPage() {
               <label htmlFor="trauma-disability" className="font-medium text-content-secondary">{t('docTrauma.disability')}</label>
               <select
                 id="trauma-disability"
-                className="md:col-span-2 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="md:col-span-2 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 value={disability}
                 onChange={(e) => setDisability(e.target.value)}
               >
@@ -328,7 +328,7 @@ export default function TraumaPage() {
           <textarea
             id="trauma-notes"
             rows={4}
-            className="block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            className="block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />

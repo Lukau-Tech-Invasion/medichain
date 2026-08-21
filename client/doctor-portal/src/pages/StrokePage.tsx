@@ -128,7 +128,7 @@ export default function StrokePage() {
             </div>
             <select
               id="stroke-patient"
-              className="block w-full pl-10 pr-3 py-2 border border-border-strong rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+              className="block w-full pl-10 pr-3 py-2 border border-border-interactive rounded-md leading-5 bg-surface placeholder-gray-500 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
               value={selectedPatient}
               onChange={(e) => { setSelectedPatient(e.target.value); fetchEmergencyHistory(e.target.value); }}
               required
@@ -201,7 +201,7 @@ export default function StrokePage() {
                 <input
                   id="stroke-last-known-well"
                   type="datetime-local"
-                  className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                   value={lastKnownWell}
                   onChange={(e) => setLastKnownWell(e.target.value)}
                   required
@@ -212,7 +212,7 @@ export default function StrokePage() {
                 <input
                   id="stroke-symptom-onset"
                   type="datetime-local"
-                  className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                  className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                   value={symptomOnset}
                   onChange={(e) => setSymptomOnset(e.target.value)}
                   required
@@ -275,7 +275,7 @@ export default function StrokePage() {
                 type="number"
                 min="0"
                 max="42"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={nihssScore}
                 onChange={(e) => setNihssScore(parseInt(e.target.value))}
               />
@@ -285,7 +285,7 @@ export default function StrokePage() {
               <input
                 id="stroke-blood-glucose"
                 type="number"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={bloodGlucose}
                 onChange={(e) => setBloodGlucose(e.target.value)}
               />
@@ -294,7 +294,7 @@ export default function StrokePage() {
               <label htmlFor="stroke-ct-head-result" className="block text-sm font-medium text-content-secondary">{t('docStroke.ctHeadResult')}</label>
               <select
                 id="stroke-ct-head-result"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={ctHeadResult}
                 onChange={(e) => setCtHeadResult(e.target.value)}
               >
@@ -309,7 +309,7 @@ export default function StrokePage() {
               <label htmlFor="stroke-tpa-eligibility" className="block text-sm font-medium text-content-secondary">{t('docStroke.tpaEligibility')}</label>
               <select
                 id="stroke-tpa-eligibility"
-                className="mt-1 block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+                className="mt-1 block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
                 value={tpaCandidate}
                 onChange={(e) => setTpaCandidate(e.target.value)}
               >
@@ -328,7 +328,7 @@ export default function StrokePage() {
           <textarea
             id="stroke-notes"
             rows={4}
-            className="block w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
+            className="block w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />

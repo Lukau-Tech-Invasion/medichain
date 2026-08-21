@@ -21,7 +21,6 @@ Usage:
 from __future__ import annotations
 
 import pathlib
-import re
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")

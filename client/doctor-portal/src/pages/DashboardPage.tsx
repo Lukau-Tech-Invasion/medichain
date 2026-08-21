@@ -605,7 +605,7 @@ function DashboardPage() {
         <div className="p-6 border-b border-border">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-content">{t('docDashboard.recentPatientsTitle')}</h2>
-            <Link to="/patients" className="text-brand hover:text-brand text-sm flex items-center gap-1">
+            <Link to="/patients" className="text-brand hover:text-brand text-sm inline-flex items-center gap-1 min-h-[24px] py-1">
               {t('docDashboard.viewAll')} <ArrowRight size={16} />
             </Link>
           </div>

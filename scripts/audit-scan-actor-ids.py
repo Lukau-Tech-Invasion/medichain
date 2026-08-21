@@ -42,7 +42,8 @@ def main():
 
     actor_structs = {}
     for path in files:
-        text = open(path, encoding="utf-8", errors="replace").read()
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
         for m in STRUCT.finditer(text):
             name, body = m.group(1), m.group(2)
             fields = [fm.group("f") for fm in ACTOR.finditer(body)]
@@ -51,7 +52,8 @@ def main():
 
     rows = []
     for path in files:
-        text = open(path, encoding="utf-8", errors="replace").read()
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
         # crude handler-body split: from the fn signature to the next #[ route attr
         marks = [(m.start(), m) for m in HANDLER.finditer(text)]
         for i, (pos, m) in enumerate(marks):

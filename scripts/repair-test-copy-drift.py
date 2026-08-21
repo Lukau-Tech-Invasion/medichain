@@ -137,7 +137,8 @@ def main() -> int:
         replacement, why = match
         source = test_file.read_text(encoding="utf-8")
         # Substitute inside the regex literal the test used.
-        pattern = "/" + re.escape(wanted).replace("\\ ", " ") + "/i"
+        # (No compiled pattern here: the assertion is written literally in
+        # the test source, so an escaped regex was built and never read.)
         literal = "/" + wanted + "/i"
         if literal not in source:
             print(f"SKIP  {rel}\n        {wanted!r} not found as a literal assertion")

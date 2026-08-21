@@ -195,7 +195,7 @@ export default function EPrescribePage() {
                 name="pharmacy_name" 
                 value={formData.pharmacy_name} 
                 onChange={handleChange} 
-                className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="Main Street Pharmacy">Main Street Pharmacy</option>
                 <option value="Central Hospital Pharmacy">Central Hospital Pharmacy</option>
@@ -216,7 +216,7 @@ export default function EPrescribePage() {
                 name="medication_name" 
                 value={formData.medication_name} 
                 onChange={handleChange} 
-                className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
                 placeholder={t('docEPrescribe.medicationNamePh')}
                 required 
               />
@@ -228,7 +228,7 @@ export default function EPrescribePage() {
                 name="strength" 
                 value={formData.strength} 
                 onChange={handleChange} 
-                className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
                 placeholder={t('docEPrescribe.strengthPh')}
                 required 
               />
@@ -240,7 +240,7 @@ export default function EPrescribePage() {
                 name="form"
                 value={formData.form}
                 onChange={handleChange}
-                className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="tablet">{t('docEPrescribe.formTablet')}</option>
                 <option value="capsule">{t('docEPrescribe.formCapsule')}</option>
@@ -258,7 +258,7 @@ export default function EPrescribePage() {
                 name="quantity" 
                 value={formData.quantity} 
                 onChange={handleChange} 
-                className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
               />
             </div>
             <div>
@@ -269,7 +269,7 @@ export default function EPrescribePage() {
                 name="days_supply" 
                 value={formData.days_supply} 
                 onChange={handleChange} 
-                className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
               />
             </div>
             <div>
@@ -282,7 +282,7 @@ export default function EPrescribePage() {
                 onChange={handleChange} 
                 min="0"
                 max="12"
-                className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
               />
             </div>
           </div>
@@ -294,7 +294,7 @@ export default function EPrescribePage() {
               name="directions"
               value={formData.directions}
               onChange={handleChange}
-              className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               rows={2}
               placeholder={t('docEPrescribe.directionsPlaceholder')}
               required
@@ -308,7 +308,7 @@ export default function EPrescribePage() {
               name="patient_instructions"
               value={formData.patient_instructions}
               onChange={handleChange}
-              className="mt-1 w-full border border-border-strong rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              className="mt-1 w-full border border-border-interactive rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               rows={2}
               placeholder={t('docEPrescribe.patientInstructionsPlaceholder')}
             />
@@ -321,7 +321,7 @@ export default function EPrescribePage() {
               name="is_controlled"
               checked={formData.is_controlled}
               onChange={handleChange}
-              className="h-4 w-4 text-notice-subtle-fg focus:ring-blue-500 border-border-strong rounded"
+              className="h-4 w-4 text-notice-subtle-fg focus:ring-blue-500 border-border-interactive rounded"
             />
             <label htmlFor="is_controlled" className="ml-2 block text-sm text-content-secondary">
               {t('docEPrescribe.controlled')}
