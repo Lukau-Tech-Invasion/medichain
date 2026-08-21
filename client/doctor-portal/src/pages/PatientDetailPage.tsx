@@ -118,7 +118,7 @@ function PatientDetailPage() {
         role="status"
         aria-live="polite"
       >
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary-600 border-t-transparent"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-brand border-t-transparent"></div>
         <span className="sr-only">Loading patient information…</span>
       </div>
     );
@@ -131,7 +131,7 @@ function PatientDetailPage() {
           <AlertTriangle className="mx-auto mb-4 text-red-400" size={64} />
           <h2 className="text-xl font-semibold text-content-secondary">{t('docPatientDetail.errorLoading')}</h2>
           <p className="text-content-muted mt-2">{error}</p>
-          <Link to="/patients" className="mt-4 inline-block text-primary-600 hover:underline">
+          <Link to="/patients" className="mt-4 inline-block text-brand hover:underline">
             {t('docPatientDetail.backToSearch')}
           </Link>
         </div>
@@ -146,7 +146,7 @@ function PatientDetailPage() {
           <User className="mx-auto mb-4 text-gray-300" size={64} />
           <h2 className="text-xl font-semibold text-content-secondary">{t('docPatientDetail.notFound')}</h2>
           <p className="text-content-muted mt-2">{t('docPatientDetail.notExist', { id: patientId ?? '' })}</p>
-          <Link to="/patients" className="mt-4 inline-block text-primary-600 hover:underline">
+          <Link to="/patients" className="mt-4 inline-block text-brand hover:underline">
             {t('docPatientDetail.backToSearch')}
           </Link>
         </div>
@@ -166,8 +166,8 @@ function PatientDetailPage() {
       <div className="bg-surface rounded-xl shadow p-6 mb-6">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center">
-              <span className="text-2xl font-bold text-primary-600">
+            <div className="w-16 h-16 bg-brand-subtle rounded-full flex items-center justify-center">
+              <span className="text-2xl font-bold text-brand">
                 {patient.fullName.split(' ').map(n => n[0]).join('')}
               </span>
             </div>
@@ -200,7 +200,7 @@ function PatientDetailPage() {
               <Download size={18} />
               {t('docPatientDetail.export')}
             </button>
-            <button className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2">
+            <button className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2">
               <Edit size={18} />
               {t('docPatientDetail.edit')}
             </button>
@@ -250,7 +250,7 @@ function PatientDetailPage() {
           {/* Medications */}
           <div className="bg-surface rounded-xl shadow p-6">
             <div className="flex items-center gap-2 mb-4">
-              <Pill className="text-primary-600" size={20} />
+              <Pill className="text-brand" size={20} />
               <h3 className="font-semibold text-content">{t('docPatientDetail.currentMeds')}</h3>
             </div>
             {patient.currentMedications.length > 0 ? (
@@ -298,7 +298,7 @@ function PatientDetailPage() {
                   <p className="font-medium text-content">{contact.name}</p>
                   <p className="text-sm text-content-muted">{contact.relationship}</p>
                 </div>
-                <a href={`tel:${contact.phone}`} className="text-primary-600 hover:underline">
+                <a href={`tel:${contact.phone}`} className="text-brand hover:underline">
                   {contact.phone}
                 </a>
               </div>

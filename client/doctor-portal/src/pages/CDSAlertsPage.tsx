@@ -378,7 +378,7 @@ const CDSAlertsPage: React.FC = () => {
   const getSeverityBadge = (severity: AlertSeverity) => {
     const badges = {
       critical: 'bg-critical-subtle text-critical-subtle-fg',
-      high: 'bg-orange-100 text-orange-800',
+      high: 'bg-surface-sunken text-content-secondary',
       medium: 'bg-caution-subtle text-caution-subtle-fg',
       low: 'bg-notice-subtle text-notice-subtle-fg',
       info: 'bg-surface-sunken text-content-secondary',
@@ -390,7 +390,7 @@ const CDSAlertsPage: React.FC = () => {
     const badges = {
       active: 'bg-ok-subtle text-ok-subtle-fg',
       inactive: 'bg-surface-sunken text-content-secondary',
-      testing: 'bg-purple-100 text-purple-800',
+      testing: 'bg-surface-sunken text-content-secondary',
       draft: 'bg-caution-subtle text-caution-subtle-fg',
     };
     return badges[status];
@@ -401,10 +401,10 @@ const CDSAlertsPage: React.FC = () => {
       medication: 'bg-notice-subtle text-notice-subtle-fg',
       allergy: 'bg-critical-subtle text-critical-subtle-fg',
       vital_signs: 'bg-ok-subtle text-ok-subtle-fg',
-      lab_results: 'bg-purple-100 text-purple-800',
-      diagnosis: 'bg-indigo-100 text-indigo-800',
-      procedure: 'bg-pink-100 text-pink-800',
-      clinical_pathway: 'bg-teal-100 text-teal-800',
+      lab_results: 'bg-surface-sunken text-content-secondary',
+      diagnosis: 'bg-surface-sunken text-content-secondary',
+      procedure: 'bg-surface-sunken text-content-secondary',
+      clinical_pathway: 'bg-surface-sunken text-content-secondary',
     };
     return badges[category];
   };
@@ -443,7 +443,7 @@ const CDSAlertsPage: React.FC = () => {
           <Bell className="w-12 h-12" />
           <div>
             <h1 className="text-3xl font-bold">{t('docCDS.title')}</h1>
-            <p className="text-red-100 mt-1">{t('docCDS.subtitle')}</p>
+            <p className="text-critical-fg mt-1">{t('docCDS.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -589,7 +589,7 @@ const CDSAlertsPage: React.FC = () => {
                               </span>
                             )}
                             {rule.testMode && (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-surface-sunken text-content-secondary">
                                 {t('docCDS.testModeBadge')}
                               </span>
                             )}
@@ -646,7 +646,7 @@ const CDSAlertsPage: React.FC = () => {
                           </button>
                           <button
                             onClick={() => handleExportRule(rule)}
-                            className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-colors"
+                            className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
                             title={t('docCDS.exportRuleTitle')}
                           >
                             <Download className="w-5 h-5" />
@@ -690,8 +690,8 @@ const CDSAlertsPage: React.FC = () => {
                           </div>
 
                           {/* Actions */}
-                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                            <h4 className="font-semibold text-orange-900 mb-3 flex items-center gap-2">
+                          <div className="bg-surface-sunken border border-orange-200 rounded-lg p-4">
+                            <h4 className="font-semibold text-content-secondary mb-3 flex items-center gap-2">
                               <AlertTriangle className="w-4 h-4" />
                               {t('docCDS.actionsCount', { count: rule.actions.length })}
                             </h4>
@@ -701,10 +701,10 @@ const CDSAlertsPage: React.FC = () => {
                                   <div className="flex items-center gap-2 mb-2">
                                     <span className={`px-2 py-1 text-xs font-medium rounded ${
                                       action.type === 'block' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                                      action.type === 'alert' ? 'bg-orange-100 text-orange-800' :
+                                      action.type === 'alert' ? 'bg-surface-sunken text-content-secondary' :
                                       action.type === 'notify' ? 'bg-notice-subtle text-notice-subtle-fg' :
                                       action.type === 'recommend' ? 'bg-ok-subtle text-ok-subtle-fg' :
-                                      'bg-purple-100 text-purple-800'
+                                      'bg-surface-sunken text-content-secondary'
                                     }`}>
                                       {t(`docCDS.actionType_${action.type}`).toUpperCase()}
                                     </span>
@@ -761,19 +761,19 @@ const CDSAlertsPage: React.FC = () => {
 
                           {/* Evidence & References */}
                           {(rule.evidenceLevel || (rule.references && rule.references.length > 0)) && (
-                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                              <h4 className="font-semibold text-purple-900 mb-2">{t('docCDS.evidenceBaseTitle')}</h4>
+                            <div className="bg-surface-sunken border border-purple-200 rounded-lg p-4">
+                              <h4 className="font-semibold text-content-secondary mb-2">{t('docCDS.evidenceBaseTitle')}</h4>
                               {rule.evidenceLevel && (
                                 <div className="text-sm mb-2">
-                                  <span className="font-medium text-purple-700">{t('docCDS.evidenceLevelLabel')}</span>{' '}
-                                  <span className="bg-purple-200 text-purple-900 px-2 py-1 rounded">
+                                  <span className="font-medium text-content-secondary">{t('docCDS.evidenceLevelLabel')}</span>{' '}
+                                  <span className="bg-purple-200 text-content-secondary px-2 py-1 rounded">
                                     {rule.evidenceLevel}
                                   </span>
                                 </div>
                               )}
                               {rule.references && rule.references.length > 0 && (
                                 <div className="text-sm">
-                                  <span className="font-medium text-purple-700">{t('docCDS.referencesLabel')}</span>
+                                  <span className="font-medium text-content-secondary">{t('docCDS.referencesLabel')}</span>
                                   <ul className="list-disc list-inside mt-1 text-content-secondary">
                                     {rule.references.map((ref, idx) => (
                                       <li key={idx}>{ref}</li>
@@ -1055,13 +1055,13 @@ const CDSAlertsPage: React.FC = () => {
           {/* Actions */}
           <div className="bg-surface rounded-lg shadow p-6">
             <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-6 h-6 text-orange-600" />
+              <AlertTriangle className="w-6 h-6 text-content-secondary" />
               {t('docCDS.actionsTitle')} <span className="text-red-500">*</span>
             </h2>
 
             {/* Add Action Form */}
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-              <h3 className="font-semibold text-orange-900 mb-3">{t('docCDS.addActionTitle')}</h3>
+            <div className="bg-surface-sunken border border-orange-200 rounded-lg p-4 mb-4">
+              <h3 className="font-semibold text-content-secondary mb-3">{t('docCDS.addActionTitle')}</h3>
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
                   <div>
@@ -1100,9 +1100,9 @@ const CDSAlertsPage: React.FC = () => {
                       type="checkbox"
                       checked={newAction.blockAction || false}
                       onChange={(e) => setNewAction({ ...newAction, blockAction: e.target.checked })}
-                      className="rounded border-orange-300 text-orange-600 focus:ring-orange-500"
+                      className="rounded border-orange-300 text-content-secondary focus:ring-orange-500"
                     />
-                    <span className="text-sm font-medium text-orange-900">{t('docCDS.blockActionLabel')}</span>
+                    <span className="text-sm font-medium text-content-secondary">{t('docCDS.blockActionLabel')}</span>
                   </label>
                 </div>
                 <div>
@@ -1147,10 +1147,10 @@ const CDSAlertsPage: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-1 text-xs font-medium rounded ${
                           action.type === 'block' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                          action.type === 'alert' ? 'bg-orange-100 text-orange-800' :
+                          action.type === 'alert' ? 'bg-surface-sunken text-content-secondary' :
                           action.type === 'notify' ? 'bg-notice-subtle text-notice-subtle-fg' :
                           action.type === 'recommend' ? 'bg-ok-subtle text-ok-subtle-fg' :
-                          'bg-purple-100 text-purple-800'
+                          'bg-surface-sunken text-content-secondary'
                         }`}>
                           {t(`docCDS.actionType_${action.type}`).toUpperCase()}
                         </span>
@@ -1209,7 +1209,7 @@ const CDSAlertsPage: React.FC = () => {
             </button>
             <button
               onClick={handleCreateRule}
-              className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              className="flex items-center gap-2 px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors"
             >
               <Save className="w-5 h-5" />
               {t('docCDS.createRuleBtn')}
@@ -1231,7 +1231,7 @@ const CDSAlertsPage: React.FC = () => {
             </div>
             <div className="bg-surface rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-content mb-2">{t('docCDS.totalTriggersTitle')}</h3>
-              <div className="text-3xl font-bold text-orange-600">
+              <div className="text-3xl font-bold text-content-secondary">
                 {rules.reduce((sum, r) => sum + r.triggerCount, 0)}
               </div>
               <div className="text-sm text-content-muted mt-1">{t('docCDS.acrossAllRules')}</div>

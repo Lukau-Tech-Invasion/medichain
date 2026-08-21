@@ -152,8 +152,8 @@ function EmergencyProtocolsPage() {
 
   const tabs = [
     { id: 'code_blue' as EmergencyType, label: t('docEmergProto.tabCodeBlue'), icon: Siren, color: 'text-notice-subtle-fg' },
-    { id: 'trauma' as EmergencyType, label: t('docEmergProto.tabTrauma'), icon: AlertCircle, color: 'text-orange-600' },
-    { id: 'stroke' as EmergencyType, label: t('docEmergProto.tabStroke'), icon: Brain, color: 'text-purple-600' },
+    { id: 'trauma' as EmergencyType, label: t('docEmergProto.tabTrauma'), icon: AlertCircle, color: 'text-content-secondary' },
+    { id: 'stroke' as EmergencyType, label: t('docEmergProto.tabStroke'), icon: Brain, color: 'text-content-secondary' },
     { id: 'cardiac' as EmergencyType, label: t('docEmergProto.tabCardiac'), icon: Heart, color: 'text-critical-subtle-fg' },
     { id: 'sepsis' as EmergencyType, label: t('docEmergProto.tabSepsis'), icon: Flame, color: 'text-caution-subtle-fg' },
   ];
@@ -290,8 +290,8 @@ function EmergencyProtocolsPage() {
             <div key={record.trauma_id} className="bg-surface rounded-xl shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-orange-100 rounded-lg">
-                    <AlertCircle className="text-orange-600" size={24} />
+                  <div className="p-3 bg-surface-sunken rounded-lg">
+                    <AlertCircle className="text-content-secondary" size={24} />
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg">{t('docEmergProto.traumaAssessment')}</h3>
@@ -331,7 +331,7 @@ function EmergencyProtocolsPage() {
                   <span className="text-sm font-medium text-content-secondary">{t('docEmergProto.interventions')}</span>
                   <div className="flex flex-wrap gap-2 mt-2">
                     {record.interventions.map((intervention, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm">
+                      <span key={idx} className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm">
                         {intervention}
                       </span>
                     ))}
@@ -356,8 +356,8 @@ function EmergencyProtocolsPage() {
             <div key={record.stroke_id} className="bg-surface rounded-xl shadow p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-purple-100 rounded-lg">
-                    <Brain className="text-purple-600" size={24} />
+                  <div className="p-3 bg-surface-sunken rounded-lg">
+                    <Brain className="text-content-secondary" size={24} />
                   </div>
                   <div>
                     <h3 className="font-semibold text-lg">{t('docEmergProto.strokeAssessment')}</h3>

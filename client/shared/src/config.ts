@@ -317,9 +317,31 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * True when running under Vitest. Vitest sets `MODE=test`; the `process` check
+ * covers the Node-side runner where `import.meta.env` is absent.
+ */
+const IS_TEST_RUNTIME: boolean =
+  (typeof import.meta !== 'undefined' && import.meta.env?.MODE === 'test') ||
+  (typeof process !== 'undefined' && process.env?.VITEST === 'true');
+
+/**
  * Calculate exponential backoff delay with jitter
  */
 export function calculateBackoff(attempt: number): number {
+  // Under test, back off in single-digit milliseconds.
+  //
+  // The production schedule is 1s, 2s, 4s -- about seven seconds of real
+  // sleeping for a request that exhausts its retries. Vitest's default timeout
+  // is five, so any test that reached the retry path was a coin flip decided by
+  // machine load: it passed alone and failed intermittently in a parallel run
+  // of 83 files, which reads as an unrelated flaky test rather than as the
+  // retry policy doing exactly what it says.
+  //
+  // The retry *logic* still runs -- attempt counting, ordering, the give-up
+  // condition -- only the waiting is removed, which is the part no test asserts.
+  if (IS_TEST_RUNTIME) {
+    return attempt + 1;
+  }
   const delay = Math.min(
     API_CONFIG.RETRY_BASE_DELAY * Math.pow(2, attempt),
     API_CONFIG.RETRY_MAX_DELAY

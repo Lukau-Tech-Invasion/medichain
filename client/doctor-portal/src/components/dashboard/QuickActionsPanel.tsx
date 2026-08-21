@@ -21,7 +21,7 @@ const colorClasses = {
   primary: {
     bg: 'bg-gradient-to-r from-primary-500 to-primary-600',
     hover: 'hover:from-primary-600 hover:to-primary-700',
-    text: 'text-primary-100',
+    text: 'text-brand-fg',
   },
   emergency: {
     bg: 'bg-gradient-to-r from-emergency-500 to-emergency-600',

@@ -199,7 +199,7 @@ export function NotificationsPage() {
           onClick={() => setActiveTab('notifications')}
           className={`relative px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'notifications'
-              ? 'border-primary-500 text-primary-600'
+              ? 'border-brand text-brand'
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -214,7 +214,7 @@ export function NotificationsPage() {
           onClick={() => setActiveTab('alerts')}
           className={`relative px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'alerts'
-              ? 'border-primary-500 text-primary-600'
+              ? 'border-brand text-brand'
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -243,9 +243,9 @@ export function NotificationsPage() {
               >
                 <div className="flex items-start gap-3">
                   <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    !n.is_read && !n.read ? 'bg-primary-100' : 'bg-surface-sunken'
+                    !n.is_read && !n.read ? 'bg-brand-subtle' : 'bg-surface-sunken'
                   }`}>
-                    <Bell className={`w-4 h-4 ${!n.is_read && !n.read ? 'text-primary-600' : 'text-content-muted'}`} />
+                    <Bell className={`w-4 h-4 ${!n.is_read && !n.read ? 'text-brand' : 'text-content-muted'}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     {n.title && (

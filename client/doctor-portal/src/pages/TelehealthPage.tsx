@@ -341,7 +341,7 @@ export default function TelehealthPage() {
                   {session.status !== 'ended' && session.status !== 'cancelled' && (
                     <button
                       onClick={() => handleJoin(session)}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-ok text-ok-fg text-sm rounded hover:bg-ok"
                     >
                       <Video size={14} />
                       {t('docTelehealth.join')}
@@ -474,7 +474,7 @@ export default function TelehealthPage() {
               </a>
               <button
                 onClick={() => setActiveCallUrl(null)}
-                className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700"
+                className="px-3 py-1.5 text-sm rounded-lg bg-critical hover:bg-critical"
               >
                 {t('docTelehealth.leaveCall')}
               </button>

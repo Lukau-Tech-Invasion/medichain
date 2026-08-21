@@ -265,7 +265,7 @@ const RadiologyPage: React.FC = () => {
     const styles: Record<ReportStatus, string> = {
       pending: 'bg-critical-subtle text-critical-subtle-fg',
       'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
-      preliminary: 'bg-orange-100 text-orange-700',
+      preliminary: 'bg-surface-sunken text-content-secondary',
       final: 'bg-ok-subtle text-ok-subtle-fg',
       addendum: 'bg-notice-subtle text-notice-subtle-fg'
     };
@@ -408,7 +408,7 @@ const RadiologyPage: React.FC = () => {
                     <tr key={s.id} className={`border-b border-gray-700 hover:bg-gray-750 ${s.priority === 'stat' ? 'bg-red-900/20' : ''}`}>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          s.priority === 'stat' ? 'bg-red-600' :
+                          s.priority === 'stat' ? 'bg-critical' :
                           s.priority === 'urgent' ? 'bg-orange-500' : 'bg-gray-600'
                         }`}>
                           {priorityLabel(s.priority)}
@@ -557,7 +557,7 @@ const RadiologyPage: React.FC = () => {
                 <button
                   onClick={() => saveReport(true)}
                   disabled={isSaving}
-                  className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="flex-1 py-2 bg-ok text-ok-fg rounded hover:bg-green-500 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {isSaving ? t('docRadiology.saving') : t('docRadiology.finalizeReport')}
                 </button>

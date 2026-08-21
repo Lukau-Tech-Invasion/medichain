@@ -245,7 +245,7 @@ export function SettingsPage() {
           type="button"
           onClick={handleSave}
           disabled={isSaving || isLoading}
-          className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-xl bg-brand px-4 py-2 font-medium text-brand-fg hover:bg-brand disabled:opacity-50"
         >
           {saveSucceeded ? <CheckCircle className="h-4 w-4" /> : <Save className="h-4 w-4" />}
           {isSaving ? t('settings.saving') : saveSucceeded ? t('settings.saved') : t('settings.save')}
@@ -258,7 +258,7 @@ export function SettingsPage() {
       {/* Account Section */}
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-          <User className="w-5 h-5 text-primary-600" />
+          <User className="w-5 h-5 text-brand" />
           {t('settings.account')}
         </h2>
 
@@ -300,7 +300,7 @@ export function SettingsPage() {
       {/* Notifications Section */}
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-          <Bell className="w-5 h-5 text-primary-600" />
+          <Bell className="w-5 h-5 text-brand" />
           {t('settings.notifications')}
         </h2>
 
@@ -382,7 +382,7 @@ export function SettingsPage() {
       {/* Privacy Section */}
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-          <Shield className="w-5 h-5 text-primary-600" />
+          <Shield className="w-5 h-5 text-brand" />
           {t('settings.privacy')}
         </h2>
 
@@ -451,7 +451,7 @@ export function SettingsPage() {
       {/* App Preferences */}
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-          <Settings className="w-5 h-5 text-primary-600" />
+          <Settings className="w-5 h-5 text-brand" />
           {t('settings.appPreferences')}
         </h2>
 
@@ -523,7 +523,7 @@ export function SettingsPage() {
       {/* Support Section */}
       <div className="patient-card">
         <h2 className="text-lg font-semibold text-content mb-4 flex items-center gap-2">
-          <HelpCircle className="w-5 h-5 text-primary-600" />
+          <HelpCircle className="w-5 h-5 text-brand" />
           {t('settings.support')}
         </h2>
 

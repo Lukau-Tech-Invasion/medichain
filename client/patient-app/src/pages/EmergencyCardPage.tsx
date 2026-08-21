@@ -390,8 +390,8 @@ export function EmergencyCardPage() {
       {/* NFC Card Info */}
       <div className="patient-card">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-            <Wifi className="w-6 h-6 text-primary-600 rotate-90" />
+          <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center">
+            <Wifi className="w-6 h-6 text-brand rotate-90" />
           </div>
           <div className="flex-1">
             <h3 className="font-medium text-content">{t('emergency.nfcReady')}</h3>
@@ -534,7 +534,7 @@ export function EmergencyCardPage() {
       {/* Emergency Contact */}
       <div className="patient-card">
         <h3 className="font-medium text-content mb-4 flex items-center gap-2">
-          <Phone className="w-5 h-5 text-primary-600" />
+          <Phone className="w-5 h-5 text-brand" />
           {t('emergency.emergencyContact')}
         </h3>
         

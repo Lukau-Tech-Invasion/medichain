@@ -224,12 +224,12 @@ const IncidentReportPage: React.FC = () => {
 
   const getTypeBadge = (type: IncidentType) => {
     const config: Record<IncidentType, { bg: string; icon: React.ReactNode }> = {
-      'fall': { bg: 'bg-orange-100 text-orange-700', icon: <User className="w-3 h-3" /> },
+      'fall': { bg: 'bg-surface-sunken text-content-secondary', icon: <User className="w-3 h-3" /> },
       'medication-error': { bg: 'bg-critical-subtle text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> },
       'equipment-failure': { bg: 'bg-notice-subtle text-notice-subtle-fg', icon: <AlertOctagon className="w-3 h-3" /> },
-      'security': { bg: 'bg-purple-100 text-purple-700', icon: <Shield className="w-3 h-3" /> },
+      'security': { bg: 'bg-surface-sunken text-content-secondary', icon: <Shield className="w-3 h-3" /> },
       'behavioral': { bg: 'bg-caution-subtle text-caution-subtle-fg', icon: <Users className="w-3 h-3" /> },
-      'exposure': { bg: 'bg-pink-100 text-pink-700', icon: <AlertTriangle className="w-3 h-3" /> },
+      'exposure': { bg: 'bg-surface-sunken text-content-secondary', icon: <AlertTriangle className="w-3 h-3" /> },
       'other': { bg: 'bg-surface-sunken text-content-secondary', icon: <FileText className="w-3 h-3" /> }
     };
     const { bg, icon } = config[type];
@@ -245,9 +245,9 @@ const IncidentReportPage: React.FC = () => {
     const styles: Record<IncidentSeverity, string> = {
       'near-miss': 'bg-ok-subtle text-ok-subtle-fg',
       'minor': 'bg-caution-subtle text-caution-subtle-fg',
-      'moderate': 'bg-orange-100 text-orange-700',
+      'moderate': 'bg-surface-sunken text-content-secondary',
       'major': 'bg-critical-subtle text-critical-subtle-fg',
-      'sentinel': 'bg-red-600 text-white'
+      'sentinel': 'bg-critical text-white'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[severity]}`}>
@@ -260,7 +260,7 @@ const IncidentReportPage: React.FC = () => {
     const config: Record<IncidentStatus, { bg: string; icon: React.ReactNode }> = {
       'open': { bg: 'bg-notice-subtle text-notice-subtle-fg', icon: <Clock className="w-3 h-3" /> },
       'under-investigation': { bg: 'bg-caution-subtle text-caution-subtle-fg', icon: <Search className="w-3 h-3" /> },
-      'pending-review': { bg: 'bg-purple-100 text-purple-700', icon: <Eye className="w-3 h-3" /> },
+      'pending-review': { bg: 'bg-surface-sunken text-content-secondary', icon: <Eye className="w-3 h-3" /> },
       'closed': { bg: 'bg-ok-subtle text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
       'escalated': { bg: 'bg-critical-subtle text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
@@ -297,7 +297,7 @@ const IncidentReportPage: React.FC = () => {
           <AlertOctagon className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docIncidentReport.title')}</h1>
         </div>
-        <p className="text-rose-200">{t('docIncidentReport.subtitle')}</p>
+        <p className="text-critical-fg">{t('docIncidentReport.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -473,7 +473,7 @@ const IncidentReportPage: React.FC = () => {
                   <div
                     key={step}
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      formStep === step ? 'bg-rose-600 text-white' : formStep > step ? 'bg-green-500 text-white' : 'bg-surface-sunken'
+                      formStep === step ? 'bg-critical text-critical-fg' : formStep > step ? 'bg-green-500 text-critical-fg' : 'bg-surface-sunken'
                     }`}
                   >
                     {formStep > step ? <CheckCircle className="w-4 h-4" /> : step}
@@ -620,14 +620,14 @@ const IncidentReportPage: React.FC = () => {
                 {t('docIncidentReport.backButton')}
               </button>
               {formStep < 3 ? (
-                <button onClick={() => setFormStep(formStep + 1)} className="px-6 py-2 bg-rose-600 text-white rounded-lg font-medium">
+                <button onClick={() => setFormStep(formStep + 1)} className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium">
                   {t('docIncidentReport.continueButton')}
                 </button>
               ) : (
                 <button
                   onClick={handleSubmitReport}
                   disabled={isSubmitting}
-                  className="px-6 py-2 bg-rose-600 text-white rounded-lg font-medium flex items-center gap-2"
+                  className="px-6 py-2 bg-critical text-critical-fg rounded-lg font-medium flex items-center gap-2"
                 >
                   {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                   {t('docIncidentReport.submitReportButton')}

@@ -143,13 +143,13 @@ export default function PatientSelect({
               w-full flex items-center justify-between px-4 py-2.5 
               border border-border-strong dark:border-slate-600 rounded-lg 
               bg-surface dark:bg-slate-800 
-              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-primary-400'}
+              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-brand'}
             `}
             onClick={() => !disabled && setIsOpen(true)}
           >
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900 rounded-full flex items-center justify-center">
-                <User size={16} className="text-primary-600 dark:text-primary-400" />
+              <div className="w-8 h-8 bg-brand-subtle dark:bg-primary-900 rounded-full flex items-center justify-center">
+                <User size={16} className="text-brand dark:text-primary-400" />
               </div>
               <div>
                 <p className="font-medium text-content dark:text-white">{selectedPatient.full_name}</p>
@@ -190,7 +190,7 @@ export default function PatientSelect({
                 bg-surface dark:bg-slate-800 
                 text-content dark:text-white
                 placeholder-gray-400 dark:placeholder-gray-500
-                focus:ring-2 focus:ring-primary-500 focus:border-primary-500
+                focus:ring-2 focus:ring-primary-500 focus:border-brand
                 disabled:opacity-50 disabled:cursor-not-allowed
               `}
             />
@@ -228,11 +228,11 @@ export default function PatientSelect({
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 text-left
                     hover:bg-surface-sunken dark:hover:bg-slate-700 transition-colors
-                    ${value === patient.patient_id ? 'bg-primary-50 dark:bg-primary-900/30' : ''}
+                    ${value === patient.patient_id ? 'bg-brand-subtle dark:bg-primary-900/30' : ''}
                   `}
                 >
-                  <div className="w-8 h-8 bg-primary-100 dark:bg-primary-900 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
+                  <div className="w-8 h-8 bg-brand-subtle dark:bg-primary-900 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-medium text-brand dark:text-primary-400">
                       {patient.full_name.charAt(0)}
                     </span>
                   </div>

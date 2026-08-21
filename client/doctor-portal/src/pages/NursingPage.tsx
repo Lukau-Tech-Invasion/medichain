@@ -273,7 +273,7 @@ function NursingPage() {
     switch (status) {
       case 'given': return 'bg-ok-subtle text-ok-subtle-fg';
       case 'pending': return 'bg-caution-subtle text-caution-subtle-fg';
-      case 'held': return 'bg-orange-100 text-orange-800';
+      case 'held': return 'bg-surface-sunken text-content-secondary';
       case 'refused': return 'bg-critical-subtle text-critical-subtle-fg';
       default: return 'bg-surface-sunken text-content-secondary';
     }
@@ -313,7 +313,7 @@ function NursingPage() {
           onClick={() => setActiveTab('mar')}
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
             activeTab === 'mar' 
-              ? 'bg-primary-600 text-white' 
+              ? 'bg-brand text-brand-fg' 
               : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
           }`}
         >
@@ -324,7 +324,7 @@ function NursingPage() {
           onClick={() => setActiveTab('io')}
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
             activeTab === 'io'
-              ? 'bg-primary-600 text-white'
+              ? 'bg-brand text-brand-fg'
               : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
           }`}
         >
@@ -335,7 +335,7 @@ function NursingPage() {
           onClick={() => setActiveTab('careplan')}
           className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
             activeTab === 'careplan'
-              ? 'bg-primary-600 text-white'
+              ? 'bg-brand text-brand-fg'
               : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
           }`}
         >
@@ -413,7 +413,7 @@ function NursingPage() {
                                     <button
                                       onClick={() => administerMedication(mar.mar_id, medIdx, doseIdx)}
                                       disabled={saving}
-                                      className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
+                                      className="px-3 py-1 bg-ok text-ok-fg text-sm rounded hover:bg-ok disabled:opacity-50"
                                     >
                                       {t('docNursing.giveButton')}
                                     </button>
@@ -514,7 +514,7 @@ function NursingPage() {
                   <button
                     onClick={recordFluid}
                     disabled={saving}
-                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                    className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
                     {t('docNursing.recordButton')}

@@ -45,13 +45,13 @@ export default function CriticalAlertsBanner({
   const getSeverityColor = (severity: CriticalAlert['severity']) => {
     switch (severity) {
       case 'critical':
-        return 'bg-red-600';
+        return 'bg-critical';
       case 'high':
         return 'bg-orange-500';
       case 'medium':
-        return 'bg-yellow-500';
+        return 'bg-caution';
       default:
-        return 'bg-red-600';
+        return 'bg-critical';
     }
   };
 
@@ -65,14 +65,14 @@ export default function CriticalAlertsBanner({
   };
 
   return (
-    <div className="mb-6 bg-red-600 text-white rounded-xl overflow-hidden">
+    <div className="mb-6 bg-critical text-critical-fg rounded-xl overflow-hidden">
       {/* Header */}
       <div className="p-4 flex items-center justify-between border-b border-red-500">
         <div className="flex items-center gap-3">
           <Siren className="animate-pulse" size={24} />
           <div>
             <p className="font-bold">Critical Alerts Require Attention</p>
-            <p className="text-red-100 text-sm">
+            <p className="text-critical-fg text-sm">
               {unacknowledgedAlerts.length} unacknowledged alert{unacknowledgedAlerts.length !== 1 ? 's' : ''}
             </p>
           </div>
@@ -90,7 +90,7 @@ export default function CriticalAlertsBanner({
         {displayedAlerts.map((alert) => (
           <div 
             key={alert.id}
-            className="p-4 flex items-center justify-between hover:bg-red-700 transition-colors"
+            className="p-4 flex items-center justify-between hover:bg-critical transition-colors"
           >
             <div className="flex items-center gap-3">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center ${getSeverityColor(alert.severity)}`}>
@@ -98,20 +98,20 @@ export default function CriticalAlertsBanner({
               </div>
               <div>
                 <p className="font-medium">{alert.title}</p>
-                <p className="text-red-100 text-sm">
+                <p className="text-critical-fg text-sm">
                   {alert.patient_name && `${alert.patient_name} - `}
                   {alert.description}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-red-200 text-xs">
+              <span className="text-critical-fg text-xs">
                 {new Date(alert.timestamp).toLocaleTimeString()}
               </span>
               {onAcknowledge && (
                 <button
                   onClick={() => onAcknowledge(alert.id)}
-                  className="bg-red-700 hover:bg-red-800 p-1.5 rounded transition-colors"
+                  className="bg-critical hover:bg-red-800 p-1.5 rounded transition-colors"
                   title="Acknowledge"
                 >
                   <X size={16} />
@@ -124,10 +124,10 @@ export default function CriticalAlertsBanner({
 
       {/* Footer with remaining count */}
       {remainingCount > 0 && (
-        <div className="p-3 bg-red-700 text-center">
+        <div className="p-3 bg-critical text-center">
           <Link 
             to={viewAllLink}
-            className="text-red-100 text-sm hover:text-white transition-colors"
+            className="text-critical-fg text-sm hover:text-white transition-colors"
           >
             + {remainingCount} more alert{remainingCount !== 1 ? 's' : ''} →
           </Link>

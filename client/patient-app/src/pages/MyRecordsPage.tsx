@@ -338,11 +338,11 @@ export function MyRecordsPage() {
       case 'lab_result':
         return 'bg-info-light text-info';
       case 'imaging':
-        return 'bg-purple-100 text-purple-600';
+        return 'bg-surface-sunken text-content-secondary';
       case 'prescription':
         return 'bg-success-50 text-success-600';
       case 'consultation':
-        return 'bg-primary-50 text-primary-600';
+        return 'bg-brand-subtle text-brand';
       case 'discharge_summary':
         return 'bg-warning-50 text-warning-600';
       case 'vaccination':
@@ -552,7 +552,7 @@ export function MyRecordsPage() {
         {filteredRecords.map(record => (
           <div
             key={record.id}
-            className="patient-card hover:border-primary-200 border-2 border-transparent cursor-pointer"
+            className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
             onClick={() => setSelectedRecord(record)}
           >
             <div className="flex items-start gap-4">
@@ -720,7 +720,7 @@ export function MyRecordsPage() {
                 <button
                   onClick={() => handleDownload(selectedRecord)}
                   disabled={isDownloading === selectedRecord.id}
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-white rounded-xl hover:bg-primary-600 transition-colors disabled:opacity-50"
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary-500 text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
                 >
                   {isDownloading === selectedRecord.id ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />

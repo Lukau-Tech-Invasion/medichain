@@ -370,7 +370,7 @@ export function AppointmentsPage() {
       case 'cancelled': return 'bg-critical-subtle text-critical-subtle-fg';
       case 'declined': return 'bg-critical-subtle text-critical-subtle-fg';
       case 'checked_in': return 'bg-caution-subtle text-caution-subtle-fg';
-      case 'in_progress': return 'bg-indigo-100 text-indigo-700';
+      case 'in_progress': return 'bg-surface-sunken text-content-secondary';
       case 'no_show': return 'bg-critical-subtle text-critical-subtle-fg';
       default: return 'bg-surface-sunken text-content-secondary';
     }
@@ -436,10 +436,10 @@ export function AppointmentsPage() {
         <button
           type="button"
           onClick={() => void openBooking()}
-          className="patient-card flex items-center gap-3 p-4 hover:border-primary-200 border-2 border-transparent text-left focus:outline-none focus-visible:ring-2"
+          className="patient-card flex items-center gap-3 p-4 hover:border-brand border-2 border-transparent text-left focus:outline-none focus-visible:ring-2"
         >
-          <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-            <Plus className="w-6 h-6 text-primary-600" aria-hidden="true" />
+          <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center">
+            <Plus className="w-6 h-6 text-brand" aria-hidden="true" />
           </div>
           <div className="text-left">
             <div className="font-medium text-content">{t('appointments.bookNew')}</div>
@@ -450,7 +450,7 @@ export function AppointmentsPage() {
         <button
           type="button"
           onClick={() => navigate('/telehealth')}
-          className="patient-card flex items-center gap-3 p-4 hover:border-primary-200 border-2 border-transparent text-left focus:outline-none focus-visible:ring-2"
+          className="patient-card flex items-center gap-3 p-4 hover:border-brand border-2 border-transparent text-left focus:outline-none focus-visible:ring-2"
         >
           <div className="w-12 h-12 bg-info-light rounded-xl flex items-center justify-center">
             <Video className="w-6 h-6 text-info" aria-hidden="true" />
@@ -540,7 +540,7 @@ export function AppointmentsPage() {
                     aria-pressed={booking.time === slot}
                     className={`px-3 py-1.5 rounded-lg text-sm border ${
                       booking.time === slot
-                        ? 'bg-primary-500 text-white border-primary-500'
+                        ? 'bg-primary-500 text-white border-brand'
                         : 'border-border-strong text-content-secondary hover:bg-surface-sunken'
                     }`}
                   >
@@ -588,7 +588,7 @@ export function AppointmentsPage() {
             type="button"
             onClick={() => void submitBooking()}
             disabled={!bookingReady || bookingBusy}
-            className="w-full py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:opacity-50"
+            className="w-full py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:opacity-50"
           >
             {bookingBusy ? t('appointments.bookSubmitting') : t('appointments.bookSubmit')}
           </button>
@@ -624,7 +624,7 @@ export function AppointmentsPage() {
           onClick={() => setActiveTab('upcoming')}
           className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'upcoming'
-              ? 'border-primary-500 text-primary-600'
+              ? 'border-brand text-brand'
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -634,7 +634,7 @@ export function AppointmentsPage() {
           onClick={() => setActiveTab('past')}
           className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'past'
-              ? 'border-primary-500 text-primary-600'
+              ? 'border-brand text-brand'
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -649,12 +649,12 @@ export function AppointmentsPage() {
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                  appointment.type === 'telehealth' ? 'bg-info-light' : 'bg-primary-100'
+                  appointment.type === 'telehealth' ? 'bg-info-light' : 'bg-brand-subtle'
                 }`}>
                   {appointment.type === 'telehealth' ? (
-                    <Video className={`w-6 h-6 ${appointment.type === 'telehealth' ? 'text-info' : 'text-primary-600'}`} />
+                    <Video className={`w-6 h-6 ${appointment.type === 'telehealth' ? 'text-info' : 'text-brand'}`} />
                   ) : (
-                    <User className="w-6 h-6 text-primary-600" />
+                    <User className="w-6 h-6 text-brand" />
                   )}
                 </div>
                 <div>
@@ -718,7 +718,7 @@ export function AppointmentsPage() {
                       type="button"
                       onClick={() => void changeStatus(appointment.id, 'confirmed')}
                       disabled={busyId === appointment.id}
-                      className="flex-1 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors text-sm disabled:opacity-50"
+                      className="flex-1 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors text-sm disabled:opacity-50"
                     >
                       {t('appointments.confirm')}
                     </button>
@@ -787,7 +787,7 @@ export function AppointmentsPage() {
               {activeTab === 'upcoming' ? t('appointments.noUpcoming') : t('appointments.noPast')}
             </p>
             {activeTab === 'upcoming' && (
-              <button className="mt-4 px-6 py-2 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 transition-colors">
+              <button className="mt-4 px-6 py-2 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand transition-colors">
                 {t('appointments.bookAppointment')}
               </button>
             )}

@@ -149,8 +149,8 @@ export default function StaffSelect({
       case 'Doctor': return 'bg-notice-subtle text-notice-subtle-fg dark:bg-blue-900/50 dark:text-blue-300';
       case 'Nurse': return 'bg-ok-subtle text-ok-subtle-fg dark:bg-green-900/50 dark:text-green-300';
       case 'LabTechnician': return 'bg-caution-subtle text-caution-subtle-fg dark:bg-amber-900/50 dark:text-amber-300';
-      case 'Pharmacist': return 'bg-pink-100 text-pink-700 dark:bg-pink-900/50 dark:text-pink-300';
-      case 'Admin': return 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300';
+      case 'Pharmacist': return 'bg-surface-sunken text-content-secondary dark:bg-pink-900/50 dark:text-pink-300';
+      case 'Admin': return 'bg-surface-sunken text-content-secondary dark:bg-purple-900/50 dark:text-purple-300';
       default: return 'bg-surface-sunken text-content-secondary dark:bg-gray-800 dark:text-gray-300';
     }
   };
@@ -171,7 +171,7 @@ export default function StaffSelect({
               w-full flex items-center justify-between px-4 py-2.5 
               border border-border-strong dark:border-slate-600 rounded-lg 
               bg-surface dark:bg-slate-800 
-              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-primary-400'}
+              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-brand'}
             `}
             onClick={() => !disabled && setIsOpen(true)}
           >
@@ -221,7 +221,7 @@ export default function StaffSelect({
                 bg-surface dark:bg-slate-800 
                 text-content dark:text-white
                 placeholder-gray-400 dark:placeholder-gray-500
-                focus:ring-2 focus:ring-primary-500 focus:border-primary-500
+                focus:ring-2 focus:ring-primary-500 focus:border-brand
                 disabled:opacity-50 disabled:cursor-not-allowed
               `}
             />
@@ -259,7 +259,7 @@ export default function StaffSelect({
                   className={`
                     w-full flex items-center gap-3 px-3 py-2.5 text-left
                     hover:bg-surface-sunken dark:hover:bg-slate-700 transition-colors
-                    ${value === member.wallet_address || value === member.name ? 'bg-primary-50 dark:bg-primary-900/30' : ''}
+                    ${value === member.wallet_address || value === member.name ? 'bg-brand-subtle dark:bg-primary-900/30' : ''}
                   `}
                 >
                   <div className="w-8 h-8 bg-notice-subtle dark:bg-blue-900 rounded-full flex items-center justify-center flex-shrink-0">

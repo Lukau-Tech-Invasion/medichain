@@ -106,7 +106,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         <div
           className={`w-20 h-20 mx-auto mb-4 rounded-full flex items-center justify-center ${
             tapState === 'idle'
-              ? 'bg-primary-100'
+              ? 'bg-brand-subtle'
               : tapState === 'waiting'
               ? 'bg-caution-subtle nfc-tap-ready'
               : tapState === 'success'
@@ -114,7 +114,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               : 'bg-critical-subtle'
           }`}
         >
-          {tapState === 'idle' && <Smartphone className="text-primary-600" size={40} />}
+          {tapState === 'idle' && <Smartphone className="text-brand" size={40} />}
           {tapState === 'waiting' && <Wifi className="text-caution-subtle-fg animate-pulse" size={40} />}
           {tapState === 'success' && <CheckCircle className="text-ok-subtle-fg" size={40} />}
           {tapState === 'error' && <AlertCircle className="text-critical-subtle-fg" size={40} />}
@@ -144,7 +144,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           value={deviceId}
           onChange={(event) => setDeviceId(event.target.value)}
           placeholder="Registered device UUID"
-          className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
           disabled={tapState === 'waiting'}
         />
         <p className="mt-1 text-xs text-content-muted">Emergency access is bound to this enrolled device and a new professional work context.</p>
@@ -155,7 +155,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           onClick={() => setMode('nfc')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'nfc'
-              ? 'bg-primary-600 text-white'
+              ? 'bg-brand text-brand-fg'
               : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
           }`}
         >
@@ -166,7 +166,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           onClick={() => setMode('qr')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'qr'
-              ? 'bg-primary-600 text-white'
+              ? 'bg-brand text-brand-fg'
               : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
           }`}
         >
@@ -177,7 +177,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
           onClick={() => setMode('manual')}
           className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
             mode === 'manual'
-              ? 'bg-primary-600 text-white'
+              ? 'bg-brand text-brand-fg'
               : 'bg-surface-sunken text-content-muted hover:bg-surface-sunken'
           }`}
         >
@@ -200,12 +200,12 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
                 value={nfcTagId}
                 onChange={(e) => setNfcTagId(e.target.value)}
                 placeholder="NFC-XXXX-XXXX"
-                className="flex-1 px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                className="flex-1 px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand"
                 disabled={tapState === 'waiting'}
               />
               <button
                 onClick={useDemoTag}
-                className="px-4 py-2 text-sm text-primary-600 hover:bg-primary-50 rounded-lg"
+                className="px-4 py-2 text-sm text-brand-subtle-fg hover:bg-brand-subtle rounded-lg"
               >
                 Demo
               </button>
@@ -234,7 +234,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               value={qrInput}
               onChange={(e) => setQrInput(e.target.value)}
               placeholder='{"tag_id": "NFC-DEMO-001", ...}'
-              className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 h-24"
+              className="w-full px-4 py-2 border border-border-strong rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand h-24"
               disabled={tapState === 'waiting'}
             />
           </div>
@@ -249,7 +249,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
               }
             }}
             disabled={tapState === 'waiting'}
-            className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+            className="w-full py-3 bg-brand text-brand-fg font-semibold rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
           >
             Verify QR Code
           </button>
@@ -260,7 +260,7 @@ function NFCTapSimulator({ onEmergencyAccess }: NFCTapSimulatorProps = {}) {
         <div className="space-y-4">
           <p className="text-sm text-content-muted">
             For manual patient lookup, use the{' '}
-            <a href="/patients" className="text-primary-600 hover:underline">
+            <a href="/patients" className="text-brand hover:underline">
               Patient Search
             </a>{' '}
             page.

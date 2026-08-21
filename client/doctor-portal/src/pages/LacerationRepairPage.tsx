@@ -192,7 +192,7 @@ const LacerationRepairPage: React.FC = () => {
       'pending': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
       'in-progress': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', icon: <Activity className="w-3 h-3" /> },
       'completed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
-      'follow-up-needed': { bg: 'bg-orange-100', text: 'text-orange-700', icon: <AlertTriangle className="w-3 h-3" /> }
+      'follow-up-needed': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <AlertTriangle className="w-3 h-3" /> }
     };
     const s = styles[status];
     const statusLabels: Record<RepairStatus, string> = {
@@ -242,7 +242,7 @@ const LacerationRepairPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-pink-600 animate-spin mb-2" />
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
           <p className="text-content-muted">{t('docLaceration.loading')}</p>
         </div>
       )}
@@ -268,7 +268,7 @@ const LacerationRepairPage: React.FC = () => {
               <p className="text-xs text-content-muted">{t('docLaceration.totalRepairs')}</p>
             </div>
             <div className="bg-surface rounded-lg shadow p-4 text-center">
-              <p className="text-2xl font-bold text-orange-600">{followUpToday.length}</p>
+              <p className="text-2xl font-bold text-content-secondary">{followUpToday.length}</p>
               <p className="text-xs text-content-muted">{t('docLaceration.followUpToday')}</p>
             </div>
             <div className="bg-surface rounded-lg shadow p-4 text-center">
@@ -285,7 +285,7 @@ const LacerationRepairPage: React.FC = () => {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize ${
-                    activeTab === tab ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted'
+                    activeTab === tab ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'repairs' ? t('docLaceration.tabAllRepairs') : tab === 'new' ? t('docLaceration.tabNewRepair') : t('docLaceration.tabFollowUp')}
@@ -346,7 +346,7 @@ const LacerationRepairPage: React.FC = () => {
                 </div>
 
                 {repair.followUpDate && (
-                  <div className={`mt-2 text-xs ${new Date(repair.followUpDate) <= new Date() ? 'text-orange-600' : 'text-content-muted'}`}>
+                  <div className={`mt-2 text-xs ${new Date(repair.followUpDate) <= new Date() ? 'text-content-secondary' : 'text-content-muted'}`}>
                     <ClipboardCheck className="w-3 h-3 inline mr-1" />
                     {t('docLaceration.followUpLabel', { date: repair.followUpDate.toLocaleDateString() })}
                   </div>
@@ -564,7 +564,7 @@ const LacerationRepairPage: React.FC = () => {
                         {repair.closureMethod} - {repair.sutureCount} {repair.closureMethod === 'staples' ? t('docLaceration.unitStaples') : t('docLaceration.unitSutures')}
                       </p>
                     </div>
-                    <div className={`text-right ${isPast ? 'text-critical-subtle-fg' : isToday ? 'text-orange-600' : 'text-content-muted'}`}>
+                    <div className={`text-right ${isPast ? 'text-critical-subtle-fg' : isToday ? 'text-content-secondary' : 'text-content-muted'}`}>
                       <p className="font-semibold">{repair.followUpDate?.toLocaleDateString()}</p>
                       <p className="text-xs">{isToday ? t('docLaceration.today') : isPast ? t('docLaceration.overdue') : t('docLaceration.upcoming')}</p>
                     </div>
@@ -613,7 +613,7 @@ const LacerationRepairPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-pink-50 rounded-lg p-4">
+              <div className="bg-surface-sunken rounded-lg p-4">
                 <h4 className="font-medium mb-2">{t('docLaceration.repairDetails')}</h4>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div><span className="text-content-muted">{t('docLaceration.lblClosure')}</span> {selectedRepair.closureMethod}</div>

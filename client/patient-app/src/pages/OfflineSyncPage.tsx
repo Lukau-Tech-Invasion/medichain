@@ -377,7 +377,7 @@ const OfflineSyncPage: React.FC = () => {
           <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
           {isSyncing ? t('offlineSync.syncing') : t('offlineSync.syncNow')}
           {pendingCount > 0 && (
-            <span className="bg-yellow-500 text-white text-xs px-2 py-0.5 rounded-full">
+            <span className="bg-caution text-caution-fg text-xs px-2 py-0.5 rounded-full">
               {t('offlineSync.pendingCount', { count: pendingCount })}
             </span>
           )}
@@ -494,7 +494,7 @@ const OfflineSyncPage: React.FC = () => {
             <div className="w-full bg-surface-sunken rounded-full h-3">
               <div
                 className={`h-3 rounded-full transition-all ${
-                  storagePercent > 80 ? 'bg-red-500' : storagePercent > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                  storagePercent > 80 ? 'bg-red-500' : storagePercent > 60 ? 'bg-caution' : 'bg-green-500'
                 }`}
                 style={{ width: `${storagePercent}%` }}
               />

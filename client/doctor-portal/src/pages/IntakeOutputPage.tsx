@@ -232,12 +232,12 @@ const IntakeOutputPage: React.FC = () => {
   const getCategoryColor = (cat: IntakeType | OutputType): string => {
     const colors: Record<string, string> = {
       'oral': 'bg-notice-subtle text-notice-subtle-fg',
-      'iv': 'bg-cyan-100 text-cyan-700',
-      'tube-feeding': 'bg-purple-100 text-purple-700',
+      'iv': 'bg-surface-sunken text-content-secondary',
+      'tube-feeding': 'bg-surface-sunken text-content-secondary',
       'blood-products': 'bg-critical-subtle text-critical-subtle-fg',
       'urine': 'bg-caution-subtle text-caution-subtle-fg',
       'stool': 'bg-caution-subtle text-caution-subtle-fg',
-      'emesis': 'bg-orange-100 text-orange-700',
+      'emesis': 'bg-surface-sunken text-content-secondary',
       'drainage': 'bg-ok-subtle text-ok-subtle-fg',
       'blood-loss': 'bg-critical-subtle text-critical-subtle-fg'
     };
@@ -329,7 +329,7 @@ const IntakeOutputPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-cyan-600 animate-spin mb-2" />
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
           <p className="text-content-muted">{t('docIntakeOutput.loading')}</p>
         </div>
       )}
@@ -356,7 +356,7 @@ const IntakeOutputPage: React.FC = () => {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize ${
-                    activeTab === tab ? 'text-cyan-700 border-b-2 border-cyan-700' : 'text-content-muted'
+                    activeTab === tab ? 'text-content-secondary border-b-2 border-cyan-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'entry' ? t('docIntakeOutput.tabEntry') : tab === 'patients' ? t('docIntakeOutput.tabPatients') : t('docIntakeOutput.tabTrends')}

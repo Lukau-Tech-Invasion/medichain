@@ -79,10 +79,10 @@ function EmergencyAccessPage() {
               <div className="bg-surface rounded-xl shadow p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Clock className="text-primary-600" size={20} />
+                    <Clock className="text-brand" size={20} />
                     <span className="font-medium text-content-secondary">{t('docEmergencyAccess.timeRemaining')}</span>
                   </div>
-                  <span className="text-2xl font-mono font-bold text-primary-600">
+                  <span className="text-2xl font-mono font-bold text-brand">
                     {getTimeRemaining()}
                   </span>
                 </div>
@@ -103,7 +103,7 @@ function EmergencyAccessPage() {
                   {t('docEmergencyAccess.endAccess')}
                 </button>
                 <button
-                  className="flex-1 py-3 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium flex items-center justify-center gap-2"
+                  className="flex-1 py-3 px-4 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors font-medium flex items-center justify-center gap-2"
                 >
                   <FileText size={18} />
                   {t('docEmergencyAccess.viewRecords')}
@@ -119,8 +119,8 @@ function EmergencyAccessPage() {
               
               <div className="space-y-4">
                 <div className="flex items-start gap-4">
-                  <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="font-bold text-primary-600">1</span>
+                  <div className="w-8 h-8 bg-brand-subtle rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="font-bold text-brand">1</span>
                   </div>
                   <div>
                     <p className="font-medium text-content">{t('docEmergencyAccess.step1Title')}</p>
@@ -131,8 +131,8 @@ function EmergencyAccessPage() {
                 </div>
 
                 <div className="flex items-start gap-4">
-                  <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="font-bold text-primary-600">2</span>
+                  <div className="w-8 h-8 bg-brand-subtle rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="font-bold text-brand">2</span>
                   </div>
                   <div>
                     <p className="font-medium text-content">{t('docEmergencyAccess.step2Title')}</p>
@@ -143,8 +143,8 @@ function EmergencyAccessPage() {
                 </div>
 
                 <div className="flex items-start gap-4">
-                  <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="font-bold text-primary-600">3</span>
+                  <div className="w-8 h-8 bg-brand-subtle rounded-full flex items-center justify-center flex-shrink-0">
+                    <span className="font-bold text-brand">3</span>
                   </div>
                   <div>
                     <p className="font-medium text-content">{t('docEmergencyAccess.step3Title')}</p>

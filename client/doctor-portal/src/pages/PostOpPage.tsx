@@ -193,7 +193,7 @@ const PostOpPage: React.FC = () => {
               key={tab}
               onClick={() => setActiveTab(tab as 'assessment' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-violet-600 border-b-2 border-violet-600'
+                ? 'text-content-secondary border-b-2 border-violet-600'
                 : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'assessment' ? t('docPostOp.tabAssessment') : t('docPostOp.tabHistory')}

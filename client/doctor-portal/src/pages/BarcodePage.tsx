@@ -461,7 +461,7 @@ const BarcodePage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-red-400" />
                 <span className="text-red-300 font-medium">{t('docBarcode.allergies')}</span>
-                <span className="text-red-200">{currentPatient.allergies.join(', ')}</span>
+                <span className="text-critical-fg">{currentPatient.allergies.join(', ')}</span>
               </div>
             </div>
           )}
@@ -488,7 +488,7 @@ const BarcodePage: React.FC = () => {
                   <div className="flex items-start gap-3">
                     <div className={`p-2 rounded-full ${
                       scan.type === 'patient' ? 'bg-notice-subtle text-notice-subtle-fg' :
-                      scan.type === 'medication' ? 'bg-purple-100 text-purple-600' :
+                      scan.type === 'medication' ? 'bg-surface-sunken text-content-secondary' :
                       scan.type === 'equipment' ? 'bg-surface-sunken text-content-muted' :
                       'bg-ok-subtle text-ok-subtle-fg'
                     }`}>

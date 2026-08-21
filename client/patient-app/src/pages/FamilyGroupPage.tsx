@@ -122,13 +122,13 @@ export function FamilyGroupPage() {
             value={newGroupName}
             onChange={e => setNewGroupName(e.target.value)}
             placeholder={t('family.groupNamePlaceholder')}
-            className="flex-1 border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+            className="flex-1 border border-border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             required
           />
           <button
             type="submit"
             disabled={isCreating || !newGroupName.trim()}
-            className="bg-primary-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-600 disabled:opacity-50 flex items-center gap-1"
+            className="bg-primary-500 text-brand-fg px-4 py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:opacity-50 flex items-center gap-1"
           >
             {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             {t('family.create')}
@@ -156,8 +156,8 @@ export function FamilyGroupPage() {
                 onClick={() => setExpandedGroup(expandedGroup === group.group_id ? null : group.group_id)}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center">
-                    <Users className="w-5 h-5 text-primary-600" />
+                  <div className="w-10 h-10 bg-brand-subtle rounded-xl flex items-center justify-center">
+                    <Users className="w-5 h-5 text-brand" />
                   </div>
                   <div>
                     <h3 className="font-semibold text-content">{group.group_name}</h3>
@@ -199,7 +199,7 @@ export function FamilyGroupPage() {
                   {addMemberGroupId !== group.group_id ? (
                     <button
                       onClick={() => setAddMemberGroupId(group.group_id)}
-                      className="w-full py-2 border-2 border-dashed border-border rounded-lg text-sm text-content-muted hover:border-primary-300 hover:text-primary-600 transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-2 border-2 border-dashed border-border rounded-lg text-sm text-content-muted hover:border-brand hover:text-brand transition-colors flex items-center justify-center gap-2"
                     >
                       <UserPlus className="w-4 h-4" />
                       {t('family.addMember')}
@@ -228,7 +228,7 @@ export function FamilyGroupPage() {
                         <button
                           type="submit"
                           disabled={isAddingMember || !newMemberHealthId.trim()}
-                          className="flex-1 bg-primary-500 text-white py-2 rounded-lg text-sm font-medium hover:bg-primary-600 disabled:opacity-50 flex items-center justify-center gap-1"
+                          className="flex-1 bg-primary-500 text-brand-fg py-2 rounded-lg text-sm font-medium hover:bg-brand disabled:opacity-50 flex items-center justify-center gap-1"
                         >
                           {isAddingMember ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                           {t('common.add')}

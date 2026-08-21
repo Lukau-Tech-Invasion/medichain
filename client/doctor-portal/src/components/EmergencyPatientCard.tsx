@@ -17,8 +17,8 @@ const BLOOD_TYPE_COLORS: Record<string, string> = {
   'A-': 'bg-blue-200 text-notice-subtle-fg',
   'B+': 'bg-ok-subtle text-ok-subtle-fg',
   'B-': 'bg-green-200 text-ok-subtle-fg',
-  'AB+': 'bg-purple-100 text-purple-800',
-  'AB-': 'bg-purple-200 text-purple-900',
+  'AB+': 'bg-surface-sunken text-content-secondary',
+  'AB-': 'bg-purple-200 text-content-secondary',
 };
 
 /**
@@ -188,7 +188,7 @@ function EmergencyPatientCard({ patient, accessId, showFullDetails = true }: Eme
                   </div>
                   <a
                     href={`tel:${contact.phone}`}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-green-500 text-ok-fg rounded-lg hover:bg-ok transition-colors"
                   >
                     <Phone size={14} aria-hidden="true" /> {contact.phone}
                   </a>

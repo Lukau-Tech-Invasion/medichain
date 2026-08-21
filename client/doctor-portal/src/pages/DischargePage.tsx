@@ -370,7 +370,7 @@ function DischargePage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-content flex items-center gap-3">
-            <LogOut className="text-primary-600" />
+            <LogOut className="text-brand" />
             {t('docDischarge.title')}
           </h1>
           <p className="text-content-muted mt-1">
@@ -384,7 +384,7 @@ function DischargePage() {
           </div>
           <button
             onClick={() => setShowForm(true)}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 flex items-center gap-2"
+            className="bg-brand text-brand-fg px-4 py-2 rounded-lg hover:bg-brand flex items-center gap-2"
           >
             <FileText size={20} />
             {t('docDischarge.newDischargeBtn')}
@@ -452,13 +452,13 @@ function DischargePage() {
       <div className="flex gap-4 mb-6">
         <button
           onClick={() => setActiveTab('pending')}
-          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'pending' ? 'bg-primary-600 text-white' : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'}`}
+          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'pending' ? 'bg-brand text-brand-fg' : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'}`}
         >
           {t('docDischarge.tabPending', { count: pendingDischarges.length })}
         </button>
         <button
           onClick={() => setActiveTab('completed')}
-          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'completed' ? 'bg-primary-600 text-white' : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'}`}
+          className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'completed' ? 'bg-brand text-brand-fg' : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'}`}
         >
           {t('docDischarge.tabCompleted', { count: completedDischarges.length })}
         </button>
@@ -477,8 +477,8 @@ function DischargePage() {
               <div className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-                      <User className="text-primary-600" size={24} />
+                    <div className="w-12 h-12 bg-brand-subtle rounded-full flex items-center justify-center">
+                      <User className="text-brand" size={24} />
                     </div>
                     <div>
                       <h3 className="font-bold text-content">{discharge.patient_name}</h3>
@@ -492,7 +492,7 @@ function DischargePage() {
                     {discharge.status === 'pending_approval' && (
                       <button
                         onClick={() => approveDischarge(discharge.id)}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                        className="bg-ok text-ok-fg px-4 py-2 rounded-lg hover:bg-ok flex items-center gap-2"
                       >
                         <CheckCircle size={16} />
                         {t('docDischarge.approveBtn')}
@@ -541,14 +541,14 @@ function DischargePage() {
 
                 {/* Follow-ups */}
                 {discharge.follow_up_appointments.length > 0 && (
-                  <div className="mt-4 p-3 bg-purple-50 rounded-lg">
+                  <div className="mt-4 p-3 bg-surface-sunken rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
-                      <Calendar className="text-purple-600" size={16} />
-                      <span className="font-medium text-purple-900">{t('docDischarge.followUpAppointmentsTitle')}</span>
+                      <Calendar className="text-content-secondary" size={16} />
+                      <span className="font-medium text-content-secondary">{t('docDischarge.followUpAppointmentsTitle')}</span>
                     </div>
                     <div className="space-y-1">
                       {discharge.follow_up_appointments.map((apt, i) => (
-                        <p key={i} className="text-sm text-purple-800">
+                        <p key={i} className="text-sm text-content-secondary">
                           {t('docDischarge.followUpLine', { specialty: apt.specialty, provider: apt.provider, date: apt.date, time: apt.time })}
                         </p>
                       ))}
@@ -577,12 +577,12 @@ function DischargePage() {
                     <button
                       onClick={() => handleExportPdf(discharge)}
                       disabled={exportingId === discharge.id}
-                      className="text-primary-600 hover:text-primary-700 flex items-center gap-1 disabled:opacity-50"
+                      className="text-brand hover:text-brand flex items-center gap-1 disabled:opacity-50"
                     >
                       <Download size={16} />
                       {exportingId === discharge.id ? t('docDischarge.exportingPdf') : t('docDischarge.exportPdf')}
                     </button>
-                    <Link to={`/patients/${discharge.patient_id}`} className="text-primary-600 hover:text-primary-700 flex items-center gap-1">
+                    <Link to={`/patients/${discharge.patient_id}`} className="text-brand hover:text-brand flex items-center gap-1">
                       {t('docDischarge.viewPatientLink')} <ChevronRight size={16} />
                     </Link>
                   </div>
@@ -687,7 +687,7 @@ function DischargePage() {
                       key={condition}
                       type="button"
                       onClick={() => setFormData({ ...formData, discharge_condition: condition })}
-                      className={`p-3 rounded-lg border capitalize ${formData.discharge_condition === condition ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-border hover:bg-surface-sunken'}`}
+                      className={`p-3 rounded-lg border capitalize ${formData.discharge_condition === condition ? 'border-brand bg-brand-subtle text-brand-subtle-fg' : 'border-border hover:bg-surface-sunken'}`}
                     >
                       {t(`docDischarge.condition_${condition}`)}
                     </button>
@@ -701,7 +701,7 @@ function DischargePage() {
                   <label className="text-sm font-medium text-content-secondary flex items-center gap-1">
                     <Pill size={16} /> {t('docDischarge.dischargeMedicationsLabel')}
                   </label>
-                  <button type="button" onClick={addMedication} className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
+                  <button type="button" onClick={addMedication} className="text-brand hover:text-brand text-sm flex items-center gap-1">
                     {t('docDischarge.addMedicationBtn')}
                   </button>
                 </div>
@@ -768,7 +768,7 @@ function DischargePage() {
                   <label className="text-sm font-medium text-content-secondary flex items-center gap-1">
                     <Calendar size={16} /> {t('docDischarge.followUpAppointmentsLabel')}
                   </label>
-                  <button type="button" onClick={addFollowUp} className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
+                  <button type="button" onClick={addFollowUp} className="text-brand hover:text-brand text-sm flex items-center gap-1">
                     {t('docDischarge.addAppointmentBtn')}
                   </button>
                 </div>
@@ -869,7 +869,7 @@ function DischargePage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-2"
+                  className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:opacity-50 flex items-center gap-2"
                 >
                   {submitting ? <Loader2 className="animate-spin" size={16} /> : <FileText size={16} />}
                   {t('docDischarge.createSummaryBtn')}

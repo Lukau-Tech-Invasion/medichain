@@ -291,11 +291,11 @@ const BloodBankPage: React.FC = () => {
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       ordered: 'bg-notice-subtle text-notice-subtle-fg',
-      'type-screen': 'bg-purple-100 text-purple-800',
+      'type-screen': 'bg-surface-sunken text-content-secondary',
       crossmatch: 'bg-caution-subtle text-caution-subtle-fg',
       ready: 'bg-ok-subtle text-ok-subtle-fg',
-      issued: 'bg-cyan-100 text-cyan-800',
-      transfusing: 'bg-indigo-100 text-indigo-800',
+      issued: 'bg-surface-sunken text-content-secondary',
+      transfusing: 'bg-surface-sunken text-content-secondary',
       completed: 'bg-surface-sunken text-content-secondary',
       cancelled: 'bg-critical-subtle text-critical-subtle-fg'
     };
@@ -304,7 +304,7 @@ const BloodBankPage: React.FC = () => {
 
   const getPriorityBadge = (priority: string) => {
     const styles: Record<string, string> = {
-      emergency: 'bg-red-600 text-white',
+      emergency: 'bg-critical text-white',
       urgent: 'bg-orange-500 text-white',
       routine: 'bg-gray-500 text-white'
     };
@@ -320,11 +320,11 @@ const BloodBankPage: React.FC = () => {
             <Droplets className="h-8 w-8" />
             <div>
               <h1 className="text-3xl font-bold">{t('docBloodBank.title')}</h1>
-              <p className="text-red-100">{t('docBloodBank.subtitle')}</p>
+              <p className="text-critical-fg">{t('docBloodBank.subtitle')}</p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-sm text-red-100">{t('docBloodBank.loggedInAs')}</p>
+            <p className="text-sm text-critical-fg">{t('docBloodBank.loggedInAs')}</p>
             <p className="font-semibold">{user?.userId || 'Unknown'}</p>
           </div>
         </div>
@@ -612,7 +612,7 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center"
+                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docBloodBank.submitOrderBtn')}
@@ -914,7 +914,7 @@ const BloodBankPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 flex items-center"
+                className="px-4 py-2 bg-critical text-critical-fg rounded-md hover:bg-critical flex items-center"
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
                 {endTime ? t('docBloodBank.completeTransfusionBtn') : t('docBloodBank.startTransfusionBtn')}

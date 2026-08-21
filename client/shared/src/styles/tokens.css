@@ -47,8 +47,14 @@
   --text-inverse: 255 255 255;
 
   /* Brand */
-  --primary: 37 99 235;
-  --primary-hover: 29 78 216;
+  /* blue-700, not blue-600. `text-brand` is routinely rendered on
+     `--primary-subtle-bg` (role chips, avatar initials, the active nav item),
+     and blue-600 on that tint measures 4.24:1 -- below AA. blue-700 measures
+     5.49:1 there and 6.70:1 on a white surface, so the brand colour is safe on
+     both without the caller having to know which background it landed on.
+     Hover moves down a step to keep the two visibly distinct. */
+  --primary: 29 78 216;
+  --primary-hover: 30 64 175;
   --primary-fg: 255 255 255;
   --primary-subtle-bg: 219 234 254;
   --primary-subtle-fg: 30 58 138; /* 8.6:1 on its subtle bg */
@@ -110,8 +116,10 @@
   --text-muted: 156 163 175; /* 5.4:1 */
   --text-inverse: 15 23 42;
 
-  --primary: 96 165 250;
-  --primary-hover: 147 197 253;
+  /* blue-300, not blue-400: same pairing, same reasoning. blue-400 on the dark
+     subtle tint measures 4.07:1; blue-300 measures 5.74:1. */
+  --primary: 147 197 253;
+  --primary-hover: 191 219 254;
   --primary-fg: 15 23 42; /* dark text on a light-blue button */
   --primary-subtle-bg: 30 58 138;
   --primary-subtle-fg: 219 234 254;

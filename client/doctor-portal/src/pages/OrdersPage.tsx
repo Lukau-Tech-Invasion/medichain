@@ -31,7 +31,7 @@ const ORDER_TYPES = [
 
 const PRIORITIES = [
   { value: 'stat', label: 'STAT', color: 'bg-critical-subtle text-critical-subtle-fg' },
-  { value: 'urgent', label: 'Urgent', color: 'bg-orange-100 text-orange-800' },
+  { value: 'urgent', label: 'Urgent', color: 'bg-surface-sunken text-content-secondary' },
   { value: 'routine', label: 'Routine', color: 'bg-notice-subtle text-notice-subtle-fg' },
 ];
 
@@ -259,7 +259,7 @@ function OrdersPage() {
         </div>
         <button
           onClick={() => setShowNewOrder(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          className="flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand"
         >
           <Plus size={20} />
           {t('docOrders.newOrder')}
@@ -502,7 +502,7 @@ function OrdersPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                  className="px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand"
                 >
                   {t('docOrders.createOrder')}
                 </button>

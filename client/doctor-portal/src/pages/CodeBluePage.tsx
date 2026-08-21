@@ -237,8 +237,8 @@ export default function CodeBluePage() {
                 <button
                   onClick={startCode}
                   disabled={!selectedPatient}
-                  className={`flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white ${
-                    selectedPatient ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-400 cursor-not-allowed'
+                  className={`flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-ok-fg ${
+                    selectedPatient ? 'bg-ok hover:bg-ok' : 'bg-gray-400 cursor-not-allowed'
                   }`}
                 >
                   <Play className="h-5 w-5 mr-2" />
@@ -247,7 +247,7 @@ export default function CodeBluePage() {
               ) : (
                 <button
                   onClick={stopCode}
-                  className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                  className="flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-critical-fg bg-critical hover:bg-critical"
                 >
                   <Square className="h-5 w-5 mr-2" />
                   {t('docCodeBlue.stopCode')}
@@ -281,9 +281,9 @@ export default function CodeBluePage() {
               <button
                 onClick={() => logEvent('Medication: Epinephrine 1mg')}
                 disabled={!isActive}
-                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-purple-50 disabled:opacity-50"
+                className="flex flex-col items-center justify-center p-4 border-2 border-purple-100 rounded-lg hover:bg-surface-sunken disabled:opacity-50"
               >
-                <Syringe className="h-8 w-8 text-purple-600 mb-2" />
+                <Syringe className="h-8 w-8 text-content-secondary mb-2" />
                 <span className="text-sm font-medium text-content">{t('docCodeBlue.epi')}</span>
               </button>
 

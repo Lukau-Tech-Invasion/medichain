@@ -186,7 +186,7 @@ export function LoginPage() {
                     value={walletAddress}
                     onChange={(e) => setWalletAddress(e.target.value)}
                     placeholder={t('auth.walletPlaceholder')}
-                    className="block w-full pl-12 pr-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors font-mono text-sm"
+                    className="block w-full pl-12 pr-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand transition-colors font-mono text-sm"
                     disabled={isLoading}
                   />
                 </div>
@@ -199,7 +199,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-primary-500 text-white py-3 px-4 rounded-xl font-medium hover:bg-primary-600 focus:ring-4 focus:ring-primary-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full bg-primary-500 text-brand-fg py-3 px-4 rounded-xl font-medium hover:bg-brand focus:ring-4 focus:ring-primary-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -238,11 +238,11 @@ export function LoginPage() {
                         key={patient.walletAddress}
                         onClick={() => handleDemoPatientLogin(patient)}
                         disabled={isLoading}
-                        className="p-3 border border-teal-200 rounded-xl bg-teal-50 hover:bg-teal-100 transition-all text-center disabled:opacity-50"
+                        className="p-3 border border-teal-200 rounded-xl bg-surface-sunken hover:bg-surface-sunken transition-all text-center disabled:opacity-50"
                       >
-                        <Icon className="mx-auto mb-1 text-teal-700" size={24} aria-hidden="true" />
+                        <Icon className="mx-auto mb-1 text-content-secondary" size={24} aria-hidden="true" />
                         <span className="block text-xs font-semibold text-content-secondary truncate">{patient.name.split(' ')[0]}</span>
-                        <span className="block text-xs text-teal-600">{patient.condition}</span>
+                        <span className="block text-xs text-content-secondary">{patient.condition}</span>
                       </button>
                     );
                   })}

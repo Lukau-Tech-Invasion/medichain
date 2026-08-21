@@ -600,7 +600,7 @@ export default function IVSitePage() {
                                     <span className="text-xs px-2 py-1 rounded bg-notice-subtle text-notice-subtle-fg">
                                       {site.gauge}
                                     </span>
-                                    <span className="text-xs px-2 py-1 rounded bg-purple-100 text-purple-700">
+                                    <span className="text-xs px-2 py-1 rounded bg-surface-sunken text-content-secondary">
                                       {catheterTypes[site.catheterType]}
                                     </span>
                                   </div>
@@ -866,9 +866,9 @@ export default function IVSitePage() {
                                       onClick={() => toggleCondition(key)}
                                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                         newAssessment.conditions?.includes(key)
-                                          ? severity === 'normal' ? 'bg-green-600 text-white' :
-                                            severity === 'warning' ? 'bg-yellow-500 text-white' :
-                                            'bg-red-600 text-white'
+                                          ? severity === 'normal' ? 'bg-ok text-critical-fg' :
+                                            severity === 'warning' ? 'bg-caution text-critical-fg' :
+                                            'bg-critical text-critical-fg'
                                           : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                                       }`}
                                     >

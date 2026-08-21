@@ -236,7 +236,7 @@ export function MedicalIdPage() {
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
       case 'severe': return 'bg-critical-subtle text-critical-subtle-fg border-critical';
-      case 'moderate': return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'moderate': return 'bg-surface-sunken text-content-secondary border-orange-200';
       case 'mild': return 'bg-caution-subtle text-caution-subtle-fg border-caution';
       default: return 'bg-surface-sunken text-content-secondary border-border';
     }
@@ -324,7 +324,7 @@ export function MedicalIdPage() {
           action={
             <button
               onClick={() => loadMedicalId()}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-brand-fg rounded-lg text-sm font-medium hover:bg-brand transition-colors"
             >
               {t('medicalId.retryButton')}
             </button>
@@ -410,7 +410,7 @@ export function MedicalIdPage() {
               <h2 className="text-2xl font-bold">
                 {data.name ?? t('medicalId.nameUnavailable')}
               </h2>
-              <div className="flex items-center gap-2 text-red-100">
+              <div className="flex items-center gap-2 text-critical-fg">
                 <Calendar className="w-4 h-4" />
                 <span>
                   {data.date_of_birth
@@ -617,7 +617,7 @@ export function MedicalIdPage() {
               <Shield className="w-5 h-5 text-indigo-500" />
               <h3 className="font-bold text-content">{t('medicalId.insuranceTitle')}</h3>
             </div>
-            <div className="bg-indigo-50 p-3 rounded-lg">
+            <div className="bg-surface-sunken p-3 rounded-lg">
               <p className="font-medium text-content">{data.insurance.provider}</p>
               <p className="text-sm text-content-muted">{t('medicalId.policyPrefix', { number: data.insurance.policy_number })}</p>
             </div>
@@ -653,7 +653,7 @@ export function MedicalIdPage() {
           href={`/api/medical-id/${data.patient_id}/qr`}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-medium hover:bg-primary-600 transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary-500 text-brand-fg rounded-lg text-sm font-medium hover:bg-brand transition-colors"
         >
           <Download className="w-4 h-4" />
           {t('medicalId.downloadQrCode')}

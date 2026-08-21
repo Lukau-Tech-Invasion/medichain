@@ -261,7 +261,7 @@ function VitalSignsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-content flex items-center gap-3">
-            <Activity className="text-primary-600" size={28} />
+            <Activity className="text-brand" size={28} />
             {t('docVitalSigns.title')}
           </h1>
           <p className="text-content-muted mt-1">{t('docVitalSigns.subtitle')}</p>
@@ -290,7 +290,7 @@ function VitalSignsPage() {
           {selectedPatientId && (
             <button
               onClick={() => setShowForm(!showForm)}
-              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 flex items-center gap-2"
+              className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand flex items-center gap-2"
             >
               <Plus size={20} />
               {t('docVitalSigns.recordVitalsButton')}
@@ -475,7 +475,7 @@ function VitalSignsPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand disabled:opacity-50 flex items-center gap-2"
               >
                 {submitting ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
                 {t('docVitalSigns.saveVitalsButton')}
@@ -654,7 +654,7 @@ function VitalSignsPage() {
           <p className="text-content-muted">{t('docVitalSigns.noVitalsRecorded')}</p>
           <button
             onClick={() => setShowForm(true)}
-            className="mt-4 px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+            className="mt-4 px-6 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand"
           >
             {t('docVitalSigns.recordFirstVitalsButton')}
           </button>

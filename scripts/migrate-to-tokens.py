@@ -113,7 +113,90 @@ RULES: list[tuple[str, str, str]] = [
     (r"\bbg-(?:blue|sky)-(?:50|100)\b", "bg-notice-subtle", "informational tint"),
     (r"\btext-(?:blue|sky)-(?:600|700|800|900)\b", "text-notice-subtle-fg", "informational copy"),
     (r"\bborder-(?:blue|sky)-(?:200|300|400)\b", "border-notice", "informational edge"),
+
+    # --- Filled status ------------------------------------------------------
+    # A solid status banner needs the FILLED foreground, not a pale tint of the
+    # same hue. `text-red-100` on `bg-red-600` measures 3.95:1 — below AA on the
+    # "1 critical values, 0 code blues active" banner, which is the one line on
+    # the dashboard that exists to be read in a hurry.
+    (r"\bbg-(?:red|rose)-(?:600|700)\b", "bg-critical", "solid danger"),
+    (r"\btext-(?:red|rose)-(?:50|100|200)\b", "text-critical-fg", "on solid danger"),
+    (r"\bbg-(?:green|emerald)-(?:600|700)\b", "bg-ok", "solid success"),
+    (r"\bbg-(?:yellow|amber)-(?:500|600)\b", "bg-caution", "solid warning"),
+
+    # --- Legacy brand palette ----------------------------------------------
+    # `primary-*` predates the token system and has no dark value, so a link in
+    # `text-primary-600` sits at 2.83:1 on a dark surface and 4.24:1 on its own
+    # pale blue chip. Both below AA.
+    (r"\btext-primary-(?:600|700|800)\b", "text-brand", "brand text"),
+    (r"\bbg-primary-(?:600|700)\b", "bg-brand", "brand fill"),
+    (r"\bbg-primary-(?:50|100)\b", "bg-brand-subtle", "brand tint"),
+    (r"\btext-primary-(?:50|100|200)\b", "text-brand-fg", "on brand fill"),
+    (r"\bborder-primary-(?:200|300|400|500|600)\b", "border-brand", "brand edge"),
+
+    # --- Remaining decorative tints ----------------------------------------
+    # THE HAZARD OF A PARTIAL MIGRATION. Once text becomes `text-content`, it
+    # flips light in dark mode — but a hardcoded `bg-purple-50` underneath it
+    # does not. That pairing measured **1.03:1**: near-white on near-white,
+    # invisible, and it did not exist before the migration.
+    #
+    # These hues carry no status meaning here; they are decorative card tints.
+    # `surface-sunken` is the honest equivalent and it inverts correctly.
+    (r"\bbg-(?:purple|violet|indigo|fuchsia|pink|teal|cyan|orange|lime)-(?:50|100)\b",
+     "bg-surface-sunken", "decorative tint that must invert with the theme"),
+
+    # Decorative *text* hues, same reasoning. `text-purple-800` is a fixed dark
+    # purple: 2.05:1 on the dark page background. These headings carry no status
+    # meaning, so they are ordinary secondary copy.
+    (r"\btext-(?:purple|violet|indigo|fuchsia|pink|teal|cyan|orange|lime)-(?:600|700|800|900)\b",
+     "text-content-secondary", "decorative heading colour"),
 ]
+
+# ---------------------------------------------------------------------------
+# Co-occurrence fixes: the right foreground depends on the background named in
+# the SAME class string, so these cannot be a plain find-and-replace.
+#
+# Two real failures motivate this:
+#   * `bg-critical text-white` measures 2.77:1 in dark mode. `--danger` is a
+#     lighter red there (so it reads as red on a dark page), and white on light
+#     red is worse than white on dark red. `critical-fg` is defined per theme
+#     precisely so the caller does not have to know that.
+#   * `bg-brand-subtle text-brand` measures 4.24:1 — the brand colour on its own
+#     tint is *below AA*. `brand-subtle-fg` exists for this pairing and measures
+#     8.6:1.
+# ---------------------------------------------------------------------------
+PAIR_FIXES: list[tuple[str, str, str, str]] = [
+    ("bg-critical", "text-white", "text-critical-fg", "white on a light-red dark-mode fill"),
+    ("bg-ok", "text-white", "text-ok-fg", "white on a light-green dark-mode fill"),
+    ("bg-caution", "text-white", "text-caution-fg", "white on an amber fill"),
+    ("bg-brand", "text-white", "text-brand-fg", "white on the brand fill"),
+    ("bg-brand-subtle", "text-brand", "text-brand-subtle-fg", "brand colour on its own tint"),
+    ("bg-notice-subtle", "text-brand", "text-notice-subtle-fg", "brand colour on an info tint"),
+]
+
+
+def apply_pair_fixes(text: str, counts: Counter) -> str:
+    """Rewrite a foreground when the background in the same class string demands it."""
+    def fix_attr(match: re.Match[str]) -> str:
+        body = match.group(0)
+        for background, wrong_fg, right_fg, _why in PAIR_FIXES:
+            # `\b` is NOT sufficient here. A hyphen is a non-word character, so
+            # `\btext-brand\b` happily matches the `text-brand` *prefix* of
+            # `text-brand-subtle-fg` — which rewrote the already-correct token
+            # into `text-brand-subtle-fg-subtle-fg` and made the migration
+            # non-convergent (17 replacements reported on every run, corrupting
+            # a little more each time). The trailing lookahead requires the
+            # class name to actually end.
+            end = r"(?![\w-])"
+            if re.search(rf"\b{re.escape(background)}{end}", body) and re.search(
+                rf"\b{re.escape(wrong_fg)}{end}", body
+            ):
+                body = re.sub(rf"\b{re.escape(wrong_fg)}{end}", right_fg, body)
+                counts[f"{wrong_fg} -> {right_fg} (on {background})"] += 1
+        return body
+
+    # Only inside className/class attribute values, so prose is untouched.
+    return re.sub(r'(?:className|class)\s*=\s*(?:"[^"]*"|\'[^\']*\'|\{`[^`]*`\})', fix_attr, text)
 
 COMPILED = [(re.compile(p), r, why) for p, r, why in RULES]
 
@@ -185,6 +268,8 @@ def migrate(text: str) -> tuple[str, Counter]:
     for pattern, replacement, _why in COMPILED:
         skip = comment_spans(text)
         text = substitute(pattern, replacement, text)
+    # After the token names exist, resolve the pairings that depend on them.
+    text = apply_pair_fixes(text, counts)
     return text, counts
 
 

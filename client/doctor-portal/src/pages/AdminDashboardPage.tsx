@@ -235,7 +235,7 @@ export default function AdminDashboardPage() {
   const getAccessTypeColor = (kind: 'emergency' | 'fail' | 'normal') => {
     switch (kind) {
       case 'emergency':
-        return 'bg-orange-100 text-orange-700';
+        return 'bg-surface-sunken text-content-secondary';
       case 'fail':
         return 'bg-critical-subtle text-critical-subtle-fg';
       default:
@@ -259,7 +259,7 @@ export default function AdminDashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface-sunken">
         <div className="text-center">
-          <Loader2 className="mx-auto animate-spin text-purple-600" size={48} />
+          <Loader2 className="mx-auto animate-spin text-content-secondary" size={48} />
           <p className="mt-4 text-content-muted">{t('docAdmin.loading')}</p>
         </div>
       </div>
@@ -285,7 +285,7 @@ export default function AdminDashboardPage() {
           <p className="text-content-muted">{t('docAdmin.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
+          <span className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm font-medium">
             <Shield size={14} className="inline mr-1" />
             {t('docAdmin.adminBadge')}
           </span>
@@ -330,7 +330,7 @@ export default function AdminDashboardPage() {
                       system.status === 'online'
                         ? 'bg-green-500'
                         : system.status === 'degraded'
-                        ? 'bg-amber-500'
+                        ? 'bg-caution'
                         : 'bg-red-500'
                     }`}
                     aria-hidden="true"
@@ -356,7 +356,7 @@ export default function AdminDashboardPage() {
           icon={<Users size={24} />}
           label={t('docAdmin.totalUsers')}
           value={data.system_stats?.total_users || 0}
-          color="bg-purple-100"
+          color="bg-surface-sunken"
           onClick={() => navigate('/user-management')}
         />
         <StatCard
@@ -393,7 +393,7 @@ export default function AdminDashboardPage() {
             {[
               { role: t('docAdmin.roleDoctors'), count: data.system_stats?.doctors || 0, color: 'bg-blue-500' },
               { role: t('docAdmin.roleNurses'), count: data.system_stats?.nurses || 0, color: 'bg-green-500' },
-              { role: t('docAdmin.roleLabTechs'), count: data.system_stats?.lab_technicians || 0, color: 'bg-amber-500' },
+              { role: t('docAdmin.roleLabTechs'), count: data.system_stats?.lab_technicians || 0, color: 'bg-caution' },
               { role: t('docAdmin.rolePharmacists'), count: data.system_stats?.pharmacists || 0, color: 'bg-pink-500' },
               { role: t('docAdmin.rolePatients'), count: data.system_stats?.patient_users || 0, color: 'bg-purple-500' },
             ].map((item) => (
@@ -415,7 +415,7 @@ export default function AdminDashboardPage() {
           </div>
           <button
             onClick={() => navigate('/user-management')}
-            className="mt-4 w-full py-2 text-sm text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded transition-colors"
+            className="mt-4 w-full py-2 text-sm text-content-secondary hover:text-content-secondary hover:bg-surface-sunken rounded transition-colors"
           >
             {t('docAdmin.manageUsers')}
           </button>
@@ -430,7 +430,7 @@ export default function AdminDashboardPage() {
           <div className="grid grid-cols-2 gap-4">
             {[
               { type: t('docAdmin.evtCodeBlue'), count: data.emergency_events?.code_blues || 0, color: 'bg-critical-subtle text-critical-subtle-fg' },
-              { type: t('docAdmin.evtTrauma'), count: data.emergency_events?.traumas || 0, color: 'bg-orange-100 text-orange-700' },
+              { type: t('docAdmin.evtTrauma'), count: data.emergency_events?.traumas || 0, color: 'bg-surface-sunken text-content-secondary' },
               { type: t('docAdmin.evtStroke'), count: data.emergency_events?.strokes || 0, color: 'bg-caution-subtle text-caution-subtle-fg' },
               { type: t('docAdmin.evtSepsis'), count: data.emergency_events?.sepsis_cases || 0, color: 'bg-caution-subtle text-caution-subtle-fg' },
             ].map((event) => (
@@ -458,7 +458,7 @@ export default function AdminDashboardPage() {
           </h3>
           <button
             onClick={() => navigate('/access-logs')}
-            className="text-xs text-purple-600 hover:text-purple-800"
+            className="text-xs text-content-secondary hover:text-content-secondary"
           >
             {t('docAdmin.viewAll')}
           </button>
@@ -596,7 +596,7 @@ export default function AdminDashboardPage() {
           </div>
           <button
             onClick={() => navigate('/lab-results')}
-            className="w-full py-2 text-sm text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded transition-colors"
+            className="w-full py-2 text-sm text-content-secondary hover:text-content-secondary hover:bg-surface-sunken rounded transition-colors"
           >
             {t('docAdmin.viewLabAnalytics')}
           </button>

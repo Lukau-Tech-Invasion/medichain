@@ -178,7 +178,7 @@ function RegisterPatientPage() {
             </button>
             <button
               onClick={() => navigate(`/patients/${success.patientId}`)}
-              className="flex-1 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              className="flex-1 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors"
             >
               {t('docRegisterPatient.viewPatient')}
             </button>
@@ -193,8 +193,8 @@ function RegisterPatientPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-            <UserPlus className="text-primary-600" size={24} />
+          <div className="w-10 h-10 bg-brand-subtle rounded-lg flex items-center justify-center">
+            <UserPlus className="text-brand" size={24} />
           </div>
           <h1 className="text-2xl font-bold text-content">{t('docRegisterPatient.title')}</h1>
         </div>
@@ -224,7 +224,7 @@ function RegisterPatientPage() {
                 value={formData.fullName}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.fullNamePlaceholder')}
               />
             </div>
@@ -238,7 +238,7 @@ function RegisterPatientPage() {
                 value={formData.dateOfBirth}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               />
             </div>
 
@@ -251,7 +251,7 @@ function RegisterPatientPage() {
                 value={formData.walletAddress}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.walletAddressPlaceholder')}
               />
             </div>
@@ -265,7 +265,7 @@ function RegisterPatientPage() {
                 value={formData.nationalId}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.nationalIdPlaceholder')}
               />
             </div>
@@ -278,7 +278,7 @@ function RegisterPatientPage() {
                 value={formData.bloodType}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectBloodType')}</option>
                 {bloodTypes.map(bt => (
@@ -294,7 +294,7 @@ function RegisterPatientPage() {
                 name="gender"
                 value={formData.gender}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
               >
                 <option value="">{t('docRegisterPatient.selectGender')}</option>
                 {genders.map(g => (
@@ -319,7 +319,7 @@ function RegisterPatientPage() {
                 name="allergies"
                 value={formData.allergies}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.allergiesPlaceholder')}
               />
             </div>
@@ -334,7 +334,7 @@ function RegisterPatientPage() {
                 value={formData.currentMedications}
                 onChange={handleChange}
                 rows={2}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none resize-none"
                 placeholder={t('docRegisterPatient.currentMedsPlaceholder')}
               />
             </div>
@@ -349,7 +349,7 @@ function RegisterPatientPage() {
                 name="chronicConditions"
                 value={formData.chronicConditions}
                 onChange={handleChange}
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.chronicPlaceholder')}
               />
             </div>
@@ -362,7 +362,7 @@ function RegisterPatientPage() {
                   name="organDonor"
                   checked={formData.organDonor}
                   onChange={handleChange}
-                  className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                  className="w-4 h-4 text-brand rounded focus:ring-primary-500"
                 />
                 <span className="text-sm text-content-secondary">{t('docRegisterPatient.organDonor')}</span>
               </label>
@@ -395,7 +395,7 @@ function RegisterPatientPage() {
                 value={formData.emergencyContactName}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.contactNamePlaceholder')}
               />
             </div>
@@ -410,7 +410,7 @@ function RegisterPatientPage() {
                 onChange={(e) => { setPhoneError(null); handleChange(e); }}
                 required
                 aria-invalid={phoneError ? true : undefined}
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none ${
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none ${
                   phoneError ? 'border-critical' : 'border-border'
                 }`}
                 placeholder={t('docRegisterPatient.phonePlaceholder')}
@@ -429,7 +429,7 @@ function RegisterPatientPage() {
                 value={formData.emergencyContactRelationship}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                 placeholder={t('docRegisterPatient.relationshipPlaceholder')}
               />
             </div>
@@ -447,7 +447,7 @@ function RegisterPatientPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             {isSubmitting ? (
               <>

@@ -214,7 +214,7 @@ export function TelehealthPage() {
           onClick={() => setActiveTab('upcoming')}
           className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'upcoming'
-              ? 'border-primary-500 text-primary-600'
+              ? 'border-brand text-brand'
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -224,7 +224,7 @@ export function TelehealthPage() {
           onClick={() => setActiveTab('past')}
           className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
             activeTab === 'past'
-              ? 'border-primary-500 text-primary-600'
+              ? 'border-brand text-brand'
               : 'border-transparent text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -332,7 +332,7 @@ export function TelehealthPage() {
               </a>
               <button
                 onClick={() => setActiveCallUrl(null)}
-                className="px-3 py-1.5 text-sm rounded-lg bg-red-600 hover:bg-red-700"
+                className="px-3 py-1.5 text-sm rounded-lg bg-critical hover:bg-critical"
               >
                 {t('telehealth.leaveCall')}
               </button>

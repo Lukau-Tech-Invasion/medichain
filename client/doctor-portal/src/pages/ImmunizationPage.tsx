@@ -390,7 +390,7 @@ const ImmunizationPage: React.FC = () => {
       administered: 'bg-ok-subtle text-ok-subtle-fg',
       declined: 'bg-critical-subtle text-critical-subtle-fg',
       deferred: 'bg-caution-subtle text-caution-subtle-fg',
-      contraindicated: 'bg-orange-100 text-orange-800',
+      contraindicated: 'bg-surface-sunken text-content-secondary',
     };
     return badges[status];
   };
@@ -429,7 +429,7 @@ const ImmunizationPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('records')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'records' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted hover:text-purple-700'
+            activeTab === 'records' ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docImmunization.tabRecords')}
@@ -437,7 +437,7 @@ const ImmunizationPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('administer')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'administer' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted hover:text-purple-700'
+            activeTab === 'administer' ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docImmunization.tabAdminister')}
@@ -445,7 +445,7 @@ const ImmunizationPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('schedule')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'schedule' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted hover:text-purple-700'
+            activeTab === 'schedule' ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docImmunization.tabSchedule')}
@@ -453,7 +453,7 @@ const ImmunizationPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('history')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'history' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted hover:text-purple-700'
+            activeTab === 'history' ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docImmunization.tabHistory')}
@@ -519,21 +519,21 @@ const ImmunizationPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 mb-4 bg-purple-50 rounded-lg p-4">
+                <div className="grid grid-cols-3 gap-4 mb-4 bg-surface-sunken rounded-lg p-4">
                   <div>
-                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docImmunization.patientLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.patientLabel')}</p>
                     <p className="font-semibold text-content">{admin.patientName}</p>
                     <p className="text-sm text-content-muted">{admin.patientId}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docImmunization.vaccineLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.vaccineLabel')}</p>
                     <p className="font-semibold text-content">{admin.vaccineName}</p>
                     <p className="text-sm text-content-muted">
                       {admin.manufacturer} • {admin.dose}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docImmunization.administrationLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docImmunization.administrationLabel')}</p>
                     <p className="text-sm text-content">{t(`docImmunization.route_${admin.route}`)}</p>
                     <p className="text-sm text-content-muted">{t(`docImmunization.site_${admin.site}`)}</p>
                   </div>
@@ -864,12 +864,12 @@ const ImmunizationPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6">
-            <h3 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
+          <div className="bg-surface-sunken border border-purple-200 rounded-lg p-4 mb-6">
+            <h3 className="font-bold text-content-secondary mb-2 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5" />
               {t('docImmunization.checklistHeading')}
             </h3>
-            <ul className="text-sm text-purple-800 space-y-1">
+            <ul className="text-sm text-content-secondary space-y-1">
               <li>• {t('docImmunization.checklist_1')}</li>
               <li>• {t('docImmunization.checklist_2')}</li>
               <li>• {t('docImmunization.checklist_3')}</li>
@@ -904,12 +904,12 @@ const ImmunizationPage: React.FC = () => {
 
           <div className="overflow-hidden border border-border-strong rounded-lg">
             <table className="w-full">
-              <thead className="bg-purple-50 border-b border-purple-200">
+              <thead className="bg-surface-sunken border-b border-purple-200">
                 <tr>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-purple-900">{t('docImmunization.tableVaccine')}</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-purple-900">{t('docImmunization.tableRecommendedAge')}</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-purple-900">{t('docImmunization.tableDose')}</th>
-                  <th className="text-left px-4 py-3 text-sm font-semibold text-purple-900">{t('docImmunization.tableStatus')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-content-secondary">{t('docImmunization.tableVaccine')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-content-secondary">{t('docImmunization.tableRecommendedAge')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-content-secondary">{t('docImmunization.tableDose')}</th>
+                  <th className="text-left px-4 py-3 text-sm font-semibold text-content-secondary">{t('docImmunization.tableStatus')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -988,7 +988,7 @@ const ImmunizationPage: React.FC = () => {
                 {administrations
                   .filter((a) => a.patientId === selectedPatient)
                   .map((admin) => (
-                    <div key={admin.administrationId} className="border-l-4 border-purple-500 bg-purple-50 p-4 rounded">
+                    <div key={admin.administrationId} className="border-l-4 border-purple-500 bg-surface-sunken p-4 rounded">
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <p className="font-semibold text-content">{admin.vaccineName}</p>

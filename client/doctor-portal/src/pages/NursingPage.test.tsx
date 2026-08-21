@@ -57,6 +57,6 @@ describe('NursingPage', () => {
     // the MAR tab (the default) to have content before switching away.
     const carePlansTab = await screen.findByRole('button', { name: /Care Plans/i });
     fireEvent.click(carePlansTab);
-    expect(carePlansTab.className).toContain('bg-primary-600');
+    expect(carePlansTab.className).toContain('bg-brand');
   });
 });

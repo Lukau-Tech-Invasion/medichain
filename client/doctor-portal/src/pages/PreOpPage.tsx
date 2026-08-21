@@ -301,7 +301,7 @@ export default function PreOpPage() {
       case 'I': return 'bg-ok-subtle text-ok-subtle-fg border-green-500';
       case 'II': return 'bg-notice-subtle text-notice-subtle-fg border-blue-500';
       case 'III': return 'bg-caution-subtle text-caution-subtle-fg border-yellow-500';
-      case 'IV': return 'bg-orange-100 text-orange-800 border-orange-500';
+      case 'IV': return 'bg-surface-sunken text-content-secondary border-orange-500';
       case 'V': return 'bg-critical-subtle text-critical-subtle-fg border-red-500';
       case 'VI': return 'bg-surface-sunken text-content-secondary border-gray-500';
       default: return 'bg-surface-sunken text-content-secondary';
@@ -411,7 +411,7 @@ export default function PreOpPage() {
             <div
               className={`h-3 rounded-full transition-all ${
                 checklistProgress === totalChecklistItems ? 'bg-green-500' :
-                checklistProgress > totalChecklistItems / 2 ? 'bg-blue-500' : 'bg-yellow-500'
+                checklistProgress > totalChecklistItems / 2 ? 'bg-blue-500' : 'bg-caution'
               }`}
               style={{ width: `${(checklistProgress / totalChecklistItems) * 100}%` }}
             />
@@ -425,7 +425,7 @@ export default function PreOpPage() {
               onClick={() => setActiveTab('assessment')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'assessment'
-                  ? 'border-b-2 border-indigo-500 text-indigo-600'
+                  ? 'border-b-2 border-indigo-500 text-content-secondary'
                   : 'text-content-muted'
               }`}
             >
@@ -436,7 +436,7 @@ export default function PreOpPage() {
               onClick={() => setActiveTab('checklist')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'checklist'
-                  ? 'border-b-2 border-indigo-500 text-indigo-600'
+                  ? 'border-b-2 border-indigo-500 text-content-secondary'
                   : 'text-content-muted'
               }`}
             >
@@ -447,7 +447,7 @@ export default function PreOpPage() {
               onClick={() => setActiveTab('history')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'history'
-                  ? 'border-b-2 border-indigo-500 text-indigo-600'
+                  ? 'border-b-2 border-indigo-500 text-content-secondary'
                   : 'text-content-muted'
               }`}
             >
@@ -486,7 +486,7 @@ export default function PreOpPage() {
                       onClick={() => setSelectedPatient(patient)}
                       className={`w-full text-left p-3 rounded-lg transition-colors ${
                         selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-indigo-100 border-2 border-indigo-500'
+                          ? 'bg-surface-sunken border-2 border-indigo-500'
                           : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                       }`}
                     >
@@ -673,7 +673,7 @@ export default function PreOpPage() {
                         onClick={() => setAirwayAssessment(prev => ({ ...prev, mallampati: mp.value }))}
                         className={`p-3 rounded-lg border-2 text-center ${
                           airwayAssessment.mallampati === mp.value
-                            ? 'bg-indigo-100 border-indigo-500 text-indigo-800'
+                            ? 'bg-surface-sunken border-indigo-500 text-content-secondary'
                             : 'bg-surface-sunken border-border hover:bg-surface-sunken'
                         }`}
                       >
@@ -747,7 +747,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.beardPresent}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, beardPresent: !prev.beardPresent }))}
-                      className="rounded border-border-strong text-indigo-600"
+                      className="rounded border-border-strong text-content-secondary"
                     />
                     <span className="text-sm">{t('docPreOp.beardPresentCheckbox')}</span>
                   </label>
@@ -757,7 +757,7 @@ export default function PreOpPage() {
                       type="checkbox"
                       checked={airwayAssessment.obeseNeck}
                       onChange={() => setAirwayAssessment(prev => ({ ...prev, obeseNeck: !prev.obeseNeck }))}
-                      className="rounded border-border-strong text-indigo-600"
+                      className="rounded border-border-strong text-content-secondary"
                     />
                     <span className="text-sm">{t('docPreOp.obeseNeckCheckbox')}</span>
                   </label>
@@ -789,7 +789,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={medicalHistory.includes(condition)}
                           onChange={() => toggleMedicalHistory(condition)}
-                          className="rounded border-border-strong text-indigo-600"
+                          className="rounded border-border-strong text-content-secondary"
                         />
                         <span className="text-sm">{condition}</span>
                       </label>
@@ -816,7 +816,7 @@ export default function PreOpPage() {
                     <button
                       type="button"
                       onClick={addAllergy}
-                      className="px-3 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                      className="px-3 py-2 bg-caution text-caution-fg rounded hover:bg-caution"
                     >
                       {t('docPreOp.addButton')}
                     </button>
@@ -904,7 +904,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={holdMedications.includes(med)}
                           onChange={() => toggleHoldMedication(med)}
-                          className="rounded border-border-strong text-orange-600"
+                          className="rounded border-border-strong text-content-secondary"
                         />
                         <span className="text-sm">{med}</span>
                       </label>
@@ -955,7 +955,7 @@ export default function PreOpPage() {
                           type="checkbox"
                           checked={consents[key as keyof typeof consents]}
                           onChange={() => setConsents(prev => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))}
-                          className="rounded border-border-strong text-purple-600"
+                          className="rounded border-border-strong text-content-secondary"
                         />
                         <span className="text-sm">{label}</span>
                       </label>

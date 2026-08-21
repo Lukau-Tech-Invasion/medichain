@@ -30,7 +30,25 @@ const headerColors = {
   amber: 'bg-caution-subtle border-caution',
   green: 'bg-ok-subtle border-ok',
   blue: 'bg-notice-subtle border-notice',
-  purple: 'bg-purple-50 border-purple-200',
+  purple: 'bg-surface-sunken border-border',
+};
+
+/**
+ * The count badge beside a panel heading.
+ *
+ * This was built at runtime as `bg-${headerColor}-100 text-${headerColor}-700`.
+ * Tailwind's JIT compiler scans source for *complete* class names, so a class
+ * assembled from a variable is never emitted -- the badge was styled by
+ * whichever of those names some other file happened to contain, and unstyled
+ * otherwise. A static lookup is both visible to the compiler and theme-aware.
+ */
+const headerCountColors: Record<NonNullable<DataTablePanelProps<never>['headerColor']>, string> = {
+  default: 'bg-surface-sunken text-content-muted',
+  red: 'bg-critical-subtle text-critical-subtle-fg',
+  amber: 'bg-caution-subtle text-caution-subtle-fg',
+  green: 'bg-ok-subtle text-ok-subtle-fg',
+  blue: 'bg-notice-subtle text-notice-subtle-fg',
+  purple: 'bg-surface-sunken text-content-secondary',
 };
 
 const headerTextColors = {
@@ -39,7 +57,7 @@ const headerTextColors = {
   amber: 'text-caution-subtle-fg',
   green: 'text-ok-subtle-fg',
   blue: 'text-notice-subtle-fg',
-  purple: 'text-purple-800',
+  purple: 'text-content-secondary',
 };
 
 /**
@@ -84,7 +102,7 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
           {icon}
           <h3 className={`font-semibold ${headerTextColors[headerColor]}`}>{title}</h3>
           {!loading && data.length > 0 && (
-            <span className={`${headerColor === 'default' ? 'bg-surface-sunken text-content-muted' : `bg-${headerColor}-100 text-${headerColor}-700`} text-xs px-2 py-0.5 rounded-full`}>
+            <span className={`${headerCountColors[headerColor]} text-xs px-2 py-0.5 rounded-full`}>
               {data.length}
             </span>
           )}
@@ -92,7 +110,7 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
         {viewAllLink && (
           <Link 
             to={viewAllLink}
-            className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1"
+            className="text-brand hover:text-brand text-sm flex items-center gap-1"
           >
             {viewAllLabel} <ArrowRight size={14} />
           </Link>
@@ -157,7 +175,7 @@ export default function DataTablePanel<T extends Record<string, unknown>>({
         <div className="p-3 bg-surface-sunken text-center border-t border-border">
           <Link 
             to={viewAllLink}
-            className="text-primary-600 hover:text-primary-700 text-sm"
+            className="text-brand hover:text-brand text-sm"
           >
             + {remainingCount} more →
           </Link>

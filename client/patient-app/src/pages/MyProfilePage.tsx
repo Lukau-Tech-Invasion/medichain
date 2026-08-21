@@ -474,8 +474,8 @@ export function MyProfilePage() {
       {/* Personal Info Card */}
       <div className="patient-card">
         <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-            <User className="w-6 h-6 text-primary-600" />
+          <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center">
+            <User className="w-6 h-6 text-brand" />
           </div>
           <div>
             <h2 className="font-semibold text-lg text-content">{t('profile.personalInfo')}</h2>
@@ -502,7 +502,7 @@ export function MyProfilePage() {
               <Shield className="w-4 h-4" />
               {t('profile.nationalHealthId')}
             </label>
-            <p className="font-mono text-lg font-semibold text-primary-600 mt-1">
+            <p className="font-mono text-lg font-semibold text-brand mt-1">
               {profile?.nationalHealthId}
             </p>
           </div>
@@ -621,8 +621,8 @@ export function MyProfilePage() {
       <div className="patient-card">
         <div className="flex items-center justify-between mb-6 gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Phone className="w-6 h-6 text-primary-600" />
+            <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center flex-shrink-0">
+              <Phone className="w-6 h-6 text-brand" />
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-lg text-content">{t('profile.contactDetails')}</h2>
@@ -632,7 +632,7 @@ export function MyProfilePage() {
           {!editingDetails && (
             <button
               onClick={beginEditDetails}
-              className="flex items-center gap-2 px-4 py-2 text-primary-600 hover:bg-primary-50 rounded-xl transition-colors flex-shrink-0"
+              className="flex items-center gap-2 px-4 py-2 text-brand-subtle-fg hover:bg-brand-subtle rounded-xl transition-colors flex-shrink-0"
             >
               <Pencil className="w-4 h-4" />
               {t('profile.edit')}
@@ -695,7 +695,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveDetails}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -735,8 +735,8 @@ export function MyProfilePage() {
       <div className="patient-card">
         <div className="flex items-center justify-between mb-6 gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <MapPin className="w-6 h-6 text-primary-600" />
+            <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center flex-shrink-0">
+              <MapPin className="w-6 h-6 text-brand" />
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-lg text-content">{t('profile.addressTitle')}</h2>
@@ -746,7 +746,7 @@ export function MyProfilePage() {
           {!editingAddress && (
             <button
               onClick={beginEditAddress}
-              className="flex items-center gap-2 px-4 py-2 text-primary-600 hover:bg-primary-50 rounded-xl transition-colors flex-shrink-0"
+              className="flex items-center gap-2 px-4 py-2 text-brand-subtle-fg hover:bg-brand-subtle rounded-xl transition-colors flex-shrink-0"
             >
               <Pencil className="w-4 h-4" />
               {t('profile.edit')}
@@ -830,7 +830,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveAddress}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -856,8 +856,8 @@ export function MyProfilePage() {
       <div className="patient-card">
         <div className="flex items-center justify-between mb-6 gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
-              <CreditCard className="w-6 h-6 text-primary-600" />
+            <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center flex-shrink-0">
+              <CreditCard className="w-6 h-6 text-brand" />
             </div>
             <div className="min-w-0">
               <h2 className="font-semibold text-lg text-content">{t('profile.insuranceTitle')}</h2>
@@ -867,7 +867,7 @@ export function MyProfilePage() {
           {!editingInsurance && (
             <button
               onClick={beginEditInsurance}
-              className="flex items-center gap-2 px-4 py-2 text-primary-600 hover:bg-primary-50 rounded-xl transition-colors flex-shrink-0"
+              className="flex items-center gap-2 px-4 py-2 text-brand-subtle-fg hover:bg-brand-subtle rounded-xl transition-colors flex-shrink-0"
             >
               <Pencil className="w-4 h-4" />
               {t('profile.edit')}
@@ -967,7 +967,7 @@ export function MyProfilePage() {
                 type="checkbox"
                 checked={insuranceDraft.isActive}
                 onChange={(e) => setInsuranceDraft({ ...insuranceDraft, isActive: e.target.checked })}
-                className="w-4 h-4 rounded border-border-strong text-primary-600 focus:ring-primary-500"
+                className="w-4 h-4 rounded border-border-strong text-brand focus:ring-primary-500"
               />
               {t('profile.insuranceActive')}
             </label>
@@ -982,7 +982,7 @@ export function MyProfilePage() {
               <button
                 onClick={handleSaveInsurance}
                 disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-xl hover:bg-brand transition-colors disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
                 {t('profile.saveChanges')}
@@ -1131,7 +1131,7 @@ export function MyProfilePage() {
                   {contact.relationship} · {contact.phone}
                 </p>
                 {contact.canMakeMedicalDecisions && (
-                  <p className="text-xs text-primary-600 mt-1">{t('profile.canMakeDecisions')}</p>
+                  <p className="text-xs text-brand mt-1">{t('profile.canMakeDecisions')}</p>
                 )}
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">

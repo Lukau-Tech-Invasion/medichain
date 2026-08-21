@@ -630,7 +630,7 @@ function Layout() {
       <main id="main-content" role="main" className="flex-1 overflow-auto pt-14 lg:pt-0 bg-surface-sunken dark:bg-gray-900">
         {/* Offline indicator — writes are queued locally and synced on reconnect */}
         {!isOnline && (
-          <div className="flex items-center gap-2 bg-amber-500 text-white text-sm px-4 py-2">
+          <div className="flex items-center gap-2 bg-caution text-caution-fg text-sm px-4 py-2">
             <WifiOff className="w-4 h-4" />
             <span>You're offline. Changes are saved locally and will sync when the connection returns.</span>
             {queueSize > 0 && (

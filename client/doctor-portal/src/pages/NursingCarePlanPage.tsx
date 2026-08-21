@@ -206,7 +206,7 @@ const NursingCarePlanPage: React.FC = () => {
   const getPriorityBadge = (priority: Priority) => {
     const styles: Record<Priority, { bg: string; text: string }> = {
       'high': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg' },
-      'medium': { bg: 'bg-orange-100', text: 'text-orange-700' },
+      'medium': { bg: 'bg-surface-sunken', text: 'text-content-secondary' },
       'low': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
     const s = styles[priority];
@@ -261,7 +261,7 @@ const NursingCarePlanPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-purple-600 animate-spin mb-2" />
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
           <p className="text-content-muted">{t('docNursingCarePlan.loading')}</p>
         </div>
       )}
@@ -306,7 +306,7 @@ const NursingCarePlanPage: React.FC = () => {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium ${
-                    activeTab === tab ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted'
+                    activeTab === tab ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'plans' ? t('docNursingCarePlan.tabPlans') : tab === 'new' ? t('docNursingCarePlan.tabNew') : t('docNursingCarePlan.tabTemplates')}
@@ -352,8 +352,8 @@ const NursingCarePlanPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-purple-50 rounded p-2 mb-2">
-                    <p className="text-sm font-medium text-purple-800">{plan.diagnosis}</p>
+                  <div className="bg-surface-sunken rounded p-2 mb-2">
+                    <p className="text-sm font-medium text-content-secondary">{plan.diagnosis}</p>
                   </div>
 
                   <div className="flex items-center gap-4 text-xs text-content-muted">
@@ -436,7 +436,7 @@ const NursingCarePlanPage: React.FC = () => {
                       key={p}
                       onClick={() => setForm(f => ({ ...f, priority: p }))}
                       aria-pressed={form.priority === p}
-                      className={`flex-1 py-2 rounded-lg border capitalize ${form.priority === p ? 'ring-2 ring-offset-1 ring-purple-500 ' : ''}${p === 'high' ? 'bg-critical-subtle border-critical text-critical-subtle-fg' : p === 'medium' ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-surface-sunken border-border-strong'}`}>
+                      className={`flex-1 py-2 rounded-lg border capitalize ${form.priority === p ? 'ring-2 ring-offset-1 ring-purple-500 ' : ''}${p === 'high' ? 'bg-critical-subtle border-critical text-critical-subtle-fg' : p === 'medium' ? 'bg-surface-sunken border-orange-300 text-content-secondary' : 'bg-surface-sunken border-border-strong'}`}>
                       {priorityLabel(p)}
                     </button>
                   ))}
@@ -469,7 +469,7 @@ const NursingCarePlanPage: React.FC = () => {
                   <p className="text-sm text-content-muted">{tpl.diagnosis}</p>
                   <p className="text-xs text-content-muted">{t('docNursingCarePlan.interventionsCount', { count: tpl.interventions })}</p>
                 </div>
-                <button className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
+                <button className="px-4 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium">{t('docNursingCarePlan.useTemplate')}</button>
               </div>
             ))}
           </div>

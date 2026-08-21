@@ -165,7 +165,7 @@ const AnesthesiaPage: React.FC = () => {
               key={tab}
               onClick={() => setActiveTab(tab as 'record' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-cyan-600 border-b-2 border-cyan-600'
+                ? 'text-content-secondary border-b-2 border-cyan-600'
                 : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'record' ? t('docAnesthesia.tabRecord') : t('docAnesthesia.tabHistory')}
@@ -579,7 +579,7 @@ const AnesthesiaPage: React.FC = () => {
                       <h3 className="font-semibold">{r.patientName}</h3>
                       <p className="text-sm text-content-muted">{new Date(r.documentedAt).toLocaleString()}</p>
                     </div>
-                    <span className="px-2 py-1 text-xs rounded bg-cyan-100 text-cyan-700">
+                    <span className="px-2 py-1 text-xs rounded bg-surface-sunken text-content-secondary">
                       {t('docAnesthesia.asaBadge', { class: r.asaClass })}
                     </span>
                   </div>

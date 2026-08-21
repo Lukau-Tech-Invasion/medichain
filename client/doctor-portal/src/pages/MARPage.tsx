@@ -328,7 +328,7 @@ export default function MARPage() {
   const getStatusColor = (status: MedicationStatus) => {
     switch (status) {
       case 'given': return 'bg-green-500 text-white';
-      case 'held': return 'bg-yellow-500 text-white';
+      case 'held': return 'bg-caution text-white';
       case 'refused': return 'bg-orange-500 text-white';
       case 'not-given': return 'bg-red-500 text-white';
       default: return 'bg-surface-sunken text-content-muted';
@@ -546,7 +546,7 @@ export default function MARPage() {
                     }}
                     className={`w-full text-left p-3 rounded-lg transition-colors ${
                       selectedPatient?.patient_id === patient.patient_id
-                        ? 'bg-purple-100 border-2 border-purple-500'
+                        ? 'bg-surface-sunken border-2 border-purple-500'
                         : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                     }`}
                   >
@@ -703,7 +703,7 @@ export default function MARPage() {
                               ) : (
                                 <button
                                   onClick={() => openAdminModal(med)}
-                                  className="text-purple-600 hover:text-purple-700 text-sm underline"
+                                  className="text-content-secondary hover:text-content-secondary text-sm underline"
                                 >
                                   {t('docMAR.editButton')}
                                 </button>
@@ -788,7 +788,7 @@ export default function MARPage() {
       {showAdminModal && selectedMed && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-surface rounded-lg shadow-xl max-w-lg w-full mx-4">
-            <div className={`p-4 rounded-t-lg ${selectedMed.highAlert ? 'bg-red-600' : 'bg-purple-600'}`}>
+            <div className={`p-4 rounded-t-lg ${selectedMed.highAlert ? 'bg-critical' : 'bg-purple-600'}`}>
               <h3 className="text-lg font-bold text-white flex items-center">
                 {selectedMed.highAlert && <AlertTriangle className="h-5 w-5 mr-2" />}
                 {t('docMAR.documentAdministrationHeading')}
@@ -891,8 +891,8 @@ export default function MARPage() {
               </button>
               <button
                 onClick={handleAdminister}
-                className={`px-4 py-2 text-white rounded-lg ${
-                  selectedMed.highAlert ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-600 hover:bg-purple-700'
+                className={`px-4 py-2 text-critical-fg rounded-lg ${
+                  selectedMed.highAlert ? 'bg-critical hover:bg-critical' : 'bg-purple-600 hover:bg-purple-700'
                 }`}
               >
                 {t('docMAR.confirmButton')}

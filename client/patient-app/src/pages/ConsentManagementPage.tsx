@@ -505,7 +505,7 @@ export function ConsentManagementPage() {
                         <button
                           onClick={() => handleSignConsent(ct.consent_type)}
                           disabled={isSigning === ct.consent_type}
-                          className="px-3 py-1.5 bg-primary-500 text-white text-xs rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50"
+                          className="px-3 py-1.5 bg-primary-500 text-brand-fg text-xs rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
                         >
                           {isSigning === ct.consent_type ? t('consent.signing') : t('consent.sign')}
                         </button>
@@ -531,7 +531,7 @@ export function ConsentManagementPage() {
             pendingRequests.map(request => (
               <div key={request.id} className="patient-card space-y-4">
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
+                  <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center">
                     {getRoleIcon(request.providerRole)}
                   </div>
                   <div className="flex-1">
@@ -583,11 +583,11 @@ export function ConsentManagementPage() {
             filteredGrants.map(grant => (
               <div
                 key={grant.id}
-                className="patient-card hover:border-primary-200 border-2 border-transparent cursor-pointer"
+                className="patient-card hover:border-brand border-2 border-transparent cursor-pointer"
                 onClick={() => setSelectedGrant(grant)}
               >
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center text-primary-600">
+                  <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center text-brand-subtle-fg">
                     {getRoleIcon(grant.providerRole)}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -640,7 +640,7 @@ export function ConsentManagementPage() {
             <div className="p-6 space-y-6">
               {/* Provider Info */}
               <div className="flex items-start gap-4">
-                <div className="w-14 h-14 bg-primary-100 rounded-2xl flex items-center justify-center text-primary-600">
+                <div className="w-14 h-14 bg-brand-subtle rounded-2xl flex items-center justify-center text-brand-subtle-fg">
                   {getRoleIcon(selectedGrant.providerRole)}
                 </div>
                 <div>

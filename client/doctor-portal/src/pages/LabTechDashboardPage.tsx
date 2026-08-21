@@ -173,7 +173,7 @@ export default function LabTechDashboardPage() {
                       <td className="px-3 py-2 text-content-muted">{item.patient_name}</td>
                       <td className="px-3 py-2 text-content-muted">{item.time_in_lab}</td>
                       <td className="px-3 py-2">
-                        <span className="px-2 py-0.5 text-xs bg-red-600 text-white rounded">{item.priority}</span>
+                        <span className="px-2 py-0.5 text-xs bg-critical text-critical-fg rounded">{item.priority}</span>
                       </td>
                     </tr>
                   ))}
@@ -264,7 +264,7 @@ export default function LabTechDashboardPage() {
                     <td className="px-3 py-2">
                       <span className={`px-2 py-0.5 text-xs rounded ${
                         item.priority === 'STAT' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                        item.priority === 'Urgent' ? 'bg-orange-100 text-orange-700' :
+                        item.priority === 'Urgent' ? 'bg-surface-sunken text-content-secondary' :
                         'bg-surface-sunken text-content-secondary'
                       }`}>
                         {item.priority}

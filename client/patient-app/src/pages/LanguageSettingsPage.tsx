@@ -210,7 +210,7 @@ const LanguageSettingsPage: React.FC = () => {
         <div className="bg-surface rounded-lg shadow p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-indigo-100 text-indigo-700 font-bold text-sm" aria-hidden="true">
+              <span className="flex items-center justify-center w-10 h-10 rounded-lg bg-surface-sunken text-content-secondary font-bold text-sm" aria-hidden="true">
                 {languageBadge(getCurrentLanguage()?.code ?? '')}
               </span>
               <div>
@@ -256,14 +256,14 @@ const LanguageSettingsPage: React.FC = () => {
                   disabled={!lang.isAvailable}
                   className={`w-full flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors ${
                     !lang.isAvailable ? 'opacity-50 cursor-not-allowed' : ''
-                  } ${selectedLanguage === lang.code ? 'bg-indigo-50' : ''}`}
+                  } ${selectedLanguage === lang.code ? 'bg-surface-sunken' : ''}`}
                 >
                   <div className="flex items-center gap-3">
                     <span className="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-sunken text-content-secondary font-bold text-xs" aria-hidden="true">
                       {languageBadge(lang.code)}
                     </span>
                     <div className="text-left">
-                      <p className={`font-medium ${selectedLanguage === lang.code ? 'text-indigo-600' : 'text-content'}`}>
+                      <p className={`font-medium ${selectedLanguage === lang.code ? 'text-content-secondary' : 'text-content'}`}>
                         {lang.name}
                       </p>
                       <p className="text-sm text-content-muted">{lang.nativeName}</p>
@@ -287,7 +287,7 @@ const LanguageSettingsPage: React.FC = () => {
                       </span>
                     )}
                     {selectedLanguage === lang.code ? (
-                      <Check className="w-5 h-5 text-indigo-600" />
+                      <Check className="w-5 h-5 text-content-secondary" />
                     ) : (
                       <ChevronRight className="w-5 h-5 text-gray-300" />
                     )}
@@ -346,7 +346,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => setRegionalSettings(prev => ({ ...prev, timeFormat: '12h' }))}
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.timeFormat === '12h'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
+                      ? 'border-indigo-600 bg-surface-sunken text-content-secondary'
                       : 'border-border-strong text-content-secondary'
                   }`}
                 >
@@ -356,7 +356,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => setRegionalSettings(prev => ({ ...prev, timeFormat: '24h' }))}
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.timeFormat === '24h'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
+                      ? 'border-indigo-600 bg-surface-sunken text-content-secondary'
                       : 'border-border-strong text-content-secondary'
                   }`}
                 >
@@ -392,7 +392,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => setRegionalSettings(prev => ({ ...prev, temperatureUnit: 'fahrenheit' }))}
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.temperatureUnit === 'fahrenheit'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
+                      ? 'border-indigo-600 bg-surface-sunken text-content-secondary'
                       : 'border-border-strong text-content-secondary'
                   }`}
                 >
@@ -402,7 +402,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => setRegionalSettings(prev => ({ ...prev, temperatureUnit: 'celsius' }))}
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.temperatureUnit === 'celsius'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
+                      ? 'border-indigo-600 bg-surface-sunken text-content-secondary'
                       : 'border-border-strong text-content-secondary'
                   }`}
                 >
@@ -421,7 +421,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => setRegionalSettings(prev => ({ ...prev, measurementSystem: 'imperial' }))}
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.measurementSystem === 'imperial'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
+                      ? 'border-indigo-600 bg-surface-sunken text-content-secondary'
                       : 'border-border-strong text-content-secondary'
                   }`}
                 >
@@ -431,7 +431,7 @@ const LanguageSettingsPage: React.FC = () => {
                   onClick={() => setRegionalSettings(prev => ({ ...prev, measurementSystem: 'metric' }))}
                   className={`flex-1 py-2 rounded-lg border ${
                     regionalSettings.measurementSystem === 'metric'
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-600'
+                      ? 'border-indigo-600 bg-surface-sunken text-content-secondary'
                       : 'border-border-strong text-content-secondary'
                   }`}
                 >

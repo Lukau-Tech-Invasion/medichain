@@ -225,7 +225,7 @@ const IntubationPage: React.FC = () => {
               key={tab}
               onClick={() => setActiveTab(tab as 'new' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-cyan-600 border-b-2 border-cyan-600'
+                ? 'text-content-secondary border-b-2 border-cyan-600'
                 : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'new' ? t('docIntubation.tabNew') : t('docIntubation.tabHistory')}
@@ -499,7 +499,7 @@ const IntubationPage: React.FC = () => {
                         <button
                           key={dose}
                           onClick={() => addMedication(med.name, dose)}
-                          className="px-2 py-1 text-xs bg-cyan-100 text-cyan-700 rounded hover:bg-cyan-200"
+                          className="px-2 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-cyan-200"
                         >
                           {dose}
                         </button>

@@ -45,7 +45,7 @@ interface PatientListPanelProps {
 
 const esiColors: Record<number, { bg: string; text: string; label: string }> = {
   1: { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', label: 'ESI-1' },
-  2: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'ESI-2' },
+  2: { bg: 'bg-surface-sunken', text: 'text-content-secondary', label: 'ESI-2' },
   3: { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', label: 'ESI-3' },
   4: { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', label: 'ESI-4' },
   5: { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', label: 'ESI-5' },
@@ -82,7 +82,7 @@ export default function PatientListPanel({
         {viewAllLink && (
           <Link 
             to={viewAllLink} 
-            className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1"
+            className="text-brand hover:text-brand text-sm flex items-center gap-1"
           >
             View all <ArrowRight size={14} />
           </Link>
@@ -103,8 +103,8 @@ export default function PatientListPanel({
               className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                  <Users className="text-primary-600" size={18} />
+                <div className="w-10 h-10 bg-brand-subtle rounded-full flex items-center justify-center">
+                  <Users className="text-brand" size={18} />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">

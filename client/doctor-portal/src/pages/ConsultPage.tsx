@@ -248,7 +248,7 @@ const ConsultPage: React.FC = () => {
       {
         requested: 'bg-caution-subtle text-caution-subtle-fg',
         acknowledged: 'bg-notice-subtle text-notice-subtle-fg',
-        'in-progress': 'bg-purple-100 text-purple-800',
+        'in-progress': 'bg-surface-sunken text-content-secondary',
         completed: 'bg-ok-subtle text-ok-subtle-fg',
         declined: 'bg-critical-subtle text-critical-subtle-fg',
         cancelled: 'bg-surface-sunken text-content-secondary',
@@ -277,7 +277,7 @@ const ConsultPage: React.FC = () => {
     lookupOr(
       {
         routine: 'bg-surface-sunken text-content-secondary',
-        urgent: 'bg-orange-100 text-orange-800',
+        urgent: 'bg-surface-sunken text-content-secondary',
         emergent: 'bg-critical-subtle text-critical-subtle-fg',
         stat: 'bg-red-200 text-critical-subtle-fg',
       },
@@ -536,9 +536,9 @@ const ConsultPage: React.FC = () => {
                           </div>
 
                           {consult.response.followUp && (
-                            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                              <p className="text-sm font-semibold text-purple-900 mb-2">{t('docConsult.followUpPlanTitle')}</p>
-                              <p className="text-sm text-purple-800">{consult.response.followUp}</p>
+                            <div className="bg-surface-sunken border border-purple-200 rounded-lg p-4">
+                              <p className="text-sm font-semibold text-content-secondary mb-2">{t('docConsult.followUpPlanTitle')}</p>
+                              <p className="text-sm text-content-secondary">{consult.response.followUp}</p>
                             </div>
                           )}
 

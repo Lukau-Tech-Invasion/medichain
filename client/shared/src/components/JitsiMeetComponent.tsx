@@ -237,7 +237,7 @@ export function JitsiMeetComponent({
         <span className="flex items-center gap-2 font-medium">
           <Video size={20} /> Telehealth Video Call
           {isModerator && (
-            <span className="flex items-center gap-1 text-xs bg-emerald-700 px-2 py-0.5 rounded-full">
+            <span className="flex items-center gap-1 text-xs bg-ok px-2 py-0.5 rounded-full">
               <ShieldCheck size={12} /> Moderator
             </span>
           )}
@@ -268,7 +268,7 @@ export function JitsiMeetComponent({
               onClick={toggleRecording}
               disabled={recordBusy}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-lg disabled:opacity-50 ${
-                recording ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-600 hover:bg-red-700'
+                recording ? 'bg-gray-700 hover:bg-gray-600' : 'bg-critical hover:bg-critical'
               }`}
             >
               {recording ? <StopCircle size={16} /> : <Disc size={16} />}
@@ -277,7 +277,7 @@ export function JitsiMeetComponent({
           )}
           <button
             onClick={leave}
-            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700"
+            className="px-3 py-1.5 rounded-lg bg-critical hover:bg-critical"
           >
             Leave call
           </button>

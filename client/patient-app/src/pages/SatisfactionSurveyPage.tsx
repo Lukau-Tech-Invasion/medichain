@@ -278,7 +278,7 @@ const SatisfactionSurveyPage: React.FC = () => {
               <div
                 key={s}
                 className={`flex items-center gap-1 text-xs font-medium ${
-                  idx <= currentStepIndex ? 'text-pink-600' : 'text-content-muted'
+                  idx <= currentStepIndex ? 'text-content-secondary' : 'text-content-muted'
                 }`}
               >
                 {getStepIcon(s as SurveyStep)}
@@ -306,9 +306,9 @@ const SatisfactionSurveyPage: React.FC = () => {
                 {t('survey.valueBody')}
               </p>
 
-              <div className="bg-pink-50 rounded-lg p-4 mb-6">
-                <h3 className="font-medium text-pink-900 mb-2">{t('survey.recentVisit')}</h3>
-                <div className="text-sm text-pink-700">
+              <div className="bg-surface-sunken rounded-lg p-4 mb-6">
+                <h3 className="font-medium text-content-secondary mb-2">{t('survey.recentVisit')}</h3>
+                <div className="text-sm text-content-secondary">
                   {recentVisit ? (
                     <>
                       <p>{recentVisit.provider_name} - {recentVisit.appointment_type}</p>

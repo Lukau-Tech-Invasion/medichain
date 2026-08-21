@@ -249,8 +249,8 @@ export function MedicalHistoryPage() {
             familyHistory.map((entry, idx) => (
               <div key={entry.id || idx} className="patient-card">
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Users className="w-5 h-5 text-indigo-600" />
+                  <div className="w-10 h-10 bg-surface-sunken rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Users className="w-5 h-5 text-content-secondary" />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
@@ -288,8 +288,8 @@ export function MedicalHistoryPage() {
             documents.map((doc, idx) => (
               <div key={doc.record_id || doc.id || idx} className="patient-card flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-5 h-5 text-primary-600" />
+                  <div className="w-10 h-10 bg-brand-subtle rounded-xl flex items-center justify-center flex-shrink-0">
+                    <FileText className="w-5 h-5 text-brand" />
                   </div>
                   <div>
                     <h3 className="font-medium text-content">
@@ -310,7 +310,7 @@ export function MedicalHistoryPage() {
                 </div>
                 {doc.ipfs_hash && (
                   <button
-                    className="p-2 text-content-muted hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                    className="p-2 text-content-muted hover:text-brand-subtle-fg hover:bg-brand-subtle rounded-lg transition-colors"
                     title={t('medicalHistory.download')}
                   >
                     <Download className="w-4 h-4" />

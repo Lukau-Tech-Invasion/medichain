@@ -228,7 +228,7 @@ export default function ShiftHandoffPage() {
   const getPriorityColor = (priority: Priority) => {
     switch (priority) {
       case 'critical': return 'bg-red-500 text-white';
-      case 'urgent': return 'bg-yellow-500 text-white';
+      case 'urgent': return 'bg-caution text-white';
       default: return 'bg-green-500 text-white';
     }
   };
@@ -418,7 +418,7 @@ export default function ShiftHandoffPage() {
               onClick={() => setActiveTab('handoff')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'handoff' 
-                  ? 'border-b-2 border-purple-500 text-purple-600' 
+                  ? 'border-b-2 border-purple-500 text-content-secondary' 
                   : 'text-content-muted'
               }`}
             >
@@ -429,7 +429,7 @@ export default function ShiftHandoffPage() {
               onClick={() => setActiveTab('history')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'history'
-                  ? 'border-b-2 border-purple-500 text-purple-600'
+                  ? 'border-b-2 border-purple-500 text-content-secondary'
                   : 'text-content-muted'
               }`}
             >
@@ -601,7 +601,7 @@ export default function ShiftHandoffPage() {
                           onClick={() => { setSelectedPatientId(patient.patient_id); }}
                           className={`w-full text-left p-3 rounded-lg transition-colors ${
                             selectedPatientId === patient.patient_id
-                              ? 'bg-purple-100 border-2 border-purple-500'
+                              ? 'bg-surface-sunken border-2 border-purple-500'
                               : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                           }`}
                         >
@@ -690,7 +690,7 @@ export default function ShiftHandoffPage() {
                           <p className="text-sm text-content-muted">{patient.diagnosis || t('docShiftHandoff.diagnosisPending')}</p>
                           <div className="flex items-center space-x-3 mt-1 text-xs text-content-muted">
                             <span>{t('docShiftHandoff.codePrefix', { status: t(`docShiftHandoff.codeStatus_${CODE_STATUS_KEYS[patient.codeStatus]}`) })}</span>
-                            {patient.isolation && <span className="inline-flex items-center gap-1 text-orange-600"><AlertTriangle size={12} aria-hidden="true" /> {patient.isolation}</span>}
+                            {patient.isolation && <span className="inline-flex items-center gap-1 text-content-secondary"><AlertTriangle size={12} aria-hidden="true" /> {patient.isolation}</span>}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -711,14 +711,14 @@ export default function ShiftHandoffPage() {
                     {expandedPatient === patient.patientId && (
                       <div className="p-4 border-t space-y-4">
                         {/* SBAR Section */}
-                        <div className="bg-purple-50 rounded-lg p-4">
-                          <h4 className="font-bold text-purple-800 mb-3 flex items-center">
+                        <div className="bg-surface-sunken rounded-lg p-4">
+                          <h4 className="font-bold text-content-secondary mb-3 flex items-center">
                             <MessageSquare className="h-4 w-4 mr-2" />
                             {t('docShiftHandoff.sbarTitle')}
                           </h4>
                           <div className="space-y-3">
                             <div>
-                              <label htmlFor={`handoff-sbar-situation-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">{t('docShiftHandoff.situationLabel')}</label>
+                              <label htmlFor={`handoff-sbar-situation-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.situationLabel')}</label>
                               <textarea
                                 id={`handoff-sbar-situation-${patient.patientId}`}
                                 value={patient.sbar.situation}
@@ -729,7 +729,7 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label htmlFor={`handoff-sbar-background-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">{t('docShiftHandoff.backgroundLabel')}</label>
+                              <label htmlFor={`handoff-sbar-background-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.backgroundLabel')}</label>
                               <textarea
                                 id={`handoff-sbar-background-${patient.patientId}`}
                                 value={patient.sbar.background}
@@ -740,7 +740,7 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label htmlFor={`handoff-sbar-assessment-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">{t('docShiftHandoff.assessmentLabel')}</label>
+                              <label htmlFor={`handoff-sbar-assessment-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.assessmentLabel')}</label>
                               <textarea
                                 id={`handoff-sbar-assessment-${patient.patientId}`}
                                 value={patient.sbar.assessment}
@@ -751,7 +751,7 @@ export default function ShiftHandoffPage() {
                               />
                             </div>
                             <div>
-                              <label htmlFor={`handoff-sbar-recommendation-${patient.patientId}`} className="block text-sm font-bold text-purple-700 mb-1">{t('docShiftHandoff.recommendationLabel')}</label>
+                              <label htmlFor={`handoff-sbar-recommendation-${patient.patientId}`} className="block text-sm font-bold text-content-secondary mb-1">{t('docShiftHandoff.recommendationLabel')}</label>
                               <textarea
                                 id={`handoff-sbar-recommendation-${patient.patientId}`}
                                 value={patient.sbar.recommendation}
@@ -880,8 +880,8 @@ export default function ShiftHandoffPage() {
                         </div>
 
                         {/* Safety Risks */}
-                        <div className="bg-orange-50 rounded-lg p-3">
-                          <h5 className="font-medium text-orange-800 mb-2 flex items-center">
+                        <div className="bg-surface-sunken rounded-lg p-3">
+                          <h5 className="font-medium text-content-secondary mb-2 flex items-center">
                             <AlertTriangle className="h-4 w-4 mr-2" />
                             {t('docShiftHandoff.safetyRisksTitle')}
                           </h5>
@@ -894,7 +894,7 @@ export default function ShiftHandoffPage() {
                                 className={`px-2 py-1 rounded text-xs ${
                                   patient.safetyRisks.includes(risk)
                                     ? 'bg-orange-500 text-white'
-                                    : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                                    : 'bg-surface-sunken text-content-secondary hover:bg-orange-200'
                                 }`}
                               >
                                 {t(`docShiftHandoff.risk_${SAFETY_RISK_KEYS[risk]}`)}

@@ -264,7 +264,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
       'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
       'complete': 'bg-notice-subtle text-notice-subtle-fg',
       'signed': 'bg-ok-subtle text-ok-subtle-fg',
-      'addendum': 'bg-purple-100 text-purple-700'
+      'addendum': 'bg-surface-sunken text-content-secondary'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
@@ -277,9 +277,9 @@ const HistoryAndPhysicalPage: React.FC = () => {
     const styles: Record<string, string> = {
       'admission': 'bg-critical-subtle text-critical-subtle-fg',
       'annual': 'bg-ok-subtle text-ok-subtle-fg',
-      'pre-operative': 'bg-orange-100 text-orange-700',
+      'pre-operative': 'bg-surface-sunken text-content-secondary',
       'follow-up': 'bg-notice-subtle text-notice-subtle-fg',
-      'consultation': 'bg-purple-100 text-purple-700'
+      'consultation': 'bg-surface-sunken text-content-secondary'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[type]}`}>
@@ -322,7 +322,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
           <p className="text-content-muted">{t('docHistoryPhysical.loading')}</p>
         </div>
       )}
@@ -350,7 +350,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium capitalize transition-colors ${
                     activeTab === tab
-                      ? 'text-indigo-700 border-b-2 border-indigo-700'
+                      ? 'text-content-secondary border-b-2 border-indigo-700'
                       : 'text-content-muted hover:text-content-secondary'
                   }`}
                 >
@@ -501,7 +501,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                       onClick={() => setCurrentSection(idx)}
                       className={`w-full text-left px-3 py-2 rounded text-sm ${
                         currentSection === idx
-                          ? 'bg-indigo-100 text-indigo-700 font-medium'
+                          ? 'bg-surface-sunken text-content-secondary font-medium'
                           : 'text-content-muted hover:bg-surface-sunken'
                       }`}
                     >
@@ -521,7 +521,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <User className="w-5 h-5 text-indigo-600" />
+                    <User className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.patientInformationHeading')}
                   </h2>
                   {expandedSections.has('patient-info') ? (
@@ -532,8 +532,8 @@ const HistoryAndPhysicalPage: React.FC = () => {
                 </button>
                 {expandedSections.has('patient-info') && (
                   <div className="mt-4 space-y-4">
-                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
-                      <label htmlFor="hp-patient-select" className="block text-sm font-medium text-indigo-900 mb-1">{t('docHistoryPhysical.selectExistingPatient')}</label>
+                    <div className="bg-surface-sunken p-4 rounded-lg border border-indigo-100">
+                      <label htmlFor="hp-patient-select" className="block text-sm font-medium text-content-secondary mb-1">{t('docHistoryPhysical.selectExistingPatient')}</label>
                       <select
                         id="hp-patient-select"
                         onChange={(e) => {
@@ -600,7 +600,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                                   value={type}
                                   checked={formData.examType === type}
                                   onChange={() => setFormData({ ...formData, examType: type as HistoryAndPhysical['examType'] })}
-                                  className="text-indigo-600"
+                                  className="text-content-secondary"
                                 />
                                 <span className="text-sm">{t(`docHistoryPhysical.examType_${type}`)}</span>
                               </label>
@@ -620,7 +620,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5 text-indigo-600" />
+                    <AlertTriangle className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.chiefComplaintHpiHeading')}
                   </h2>
                   {expandedSections.has('chief-complaint') ? (
@@ -663,7 +663,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <History className="w-5 h-5 text-indigo-600" />
+                    <History className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.medicalHistoryHeading')}
                   </h2>
                   {expandedSections.has('history') ? (
@@ -779,7 +779,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-indigo-600" />
+                    <Activity className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.vitalSignsHeading')}
                   </h2>
                   {expandedSections.has('vitals') ? (
@@ -848,7 +848,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Brain className="w-5 h-5 text-indigo-600" />
+                    <Brain className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.reviewOfSystemsHeading')}
                   </h2>
                   {expandedSections.has('ros') ? (
@@ -885,7 +885,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <Stethoscope className="w-5 h-5 text-indigo-600" />
+                    <Stethoscope className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.physicalExaminationHeading')}
                   </h2>
                   {expandedSections.has('pe') ? (
@@ -903,7 +903,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                           <div className="flex gap-3" role="radiogroup" aria-labelledby={`hp-pe-${system.toLowerCase()}-label`}>
                             {['normal', 'abnormal'].map(status => (
                               <label key={status} htmlFor={`hp-pe-${system.toLowerCase()}-${status}`} className="flex items-center gap-1 cursor-pointer">
-                                <input id={`hp-pe-${system.toLowerCase()}-${status}`} type="radio" name={`pe-${system}`} className="text-indigo-600"
+                                <input id={`hp-pe-${system.toLowerCase()}-${status}`} type="radio" name={`pe-${system}`} className="text-content-secondary"
                                   checked={formData.physicalExam[system]?.status === status}
                                   onChange={() => setFormData({ ...formData, physicalExam: { ...formData.physicalExam, [system]: { status, findings: formData.physicalExam[system]?.findings || '' } } })} />
                                 <span className="text-sm">{status === 'normal' ? t('docHistoryPhysical.normalLabel') : t('docHistoryPhysical.abnormalLabel')}</span>
@@ -933,7 +933,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   className="w-full flex items-center justify-between"
                 >
                   <h2 className="text-lg font-semibold flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-indigo-600" />
+                    <FileText className="w-5 h-5 text-content-secondary" />
                     {t('docHistoryPhysical.assessmentPlanHeading')}
                   </h2>
                   {expandedSections.has('assessment') ? (
@@ -1013,7 +1013,7 @@ const HistoryAndPhysicalPage: React.FC = () => {
                   </div>
                   {getExamTypeBadge(template.type as HistoryAndPhysical['examType'])}
                 </div>
-                <button className="mt-4 text-sm text-indigo-600 font-medium flex items-center gap-1">
+                <button className="mt-4 text-sm text-content-secondary font-medium flex items-center gap-1">
                   {t('docHistoryPhysical.useTemplate')}
                   <ChevronRight className="w-4 h-4" />
                 </button>

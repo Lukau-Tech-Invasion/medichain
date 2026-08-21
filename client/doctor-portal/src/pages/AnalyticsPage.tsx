@@ -370,7 +370,7 @@ const AnalyticsPage: React.FC = () => {
       case 'green':
         return { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', border: 'border-ok' };
       case 'purple':
-        return { bg: 'bg-purple-100', text: 'text-purple-600', border: 'border-purple-200' };
+        return { bg: 'bg-surface-sunken', text: 'text-content-secondary', border: 'border-purple-200' };
       case 'red':
         return { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', border: 'border-critical' };
       default:
@@ -439,7 +439,7 @@ const AnalyticsPage: React.FC = () => {
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+          <Loader2 className="w-8 h-8 animate-spin text-content-secondary" />
           <span className="ml-2 text-content-muted">{t('docAnalytics.loading')}</span>
         </div>
       </div>
@@ -542,7 +542,7 @@ const AnalyticsPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div className="bg-surface rounded-lg shadow p-6">
           <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
-            <Users className="w-6 h-6 text-purple-600" />
+            <Users className="w-6 h-6 text-content-secondary" />
             {t('docAnalytics.departmentPerformance')}
           </h2>
           <div className="space-y-4">
@@ -603,7 +603,7 @@ const AnalyticsPage: React.FC = () => {
 
         <div className="bg-surface rounded-lg shadow p-6">
           <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
-            <TrendingUp className="w-6 h-6 text-purple-600" />
+            <TrendingUp className="w-6 h-6 text-content-secondary" />
             {t('docAnalytics.patientFlowTitle')}
           </h2>
           <div className="space-y-3">
@@ -745,7 +745,7 @@ const AnalyticsPage: React.FC = () => {
 
       <div className="bg-surface rounded-lg shadow p-6">
         <h2 className="text-xl font-bold text-content mb-4 flex items-center gap-2">
-          <Calendar className="w-6 h-6 text-purple-600" />
+          <Calendar className="w-6 h-6 text-content-secondary" />
           {t('docAnalytics.recentActivityTitle')}
         </h2>
         <div className="overflow-x-auto">
@@ -783,7 +783,7 @@ const AnalyticsPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-orange-100 text-orange-800">
+                      <span className="px-2 py-1 text-xs font-medium rounded-full bg-surface-sunken text-content-secondary">
                         {t('docAnalytics.statusUnacknowledged')}
                       </span>
                     </td>

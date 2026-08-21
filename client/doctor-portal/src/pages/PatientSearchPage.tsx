@@ -274,14 +274,14 @@ function PatientSearchPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('docPatientSearch.searchPlaceholder')}
-              className="w-full pl-12 pr-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none transition-all"
+              className="w-full pl-12 pr-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none transition-all"
             />
           </div>
           <button
             type="button"
             onClick={() => setShowFilters(!showFilters)}
             className={`px-4 py-3 border rounded-lg hover:bg-surface-sunken transition-colors flex items-center gap-2 ${
-              showFilters ? 'border-primary-500 bg-primary-50' : 'border-border'
+              showFilters ? 'border-brand bg-brand-subtle' : 'border-border'
             }`}
           >
             <Filter size={20} />
@@ -290,7 +290,7 @@ function PatientSearchPage() {
           <button
             type="submit"
             disabled={isSearching}
-            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
           >
             {isSearching ? t('docPatientSearch.searching') : t('docPatientSearch.search')}
           </button>
@@ -382,8 +382,8 @@ function PatientSearchPage() {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-primary-600 font-bold">
+                    <div className="w-12 h-12 bg-brand-subtle rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-brand font-bold">
                         {patient.fullName
                           ? patient.fullName.split(' ').map(n => n[0]).join('')
                           : '?'}
@@ -442,7 +442,7 @@ function PatientSearchPage() {
                           </span>
                         )}
                         {patient.conditions.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-sunken text-content-secondary text-xs rounded-full">
                             <Heart size={12} />
                             {patient.conditions.length} {patient.conditions.length !== 1 ? t('docPatientSearch.conditions') : t('docPatientSearch.condition')}
                           </span>

@@ -333,7 +333,7 @@ const MedicationAdminPage: React.FC = () => {
           onClick={() => setActiveTab('mar')}
           className={`px-4 py-2 font-medium transition-colors ${
             activeTab === 'mar'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
+              ? 'text-content-secondary border-b-2 border-indigo-600'
               : 'text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -345,7 +345,7 @@ const MedicationAdminPage: React.FC = () => {
             onClick={() => setActiveTab('administerMed')}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === 'administerMed'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
+                ? 'text-content-secondary border-b-2 border-indigo-600'
                 : 'text-content-muted hover:text-content-secondary'
             }`}
           >
@@ -357,7 +357,7 @@ const MedicationAdminPage: React.FC = () => {
           onClick={() => setActiveTab('history')}
           className={`px-4 py-2 font-medium transition-colors ${
             activeTab === 'history'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
+              ? 'text-content-secondary border-b-2 border-indigo-600'
               : 'text-content-muted hover:text-content-secondary'
           }`}
         >
@@ -459,7 +459,7 @@ const MedicationAdminPage: React.FC = () => {
                         </div>
                       )}
                       {med.interactions && med.interactions.length > 0 && (
-                        <div className="text-xs text-orange-600 flex items-center">
+                        <div className="text-xs text-content-secondary flex items-center">
                           <AlertTriangle className="h-3 w-3 mr-1" />
                           {t('docMedicationAdmin.interactionsLine', { list: med.interactions.join(', ') })}
                         </div>

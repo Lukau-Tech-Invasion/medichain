@@ -705,7 +705,7 @@ const LabQCPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
+                className="px-4 py-2 bg-ok text-ok-fg rounded-md hover:bg-ok flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docLabQC.recordQcTestButton')}
@@ -750,7 +750,7 @@ const LabQCPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-sm text-content">{cal.instrument}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 text-xs font-semibold rounded bg-purple-100 text-purple-800">
+                      <span className="px-2 py-1 text-xs font-semibold rounded bg-surface-sunken text-content-secondary">
                         {t(`docLabQC.calTypeBadge_${cal.calibrationType}`).toUpperCase()}
                       </span>
                     </td>
@@ -918,7 +918,7 @@ const LabQCPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
+                className="px-4 py-2 bg-ok text-ok-fg rounded-md hover:bg-ok flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docLabQC.recordCalibrationButton')}

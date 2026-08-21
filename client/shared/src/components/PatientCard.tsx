@@ -204,10 +204,10 @@ export function EmergencyInfoCard({ info, className }: EmergencyInfoCardProps) {
           <p className="text-2xl font-bold text-critical-subtle-fg">{info.blood_type}</p>
         </div>
 
-        <div className="text-center p-3 bg-orange-50 rounded-lg">
-          <AlertTriangle className="w-8 h-8 text-orange-600 mx-auto mb-1" />
+        <div className="text-center p-3 bg-surface-sunken rounded-lg">
+          <AlertTriangle className="w-8 h-8 text-content-secondary mx-auto mb-1" />
           <p className="text-xs text-content-muted">Allergies</p>
-          <p className="text-2xl font-bold text-orange-700">{info.allergies.length}</p>
+          <p className="text-2xl font-bold text-content-secondary">{info.allergies.length}</p>
         </div>
 
         <div className="text-center p-3 bg-notice-subtle rounded-lg">
@@ -216,10 +216,10 @@ export function EmergencyInfoCard({ info, className }: EmergencyInfoCardProps) {
           <p className="text-2xl font-bold text-notice-subtle-fg">{info.current_medications.length}</p>
         </div>
 
-        <div className="text-center p-3 bg-purple-50 rounded-lg">
-          <Activity className="w-8 h-8 text-purple-600 mx-auto mb-1" />
+        <div className="text-center p-3 bg-surface-sunken rounded-lg">
+          <Activity className="w-8 h-8 text-content-secondary mx-auto mb-1" />
           <p className="text-xs text-content-muted">Conditions</p>
-          <p className="text-2xl font-bold text-purple-700">{info.chronic_conditions.length}</p>
+          <p className="text-2xl font-bold text-content-secondary">{info.chronic_conditions.length}</p>
         </div>
       </div>
 

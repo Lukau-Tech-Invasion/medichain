@@ -358,7 +358,7 @@ export default function SepsisPage() {
               ) : (
                 <button
                   onClick={startSepsisProtocol}
-                  className="bg-surface text-orange-600 px-6 py-3 rounded-lg font-bold hover:bg-orange-50 flex items-center"
+                  className="bg-surface text-content-secondary px-6 py-3 rounded-lg font-bold hover:bg-surface-sunken flex items-center"
                 >
                   <Timer className="h-5 w-5 mr-2" />
                   {t('docSepsis.startProtocolTimer')}
@@ -431,7 +431,7 @@ export default function SepsisPage() {
                     ) : (
                       <div className="space-y-1">
                         {emergencyHistory.slice(0, 3).map((ev) => (
-                          <div key={ev.event_id} className="text-xs bg-orange-50 rounded p-1.5 flex justify-between">
+                          <div key={ev.event_id} className="text-xs bg-surface-sunken rounded p-1.5 flex justify-between">
                             <span>{ev.event_type || t('docSepsis.defaultEventType')}</span>
                             <span className="text-content-muted">{ev.assessed_at ? new Date(ev.assessed_at * 1000).toLocaleDateString() : '-'}</span>
                           </div>
@@ -447,7 +447,7 @@ export default function SepsisPage() {
                 <h2 className="text-lg font-semibold text-content mb-4">{t('docSepsis.classification')}</h2>
                 <div className="space-y-2">
                   {[
-                    { value: 'sirs', label: t('docSepsis.classification_sirs'), color: 'bg-yellow-500' },
+                    { value: 'sirs', label: t('docSepsis.classification_sirs'), color: 'bg-caution' },
                     { value: 'sepsis', label: t('docSepsis.classification_sepsis'), color: 'bg-orange-500' },
                     { value: 'severe_sepsis', label: t('docSepsis.classification_severe_sepsis'), color: 'bg-red-500' },
                     { value: 'septic_shock', label: t('docSepsis.classification_septic_shock'), color: 'bg-red-800' }
@@ -726,7 +726,7 @@ export default function SepsisPage() {
                             setAntibioticsGiven(antibioticsGiven.filter(a => a !== abx));
                           }
                         }}
-                        className="rounded border-border-strong text-orange-600 focus:ring-orange-500"
+                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500"
                       />
                       <span className="text-sm">{abx}</span>
                     </label>

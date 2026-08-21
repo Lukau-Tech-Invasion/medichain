@@ -341,7 +341,7 @@ const SymptomCheckerPage: React.FC = () => {
     switch (severity) {
       case 'emergency': return 'bg-red-500';
       case 'urgent': return 'bg-orange-500';
-      case 'moderate': return 'bg-yellow-500';
+      case 'moderate': return 'bg-caution';
       case 'mild': return 'bg-blue-500';
       case 'self-care': return 'bg-green-500';
     }
@@ -375,8 +375,8 @@ const SymptomCheckerPage: React.FC = () => {
         <div className="flex-1 p-4">
           <div className="bg-surface rounded-lg shadow p-6 mb-4">
             <div className="text-center mb-6">
-              <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Bot className="w-10 h-10 text-purple-600" />
+              <div className="w-20 h-20 bg-surface-sunken rounded-full flex items-center justify-center mx-auto mb-4">
+                <Bot className="w-10 h-10 text-content-secondary" />
               </div>
               <h2 className="text-xl font-bold text-content mb-2">{t('symptomChecker.introHeading')}</h2>
               <p className="text-content-muted">
@@ -406,7 +406,7 @@ const SymptomCheckerPage: React.FC = () => {
                       onClick={() => setGender(g)}
                       className={`flex-1 py-2 px-4 rounded-lg border-2 transition-all ${
                         gender === g
-                          ? 'border-purple-500 bg-purple-50 text-purple-700'
+                          ? 'border-purple-500 bg-surface-sunken text-content-secondary'
                           : 'border-border hover:border-border-strong'
                       }`}
                     >
@@ -456,7 +456,7 @@ const SymptomCheckerPage: React.FC = () => {
                 {selectedSymptoms.map(s => (
                   <span
                     key={s.id}
-                    className="inline-flex items-center gap-1 bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full"
+                    className="inline-flex items-center gap-1 bg-surface-sunken text-content-secondary text-xs px-2 py-1 rounded-full"
                   >
                     {symptomLabel(s)}
                     <button onClick={() => handleSymptomSelect(s)} aria-label={`Remove ${symptomLabel(s)}`}>
@@ -477,10 +477,10 @@ const SymptomCheckerPage: React.FC = () => {
               >
                 <div className={`flex items-start gap-2 max-w-[85%] ${msg.type === 'user' ? 'flex-row-reverse' : ''}`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                    msg.type === 'bot' ? 'bg-purple-100' : 'bg-surface-sunken'
+                    msg.type === 'bot' ? 'bg-surface-sunken' : 'bg-surface-sunken'
                   }`}>
                     {msg.type === 'bot' ? (
-                      <Bot className="w-5 h-5 text-purple-600" />
+                      <Bot className="w-5 h-5 text-content-secondary" />
                     ) : (
                       <User className="w-5 h-5 text-content-muted" />
                     )}
@@ -499,8 +499,8 @@ const SymptomCheckerPage: React.FC = () => {
             {isTyping && (
               <div className="flex justify-start">
                 <div className="flex items-start gap-2">
-                  <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
-                    <Bot className="w-5 h-5 text-purple-600" />
+                  <div className="w-8 h-8 bg-surface-sunken rounded-full flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-content-secondary" />
                   </div>
                   <div className="bg-surface border border-border rounded-2xl px-4 py-3">
                     <div className="flex gap-1">
@@ -591,7 +591,7 @@ const SymptomCheckerPage: React.FC = () => {
             <h3 className="font-semibold text-content mb-3">{t('symptomChecker.reportedSymptoms')}</h3>
             <div className="flex flex-wrap gap-2">
               {selectedSymptoms.map(s => (
-                <span key={s.id} className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm">
+                <span key={s.id} className="bg-surface-sunken text-content-secondary px-3 py-1 rounded-full text-sm">
                   {symptomLabel(s)}
                 </span>
               ))}
@@ -635,7 +635,7 @@ const SymptomCheckerPage: React.FC = () => {
               // this in an emergency reaches a service that answers.
               <a
                 href={`tel:${t('common.emergencyNumber')}`}
-                className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2"
+                className="w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2"
               >
                 <Phone className="w-5 h-5" />
                 {t('symptomChecker.call911', { emergencyNumber: t('common.emergencyNumber') })}
@@ -656,7 +656,7 @@ const SymptomCheckerPage: React.FC = () => {
                 setMessages([]);
                 setTriageResult(null);
               }}
-              className="w-full py-3 text-purple-600 font-semibold"
+              className="w-full py-3 text-content-secondary font-semibold"
             >
               {t('symptomChecker.startNew')}
             </button>

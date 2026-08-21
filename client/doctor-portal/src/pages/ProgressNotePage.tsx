@@ -139,9 +139,9 @@ const ProgressNotePage: React.FC = () => {
     const colors: Record<NoteType, string> = {
       'daily': 'bg-notice-subtle text-notice-subtle-fg',
       'admission': 'bg-ok-subtle text-ok-subtle-fg',
-      'discharge': 'bg-purple-100 text-purple-700',
-      'procedure': 'bg-orange-100 text-orange-700',
-      'consultation': 'bg-cyan-100 text-cyan-700',
+      'discharge': 'bg-surface-sunken text-content-secondary',
+      'procedure': 'bg-surface-sunken text-content-secondary',
+      'consultation': 'bg-surface-sunken text-content-secondary',
       'transfer': 'bg-caution-subtle text-caution-subtle-fg'
     };
     return colors[type];
@@ -163,7 +163,7 @@ const ProgressNotePage: React.FC = () => {
       'draft': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg' },
       'signed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg' },
       'cosigned': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg' },
-      'addendum': { bg: 'bg-purple-100', text: 'text-purple-700' }
+      'addendum': { bg: 'bg-surface-sunken', text: 'text-content-secondary' }
     };
     const labels: Record<NoteStatus, string> = {
       'draft': t('docProgressNote.stDraft'),
@@ -275,7 +275,7 @@ const ProgressNotePage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
           <p className="text-content-muted">{t('docProgressNote.loading')}</p>
         </div>
       )}
@@ -318,7 +318,7 @@ const ProgressNotePage: React.FC = () => {
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-4 text-sm font-medium ${
-                activeTab === tab ? 'text-indigo-700 border-b-2 border-indigo-700' : 'text-content-muted'
+                activeTab === tab ? 'text-content-secondary border-b-2 border-indigo-700' : 'text-content-muted'
               }`}
             >
               {tab === 'notes' ? t('docProgressNote.tabNotes') : tab === 'new' ? t('docProgressNote.tabNew') : t('docProgressNote.tabTimeline')}

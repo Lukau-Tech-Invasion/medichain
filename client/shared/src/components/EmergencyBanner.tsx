@@ -43,7 +43,7 @@ export function EmergencyBanner({
 }: EmergencyBannerProps) {
   const configs = {
     access_granted: {
-      bg: 'bg-red-600',
+      bg: 'bg-critical',
       icon: <AlertTriangle className="w-6 h-6" />,
       title: 'EMERGENCY ACCESS GRANTED',
       subtitle: 'Time-limited access to medical records',
@@ -55,7 +55,7 @@ export function EmergencyBanner({
       subtitle: 'Awaiting authorization',
     },
     critical_info: {
-      bg: 'bg-red-700',
+      bg: 'bg-critical',
       icon: <AlertTriangle className="w-6 h-6" />,
       title: 'CRITICAL PATIENT INFORMATION',
       subtitle: 'Review immediately',
@@ -201,7 +201,7 @@ export function EmergencyTimer({
         isCritical 
           ? 'bg-critical-subtle text-critical-subtle-fg animate-pulse' 
           : isLow 
-            ? 'bg-orange-100 text-orange-700' 
+            ? 'bg-surface-sunken text-content-secondary' 
             : 'bg-notice-subtle text-notice-subtle-fg',
         className
       )}

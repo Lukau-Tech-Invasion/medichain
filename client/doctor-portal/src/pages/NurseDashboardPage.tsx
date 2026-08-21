@@ -160,7 +160,7 @@ export default function NurseDashboardPage() {
                     {med.route} - {t('docNurseDashboard.due')}: {med.time_due}
                   </p>
                 </div>
-                <button className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                <button className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok">
                   {t('docNurseDashboard.administer')}
                 </button>
               </div>

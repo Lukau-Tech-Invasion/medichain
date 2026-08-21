@@ -342,7 +342,7 @@ const CriticalValuePage: React.FC = () => {
       pending: 'bg-critical-subtle text-critical-subtle-fg',
       'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
       acknowledged: 'bg-ok-subtle text-ok-subtle-fg',
-      escalated: 'bg-purple-100 text-purple-800',
+      escalated: 'bg-surface-sunken text-content-secondary',
       cancelled: 'bg-muted text-muted-fg',
     };
     return badges[status] || 'bg-muted text-muted-fg';
@@ -365,8 +365,8 @@ const CriticalValuePage: React.FC = () => {
 
   const getCriticalLevelBadge = (level: CriticalLevel) => {
     const badges = {
-      'critical-high': 'bg-orange-100 text-orange-800',
-      'critical-low': 'bg-orange-100 text-orange-800',
+      'critical-high': 'bg-surface-sunken text-content-secondary',
+      'critical-low': 'bg-surface-sunken text-content-secondary',
       panic: 'bg-critical-subtle text-critical-subtle-fg',
     };
     return badges[level];
@@ -413,8 +413,8 @@ const CriticalValuePage: React.FC = () => {
           onClick={() => setActiveTab('pending')}
           className={`px-6 py-3 font-semibold transition-colors relative ${
             activeTab === 'pending'
-              ? 'text-teal-600 border-b-2 border-teal-600'
-              : 'text-content-muted hover:text-teal-600'
+              ? 'text-content-secondary border-b-2 border-teal-600'
+              : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docCriticalValue.tabPending')}
@@ -428,8 +428,8 @@ const CriticalValuePage: React.FC = () => {
           onClick={() => setActiveTab('report-new')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'report-new'
-              ? 'text-teal-600 border-b-2 border-teal-600'
-              : 'text-content-muted hover:text-teal-600'
+              ? 'text-content-secondary border-b-2 border-teal-600'
+              : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docCriticalValue.tabReportNew')}
@@ -438,8 +438,8 @@ const CriticalValuePage: React.FC = () => {
           onClick={() => setActiveTab('history')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'history'
-              ? 'text-teal-600 border-b-2 border-teal-600'
-              : 'text-content-muted hover:text-teal-600'
+              ? 'text-content-secondary border-b-2 border-teal-600'
+              : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docCriticalValue.tabHistory')}
@@ -448,8 +448,8 @@ const CriticalValuePage: React.FC = () => {
           onClick={() => setActiveTab('thresholds')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'thresholds'
-              ? 'text-teal-600 border-b-2 border-teal-600'
-              : 'text-content-muted hover:text-teal-600'
+              ? 'text-content-secondary border-b-2 border-teal-600'
+              : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docCriticalValue.tabThresholds')}
@@ -476,7 +476,7 @@ const CriticalValuePage: React.FC = () => {
                 className={`border rounded-lg shadow-sm overflow-hidden ${
                   notification.criticalLevel === 'panic'
                     ? 'border-critical bg-critical-subtle'
-                    : 'border-orange-300 bg-orange-50'
+                    : 'border-orange-300 bg-surface-sunken'
                 }`}
               >
                 <div className="p-4">
@@ -560,8 +560,8 @@ const CriticalValuePage: React.FC = () => {
                   )}
 
                   {notification.notificationStatus === 'escalated' && (
-                    <div className="mb-4 bg-purple-100 border border-purple-200 rounded-lg p-3">
-                      <p className="text-sm text-purple-900">
+                    <div className="mb-4 bg-surface-sunken border border-purple-200 rounded-lg p-3">
+                      <p className="text-sm text-content-secondary">
                         <Bell className="w-4 h-4 inline mr-1" />
                         {t('docCriticalValue.escalatedNote', {
                           escalatedTo: notification.escalatedTo || '',
@@ -880,7 +880,7 @@ const CriticalValuePage: React.FC = () => {
                           {t('docCriticalValue.severityLabel')}{' '}
                           <span
                             className={`font-bold ${
-                              result.level === 'panic' ? 'text-critical-subtle-fg' : 'text-orange-700'
+                              result.level === 'panic' ? 'text-critical-subtle-fg' : 'text-content-secondary'
                             }`}
                           >
                             {result.level === 'panic' ? t('docCriticalValue.panicBadge') : t('docCriticalValue.criticalBadge')}
@@ -890,7 +890,7 @@ const CriticalValuePage: React.FC = () => {
                     );
                   } else {
                     return (
-                      <p className="text-sm text-orange-800">
+                      <p className="text-sm text-content-secondary">
                         <AlertTriangle className="w-4 h-4 inline mr-1" />
                         {t('docCriticalValue.warningNotCritical')}
                       </p>
@@ -902,9 +902,9 @@ const CriticalValuePage: React.FC = () => {
           </div>
 
           {/* Critical Value Policy */}
-          <div className="bg-teal-50 border border-teal-200 rounded-lg p-4 mb-6">
-            <h3 className="font-bold text-teal-900 mb-2">{t('docCriticalValue.policyTitle')}</h3>
-            <ul className="text-sm text-teal-800 space-y-1">
+          <div className="bg-surface-sunken border border-teal-200 rounded-lg p-4 mb-6">
+            <h3 className="font-bold text-content-secondary mb-2">{t('docCriticalValue.policyTitle')}</h3>
+            <ul className="text-sm text-content-secondary space-y-1">
               <li>• {t('docCriticalValue.policy1')}</li>
               <li>• {t('docCriticalValue.policy2')}</li>
               <li>• {t('docCriticalValue.policy3')}</li>
@@ -1104,7 +1104,7 @@ const CriticalValuePage: React.FC = () => {
                   <td className="px-4 py-3 text-content-muted">{threshold.unit || t('docCriticalValue.naLabel')}</td>
                   <td className="px-4 py-3">
                     {threshold.criticalLow ? (
-                      <span className="text-orange-700 font-semibold">
+                      <span className="text-content-secondary font-semibold">
                         {'<'} {threshold.criticalLow}
                       </span>
                     ) : (
@@ -1122,7 +1122,7 @@ const CriticalValuePage: React.FC = () => {
                   </td>
                   <td className="px-4 py-3">
                     {threshold.criticalHigh ? (
-                      <span className="text-orange-700 font-semibold">
+                      <span className="text-content-secondary font-semibold">
                         {'>'} {threshold.criticalHigh}
                       </span>
                     ) : (
@@ -1144,11 +1144,11 @@ const CriticalValuePage: React.FC = () => {
           </table>
           <div className="p-4 bg-surface-sunken border-t border-border">
             <div className="flex items-start gap-3 text-sm">
-              <AlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+              <AlertTriangle className="w-5 h-5 text-content-secondary flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold text-content mb-1">{t('docCriticalValue.definitionsTitle')}</p>
                 <p className="text-content-secondary mb-2">
-                  <span className="font-semibold text-orange-700">{t('docCriticalValue.criticalValuesLabel')}</span> {t('docCriticalValue.criticalValuesDesc')}
+                  <span className="font-semibold text-content-secondary">{t('docCriticalValue.criticalValuesLabel')}</span> {t('docCriticalValue.criticalValuesDesc')}
                 </p>
                 <p className="text-content-secondary">
                   <span className="font-semibold text-critical-subtle-fg">{t('docCriticalValue.panicValuesLabel')}</span> {t('docCriticalValue.panicValuesDesc')}

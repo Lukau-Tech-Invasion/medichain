@@ -23,13 +23,21 @@ import { test, expect, Page } from '@playwright/test';
  * (>=24px, or >=18.66px when bold).
  */
 
-/** Routes worth guarding. Clinical-risk screens first. */
+/**
+ * Routes worth guarding.
+ *
+ * No `/doctor` prefix: that prefix exists only when nginx serves both portals
+ * from one origin (`VITE_BASE_PATH=/doctor`). Playwright drives the standalone
+ * dev server, which mounts at `/`. Using the nginx paths here silently
+ * redirected every route to `/dashboard` — five "passing" audits of the same
+ * screen. The URL assertion below is what caught it, and is why it stays.
+ */
 const ROUTES = [
-  { path: '/doctor/dashboard', name: 'Dashboard' },
-  { path: '/doctor/analytics', name: 'Analytics' },
-  { path: '/doctor/patients', name: 'Patient search' },
-  { path: '/doctor/user-management', name: 'User management' },
-  { path: '/doctor/settings', name: 'Settings' },
+  { path: '/dashboard', name: 'Dashboard' },
+  { path: '/analytics', name: 'Analytics' },
+  { path: '/patients', name: 'Patient search' },
+  { path: '/user-management', name: 'User management' },
+  { path: '/settings', name: 'Settings' },
 ];
 
 interface Failure {
@@ -182,8 +190,20 @@ for (const route of ROUTES) {
   for (const theme of ['light', 'dark'] as const) {
     test(`${route.name} meets WCAG AA in ${theme} mode`, async ({ page }) => {
       await page.goto(route.path);
-      // Content, not a spinner: measuring a loading skeleton proves nothing.
-      await page.waitForLoadState('networkidle');
+      // NOT `waitForLoadState('networkidle')`. This app holds an SSE stream
+      // open on /api/events for real-time push, so the network is never idle
+      // and that wait can only ever time out — it failed all ten tests at 30s
+      // before anything was measured.
+      //
+      // Wait for rendered content instead, which is what the audit actually
+      // needs: measuring a loading skeleton proves nothing.
+      // `main`, not `h1`: the first `h1` in the DOM belongs to the mobile
+      // header, which is `lg:hidden` at desktop width. Waiting on it waits
+      // forever for something deliberately invisible.
+      await page.locator('main').first().waitFor({ state: 'visible', timeout: 15000 });
+      // Let late-arriving data paint before sampling; a table that fills in
+      // after the audit runs is a table the audit never checked.
+      await page.waitForTimeout(1200);
       // Guard against a silent redirect back to /login leaving the audit
       // measuring the wrong screen.
       expect(page.url(), `${route.name} redirected away from ${route.path}`).toContain(route.path);

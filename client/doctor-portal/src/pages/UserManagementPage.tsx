@@ -238,11 +238,11 @@ const UserManagementPage: React.FC = () => {
 
   const getRoleBadge = (role: UserRole) => {
     const badges = {
-      admin: 'bg-purple-100 text-purple-800',
+      admin: 'bg-surface-sunken text-content-secondary',
       doctor: 'bg-notice-subtle text-notice-subtle-fg',
       nurse: 'bg-ok-subtle text-ok-subtle-fg',
       'lab-technician': 'bg-caution-subtle text-caution-subtle-fg',
-      pharmacist: 'bg-pink-100 text-pink-800',
+      pharmacist: 'bg-surface-sunken text-content-secondary',
       patient: 'bg-surface-sunken text-content-secondary',
     };
     return badges[role];
@@ -321,7 +321,7 @@ const UserManagementPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('users')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'users' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted hover:text-purple-700'
+            activeTab === 'users' ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docUserManagement.tabAllUsers', { count: users.length })}
@@ -329,7 +329,7 @@ const UserManagementPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('new-user')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'new-user' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted hover:text-purple-700'
+            activeTab === 'new-user' ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docUserManagement.tabNewUser')}
@@ -337,7 +337,7 @@ const UserManagementPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('roles')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'roles' ? 'text-purple-700 border-b-2 border-purple-700' : 'text-content-muted hover:text-purple-700'
+            activeTab === 'roles' ? 'text-content-secondary border-b-2 border-purple-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docUserManagement.tabRolesPermissions')}
@@ -401,8 +401,8 @@ const UserManagementPage: React.FC = () => {
               <div key={systemUser.userId} className="border border-border-strong rounded-lg shadow-sm bg-surface p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-4">
-                    <div className="bg-purple-100 rounded-full p-3">
-                      <User className="w-8 h-8 text-purple-600" />
+                    <div className="bg-surface-sunken rounded-full p-3">
+                      <User className="w-8 h-8 text-content-secondary" />
                     </div>
                     <div>
                       <div className="flex items-center gap-3 mb-2">
@@ -441,7 +441,7 @@ const UserManagementPage: React.FC = () => {
                         setSelectedUser(systemUser);
                         setShowPermissionsModal(true);
                       }}
-                      className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                      className="p-2 text-content-secondary hover:bg-surface-sunken rounded-lg transition-colors"
                       title={t('docUserManagement.managePermissionsTitle')}
                     >
                       <Shield className="w-5 h-5" />
@@ -465,9 +465,9 @@ const UserManagementPage: React.FC = () => {
                     `min-w-0` lets the track shrink, and the column count now
                     steps down on narrow viewports instead of cramming four
                     columns into a phone. */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 bg-purple-50 rounded-lg p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 bg-surface-sunken rounded-lg p-4">
                   <div className="min-w-0">
-                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.userIdLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docUserManagement.userIdLabel')}</p>
                     {/* Monospaced and selectable: this is an identifier someone
                         copies, and proportional type makes a transposed
                         character in an SS58 address genuinely hard to spot. */}
@@ -479,15 +479,15 @@ const UserManagementPage: React.FC = () => {
                     </p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.departmentLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docUserManagement.departmentLabel')}</p>
                     <p className="text-sm text-content break-words">{systemUser.department || t('docUserManagement.notAssigned')}</p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.licenseNumberLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docUserManagement.licenseNumberLabel')}</p>
                     <p className="text-sm text-content break-words">{systemUser.licenseNumber || t('docUserManagement.na')}</p>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm text-purple-900 font-semibold mb-1">{t('docUserManagement.specializationLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docUserManagement.specializationLabel')}</p>
                     <p className="text-sm text-content break-words">{systemUser.specialization || t('docUserManagement.na')}</p>
                   </div>
                 </div>
@@ -541,7 +541,7 @@ const UserManagementPage: React.FC = () => {
                   {systemUser.status === 'inactive' && (
                     <button
                       onClick={() => handleStatusChange(systemUser.userId, 'active')}
-                      className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-green-500 hover:bg-ok text-ok-fg rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <CheckCircle className="w-4 h-4" />
                       {t('docUserManagement.activateButton')}
@@ -559,7 +559,7 @@ const UserManagementPage: React.FC = () => {
                   {systemUser.status !== 'suspended' && (
                     <button
                       onClick={() => handleStatusChange(systemUser.userId, 'suspended')}
-                      className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-red-500 hover:bg-critical text-critical-fg rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <Lock className="w-4 h-4" />
                       {t('docUserManagement.suspendButton')}
@@ -568,7 +568,7 @@ const UserManagementPage: React.FC = () => {
                   {systemUser.status === 'suspended' && (
                     <button
                       onClick={() => handleStatusChange(systemUser.userId, 'active')}
-                      className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm transition-colors flex items-center gap-2"
+                      className="px-4 py-2 bg-green-500 hover:bg-ok text-ok-fg rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
                       <Unlock className="w-4 h-4" />
                       {t('docUserManagement.unsuspendButton')}
@@ -767,7 +767,7 @@ const UserManagementPage: React.FC = () => {
                 <div key={role} className="border border-border-strong rounded-lg p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
-                      <Shield className="w-6 h-6 text-purple-600" />
+                      <Shield className="w-6 h-6 text-content-secondary" />
                       <h3 className="text-lg font-bold text-content">{t(`docUserManagement.role_${role}`).toUpperCase()}</h3>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getRoleBadge(role)}`}>
                         {t('docUserManagement.usersCountSuffix', { count: users.filter((u) => u.role === role).length })}
@@ -787,7 +787,7 @@ const UserManagementPage: React.FC = () => {
                               perm.category === 'clinical'
                                 ? 'bg-notice-subtle text-notice-subtle-fg'
                                 : perm.category === 'administrative'
-                                ? 'bg-purple-100 text-purple-800'
+                                ? 'bg-surface-sunken text-content-secondary'
                                 : 'bg-critical-subtle text-critical-subtle-fg'
                             }`}
                           >
@@ -983,11 +983,11 @@ const UserManagementPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-              <p className="text-sm text-purple-900">
+            <div className="mb-4 p-4 bg-surface-sunken border border-purple-200 rounded-lg">
+              <p className="text-sm text-content-secondary">
                 <strong>{t('docUserManagement.currentRoleLabel')}</strong> {t(`docUserManagement.role_${selectedUser.role}`).toUpperCase()}
               </p>
-              <p className="text-sm text-purple-800 mt-1">
+              <p className="text-sm text-content-secondary mt-1">
                 {t('docUserManagement.selectedPermissionsCount', { selected: selectedUser.permissions.length, total: availablePermissions.length })}
               </p>
             </div>
@@ -1012,7 +1012,7 @@ const UserManagementPage: React.FC = () => {
                             onClick={() => handleTogglePermission(perm.id)}
                             className={`ml-4 px-4 py-2 rounded-lg font-semibold transition-colors ${
                               selectedUser.permissions.includes(perm.id)
-                                ? 'bg-green-500 text-white hover:bg-green-600'
+                                ? 'bg-green-500 text-ok-fg hover:bg-ok'
                                 : 'bg-surface-sunken text-content-secondary hover:bg-gray-300'
                             }`}
                           >

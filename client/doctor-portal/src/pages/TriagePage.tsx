@@ -61,7 +61,7 @@ function TriagePage() {
     {
       level: 1,
       name: t('docTriage.esi1_name'),
-      color: 'bg-red-600',
+      color: 'bg-critical',
       textColor: 'text-critical-subtle-fg',
       bgLight: 'bg-critical-subtle',
       borderColor: 'border-red-500',
@@ -73,8 +73,8 @@ function TriagePage() {
       level: 2,
       name: t('docTriage.esi2_name'),
       color: 'bg-orange-500',
-      textColor: 'text-orange-600',
-      bgLight: 'bg-orange-50',
+      textColor: 'text-content-secondary',
+      bgLight: 'bg-surface-sunken',
       borderColor: 'border-orange-500',
       description: t('docTriage.esi2_description'),
       wait: t('docTriage.esi2_wait'),
@@ -83,7 +83,7 @@ function TriagePage() {
     {
       level: 3,
       name: t('docTriage.esi3_name'),
-      color: 'bg-yellow-500',
+      color: 'bg-caution',
       textColor: 'text-caution-subtle-fg',
       bgLight: 'bg-caution-subtle',
       borderColor: 'border-yellow-500',
@@ -405,7 +405,7 @@ function TriagePage() {
                         setShowPatientDropdown(false);
                       }}
                       className={`w-full text-left px-4 py-3 hover:bg-surface-sunken border-b border-border last:border-0 ${
-                        selectedPatientId === patient.patient_id ? 'bg-primary-50' : ''
+                        selectedPatientId === patient.patient_id ? 'bg-brand-subtle' : ''
                       }`}
                     >
                       <p className="font-medium text-content">{patient.full_name}</p>
@@ -710,7 +710,7 @@ function TriagePage() {
             <button
               type="submit"
               disabled={submitting || !selectedPatientId || selectedESI === null || !chiefComplaint.trim()}
-              className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {submitting ? (
                 <>
@@ -793,7 +793,7 @@ function TriagePage() {
               <p className="text-content-muted">{t('docTriage.noPatientsInQueue')}</p>
               <button
                 onClick={() => setActiveTab('new')}
-                className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                className="mt-4 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors"
               >
                 {t('docTriage.startNewTriage')}
               </button>

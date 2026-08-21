@@ -220,17 +220,17 @@ const ImagingPage: React.FC = () => {
   const getStatusBadge = (status: ImagingStatus) => {
     const styles: Record<ImagingStatus, string> = {
       ordered: 'bg-notice-subtle text-notice-subtle-fg',
-      scheduled: 'bg-purple-100 text-purple-700',
+      scheduled: 'bg-surface-sunken text-content-secondary',
       'in-progress': 'bg-caution-subtle text-caution-subtle-fg',
       completed: 'bg-surface-sunken text-content-secondary',
-      prelim: 'bg-orange-100 text-orange-700',
+      prelim: 'bg-surface-sunken text-content-secondary',
       final: 'bg-ok-subtle text-ok-subtle-fg'
     };
     return styles[status];
   };
 
   const getPriorityBadge = (p: ImagingPriority) => {
-    if (p === 'stat') return 'bg-red-600 text-white';
+    if (p === 'stat') return 'bg-critical text-white';
     if (p === 'urgent') return 'bg-orange-500 text-white';
     return 'bg-surface-sunken text-content-secondary';
   };
@@ -347,7 +347,7 @@ const ImagingPage: React.FC = () => {
                     <div className="mt-2 flex gap-4 text-sm">
                       <span className="text-content-muted">{t('docImaging.modalityInline')}<strong>{modalityLabel(o.modality)}</strong></span>
                       <span className="text-content-muted">{t('docImaging.bodyPartInline')}<strong>{o.bodyPart}</strong></span>
-                      {o.contrast && <span className="text-orange-600">{t('docImaging.contrast')}</span>}
+                      {o.contrast && <span className="text-content-secondary">{t('docImaging.contrast')}</span>}
                     </div>
                   </div>
                 ))}

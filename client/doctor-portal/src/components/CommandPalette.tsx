@@ -179,10 +179,10 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
                         key={item.id}
                         onClick={() => handleSelect(item)}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                          isSelected ? 'bg-primary-50 text-primary-700' : 'hover:bg-surface-sunken text-content-secondary'
+                          isSelected ? 'bg-brand-subtle text-brand-subtle-fg' : 'hover:bg-surface-sunken text-content-secondary'
                         }`}
                       >
-                        <span className={isSelected ? 'text-primary-600' : 'text-content-muted'}>{item.icon}</span>
+                        <span className={isSelected ? 'text-brand' : 'text-content-muted'}>{item.icon}</span>
                         <span className="flex-1 font-medium">{item.label}</span>
                         <ChevronRight size={16} className={isSelected ? 'text-primary-400' : 'text-gray-300'} />
                       </button>

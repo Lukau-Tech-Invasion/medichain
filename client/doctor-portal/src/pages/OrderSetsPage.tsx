@@ -227,13 +227,13 @@ const OrderSetsPage: React.FC = () => {
       case 'discharge':
         return 'bg-ok-subtle text-ok-subtle-fg';
       case 'procedure':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'protocol':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'emergency':
         return 'bg-critical-subtle text-critical-subtle-fg';
       case 'specialty':
-        return 'bg-indigo-100 text-indigo-800';
+        return 'bg-surface-sunken text-content-secondary';
       default:
         return 'bg-surface-sunken text-content-secondary';
     }
@@ -244,7 +244,7 @@ const OrderSetsPage: React.FC = () => {
       case 'stat':
         return 'bg-critical-subtle text-critical-subtle-fg';
       case 'urgent':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'routine':
         return 'bg-notice-subtle text-notice-subtle-fg';
       case 'prn':
@@ -284,7 +284,7 @@ const OrderSetsPage: React.FC = () => {
           onClick={() => setActiveTab('all')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'all'
-              ? 'border-b-2 border-teal-600 text-teal-600'
+              ? 'border-b-2 border-teal-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -294,7 +294,7 @@ const OrderSetsPage: React.FC = () => {
           onClick={() => setActiveTab('new')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'new'
-              ? 'border-b-2 border-teal-600 text-teal-600'
+              ? 'border-b-2 border-teal-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -304,7 +304,7 @@ const OrderSetsPage: React.FC = () => {
           onClick={() => setActiveTab('templates')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'templates'
-              ? 'border-b-2 border-teal-600 text-teal-600'
+              ? 'border-b-2 border-teal-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -402,7 +402,7 @@ const OrderSetsPage: React.FC = () => {
                         </button>
                         <button
                           onClick={() => handleDeleteSet(set.setId)}
-                          className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+                          className="px-3 py-2 bg-red-500 hover:bg-critical text-critical-fg rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
                         >
                           <Trash2 className="w-4 h-4" />
                           {t('docOrderSets.deleteButton')}
@@ -451,7 +451,7 @@ const OrderSetsPage: React.FC = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-semibold text-content-secondary">{t('docOrderSets.tagsLabel')}</p>
                         {set.tags.map((tag, idx) => (
-                          <span key={idx} className="px-3 py-1 bg-teal-100 text-teal-800 rounded-full text-xs font-semibold">
+                          <span key={idx} className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-xs font-semibold">
                             {tag}
                           </span>
                         ))}
@@ -608,7 +608,7 @@ const OrderSetsPage: React.FC = () => {
                   </div>
                 )}
 
-                <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
+                <div className="bg-surface-sunken border border-teal-200 rounded-lg p-4">
                   <h4 className="font-semibold text-content mb-3">{t('docOrderSets.addOrderHeading')}</h4>
                   <div className="grid grid-cols-2 gap-4 mb-3">
                     <div>
@@ -745,7 +745,7 @@ const OrderSetsPage: React.FC = () => {
 
             <div className="border border-border-strong rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
               <div className="flex items-center gap-2 mb-3">
-                <Brain className="w-6 h-6 text-purple-600" />
+                <Brain className="w-6 h-6 text-content-secondary" />
                 <h3 className="font-bold text-content">{t('docOrderSets.strokeName')}</h3>
               </div>
               <p className="text-sm text-content-muted mb-3">{t('docOrderSets.strokeDesc')}</p>
@@ -756,7 +756,7 @@ const OrderSetsPage: React.FC = () => {
 
             <div className="border border-border-strong rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
               <div className="flex items-center gap-2 mb-3">
-                <Activity className="w-6 h-6 text-orange-600" />
+                <Activity className="w-6 h-6 text-content-secondary" />
                 <h3 className="font-bold text-content">{t('docOrderSets.traumaName')}</h3>
               </div>
               <p className="text-sm text-content-muted mb-3">{t('docOrderSets.traumaDesc')}</p>

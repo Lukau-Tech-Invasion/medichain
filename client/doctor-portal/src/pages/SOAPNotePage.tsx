@@ -400,7 +400,7 @@ function SOAPNotePage() {
           {t('docSOAPNote.backButton')}
         </button>
         <div className="flex items-center gap-3">
-          <FileText size={32} className="text-primary-600" />
+          <FileText size={32} className="text-brand" />
           <div>
             <h1 className="text-2xl font-bold text-content">{t('docSOAPNote.title')}</h1>
             <p className="text-content-muted mt-1">
@@ -435,7 +435,7 @@ function SOAPNotePage() {
         <div className="bg-surface rounded-xl shadow mb-6">
           <div className="p-4 border-b flex items-center justify-between">
             <h2 className="font-semibold text-content flex items-center gap-2">
-              <FileText size={18} className="text-primary-600" />
+              <FileText size={18} className="text-brand" />
               {t('docSOAPNote.existingNotesHeading', { count: existingNotes.length })}
             </h2>
             <button
@@ -470,7 +470,7 @@ function SOAPNotePage() {
         {/* Patient & Encounter Info */}
         <div className="bg-surface rounded-xl shadow p-6">
           <div className="flex items-center gap-2 mb-4">
-            <User size={20} className="text-primary-600" />
+            <User size={20} className="text-brand" />
             <h2 className="text-lg font-semibold text-content">{t('docSOAPNote.patientEncounterHeading')}</h2>
           </div>
 
@@ -749,7 +749,7 @@ function SOAPNotePage() {
         {/* ASSESSMENT Section */}
         <div className="bg-surface rounded-xl shadow p-6">
           <div className="flex items-center gap-2 mb-4">
-            <Stethoscope size={20} className="text-purple-600" />
+            <Stethoscope size={20} className="text-content-secondary" />
             <h2 className="text-lg font-semibold text-content">{t('docSOAPNote.assessmentHeading')}</h2>
             <span className="text-sm text-content-muted">{t('docSOAPNote.assessmentSubtitle')}</span>
           </div>
@@ -833,7 +833,7 @@ function SOAPNotePage() {
         {/* PLAN Section */}
         <div className="bg-surface rounded-xl shadow p-6">
           <div className="flex items-center gap-2 mb-4">
-            <Pill size={20} className="text-orange-600" />
+            <Pill size={20} className="text-content-secondary" />
             <h2 className="text-lg font-semibold text-content">{t('docSOAPNote.planHeading')}</h2>
             <span className="text-sm text-content-muted">{t('docSOAPNote.planSubtitle')}</span>
           </div>
@@ -863,7 +863,7 @@ function SOAPNotePage() {
                   id="soap-add-medication"
                   type="button"
                   onClick={addMedication}
-                  className="text-sm px-3 py-1 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+                  className="text-sm px-3 py-1 bg-brand text-brand-fg rounded-lg hover:bg-brand"
                 >
                   {t('docSOAPNote.addMedicationButton')}
                 </button>
@@ -1059,7 +1059,7 @@ function SOAPNotePage() {
           <button
             type="submit"
             disabled={submitting || success}
-            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="px-6 py-3 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             {submitting ? (
               <>

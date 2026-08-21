@@ -191,7 +191,7 @@ const LabTrendsPage: React.FC = () => {
     switch (status) {
       case 'normal': return 'text-ok-subtle-fg';
       case 'low': return 'text-caution-subtle-fg';
-      case 'high': return 'text-orange-600';
+      case 'high': return 'text-content-secondary';
       case 'critical-low': return 'text-critical-subtle-fg';
       case 'critical-high': return 'text-critical-subtle-fg';
     }
@@ -201,7 +201,7 @@ const LabTrendsPage: React.FC = () => {
     switch (status) {
       case 'normal': return 'bg-ok-subtle';
       case 'low': return 'bg-caution-subtle';
-      case 'high': return 'bg-orange-100';
+      case 'high': return 'bg-surface-sunken';
       case 'critical-low': return 'bg-critical-subtle';
       case 'critical-high': return 'bg-critical-subtle';
     }
@@ -302,7 +302,7 @@ const LabTrendsPage: React.FC = () => {
                 <div
                   className={`w-3 h-3 rounded-full border-2 ${
                     r.status === 'normal' ? 'bg-green-500 border-green-600' :
-                    r.status === 'low' || r.status === 'high' ? 'bg-yellow-500 border-yellow-600' :
+                    r.status === 'low' || r.status === 'high' ? 'bg-caution border-yellow-600' :
                     'bg-red-500 border-red-600'
                   }`}
                   style={{ marginBottom: `${y}%` }}
@@ -512,7 +512,7 @@ const LabTrendsPage: React.FC = () => {
                 <div className="flex items-center gap-1 mt-1 text-sm">
                   {getTrendIcon(trend.trend)}
                   <span className={`${
-                    trend.percentChange > 0 ? 'text-orange-600' : 
+                    trend.percentChange > 0 ? 'text-content-secondary' : 
                     trend.percentChange < 0 ? 'text-ok-subtle-fg' : 'text-content-muted'
                   }`}>
                     {trend.percentChange > 0 ? '+' : ''}{trend.percentChange}%

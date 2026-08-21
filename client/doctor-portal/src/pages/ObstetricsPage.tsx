@@ -168,7 +168,7 @@ const ObstetricsPage: React.FC = () => {
 
       {/* FHR Category Alert */}
       {fhr.category === 'III' && (
-        <div className="bg-red-600 text-white p-4 flex items-center gap-3">
+        <div className="bg-critical text-critical-fg p-4 flex items-center gap-3">
           <AlertTriangle className="w-6 h-6" />
           <span className="font-semibold">{t('docObstetrics.cat3Banner')}</span>
         </div>
@@ -182,7 +182,7 @@ const ObstetricsPage: React.FC = () => {
               key={tab}
               onClick={() => setActiveTab(tab as 'assessment' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-pink-600 border-b-2 border-pink-600'
+                ? 'text-content-secondary border-b-2 border-pink-600'
                 : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'assessment' ? t('docObstetrics.tabAssessment') : t('docObstetrics.tabHistory')}

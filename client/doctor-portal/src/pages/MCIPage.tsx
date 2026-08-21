@@ -148,7 +148,7 @@ export default function MCIPage() {
 
   const triageCategories: { value: TriageCategory; label: string; color: string; bgColor: string; description: string }[] = [
     { value: 'immediate', label: t('docMCI.category_immediate_label'), color: 'text-critical-subtle-fg', bgColor: 'bg-red-500', description: t('docMCI.category_immediate_desc') },
-    { value: 'delayed', label: t('docMCI.category_delayed_label'), color: 'text-caution-subtle-fg', bgColor: 'bg-yellow-500', description: t('docMCI.category_delayed_desc') },
+    { value: 'delayed', label: t('docMCI.category_delayed_label'), color: 'text-caution-subtle-fg', bgColor: 'bg-caution', description: t('docMCI.category_delayed_desc') },
     { value: 'minor', label: t('docMCI.category_minor_label'), color: 'text-ok-subtle-fg', bgColor: 'bg-green-500', description: t('docMCI.category_minor_desc') },
     { value: 'expectant', label: t('docMCI.category_expectant_label'), color: 'text-content-secondary', bgColor: 'bg-gray-500', description: t('docMCI.category_expectant_desc') },
     { value: 'deceased', label: t('docMCI.category_deceased_label'), color: 'text-black', bgColor: 'bg-black', description: t('docMCI.category_deceased_desc') }
@@ -765,7 +765,7 @@ export default function MCIPage() {
                             setIncident({ ...incident, resourcesRequested: incident.resourcesRequested.filter(r => r !== resource) });
                           }
                         }}
-                        className="rounded border-border-strong text-orange-600 focus:ring-orange-500 h-5 w-5"
+                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500 h-5 w-5"
                       />
                       <span className="font-medium text-content-secondary">{t(`docMCI.resource_${RESOURCE_KEYS[resource]}`)}</span>
                     </label>
@@ -773,11 +773,11 @@ export default function MCIPage() {
                 </div>
 
                 {incident.resourcesRequested.length > 0 && (
-                  <div className="mt-6 p-4 bg-orange-50 rounded-lg">
-                    <h3 className="font-medium text-orange-800 mb-2">{t('docMCI.resourcesRequestedLabel')}</h3>
+                  <div className="mt-6 p-4 bg-surface-sunken rounded-lg">
+                    <h3 className="font-medium text-content-secondary mb-2">{t('docMCI.resourcesRequestedLabel')}</h3>
                     <div className="flex flex-wrap gap-2">
                       {incident.resourcesRequested.map(resource => (
-                        <span key={resource} className="bg-orange-200 text-orange-800 px-3 py-1 rounded-full text-sm">
+                        <span key={resource} className="bg-orange-200 text-content-secondary px-3 py-1 rounded-full text-sm">
                           {t(`docMCI.resource_${RESOURCE_KEYS[resource]}`)}
                         </span>
                       ))}
@@ -800,7 +800,7 @@ export default function MCIPage() {
             <button
               type="submit"
               disabled={isSubmitting || patients.length === 0}
-              className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

@@ -108,7 +108,7 @@ export default function StrokePage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-content flex items-center">
-          <Brain className="h-8 w-8 text-purple-600 mr-3" />
+          <Brain className="h-8 w-8 text-content-secondary mr-3" />
           {t('docStroke.title')}
         </h1>
         <p className="mt-2 text-content-muted">
@@ -175,7 +175,7 @@ export default function StrokePage() {
                            ev.event_time ? new Date(ev.event_time * 1000).toLocaleString() : '-'}
                         </td>
                         <td className="px-4 py-2">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-surface-sunken text-content-secondary">
                             {ev.outcome || t('docStroke.na')}
                           </span>
                         </td>

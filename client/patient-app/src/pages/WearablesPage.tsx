@@ -265,7 +265,7 @@ const WearablesPage: React.FC = () => {
       {loading && (
         <div className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+            <Loader2 className="w-8 h-8 text-content-secondary animate-spin" />
             <span className="text-content-muted">{t('wearables.loading')}</span>
           </div>
         </div>
@@ -298,7 +298,7 @@ const WearablesPage: React.FC = () => {
               onClick={() => setActiveTab(tab)}
               className={`flex-1 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab
-                  ? 'text-teal-600 border-b-2 border-teal-600'
+                  ? 'text-content-secondary border-b-2 border-teal-600'
                   : 'text-content-muted hover:text-content-secondary'
               }`}
             >
@@ -422,7 +422,7 @@ const WearablesPage: React.FC = () => {
                 <div key={device.id} className="p-4">
                   <div className="flex items-center gap-4">
                     <div className={`p-3 rounded-full ${
-                      device.status === 'connected' ? 'bg-teal-100 text-teal-600' : 'bg-surface-sunken text-content-muted'
+                      device.status === 'connected' ? 'bg-surface-sunken text-content-secondary' : 'bg-surface-sunken text-content-muted'
                     }`}>
                       {getDeviceIcon(device.type)}
                     </div>
@@ -462,9 +462,9 @@ const WearablesPage: React.FC = () => {
                 {[
                   { name: 'Apple Health', icon: <Heart className="w-6 h-6" />, color: 'bg-critical-subtle text-critical-subtle-fg', type: 'apple-watch' },
                   { name: 'Google Fit', icon: <Activity className="w-6 h-6" />, color: 'bg-notice-subtle text-notice-subtle-fg', type: 'google-fit' },
-                  { name: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-teal-100 text-teal-600', type: 'fitbit' },
-                  { name: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-purple-100 text-purple-600', type: 'garmin' },
-                  { name: 'Samsung Health', icon: <Heart className="w-6 h-6" />, color: 'bg-indigo-100 text-indigo-600', type: 'samsung' },
+                  { name: 'Fitbit', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'fitbit' },
+                  { name: 'Garmin', icon: <Watch className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'garmin' },
+                  { name: 'Samsung Health', icon: <Heart className="w-6 h-6" />, color: 'bg-surface-sunken text-content-secondary', type: 'samsung' },
                   { name: 'Oura Ring', icon: <Moon className="w-6 h-6" />, color: 'bg-surface-sunken text-content-muted', type: 'oura' }
                 ].map(platform => (
                   <button
@@ -481,7 +481,7 @@ const WearablesPage: React.FC = () => {
                         console.warn('Failed to register device:', err);
                       }
                     }}
-                    className="flex items-center gap-3 p-3 border border-border rounded-lg hover:border-teal-300 hover:bg-teal-50 transition-all"
+                    className="flex items-center gap-3 p-3 border border-border rounded-lg hover:border-teal-300 hover:bg-surface-sunken transition-all"
                   >
                     <div className={`p-2 rounded-full ${platform.color}`}>
                       {platform.icon}
@@ -493,7 +493,7 @@ const WearablesPage: React.FC = () => {
             </div>
 
             {/* Bluetooth Scan */}
-            <button className="w-full bg-surface rounded-lg shadow p-4 flex items-center justify-center gap-2 text-teal-600 font-medium hover:bg-teal-50">
+            <button className="w-full bg-surface rounded-lg shadow p-4 flex items-center justify-center gap-2 text-content-secondary font-medium hover:bg-surface-sunken">
               <Bluetooth className="w-5 h-5" />
               {t('wearables.scanBluetooth')}
             </button>

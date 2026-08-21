@@ -307,12 +307,12 @@ function DashboardPage() {
 
       {/* Critical Alerts Banner */}
       {dashboard?.alerts && (dashboard.alerts.critical_values_count > 0 || dashboard.alerts.code_blues_count > 0) && (
-        <div className="mb-6 bg-red-600 text-white rounded-xl p-4 flex items-center justify-between">
+        <div className="mb-6 bg-critical text-critical-fg rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Siren className="animate-pulse" size={24} />
             <div>
               <p className="font-bold">{t('docDashboard.criticalAlertsTitle')}</p>
-              <p className="text-red-100 text-sm">
+              <p className="text-critical-fg text-sm">
                 {t('docDashboard.criticalAlertsSummary', { critical: dashboard.alerts.critical_values_count, codeBlues: dashboard.alerts.code_blues_count })}
               </p>
             </div>
@@ -326,10 +326,10 @@ function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
-          icon={<Users className="text-primary-600" size={24} />}
+          icon={<Users className="text-brand" size={24} />}
           label={t('docDashboard.statTotalPatients')}
           value={dashboard?.patients?.total || 0}
-          color="bg-primary-100"
+          color="bg-brand-subtle"
           loading={loading}
         />
         <StatCard
@@ -347,10 +347,10 @@ function DashboardPage() {
           loading={loading}
         />
         <StatCard
-          icon={<ClipboardList className="text-purple-600" size={24} />}
+          icon={<ClipboardList className="text-content-secondary" size={24} />}
           label={t('docDashboard.statActiveOrders')}
           value={dashboard?.active_orders?.length || 0}
-          color="bg-purple-100"
+          color="bg-surface-sunken"
           loading={loading}
         />
       </div>
@@ -385,7 +385,7 @@ function DashboardPage() {
               <h3 className="flex items-center gap-2 text-lg font-semibold mb-1">
                 <UserPlus size={20} aria-hidden="true" /> {t('docDashboard.registerPatientTitle')}
               </h3>
-              <p className="text-primary-100 text-sm">
+              <p className="text-brand-fg text-sm">
                 {t('docDashboard.registerPatientDesc')}
               </p>
             </div>
@@ -419,7 +419,7 @@ function DashboardPage() {
             <div className="flex items-center gap-2">
               <AlertTriangle className="text-critical-subtle-fg" size={20} />
               <h2 className="font-semibold text-critical-subtle-fg">{t('docDashboard.criticalLabValuesTitle')}</h2>
-              <span className="bg-red-600 text-white text-xs px-2 py-0.5 rounded-full animate-pulse">
+              <span className="bg-critical text-critical-fg text-xs px-2 py-0.5 rounded-full animate-pulse">
                 {t('docDashboard.urgentBadge', { count: dashboard.critical_values.length })}
               </span>
             </div>
@@ -441,9 +441,14 @@ function DashboardPage() {
                     {criticalRange(cv) ? ` · ${criticalRange(cv)}` : ''}
                   </p>
                 </div>
+                {/* `critical-subtle-fg`, matching the value above it, not
+                    `content-muted`. A neutral grey is tuned for a neutral
+                    surface: on the dark-mode critical tint it measures 3.95:1,
+                    below AA. Emphasis here comes from size, which costs no
+                    contrast. */}
                 <div className="text-right">
-                  <p className="text-sm text-content-muted">{t('docDashboard.patientLabel', { id: cv.patient_id })}</p>
-                  <p className="text-xs text-content-muted">
+                  <p className="text-sm text-critical-subtle-fg">{t('docDashboard.patientLabel', { id: cv.patient_id })}</p>
+                  <p className="text-xs text-critical-subtle-fg">
                     {formatWhen(cv.notified_at ?? cv.created_at)}
                   </p>
                 </div>
@@ -460,7 +465,7 @@ function DashboardPage() {
             <div className="flex items-center gap-2">
               <TestTube className="text-caution-subtle-fg" size={20} />
               <h2 className="font-semibold text-caution-subtle-fg">{t('docDashboard.pendingLabReviewsTitle')}</h2>
-              <span className="bg-amber-600 text-white text-xs px-2 py-0.5 rounded-full">
+              <span className="bg-caution text-caution-fg text-xs px-2 py-0.5 rounded-full">
                 {dashboard.pending_lab_approvals.length}
               </span>
             </div>
@@ -551,11 +556,11 @@ function DashboardPage() {
 
       {/* Active Orders */}
       {dashboard?.active_orders && dashboard.active_orders.length > 0 && (
-        <div className="bg-purple-50 border border-purple-200 rounded-xl mb-8">
+        <div className="bg-surface-sunken border border-purple-200 rounded-xl mb-8">
           <div className="p-4 border-b border-purple-200">
             <div className="flex items-center gap-2">
-              <ClipboardList className="text-purple-600" size={20} />
-              <h2 className="font-semibold text-purple-800">{t('docDashboard.activePhysicianOrdersTitle')}</h2>
+              <ClipboardList className="text-content-secondary" size={20} />
+              <h2 className="font-semibold text-content-secondary">{t('docDashboard.activePhysicianOrdersTitle')}</h2>
               <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">
                 {dashboard.active_orders.length}
               </span>
@@ -580,7 +585,7 @@ function DashboardPage() {
                       in the same neutral grey as a routine one. */}
                   <span className={`text-xs px-2 py-1 rounded ${
                     order.priority?.toLowerCase() === 'stat' ? 'bg-critical-subtle text-critical-subtle-fg' :
-                    order.priority?.toLowerCase() === 'urgent' ? 'bg-orange-100 text-orange-700' :
+                    order.priority?.toLowerCase() === 'urgent' ? 'bg-surface-sunken text-content-secondary' :
                     'bg-surface-sunken text-content-secondary'
                   }`}>
                     {order.priority}
@@ -600,7 +605,7 @@ function DashboardPage() {
         <div className="p-6 border-b border-border">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-content">{t('docDashboard.recentPatientsTitle')}</h2>
-            <Link to="/patients" className="text-primary-600 hover:text-primary-700 text-sm flex items-center gap-1">
+            <Link to="/patients" className="text-brand hover:text-brand text-sm flex items-center gap-1">
               {t('docDashboard.viewAll')} <ArrowRight size={16} />
             </Link>
           </div>
@@ -620,8 +625,8 @@ function DashboardPage() {
                 className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                    <Users className="text-primary-600" size={20} />
+                  <div className="w-10 h-10 bg-brand-subtle rounded-full flex items-center justify-center">
+                    <Users className="text-brand" size={20} />
                   </div>
                   <div>
                     <p className="font-medium text-content">{patient.full_name}</p>
@@ -653,8 +658,8 @@ function DashboardPage() {
                 className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                    <Users className="text-primary-600" size={20} />
+                  <div className="w-10 h-10 bg-brand-subtle rounded-full flex items-center justify-center">
+                    <Users className="text-brand" size={20} />
                   </div>
                   <div>
                     <p className="font-medium text-content">{patient.fullName}</p>

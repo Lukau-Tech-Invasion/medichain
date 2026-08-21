@@ -276,7 +276,7 @@ export default function PharmacistDashboardPage() {
                     interaction.severity === 'Major'
                       ? 'bg-critical-subtle border-critical'
                       : interaction.severity === 'Moderate'
-                      ? 'bg-orange-50 border-orange-200'
+                      ? 'bg-surface-sunken border-orange-200'
                       : 'bg-caution-subtle border-caution'
                   }`}
                 >
@@ -285,10 +285,10 @@ export default function PharmacistDashboardPage() {
                       <span
                         className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${
                           interaction.severity === 'Major'
-                            ? 'bg-red-600 text-white'
+                            ? 'bg-critical text-critical-fg'
                             : interaction.severity === 'Moderate'
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-yellow-600 text-white'
+                            ? 'bg-orange-600 text-critical-fg'
+                            : 'bg-caution text-critical-fg'
                         }`}
                       >
                         {severityLabel(interaction.severity)}
@@ -328,12 +328,12 @@ export default function PharmacistDashboardPage() {
               {data.allergy_alerts.slice(0, 5).map((alert) => (
                 <div
                   key={alert.id}
-                  className="p-3 bg-orange-50 border border-orange-200 rounded"
+                  className="p-3 bg-surface-sunken border border-orange-200 rounded"
                 >
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-medium text-content">{alert.patient_name}</p>
-                      <p className="flex items-center gap-1.5 text-sm text-orange-700">
+                      <p className="flex items-center gap-1.5 text-sm text-content-secondary">
                         <AlertTriangle size={14} aria-hidden="true" /> {t('docPharmDashboard.allergicTo')} <strong>{alert.allergen}</strong>
                       </p>
                       <p className="text-sm text-content-muted">
@@ -343,7 +343,7 @@ export default function PharmacistDashboardPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <button className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700">
+                      <button className="px-3 py-1 text-xs bg-critical text-critical-fg rounded hover:bg-critical">
                         {t('docPharmDashboard.reject')}
                       </button>
                       <button className="px-3 py-1 text-xs bg-surface-sunken text-content-secondary rounded hover:bg-gray-300">
@@ -449,13 +449,13 @@ export default function PharmacistDashboardPage() {
             <p className="text-xs text-content-muted">{t('docPharmDashboard.mInteractionsCaught')}</p>
           </div>
           <div className="text-center p-3 bg-surface-sunken rounded">
-            <p className="text-2xl font-bold text-orange-600">
+            <p className="text-2xl font-bold text-content-secondary">
               {data?.allergy_alerts?.length || 0}
             </p>
             <p className="text-xs text-content-muted">{t('docPharmDashboard.mAllergyAlerts')}</p>
           </div>
           <div className="text-center p-3 bg-surface-sunken rounded">
-            <p className="text-2xl font-bold text-purple-600">
+            <p className="text-2xl font-bold text-content-secondary">
               {data?.prescriptions?.list?.filter(rx => 
                 rx.medication_name.toLowerCase().includes('morphine') ||
                 rx.medication_name.toLowerCase().includes('oxycodone')

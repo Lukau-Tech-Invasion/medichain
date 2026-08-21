@@ -190,7 +190,7 @@ export default function CarePlanPage() {
   const getStatusColor = (status: GoalStatus) => {
     switch (status) {
       case 'met': return 'bg-green-500 text-white';
-      case 'partially-met': return 'bg-yellow-500 text-white';
+      case 'partially-met': return 'bg-caution text-white';
       case 'in-progress': return 'bg-blue-500 text-white';
       case 'not-met': return 'bg-red-500 text-white';
       case 'revised': return 'bg-purple-500 text-white';
@@ -424,7 +424,7 @@ export default function CarePlanPage() {
                     onClick={() => setSelectedPatient(patient)}
                     className={`w-full text-left p-3 rounded-lg transition-colors ${
                       selectedPatient?.patient_id === patient.patient_id
-                        ? 'bg-teal-100 border-2 border-teal-500'
+                        ? 'bg-surface-sunken border-2 border-teal-500'
                         : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                     }`}
                   >
@@ -488,7 +488,7 @@ export default function CarePlanPage() {
                         onClick={() => setActiveTab(tab.id as typeof activeTab)}
                         className={`flex-1 flex items-center justify-center space-x-2 py-4 px-4 font-medium transition-colors ${
                           activeTab === tab.id
-                            ? 'border-b-2 border-teal-500 text-teal-600'
+                            ? 'border-b-2 border-teal-500 text-content-secondary'
                             : 'text-content-muted hover:text-content-secondary'
                         }`}
                       >
@@ -569,7 +569,7 @@ export default function CarePlanPage() {
                                       type="radio"
                                       checked={newDiagnosis.priority === p}
                                       onChange={() => setNewDiagnosis({ ...newDiagnosis, priority: p })}
-                                      className="text-teal-600"
+                                      className="text-content-secondary"
                                     />
                                     <span className={`px-2 py-1 rounded capitalize ${getPriorityColor(p)}`}>{t(`docCarePlan.priority_${p}`)}</span>
                                   </label>

@@ -234,8 +234,8 @@ function LabResultsPage() {
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-            <FlaskConical className="text-purple-600" size={24} />
+          <div className="w-10 h-10 bg-surface-sunken rounded-lg flex items-center justify-center">
+            <FlaskConical className="text-content-secondary" size={24} />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-content">{t('docLabResults.title')}</h1>
@@ -316,7 +316,7 @@ function LabResultsPage() {
         {isLoading ? (
           <div className="bg-surface rounded-xl shadow-sm border border-border p-12">
             <div className="flex flex-col items-center justify-center">
-              <Loader2 className="animate-spin text-purple-600 mb-4" size={40} />
+              <Loader2 className="animate-spin text-content-secondary mb-4" size={40} />
               <p className="text-content-muted">{t('docLabResults.loading')}</p>
             </div>
           </div>
@@ -347,8 +347,8 @@ function LabResultsPage() {
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-4">
-                      <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                        <FlaskConical className="text-purple-600" size={24} />
+                      <div className="w-12 h-12 bg-surface-sunken rounded-full flex items-center justify-center">
+                        <FlaskConical className="text-content-secondary" size={24} />
                       </div>
                       <div>
                         <h3 className="font-semibold text-content">{submission.test_name}</h3>
@@ -482,7 +482,7 @@ function LabResultsPage() {
                             handleApprove(submission.id);
                           }}
                           disabled={isReviewing === submission.id}
-                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+                          className="px-4 py-2 bg-ok text-ok-fg rounded-lg hover:bg-ok transition-colors disabled:opacity-50 flex items-center gap-2"
                         >
                           {isReviewing === submission.id ? (
                             <Loader2 className="animate-spin" size={18} />
@@ -533,7 +533,7 @@ function LabResultsPage() {
               <button
                 onClick={() => handleReject(showRejectModal)}
                 disabled={!rejectionReason.trim() || isReviewing === showRejectModal}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-4 py-2 bg-critical text-critical-fg rounded-lg hover:bg-critical transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isReviewing === showRejectModal ? (
                   <Loader2 className="animate-spin" size={18} />

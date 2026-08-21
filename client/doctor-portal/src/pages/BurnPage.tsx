@@ -708,7 +708,7 @@ export default function BurnPage() {
                     type="checkbox"
                     checked={circumferential.present}
                     onChange={() => setCircumferential(prev => ({ ...prev, present: !prev.present }))}
-                    className="rounded border-border-strong text-purple-600"
+                    className="rounded border-border-strong text-content-secondary"
                   />
                   <span className="font-medium">{t('docBurn.circumferentialPresentLabel')}</span>
                 </label>
@@ -759,7 +759,7 @@ export default function BurnPage() {
                         onClick={() => toggleAssociatedInjury(injury)}
                         className={`px-3 py-1 rounded-full text-sm ${
                           associatedInjuries.includes(injury)
-                            ? 'bg-yellow-500 text-white'
+                            ? 'bg-caution text-caution-fg'
                             : 'bg-surface-sunken text-content-secondary hover:bg-surface-sunken'
                         }`}
                       >
@@ -806,7 +806,7 @@ export default function BurnPage() {
                 <button
                   onClick={handleSave}
                   disabled={isSubmitting || !selectedPatient}
-                  className="bg-red-600 text-white px-8 py-3 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center"
+                  className="bg-critical text-critical-fg px-8 py-3 rounded-lg hover:bg-critical disabled:opacity-50 flex items-center"
                 >
                   {isSubmitting ? (
                     <>

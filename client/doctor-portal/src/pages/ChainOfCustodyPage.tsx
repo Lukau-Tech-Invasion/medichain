@@ -275,9 +275,9 @@ const ChainOfCustodyPage: React.FC = () => {
       collected: 'bg-notice-subtle text-notice-subtle-fg',
       'in-transit': 'bg-caution-subtle text-caution-subtle-fg',
       received: 'bg-ok-subtle text-ok-subtle-fg',
-      analyzed: 'bg-purple-100 text-purple-800',
+      analyzed: 'bg-surface-sunken text-content-secondary',
       stored: 'bg-surface-sunken text-content-secondary',
-      released: 'bg-orange-100 text-orange-800',
+      released: 'bg-surface-sunken text-content-secondary',
       destroyed: 'bg-critical-subtle text-critical-subtle-fg',
     };
     return badges[status];

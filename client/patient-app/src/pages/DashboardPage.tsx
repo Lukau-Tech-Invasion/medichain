@@ -297,7 +297,7 @@ export function DashboardPage() {
       <div className="grid grid-cols-2 gap-4">
         <Link
           to="/emergency-card"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-primary-200 border-2 border-transparent"
+          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
           <div className="w-14 h-14 bg-emergency-50 rounded-2xl flex items-center justify-center">
             <QrCode className="w-7 h-7 text-emergency-500" />
@@ -310,9 +310,9 @@ export function DashboardPage() {
 
         <Link
           to="/records"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-primary-200 border-2 border-transparent"
+          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
-          <div className="w-14 h-14 bg-primary-50 rounded-2xl flex items-center justify-center">
+          <div className="w-14 h-14 bg-brand-subtle rounded-2xl flex items-center justify-center">
             <FileText className="w-7 h-7 text-primary-500" />
           </div>
           <div className="text-center">
@@ -323,7 +323,7 @@ export function DashboardPage() {
 
         <Link
           to="/consent"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-primary-200 border-2 border-transparent"
+          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
           <div className="w-14 h-14 bg-success-50 rounded-2xl flex items-center justify-center">
             <Shield className="w-7 h-7 text-success-500" />
@@ -336,7 +336,7 @@ export function DashboardPage() {
 
         <Link
           to="/profile"
-          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-primary-200 border-2 border-transparent"
+          className="patient-card flex flex-col items-center justify-center gap-3 p-6 hover:border-brand border-2 border-transparent"
         >
           <div className="w-14 h-14 bg-info-light rounded-2xl flex items-center justify-center">
             <Activity className="w-7 h-7 text-info" />
@@ -375,7 +375,7 @@ export function DashboardPage() {
             <Clock className="w-5 h-5 text-content-muted" />
             {t('dashboard.recentActivity')}
           </h3>
-          <Link to="/consent" className="text-sm text-primary-500 hover:text-primary-600 font-medium">
+          <Link to="/consent" className="text-sm text-primary-500 hover:text-brand font-medium">
             {t('dashboard.viewAll')}
           </Link>
         </div>
@@ -387,7 +387,7 @@ export function DashboardPage() {
               className="flex items-center gap-3 p-3 bg-surface-sunken rounded-xl"
             >
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                activity.type === 'access' ? 'bg-primary-100 text-primary-600' :
+                activity.type === 'access' ? 'bg-brand-subtle text-brand-subtle-fg' :
                 activity.type === 'update' ? 'bg-success-100 text-success-600' :
                 'bg-info-light text-info'
               }`}>

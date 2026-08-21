@@ -353,15 +353,15 @@ const FamilyHistoryPage: React.FC = () => {
   const getCategoryColor = (category: ConditionCategory) => {
     const colors = {
       cardiovascular: 'bg-critical-subtle text-critical-subtle-fg',
-      cancer: 'bg-orange-100 text-orange-800',
+      cancer: 'bg-surface-sunken text-content-secondary',
       diabetes: 'bg-notice-subtle text-notice-subtle-fg',
-      neurological: 'bg-purple-100 text-purple-800',
-      psychiatric: 'bg-indigo-100 text-indigo-800',
-      respiratory: 'bg-cyan-100 text-cyan-800',
+      neurological: 'bg-surface-sunken text-content-secondary',
+      psychiatric: 'bg-surface-sunken text-content-secondary',
+      respiratory: 'bg-surface-sunken text-content-secondary',
       autoimmune: 'bg-caution-subtle text-caution-subtle-fg',
-      genetic: 'bg-pink-100 text-pink-800',
+      genetic: 'bg-surface-sunken text-content-secondary',
       'blood-disorder': 'bg-critical-subtle text-critical-subtle-fg',
-      'kidney-disease': 'bg-teal-100 text-teal-800',
+      'kidney-disease': 'bg-surface-sunken text-content-secondary',
       'liver-disease': 'bg-caution-subtle text-caution-subtle-fg',
       other: 'bg-surface-sunken text-content-secondary',
     };
@@ -396,7 +396,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('overview')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'overview' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
+            activeTab === 'overview' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docFamilyHistory.tabMembers')}
@@ -404,7 +404,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('add-member')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'add-member' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
+            activeTab === 'add-member' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docFamilyHistory.tabAddMember')}
@@ -412,7 +412,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('risk-assessment')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'risk-assessment' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
+            activeTab === 'risk-assessment' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docFamilyHistory.tabRiskAssessment')}
@@ -420,7 +420,7 @@ const FamilyHistoryPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('pedigree')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'pedigree' ? 'text-pink-700 border-b-2 border-pink-700' : 'text-content-muted hover:text-pink-700'
+            activeTab === 'pedigree' ? 'text-content-secondary border-b-2 border-pink-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docFamilyHistory.tabPedigree')}
@@ -494,7 +494,7 @@ const FamilyHistoryPage: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="text-lg font-bold text-content">{member.memberId}</h3>
-                      <span className="px-3 py-1 bg-pink-100 text-pink-800 rounded-full text-sm font-semibold">
+                      <span className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm font-semibold">
                         {formatRelationship(member.relationship)}
                       </span>
                       {member.vitalStatus === 'deceased' && (
@@ -503,7 +503,7 @@ const FamilyHistoryPage: React.FC = () => {
                         </span>
                       )}
                       {member.consanguineous && (
-                        <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-semibold">
+                        <span className="px-2 py-1 bg-surface-sunken text-content-secondary rounded text-xs font-semibold">
                           {t('docFamilyHistory.consanguineousBadge')}
                         </span>
                       )}
@@ -512,14 +512,14 @@ const FamilyHistoryPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 mb-4 bg-pink-50 rounded-lg p-4">
+                <div className="grid grid-cols-3 gap-4 mb-4 bg-surface-sunken rounded-lg p-4">
                   <div>
-                    <p className="text-sm text-pink-900 font-semibold mb-1">{t('docFamilyHistory.patientLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docFamilyHistory.patientLabel')}</p>
                     <p className="font-semibold text-content">{member.patientName}</p>
                     <p className="text-sm text-content-muted">{member.patientId}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-pink-900 font-semibold mb-1">{t('docFamilyHistory.familyMemberLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docFamilyHistory.familyMemberLabel')}</p>
                     <p className="font-semibold text-content">{member.name || t('docFamilyHistory.notSpecified')}</p>
                     <p className="text-sm text-content-muted">
                       {member.vitalStatus === 'alive' && member.currentAge && t('docFamilyHistory.ageLine', { age: member.currentAge })}
@@ -528,7 +528,7 @@ const FamilyHistoryPage: React.FC = () => {
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-pink-900 font-semibold mb-1">{t('docFamilyHistory.recordedByLabel')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docFamilyHistory.recordedByLabel')}</p>
                     <p className="text-sm text-content">{member.recordedBy}</p>
                   </div>
                 </div>
@@ -835,7 +835,7 @@ const FamilyHistoryPage: React.FC = () => {
 
               <button
                 onClick={handleAddCondition}
-                className="w-full bg-pink-100 text-pink-700 px-4 py-2 rounded-lg hover:bg-pink-200 transition-colors font-semibold flex items-center justify-center gap-2 mb-4"
+                className="w-full bg-surface-sunken text-content-secondary px-4 py-2 rounded-lg hover:bg-pink-200 transition-colors font-semibold flex items-center justify-center gap-2 mb-4"
               >
                 <Plus className="w-4 h-4" />
                 {t('docFamilyHistory.addCondition')}

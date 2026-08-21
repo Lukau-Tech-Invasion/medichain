@@ -65,7 +65,7 @@ const riskLevelColors: Record<RiskLevel, string> = {
   none: 'bg-surface-sunken text-content-secondary',
   low: 'bg-ok-subtle text-ok-subtle-fg',
   moderate: 'bg-caution-subtle text-caution-subtle-fg',
-  high: 'bg-orange-100 text-orange-700',
+  high: 'bg-surface-sunken text-content-secondary',
   imminent: 'bg-critical-subtle text-critical-subtle-fg'
 };
 
@@ -404,7 +404,7 @@ const PsychPage: React.FC = () => {
       {/* Risk Alert Banner */}
       {(suicideRisk.riskLevel === 'high' || suicideRisk.riskLevel === 'imminent' ||
         homicideRisk.riskLevel === 'high' || homicideRisk.riskLevel === 'imminent') && (
-          <div className="bg-red-600 text-white p-4 flex items-center gap-3">
+          <div className="bg-critical text-critical-fg p-4 flex items-center gap-3">
             <AlertTriangle className="w-6 h-6" />
             <span className="font-semibold">{t('docPsych.highRiskBanner')}</span>
             <Phone className="w-5 h-5 ml-auto" />
@@ -420,7 +420,7 @@ const PsychPage: React.FC = () => {
               key={tab}
               onClick={() => setActiveTab(tab as 'assessment' | 'history')}
               className={`px-6 py-3 font-medium ${activeTab === tab
-                ? 'text-purple-600 border-b-2 border-purple-600'
+                ? 'text-content-secondary border-b-2 border-purple-600'
                 : 'text-content-muted hover:text-content-secondary'}`}
             >
               {tab === 'assessment' ? t('docPsych.tabAssessment') : t('docPsych.tabHistory')}
@@ -574,7 +574,7 @@ const PsychPage: React.FC = () => {
                   <label id="psych-thought-content-label" className="text-sm text-content-muted">{t('docPsych.thoughtContent')}</label>
                   <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-thought-content-label">
                     {['SI', 'HI', 'Paranoia', 'Delusions', 'Obsessions', 'Phobias'].map(item => (
-                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.thoughtContent.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-surface-sunken'}`}>
+                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.thoughtContent.includes(item) ? 'bg-surface-sunken border-purple-300' : 'bg-surface-sunken'}`}>
                         <input
                           type="checkbox"
                           checked={mse.thoughtContent.includes(item)}
@@ -596,7 +596,7 @@ const PsychPage: React.FC = () => {
                   <label id="psych-perceptions-label" className="text-sm text-content-muted">{t('docPsych.perceptions')}</label>
                   <div className="flex flex-wrap gap-2 mt-1" role="group" aria-labelledby="psych-perceptions-label">
                     {['AVH', 'VH', 'AH', 'Illusions', 'Derealization', 'Depersonalization'].map(item => (
-                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.perceptions.includes(item) ? 'bg-purple-100 border-purple-300' : 'bg-surface-sunken'}`}>
+                      <label key={item} className={`px-3 py-1 rounded border cursor-pointer ${mse.perceptions.includes(item) ? 'bg-surface-sunken border-purple-300' : 'bg-surface-sunken'}`}>
                         <input
                           type="checkbox"
                           checked={mse.perceptions.includes(item)}
@@ -621,7 +621,7 @@ const PsychPage: React.FC = () => {
             <div className="bg-surface rounded-lg shadow p-4">
               <div className="flex justify-between items-center mb-3">
                 <h2 className="font-semibold">{t('docPsych.substanceTitle')}</h2>
-                <button onClick={addSubstance} className="text-purple-600 hover:text-purple-700 flex items-center gap-1">
+                <button onClick={addSubstance} className="text-content-secondary hover:text-content-secondary flex items-center gap-1">
                   <Plus className="w-4 h-4" /> {t('docPsych.addBtn')}
                 </button>
               </div>
@@ -669,7 +669,7 @@ const PsychPage: React.FC = () => {
               <h2 className="font-semibold mb-3">{t('docPsych.diagnosesTitle')}</h2>
               <div className="flex flex-wrap gap-2">
                 {psychiatricDiagnoses.map(dx => (
-                  <label key={dx} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedDiagnoses.includes(dx) ? 'bg-purple-100 border-purple-300' : 'bg-surface-sunken'}`}>
+                  <label key={dx} className={`px-3 py-1 rounded border cursor-pointer text-sm ${selectedDiagnoses.includes(dx) ? 'bg-surface-sunken border-purple-300' : 'bg-surface-sunken'}`}>
                     <input
                       type="checkbox"
                       checked={selectedDiagnoses.includes(dx)}

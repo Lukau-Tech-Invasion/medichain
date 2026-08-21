@@ -184,15 +184,15 @@ const NoteTemplatesPage: React.FC = () => {
       case 'soap':
         return 'bg-notice-subtle text-notice-subtle-fg';
       case 'history-physical':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'discharge-summary':
         return 'bg-ok-subtle text-ok-subtle-fg';
       case 'consult':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'procedure':
-        return 'bg-pink-100 text-pink-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'progress-note':
-        return 'bg-indigo-100 text-indigo-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'op-note':
         return 'bg-critical-subtle text-critical-subtle-fg';
       default:
@@ -205,13 +205,13 @@ const NoteTemplatesPage: React.FC = () => {
       case 'emergency':
         return 'bg-critical-subtle text-critical-subtle-fg';
       case 'surgery':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'medicine':
         return 'bg-notice-subtle text-notice-subtle-fg';
       case 'pediatrics':
-        return 'bg-pink-100 text-pink-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'psychiatry':
-        return 'bg-indigo-100 text-indigo-800';
+        return 'bg-surface-sunken text-content-secondary';
       default:
         return 'bg-surface-sunken text-content-secondary';
     }
@@ -247,7 +247,7 @@ const NoteTemplatesPage: React.FC = () => {
           onClick={() => setActiveTab('all')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'all'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
+              ? 'border-b-2 border-indigo-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -257,7 +257,7 @@ const NoteTemplatesPage: React.FC = () => {
           onClick={() => setActiveTab('new')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'new'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
+              ? 'border-b-2 border-indigo-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -267,7 +267,7 @@ const NoteTemplatesPage: React.FC = () => {
           onClick={() => setActiveTab('macros')}
           className={`px-6 py-3 font-semibold transition-colors ${
             activeTab === 'macros'
-              ? 'border-b-2 border-indigo-600 text-indigo-600'
+              ? 'border-b-2 border-indigo-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -320,7 +320,7 @@ const NoteTemplatesPage: React.FC = () => {
                 <div key={template.templateId} className="bg-surface rounded-lg shadow p-6 border border-border-strong hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-start gap-3">
-                      <FileText className="w-6 h-6 text-indigo-600 mt-1" />
+                      <FileText className="w-6 h-6 text-content-secondary mt-1" />
                       <div>
                         <h3 className="text-xl font-bold text-content">{template.name}</h3>
                         <div className="flex gap-2 mt-2">
@@ -355,7 +355,7 @@ const NoteTemplatesPage: React.FC = () => {
                       </button>
                       <button
                         onClick={() => handleDeleteTemplate(template.templateId)}
-                        className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2 text-sm"
+                        className="px-3 py-2 bg-red-500 text-critical-fg rounded-lg hover:bg-critical transition-colors flex items-center gap-2 text-sm"
                       >
                         <Trash2 className="w-4 h-4" />
                         {t('docNoteTemplates.deleteButton')}
@@ -381,11 +381,11 @@ const NoteTemplatesPage: React.FC = () => {
                   </div>
 
                   {template.macros.length > 0 && (
-                    <div className="bg-indigo-50 border border-indigo-200 rounded p-3 mb-4">
-                      <div className="font-medium text-indigo-900 text-sm mb-2">{t('docNoteTemplates.availableMacrosLabel')}</div>
+                    <div className="bg-surface-sunken border border-indigo-200 rounded p-3 mb-4">
+                      <div className="font-medium text-content-secondary text-sm mb-2">{t('docNoteTemplates.availableMacrosLabel')}</div>
                       <div className="flex flex-wrap gap-2">
                         {template.macros.map((macro, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-mono">
+                          <span key={idx} className="px-2 py-1 bg-surface-sunken text-content-secondary rounded text-xs font-mono">
                             {macro}
                           </span>
                         ))}
@@ -417,7 +417,7 @@ const NoteTemplatesPage: React.FC = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-content-secondary">{t('docNoteTemplates.tagsLabel')}</span>
                         {template.tags.map((tag, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded-md text-xs">
+                          <span key={idx} className="px-2 py-1 bg-surface-sunken text-content-secondary rounded-md text-xs">
                             {tag}
                           </span>
                         ))}
@@ -571,8 +571,8 @@ const NoteTemplatesPage: React.FC = () => {
                 </div>
               )}
 
-              <div className="bg-indigo-50 border border-indigo-200 rounded p-4">
-                <h4 className="font-medium text-indigo-900 mb-3">{t('docNoteTemplates.addSectionHeading')}</h4>
+              <div className="bg-surface-sunken border border-indigo-200 rounded p-4">
+                <h4 className="font-medium text-content-secondary mb-3">{t('docNoteTemplates.addSectionHeading')}</h4>
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-3">
                     <div className="col-span-2">
@@ -593,7 +593,7 @@ const NoteTemplatesPage: React.FC = () => {
                           type="checkbox"
                           checked={newSection.required}
                           onChange={(e) => setNewSection({ ...newSection, required: e.target.checked })}
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-2 focus:ring-indigo-500"
+                          className="w-4 h-4 text-content-secondary rounded focus:ring-2 focus:ring-indigo-500"
                         />
                         <span className="text-sm font-medium text-content-secondary">{t('docNoteTemplates.requiredCheckbox')}</span>
                       </label>
@@ -647,7 +647,7 @@ const NoteTemplatesPage: React.FC = () => {
               <div className="space-y-3">
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@vitals</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@vitals</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_vitals')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -667,7 +667,7 @@ Oxygen Saturation: ___ % on [RA/O2 ___L]
               <div className="space-y-3">
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@ros-neg</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@ros-neg</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_rosNeg')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -686,7 +686,7 @@ Skin: rash, lesions
 
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@fullros</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@fullros</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_fullRos')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -710,7 +710,7 @@ Skin: [ ] rash [ ] lesions [ ] itching
               <div className="space-y-3">
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@pe-normal</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@pe-normal</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_peNormal')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -733,7 +733,7 @@ Skin: Warm, dry, no rash or lesions
               <div className="space-y-3">
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@meds</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@meds</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_meds')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -745,7 +745,7 @@ Current Medications:
 
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@allergies</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@allergies</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_allergies')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -762,7 +762,7 @@ Allergies:
               <div className="space-y-3">
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@labs</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@labs</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_labs')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -780,7 +780,7 @@ LFTs: AST ___, ALT ___, Alk Phos ___, Total bili ___
               <div className="space-y-3">
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@discharge-meds</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@discharge-meds</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_dischargeMeds')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -794,7 +794,7 @@ Discharge Medications:
 
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@instructions</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@instructions</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_instructions')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">
@@ -809,7 +809,7 @@ Return to ED if: fever greater than 101°F, worsening symptoms, new concerning s
 
                 <div className="bg-surface-sunken rounded p-4 border border-border">
                   <div className="flex items-center gap-2 mb-2">
-                    <code className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-mono text-sm">@followup</code>
+                    <code className="px-2 py-1 bg-surface-sunken text-content-secondary rounded font-mono text-sm">@followup</code>
                     <span className="text-sm text-content-muted">- {t('docNoteTemplates.macroDesc_followup')}</span>
                   </div>
                   <pre className="text-sm text-content-muted font-mono whitespace-pre-wrap bg-surface p-3 rounded border border-border">

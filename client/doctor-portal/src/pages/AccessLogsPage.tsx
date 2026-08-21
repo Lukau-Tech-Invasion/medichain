@@ -112,7 +112,7 @@ function AccessLogsPage() {
     switch (type) {
       case 'nfc_tap':
       case 'qr_verification':
-        return <Shield className="text-primary-600" size={16} />;
+        return <Shield className="text-brand" size={16} />;
       case 'upload_record':
       case 'download_record':
         return <FileText className="text-content-muted" size={16} />;
@@ -167,8 +167,8 @@ function AccessLogsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-              <FileText className="text-primary-600" size={24} />
+            <div className="w-10 h-10 bg-brand-subtle rounded-lg flex items-center justify-center">
+              <FileText className="text-brand" size={24} />
             </div>
             <h1 className="text-2xl font-bold text-content">{t('docAccessLogs.title')}</h1>
           </div>
@@ -194,8 +194,8 @@ function AccessLogsPage() {
               <p className="text-sm text-content-muted">{t('docAccessLogs.totalAccesses')}</p>
               <p className="text-2xl font-bold text-content">{logs.length}</p>
             </div>
-            <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-              <FileText className="text-primary-600" size={20} />
+            <div className="w-10 h-10 bg-brand-subtle rounded-lg flex items-center justify-center">
+              <FileText className="text-brand" size={20} />
             </div>
           </div>
         </div>
@@ -256,7 +256,7 @@ function AccessLogsPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('docAccessLogs.searchPlaceholder')}
-              className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              className="w-full pl-10 pr-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
           </div>
           
@@ -265,7 +265,7 @@ function AccessLogsPage() {
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value as typeof filterType)}
-              className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              className="px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             >
               <option value="all">{t('docAccessLogs.filterAll')}</option>
               <option value="emergency">{t('docAccessLogs.filterEmergency')}</option>
@@ -279,7 +279,7 @@ function AccessLogsPage() {
       <div className="bg-surface rounded-xl shadow overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="animate-spin text-primary-600" size={32} />
+            <Loader2 className="animate-spin text-brand" size={32} />
           </div>
         ) : paginatedLogs.length === 0 ? (
           <div className="text-center py-12">
@@ -401,12 +401,12 @@ function AccessLogsPage() {
       </div>
 
       {/* Blockchain Notice */}
-      <div className="mt-6 bg-primary-50 border border-primary-200 rounded-lg p-4">
+      <div className="mt-6 bg-brand-subtle border border-brand rounded-lg p-4">
         <div className="flex items-start gap-3">
-          <Shield className="text-primary-600 mt-0.5" size={20} />
+          <Shield className="text-brand mt-0.5" size={20} />
           <div>
             <h4 className="font-medium text-primary-900">{t('docAccessLogs.blockchainVerified')}</h4>
-            <p className="text-sm text-primary-700 mt-1">
+            <p className="text-sm text-brand mt-1">
               {t('docAccessLogs.blockchainBody')}
             </p>
           </div>

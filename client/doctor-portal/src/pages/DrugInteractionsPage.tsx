@@ -349,7 +349,7 @@ const DrugInteractionsPage: React.FC = () => {
       case 'contraindicated':
         return 'bg-critical-subtle text-critical-subtle-fg border-critical';
       case 'major':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
+        return 'bg-surface-sunken text-content-secondary border-orange-200';
       case 'moderate':
         return 'bg-caution-subtle text-caution-subtle-fg border-caution';
       case 'minor':
@@ -364,7 +364,7 @@ const DrugInteractionsPage: React.FC = () => {
       case 'contraindicated':
         return <ShieldAlert className="w-5 h-5 text-critical-subtle-fg" />;
       case 'major':
-        return <AlertTriangle className="w-5 h-5 text-orange-600" />;
+        return <AlertTriangle className="w-5 h-5 text-content-secondary" />;
       case 'moderate':
         return <AlertCircle className="w-5 h-5 text-caution-subtle-fg" />;
       case 'minor':
@@ -377,7 +377,7 @@ const DrugInteractionsPage: React.FC = () => {
   const getTypeBadge = (type: InteractionType): string => {
     switch (type) {
       case 'drug-drug':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-surface-sunken text-content-secondary';
       case 'drug-allergy':
         return 'bg-critical-subtle text-critical-subtle-fg';
       case 'drug-condition':
@@ -435,7 +435,7 @@ const DrugInteractionsPage: React.FC = () => {
           onClick={() => setActiveTab('checker')}
           className={`px-6 py-3 font-medium transition-colors ${
             activeTab === 'checker'
-              ? 'border-b-2 border-purple-600 text-purple-600'
+              ? 'border-b-2 border-purple-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -445,7 +445,7 @@ const DrugInteractionsPage: React.FC = () => {
           onClick={() => setActiveTab('history')}
           className={`px-6 py-3 font-medium transition-colors ${
             activeTab === 'history'
-              ? 'border-b-2 border-purple-600 text-purple-600'
+              ? 'border-b-2 border-purple-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -455,7 +455,7 @@ const DrugInteractionsPage: React.FC = () => {
           onClick={() => setActiveTab('database')}
           className={`px-6 py-3 font-medium transition-colors ${
             activeTab === 'database'
-              ? 'border-b-2 border-purple-600 text-purple-600'
+              ? 'border-b-2 border-purple-600 text-content-secondary'
               : 'text-content-muted hover:text-content'
           }`}
         >
@@ -488,7 +488,7 @@ const DrugInteractionsPage: React.FC = () => {
                     <button
                       key={drug.drugId}
                       onClick={() => handleAddDrug(drug)}
-                      className="w-full text-left px-4 py-3 hover:bg-purple-50 transition-colors border-b last:border-b-0"
+                      className="w-full text-left px-4 py-3 hover:bg-surface-sunken transition-colors border-b last:border-b-0"
                     >
                       <div className="font-medium text-content">{drug.name}</div>
                       <div className="text-sm text-content-muted">
@@ -513,10 +513,10 @@ const DrugInteractionsPage: React.FC = () => {
                   {selectedDrugs.map((drug) => (
                     <div
                       key={drug.drugId}
-                      className="flex items-center justify-between bg-purple-50 border border-purple-200 rounded-lg p-3"
+                      className="flex items-center justify-between bg-surface-sunken border border-purple-200 rounded-lg p-3"
                     >
                       <div className="flex items-center gap-3">
-                        <Pill className="w-5 h-5 text-purple-600" />
+                        <Pill className="w-5 h-5 text-content-secondary" />
                         <div>
                           <div className="font-medium text-content">{drug.name}</div>
                           <div className="text-sm text-content-muted">{drug.drugClass}</div>
@@ -687,7 +687,7 @@ const DrugInteractionsPage: React.FC = () => {
                           interaction.severity === 'contraindicated'
                             ? 'border-critical bg-critical-subtle'
                             : interaction.severity === 'major'
-                            ? 'border-orange-300 bg-orange-50'
+                            ? 'border-orange-300 bg-surface-sunken'
                             : interaction.severity === 'moderate'
                             ? 'border-caution bg-caution-subtle'
                             : 'border-notice bg-notice-subtle'
@@ -737,7 +737,7 @@ const DrugInteractionsPage: React.FC = () => {
                             {/* Mechanism */}
                             <div>
                               <h4 className="font-semibold text-content mb-2 flex items-center gap-2">
-                                <Activity className="w-4 h-4 text-purple-600" />
+                                <Activity className="w-4 h-4 text-content-secondary" />
                                 {t('docDrugInteractions.mechanismTitle')}
                               </h4>
                               <p className="text-content-secondary text-sm">{interaction.mechanism}</p>
@@ -746,7 +746,7 @@ const DrugInteractionsPage: React.FC = () => {
                             {/* Clinical Effects */}
                             <div>
                               <h4 className="font-semibold text-content mb-2 flex items-center gap-2">
-                                <AlertCircle className="w-4 h-4 text-orange-600" />
+                                <AlertCircle className="w-4 h-4 text-content-secondary" />
                                 {t('docDrugInteractions.clinicalEffectsTitle')}
                               </h4>
                               <ul className="list-disc list-inside text-sm text-content-secondary space-y-1">
@@ -817,7 +817,7 @@ const DrugInteractionsPage: React.FC = () => {
                             {/* References */}
                             <div>
                               <h4 className="font-semibold text-content mb-2 flex items-center gap-2">
-                                <Book className="w-4 h-4 text-purple-600" />
+                                <Book className="w-4 h-4 text-content-secondary" />
                                 {t('docDrugInteractions.referencesTitle')}
                               </h4>
                               <ul className="text-xs text-content-muted space-y-1">
@@ -862,7 +862,7 @@ const DrugInteractionsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-2xl font-bold text-purple-600">{check.totalInteractions}</div>
+                    <div className="text-2xl font-bold text-content-secondary">{check.totalInteractions}</div>
                     <div className="text-sm text-content-muted">{t('docDrugInteractions.interactionsLabel')}</div>
                   </div>
                 </div>
@@ -871,7 +871,7 @@ const DrugInteractionsPage: React.FC = () => {
                   <h4 className="font-semibold text-content mb-2">{t('docDrugInteractions.medicationsCheckedTitle')}</h4>
                   <div className="flex flex-wrap gap-2 mb-4">
                     {check.drugs.map((drug, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
+                      <span key={idx} className="px-3 py-1 bg-surface-sunken text-content-secondary rounded-full text-sm">
                         {drug}
                       </span>
                     ))}
@@ -886,9 +886,9 @@ const DrugInteractionsPage: React.FC = () => {
                       </div>
                     )}
                     {check.bySeverity.major > 0 && (
-                      <div className="bg-orange-50 border border-orange-200 rounded p-2 text-center">
-                        <div className="text-xl font-bold text-orange-600">{check.bySeverity.major}</div>
-                        <div className="text-xs text-orange-700">{t('docDrugInteractions.severity_major')}</div>
+                      <div className="bg-surface-sunken border border-orange-200 rounded p-2 text-center">
+                        <div className="text-xl font-bold text-content-secondary">{check.bySeverity.major}</div>
+                        <div className="text-xs text-content-secondary">{t('docDrugInteractions.severity_major')}</div>
                       </div>
                     )}
                     {check.bySeverity.moderate > 0 && (

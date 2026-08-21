@@ -258,8 +258,8 @@ export function MessagesPage() {
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-            <User className="w-5 h-5 text-primary-600" />
+          <div className="w-10 h-10 bg-brand-subtle rounded-full flex items-center justify-center">
+            <User className="w-5 h-5 text-brand" />
           </div>
           <div>
             <h2 className="font-semibold text-content">{selectedConversation.providerName}</h2>
@@ -310,12 +310,12 @@ export function MessagesPage() {
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void sendMessage()}
               placeholder={t('messages.typePlaceholder')}
-              className="flex-1 px-4 py-2 border border-border rounded-full focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+              className="flex-1 px-4 py-2 border border-border rounded-full focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
             />
             <button
               onClick={() => void sendMessage()}
               disabled={!newMessage.trim()}
-              className="p-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="p-3 bg-primary-500 text-brand-fg rounded-full hover:bg-brand disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-5 h-5" />
             </button>
@@ -354,14 +354,14 @@ export function MessagesPage() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder={t('messages.searchPlaceholder')}
-          className="w-full pl-12 pr-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+          className="w-full pl-12 pr-4 py-3 border border-border rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
         />
       </div>
 
       {/* New Message Button */}
-      <button onClick={() => void startConversation()} className="w-full patient-card flex items-center gap-4 p-4 hover:border-primary-200 border-2 border-transparent">
-        <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-          <Plus className="w-6 h-6 text-primary-600" />
+      <button onClick={() => void startConversation()} className="w-full patient-card flex items-center gap-4 p-4 hover:border-brand border-2 border-transparent">
+        <div className="w-12 h-12 bg-brand-subtle rounded-full flex items-center justify-center">
+          <Plus className="w-6 h-6 text-brand" />
         </div>
         <div className="text-left">
           <div className="font-medium text-content">{t('messages.startNew')}</div>
@@ -377,7 +377,7 @@ export function MessagesPage() {
             <button
               key={provider.wallet_address}
               onClick={() => selectProvider(provider)}
-              className="w-full rounded-lg border border-border p-3 text-left hover:border-primary-300"
+              className="w-full rounded-lg border border-border p-3 text-left hover:border-brand"
             >
               <span className="block font-medium">{provider.name}</span>
               <span className="text-sm text-content-muted">{provider.specialty || provider.role}</span>
@@ -398,11 +398,11 @@ export function MessagesPage() {
                 c.id === conversation.id ? { ...c, unreadCount: 0 } : c
               ));
             }}
-            className="w-full patient-card flex items-center gap-4 p-4 hover:border-primary-200 border-2 border-transparent text-left"
+            className="w-full patient-card flex items-center gap-4 p-4 hover:border-brand border-2 border-transparent text-left"
           >
             <div className="relative">
-              <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center">
-                <User className="w-6 h-6 text-primary-600" />
+              <div className="w-12 h-12 bg-brand-subtle rounded-full flex items-center justify-center">
+                <User className="w-6 h-6 text-brand" />
               </div>
               {conversation.unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 bg-emergency-500 text-white text-xs rounded-full flex items-center justify-center">

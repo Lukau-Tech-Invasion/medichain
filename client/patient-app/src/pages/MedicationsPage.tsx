@@ -312,7 +312,7 @@ export function MedicationsPage() {
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 font-medium text-sm border-b-2 transition-colors ${
               activeTab === tab
-                ? 'border-primary-500 text-primary-600'
+                ? 'border-brand text-brand'
                 : 'border-transparent text-content-muted hover:text-content-secondary'
             }`}
           >
@@ -333,8 +333,8 @@ export function MedicationsPage() {
               {pendingReminders.map(reminder => (
                 <div key={reminder.id} className="patient-card flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-                      <Pill className="w-6 h-6 text-primary-600" />
+                    <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center">
+                      <Pill className="w-6 h-6 text-brand" />
                     </div>
                     <div>
                       <p className="font-medium text-content">{reminder.medicationName}</p>
@@ -343,7 +343,7 @@ export function MedicationsPage() {
                   </div>
                   <button
                     onClick={() => markAsTaken(reminder.id)}
-                    className="px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors text-sm font-medium"
+                    className="px-4 py-2 bg-primary-500 text-brand-fg rounded-lg hover:bg-brand transition-colors text-sm font-medium"
                   >
                     {t('medications.markTaken')}
                   </button>
@@ -389,8 +389,8 @@ export function MedicationsPage() {
             <div key={med.id} className="patient-card">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-                    <Pill className="w-6 h-6 text-primary-600" />
+                  <div className="w-12 h-12 bg-brand-subtle rounded-xl flex items-center justify-center">
+                    <Pill className="w-6 h-6 text-brand" />
                   </div>
                   <div>
                     <h3 className="font-semibold text-content">{med.name}</h3>
@@ -446,7 +446,7 @@ export function MedicationsPage() {
               )}
 
               {med.refillsRemaining <= 1 && (
-                <button className="mt-3 w-full py-2 border-2 border-primary-500 text-primary-600 rounded-lg font-medium hover:bg-primary-50 transition-colors flex items-center justify-center gap-2">
+                <button className="mt-3 w-full py-2 border-2 border-brand text-brand-subtle-fg rounded-lg font-medium hover:bg-brand-subtle transition-colors flex items-center justify-center gap-2">
                   <Plus className="w-4 h-4" />
                   {t('medications.requestRefill')}
                 </button>

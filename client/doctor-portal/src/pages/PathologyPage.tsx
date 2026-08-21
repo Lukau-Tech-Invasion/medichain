@@ -436,11 +436,11 @@ const PathologyPage: React.FC = () => {
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       received: 'bg-notice-subtle text-notice-subtle-fg',
-      grossing: 'bg-purple-100 text-purple-800',
+      grossing: 'bg-surface-sunken text-content-secondary',
       processing: 'bg-caution-subtle text-caution-subtle-fg',
-      embedding: 'bg-orange-100 text-orange-800',
-      cutting: 'bg-pink-100 text-pink-800',
-      staining: 'bg-indigo-100 text-indigo-800',
+      embedding: 'bg-surface-sunken text-content-secondary',
+      cutting: 'bg-surface-sunken text-content-secondary',
+      staining: 'bg-surface-sunken text-content-secondary',
       prelim: 'bg-caution-subtle text-caution-subtle-fg',
       final: 'bg-ok-subtle text-ok-subtle-fg',
       addendum: 'bg-surface-sunken text-content-secondary'
@@ -450,7 +450,7 @@ const PathologyPage: React.FC = () => {
 
   const getPriorityBadge = (priority: string) => {
     const styles: Record<string, string> = {
-      stat: 'bg-red-600 text-white',
+      stat: 'bg-critical text-white',
       urgent: 'bg-orange-500 text-white',
       routine: 'bg-gray-500 text-white'
     };
@@ -852,7 +852,7 @@ const PathologyPage: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 flex items-center"
+                className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700 flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 {t('docPathology.submitSpecimenButton')}
@@ -929,7 +929,7 @@ const PathologyPage: React.FC = () => {
           <div className="bg-surface rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-bold flex items-center gap-2">
-                <Microscope className="h-5 w-5 text-purple-600" />
+                <Microscope className="h-5 w-5 text-content-secondary" />
                 {t('docPathology.viewerHeading')}
               </h3>
               <label className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded cursor-pointer hover:bg-purple-500">
@@ -1024,7 +1024,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addBlock}
-                    className="px-3 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700"
+                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1053,7 +1053,7 @@ const PathologyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={addSlide}
-                    className="px-3 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700"
+                    className="px-3 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -1203,7 +1203,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(false)}
-              className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 flex items-center"
+              className="px-4 py-2 bg-caution text-caution-fg rounded-md hover:bg-amber-700 flex items-center"
             >
               <Clock className="h-4 w-4 mr-2" />
               {t('docPathology.savePreliminaryButton')}
@@ -1211,7 +1211,7 @@ const PathologyPage: React.FC = () => {
             <button
               type="button"
               onClick={() => handleSaveReport(true)}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center"
+              className="px-4 py-2 bg-ok text-ok-fg rounded-md hover:bg-ok flex items-center"
             >
               <CheckCircle className="h-4 w-4 mr-2" />
               {t('docPathology.finalizeReportButton')}

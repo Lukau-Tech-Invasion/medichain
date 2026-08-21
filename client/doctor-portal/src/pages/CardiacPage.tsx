@@ -213,9 +213,9 @@ export default function CardiacPage() {
   };
 
   const eventTypes = [
-    { value: 'stemi', label: t('docCardiac.eventType_stemi'), color: 'bg-red-600' },
+    { value: 'stemi', label: t('docCardiac.eventType_stemi'), color: 'bg-critical' },
     { value: 'nstemi', label: t('docCardiac.eventType_nstemi'), color: 'bg-orange-500' },
-    { value: 'unstable_angina', label: t('docCardiac.eventType_unstable_angina'), color: 'bg-yellow-500' },
+    { value: 'unstable_angina', label: t('docCardiac.eventType_unstable_angina'), color: 'bg-caution' },
     { value: 'heart_failure', label: t('docCardiac.eventType_heart_failure'), color: 'bg-purple-500' },
     { value: 'arrhythmia', label: t('docCardiac.eventType_arrhythmia'), color: 'bg-blue-500' },
     { value: 'cardiac_arrest', label: t('docCardiac.eventType_cardiac_arrest'), color: 'bg-red-800' }
@@ -242,7 +242,7 @@ export default function CardiacPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">{t('docCardiac.title')}</h1>
-                <p className="text-red-100">{t('docCardiac.subtitle')}</p>
+                <p className="text-critical-fg">{t('docCardiac.subtitle')}</p>
               </div>
             </div>
             {eventType && (
@@ -666,7 +666,7 @@ export default function CardiacPage() {
                     <button
                       type="button"
                       onClick={addECGReading}
-                      className="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700"
+                      className="w-full bg-critical text-critical-fg py-2 rounded-lg hover:bg-critical"
                     >
                       {t('docCardiac.saveECGBtn')}
                     </button>
@@ -770,7 +770,7 @@ export default function CardiacPage() {
             <button
               type="submit"
               disabled={isSubmitting || !selectedPatient}
-              className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              className="px-6 py-3 bg-critical text-critical-fg rounded-lg hover:bg-critical disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>

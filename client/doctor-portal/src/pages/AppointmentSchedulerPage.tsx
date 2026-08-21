@@ -127,12 +127,12 @@ const STATUS_STYLE: Record<AppointmentStatus, string> = {
   scheduled: 'bg-surface-sunken text-content-secondary dark:bg-slate-700 dark:text-slate-100',
   confirmed: 'bg-notice-subtle text-notice-subtle-fg dark:bg-blue-900 dark:text-blue-100',
   checked_in: 'bg-caution-subtle text-caution-subtle-fg dark:bg-amber-900 dark:text-amber-100',
-  in_progress: 'bg-indigo-100 text-indigo-900 dark:bg-indigo-900 dark:text-indigo-100',
+  in_progress: 'bg-surface-sunken text-content-secondary dark:bg-indigo-900 dark:text-indigo-100',
   completed: 'bg-ok-subtle text-ok-subtle-fg dark:bg-green-900 dark:text-green-100',
   cancelled: 'bg-critical-subtle text-critical-subtle-fg dark:bg-red-900 dark:text-red-100',
   declined: 'bg-critical-subtle text-critical-subtle-fg dark:bg-red-900 dark:text-red-100',
-  no_show: 'bg-orange-100 text-orange-900 dark:bg-orange-900 dark:text-orange-100',
-  rescheduled: 'bg-purple-100 text-purple-900 dark:bg-purple-900 dark:text-purple-100',
+  no_show: 'bg-surface-sunken text-content-secondary dark:bg-orange-900 dark:text-orange-100',
+  rescheduled: 'bg-surface-sunken text-content-secondary dark:bg-purple-900 dark:text-purple-100',
   waitlisted: 'bg-surface-sunken text-content-secondary dark:bg-slate-700 dark:text-slate-100',
 };
 
@@ -486,7 +486,7 @@ export default function AppointmentSchedulerPage() {
                           </span>
                         )}
                         {a.is_telehealth && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-900 dark:bg-cyan-900 dark:text-cyan-100 inline-flex items-center gap-1">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-surface-sunken text-content-secondary dark:bg-cyan-900 dark:text-cyan-100 inline-flex items-center gap-1">
                             <Video size={11} aria-hidden="true" />
                             {t('docAppointments.virtual')}
                           </span>
@@ -545,7 +545,7 @@ export default function AppointmentSchedulerPage() {
                             className={`inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded disabled:opacity-50 ${
                               destructive
                                 ? 'bg-critical-subtle text-critical-subtle-fg hover:bg-critical-subtle dark:bg-red-900/40 dark:text-red-200'
-                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                                : 'bg-blue-600 text-critical-fg hover:bg-blue-700'
                             }`}
                           >
                             {busy === `${a.appointment_id}-${to}` ? (

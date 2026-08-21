@@ -45,8 +45,8 @@ const RecentPatientsList: React.FC<RecentPatientsListProps> = ({ loading, patien
           className="flex items-center justify-between p-4 hover:bg-surface-sunken transition-colors"
         >
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-              <Users className="text-primary-600" size={20} />
+            <div className="w-10 h-10 bg-brand-subtle rounded-full flex items-center justify-center">
+              <Users className="text-brand" size={20} />
             </div>
             <div>
               <p className="font-medium text-content">{patient.fullName}</p>

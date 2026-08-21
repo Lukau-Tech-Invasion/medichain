@@ -201,7 +201,7 @@ export function SymptomTrackerPage() {
       case 1: return 'bg-ok-subtle text-ok-subtle-fg';
       case 2: return 'bg-notice-subtle text-notice-subtle-fg';
       case 3: return 'bg-caution-subtle text-caution-subtle-fg';
-      case 4: return 'bg-orange-100 text-orange-700';
+      case 4: return 'bg-surface-sunken text-content-secondary';
       case 5: return 'bg-critical-subtle text-critical-subtle-fg';
       default: return 'bg-surface-sunken text-content-secondary';
     }
@@ -286,15 +286,15 @@ export function SymptomTrackerPage() {
       {/* Stats Summary */}
       <div className="grid grid-cols-3 gap-4">
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-primary-600">{todayEntries.length}</div>
+          <div className="text-2xl font-bold text-brand">{todayEntries.length}</div>
           <div className="text-xs text-content-muted">{t('symptomTracker.statToday')}</div>
         </div>
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-primary-600">{weekEntries.length}</div>
+          <div className="text-2xl font-bold text-brand">{weekEntries.length}</div>
           <div className="text-xs text-content-muted">{t('symptomTracker.thisWeek')}</div>
         </div>
         <div className="patient-card text-center">
-          <div className="text-2xl font-bold text-primary-600">{averageSeverity}</div>
+          <div className="text-2xl font-bold text-brand">{averageSeverity}</div>
           <div className="text-xs text-content-muted">{t('symptomTracker.avgSeverity')}</div>
         </div>
       </div>
@@ -320,7 +320,7 @@ export function SymptomTrackerPage() {
             <div key={entry.id} className="patient-card">
               <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-100 rounded-xl flex items-center justify-center text-primary-600">
+                  <div className="w-10 h-10 bg-brand-subtle rounded-xl flex items-center justify-center text-brand-subtle-fg">
                     {getCategoryIcon(entry.category)}
                   </div>
                   <div>
@@ -354,7 +354,7 @@ export function SymptomTrackerPage() {
               {entry.triggers && entry.triggers.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {entry.triggers.map((trigger, idx) => (
-                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-700 rounded text-xs">
+                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-sunken text-content-secondary rounded text-xs">
                       <Zap className="w-3 h-3" aria-hidden="true" /> {trigger}
                     </span>
                   ))}
@@ -442,9 +442,9 @@ export function SymptomTrackerPage() {
                         setSelectedCategory(category.id);
                         setNewEntry(prev => ({ ...prev, category: category.id }));
                       }}
-                      className="p-4 border-2 border-border rounded-xl hover:border-primary-300 transition-colors text-left"
+                      className="p-4 border-2 border-border rounded-xl hover:border-brand transition-colors text-left"
                     >
-                      <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center text-primary-600 mb-2">
+                      <div className="w-10 h-10 bg-brand-subtle rounded-lg flex items-center justify-center text-brand-subtle-fg mb-2">
                         {category.icon}
                       </div>
                       <div className="font-medium text-content">{category.name}</div>
@@ -465,8 +465,8 @@ export function SymptomTrackerPage() {
                           onClick={() => setNewEntry(prev => ({ ...prev, symptom }))}
                           className={`p-3 border-2 rounded-lg text-sm font-medium transition-colors ${
                             newEntry.symptom === symptom
-                              ? 'border-primary-500 bg-primary-50 text-primary-700'
-                              : 'border-border hover:border-primary-300'
+                              ? 'border-brand bg-brand-subtle text-brand-subtle-fg'
+                              : 'border-border hover:border-brand'
                           }`}
                         >
                           {symptom}
@@ -508,7 +508,7 @@ export function SymptomTrackerPage() {
                       value={newEntry.duration || ''}
                       onChange={(e) => setNewEntry(prev => ({ ...prev, duration: e.target.value }))}
                       placeholder={t('symptomTracker.durationPlaceholder')}
-                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                     />
                   </div>
 
@@ -523,7 +523,7 @@ export function SymptomTrackerPage() {
                       onChange={(e) => setNewEntry(prev => ({ ...prev, notes: e.target.value }))}
                       placeholder={t('symptomTracker.notesPlaceholder')}
                       rows={3}
-                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none resize-none"
+                      className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none resize-none"
                     />
                   </div>
 
@@ -538,7 +538,7 @@ export function SymptomTrackerPage() {
                     <button
                       onClick={addEntry}
                       disabled={!newEntry.symptom}
-                      className="flex-1 py-3 bg-primary-500 text-white rounded-lg font-medium hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex-1 py-3 bg-primary-500 text-brand-fg rounded-lg font-medium hover:bg-brand disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {t('symptomTracker.saveEntry')}
                     </button>

@@ -232,7 +232,7 @@ const AMAPage: React.FC = () => {
     const styles = {
       'low': 'bg-ok-subtle text-ok-subtle-fg',
       'moderate': 'bg-caution-subtle text-caution-subtle-fg',
-      'high': 'bg-orange-100 text-orange-700',
+      'high': 'bg-surface-sunken text-content-secondary',
       'critical': 'bg-critical-subtle text-critical-subtle-fg'
     };
     return (
@@ -269,7 +269,7 @@ const AMAPage: React.FC = () => {
           <FileWarning className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docAMA.title')}</h1>
         </div>
-        <p className="text-red-100">{t('docAMA.subtitle')}</p>
+        <p className="text-critical-fg">{t('docAMA.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -373,12 +373,12 @@ const AMAPage: React.FC = () => {
                       <div className="flex items-start gap-3">
                         <div className={`p-2 rounded-full ${
                           record.riskLevel === 'critical' ? 'bg-critical-subtle' :
-                          record.riskLevel === 'high' ? 'bg-orange-100' :
+                          record.riskLevel === 'high' ? 'bg-surface-sunken' :
                           'bg-caution-subtle'
                         }`}>
                           <AlertTriangle className={`w-5 h-5 ${
                             record.riskLevel === 'critical' ? 'text-critical-subtle-fg' :
-                            record.riskLevel === 'high' ? 'text-orange-600' :
+                            record.riskLevel === 'high' ? 'text-content-secondary' :
                             'text-caution-subtle-fg'
                           }`} />
                         </div>
@@ -517,7 +517,7 @@ const AMAPage: React.FC = () => {
 
             {/* Actions */}
             <div className="flex gap-3">
-              <button className="flex-1 py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2">
+              <button className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2">
                 <Printer className="w-5 h-5" />
                 {t('docAMA.printDocument')}
               </button>
@@ -540,14 +540,14 @@ const AMAPage: React.FC = () => {
                   <div key={step} className="flex items-center">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold ${
                       formStep >= step
-                        ? 'bg-red-600 text-white'
+                        ? 'bg-critical text-critical-fg'
                         : 'bg-surface-sunken text-content-muted'
                     }`}>
                       {step}
                     </div>
                     {step < 4 && (
                       <div className={`w-12 sm:w-20 h-1 ${
-                        formStep > step ? 'bg-red-600' : 'bg-surface-sunken'
+                        formStep > step ? 'bg-critical' : 'bg-surface-sunken'
                       }`} />
                     )}
                   </div>
@@ -632,7 +632,7 @@ const AMAPage: React.FC = () => {
                   disabled={!patientId || !patientName || !mrn}
                   className={`w-full mt-6 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                     patientId && patientName && mrn
-                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      ? 'bg-critical text-critical-fg hover:bg-critical'
                       : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                   }`}
                 >
@@ -685,7 +685,7 @@ const AMAPage: React.FC = () => {
                           className={`py-2 px-4 rounded-lg border-2 capitalize font-medium ${
                             riskLevel === level
                               ? level === 'critical' ? 'border-red-500 bg-critical-subtle text-critical-subtle-fg' :
-                                level === 'high' ? 'border-orange-500 bg-orange-50 text-orange-700' :
+                                level === 'high' ? 'border-orange-500 bg-surface-sunken text-content-secondary' :
                                 level === 'moderate' ? 'border-yellow-500 bg-caution-subtle text-caution-subtle-fg' :
                                 'border-green-500 bg-ok-subtle text-ok-subtle-fg'
                               : 'border-border hover:border-border-strong'
@@ -709,7 +709,7 @@ const AMAPage: React.FC = () => {
                     disabled={!diagnosis || !recommendedTreatment}
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                       diagnosis && recommendedTreatment
-                        ? 'bg-red-600 text-white hover:bg-red-700'
+                        ? 'bg-critical text-critical-fg hover:bg-critical'
                         : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                     }`}
                   >
@@ -813,7 +813,7 @@ const AMAPage: React.FC = () => {
                     disabled={!readyForSignatures}
                     className={`flex-1 py-3 rounded-lg font-semibold flex items-center justify-center gap-2 ${
                       readyForSignatures
-                        ? 'bg-red-600 text-white hover:bg-red-700'
+                        ? 'bg-critical text-critical-fg hover:bg-critical'
                         : 'bg-surface-sunken text-content-muted cursor-not-allowed'
                     }`}
                   >
@@ -905,7 +905,7 @@ const AMAPage: React.FC = () => {
                   <button
                     onClick={handleCreateAMA}
                     disabled={isSubmitting}
-                    className="flex-1 py-3 bg-red-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2"
+                    className="flex-1 py-3 bg-critical text-critical-fg rounded-lg font-semibold flex items-center justify-center gap-2"
                   >
                     {isSubmitting && <Loader2 className="w-5 h-5 animate-spin" />}
                     {t('docAMA.completeFormBtn')}

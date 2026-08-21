@@ -51,7 +51,7 @@ interface ToxCase {
 const severityColors: Record<Severity, string> = {
   mild: 'bg-ok-subtle text-ok-subtle-fg',
   moderate: 'bg-caution-subtle text-caution-subtle-fg',
-  severe: 'bg-orange-100 text-orange-700',
+  severe: 'bg-surface-sunken text-content-secondary',
   'life-threatening': 'bg-critical-subtle text-critical-subtle-fg'
 };
 
@@ -174,7 +174,7 @@ const ToxicologyPage: React.FC = () => {
           <Skull className="w-8 h-8" />
           <div>
             <h1 className="text-2xl font-bold">{t('docToxicology.title')}</h1>
-            <p className="text-red-100">{t('docToxicology.subtitle')}</p>
+            <p className="text-critical-fg">{t('docToxicology.subtitle')}</p>
           </div>
         </div>
       </div>
@@ -485,7 +485,7 @@ const ToxicologyPage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+              className="w-full py-3 bg-critical text-critical-fg rounded-lg font-semibold hover:bg-critical"
             >
               {t('docToxicology.save')}
             </button>

@@ -155,8 +155,8 @@ function SettingsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-primary-100 rounded-lg flex items-center justify-center">
-              <Settings className="text-primary-600" size={24} />
+            <div className="w-10 h-10 bg-brand-subtle rounded-lg flex items-center justify-center">
+              <Settings className="text-brand" size={24} />
             </div>
             <h1 className="text-2xl font-bold text-content">{t('docSettings.title')}</h1>
           </div>
@@ -168,7 +168,7 @@ function SettingsPage() {
         <button
           onClick={handleSave}
           disabled={isSaving}
-          className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2 bg-brand text-brand-fg rounded-lg hover:bg-brand transition-colors disabled:opacity-50"
         >
           {saved ? (
             <>
@@ -200,7 +200,7 @@ function SettingsPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
                   activeTab === tab.id
-                    ? 'bg-primary-50 text-primary-700'
+                    ? 'bg-brand-subtle text-brand-subtle-fg'
                     : 'text-content-muted hover:bg-surface-sunken'
                 }`}
               >
@@ -219,13 +219,13 @@ function SettingsPage() {
               <h2 className="text-lg font-semibold text-content mb-6">{t('docSettings.profileInfo')}</h2>
 
               <div className="flex items-start gap-6 mb-8">
-                <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center">
-                  <User className="text-primary-600" size={32} />
+                <div className="w-20 h-20 bg-brand-subtle rounded-full flex items-center justify-center">
+                  <User className="text-brand" size={32} />
                 </div>
                 <div>
                   <h3 className="font-medium text-content">{user?.username || t('docSettings.userFallback')}</h3>
                   <p className="text-sm text-content-muted">{user?.role || t('docSettings.roleFallback')}</p>
-                  <button className="mt-2 text-sm text-primary-600 hover:text-primary-700">
+                  <button className="mt-2 text-sm text-brand hover:text-brand">
                     {t('docSettings.changeAvatar')}
                   </button>
                 </div>
@@ -257,7 +257,7 @@ function SettingsPage() {
                   <input
                     type="email"
                     defaultValue={`${user?.username || 'user'}@medichain.health`}
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   />
                 </div>
                 
@@ -266,7 +266,7 @@ function SettingsPage() {
                   <input
                     type="tel"
                     defaultValue="+234-800-000-0000"
-                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   />
                 </div>
               </div>
@@ -303,7 +303,7 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('emergencyAlerts', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                   </label>
                 </div>
 
@@ -319,7 +319,7 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('patientUpdates', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                   </label>
                 </div>
 
@@ -335,7 +335,7 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('systemAnnouncements', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                   </label>
                 </div>
 
@@ -351,7 +351,7 @@ function SettingsPage() {
                       onChange={(e) => updateNotification('emailDigest', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                   </label>
                 </div>
               </div>
@@ -379,7 +379,7 @@ function SettingsPage() {
                       onChange={(e) => updateSecurity('twoFactorEnabled', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                   </label>
                 </div>
 
@@ -394,7 +394,7 @@ function SettingsPage() {
                   <select
                     value={settings.security.sessionTimeout}
                     onChange={(e) => updateSecurity('sessionTimeout', Number(e.target.value))}
-                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   >
                     <option value={15}>{t('docSettings.min15')}</option>
                     <option value={30}>{t('docSettings.min30')}</option>
@@ -418,7 +418,7 @@ function SettingsPage() {
                       onChange={(e) => updateSecurity('requirePinForEmergency', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                   </label>
                 </div>
 
@@ -459,7 +459,7 @@ function SettingsPage() {
                         }}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                           settings.display.theme === value
-                            ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 border-2 border-primary-500'
+                            ? 'bg-brand-subtle dark:bg-primary-900 text-brand-subtle-fg dark:text-primary-300 border-2 border-brand'
                             : 'bg-surface-sunken dark:bg-gray-700 text-content-secondary dark:text-gray-300 border-2 border-transparent hover:bg-surface-sunken dark:hover:bg-gray-600'
                         }`}
                       >
@@ -490,7 +490,7 @@ function SettingsPage() {
                   <select
                     value={settings.display.language}
                     onChange={(e) => updateDisplay('language', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   >
                     <option value="en">{t('docSettings.langEnglish')}</option>
                     <option value="fr">{t('docSettings.langFrench')}</option>
@@ -512,7 +512,7 @@ function SettingsPage() {
                   <select
                     value={settings.display.dateFormat}
                     onChange={(e) => updateDisplay('dateFormat', e.target.value)}
-                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+                    className="w-full max-w-xs px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-brand outline-none"
                   >
                     <option value="MM/DD/YYYY">MM/DD/YYYY</option>
                     <option value="DD/MM/YYYY">DD/MM/YYYY</option>
@@ -532,7 +532,7 @@ function SettingsPage() {
                       onChange={(e) => updateDisplay('compactView', e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                    <div className="w-11 h-6 bg-surface-sunken peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface after:border-border-strong after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand"></div>
                   </label>
                 </div>
               </div>

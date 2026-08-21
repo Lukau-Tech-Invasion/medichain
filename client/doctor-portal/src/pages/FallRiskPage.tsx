@@ -228,7 +228,7 @@ export default function FallRiskPage() {
   const getRiskBadge = (level: RiskLevel) => {
     switch (level) {
       case 'high': return 'bg-red-500 text-white';
-      case 'moderate': return 'bg-yellow-500 text-white';
+      case 'moderate': return 'bg-caution text-white';
       default: return 'bg-green-500 text-white';
     }
   };
@@ -372,7 +372,7 @@ export default function FallRiskPage() {
               onClick={() => setActiveTab('assessment')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'assessment'
-                  ? 'border-b-2 border-orange-500 text-orange-600'
+                  ? 'border-b-2 border-orange-500 text-content-secondary'
                   : 'text-content-muted'
               }`}
             >
@@ -383,7 +383,7 @@ export default function FallRiskPage() {
               onClick={() => setActiveTab('history')}
               className={`flex-1 py-4 px-6 font-medium flex items-center justify-center space-x-2 ${
                 activeTab === 'history'
-                  ? 'border-b-2 border-orange-500 text-orange-600'
+                  ? 'border-b-2 border-orange-500 text-content-secondary'
                   : 'text-content-muted'
               }`}
             >
@@ -421,7 +421,7 @@ export default function FallRiskPage() {
                       onClick={() => setSelectedPatient(patient)}
                       className={`w-full text-left p-3 rounded-lg transition-colors ${
                         selectedPatient?.patient_id === patient.patient_id
-                          ? 'bg-orange-100 border-2 border-orange-500'
+                          ? 'bg-surface-sunken border-2 border-orange-500'
                           : 'bg-surface-sunken hover:bg-surface-sunken border-2 border-transparent'
                       }`}
                     >
@@ -451,7 +451,7 @@ export default function FallRiskPage() {
                         type="checkbox"
                         checked={medications[key as keyof typeof medications]}
                         onChange={() => setMedications(prev => ({ ...prev, [key]: !prev[key as keyof typeof medications] }))}
-                        className="rounded border-border-strong text-orange-600 focus:ring-orange-500"
+                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500"
                       />
                       <span className="text-sm text-content-secondary">{label}</span>
                     </label>
@@ -478,7 +478,7 @@ export default function FallRiskPage() {
                         type="checkbox"
                         checked={mobility[key as keyof typeof mobility]}
                         onChange={() => setMobility(prev => ({ ...prev, [key]: !prev[key as keyof typeof mobility] }))}
-                        className="rounded border-border-strong text-orange-600 focus:ring-orange-500"
+                        className="rounded border-border-strong text-content-secondary focus:ring-orange-500"
                       />
                       <span className="text-sm text-content-secondary">{label}</span>
                     </label>
@@ -718,7 +718,7 @@ export default function FallRiskPage() {
                     type="checkbox"
                     checked={recentFall.occurred}
                     onChange={() => setRecentFall(prev => ({ ...prev, occurred: !prev.occurred }))}
-                    className="rounded border-border-strong text-orange-600 focus:ring-orange-500"
+                    className="rounded border-border-strong text-content-secondary focus:ring-orange-500"
                   />
                   <span className="font-medium">{t('docFallRisk.recentFallCheckbox')}</span>
                 </label>

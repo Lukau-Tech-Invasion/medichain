@@ -262,8 +262,8 @@ const InsurancePage: React.FC = () => {
     const colors: Record<InsuranceType, string> = {
       medical: 'bg-notice-subtle text-notice-subtle-fg',
       dental: 'bg-ok-subtle text-ok-subtle-fg',
-      vision: 'bg-purple-100 text-purple-800',
-      pharmacy: 'bg-orange-100 text-orange-800',
+      vision: 'bg-surface-sunken text-content-secondary',
+      pharmacy: 'bg-surface-sunken text-content-secondary',
       supplemental: 'bg-surface-sunken text-content-secondary'
     };
     return (
@@ -294,7 +294,7 @@ const InsurancePage: React.FC = () => {
       processing: 'bg-caution-subtle text-caution-subtle-fg',
       approved: 'bg-ok-subtle text-ok-subtle-fg',
       denied: 'bg-critical-subtle text-critical-subtle-fg',
-      appealed: 'bg-orange-100 text-orange-800'
+      appealed: 'bg-surface-sunken text-content-secondary'
     };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status]}`}>
@@ -441,7 +441,7 @@ const InsurancePage: React.FC = () => {
       {loading && (
         <div className="fixed inset-0 bg-surface/80 flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 text-teal-600 animate-spin" />
+            <Loader2 className="w-8 h-8 text-content-secondary animate-spin" />
             <span className="text-content-muted">{t('insurance.loadingInsurance')}</span>
           </div>
         </div>
@@ -460,7 +460,7 @@ const InsurancePage: React.FC = () => {
       <div className="p-4 -mt-4">
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-surface rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-teal-600">{insuranceCards.filter(c => c.status === 'active').length}</div>
+            <div className="text-2xl font-bold text-content-secondary">{insuranceCards.filter(c => c.status === 'active').length}</div>
             <div className="text-xs text-content-muted">{t('insurance.activePlans')}</div>
           </div>
           <div className="bg-surface rounded-lg shadow p-4 text-center">
@@ -487,7 +487,7 @@ const InsurancePage: React.FC = () => {
               onClick={() => setActiveTab(tab.key as typeof activeTab)}
               className={`flex items-center gap-2 px-4 py-3 font-medium text-sm border-b-2 transition-colors ${
                 activeTab === tab.key
-                  ? 'border-teal-500 text-teal-600'
+                  ? 'border-teal-500 text-content-secondary'
                   : 'border-transparent text-content-muted hover:text-content-secondary'
               }`}
             >
@@ -508,7 +508,7 @@ const InsurancePage: React.FC = () => {
                 <p className="text-content-muted">{t('insurance.noCardsYet')}</p>
                 <button
                   onClick={() => setActiveTab('add')}
-                  className="mt-3 text-teal-600 font-medium"
+                  className="mt-3 text-content-secondary font-medium"
                 >
                   {t('insurance.addFirstCard')}
                 </button>
@@ -525,7 +525,7 @@ const InsurancePage: React.FC = () => {
                       </div>
                       <div className="flex items-center gap-2">
                         {card.isPrimary && (
-                          <span className="px-2 py-0.5 bg-yellow-500 text-caution-subtle-fg text-xs rounded-full font-medium">
+                          <span className="px-2 py-0.5 bg-caution text-caution-subtle-fg text-xs rounded-full font-medium">
                             {t('insurance.primaryBadge')}
                           </span>
                         )}
@@ -562,19 +562,19 @@ const InsurancePage: React.FC = () => {
                         <h4 className="text-xs font-semibold text-content-muted mb-2">{t('insurance.copaysHeading')}</h4>
                         <div className="grid grid-cols-4 gap-2 text-center text-xs">
                           <div>
-                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.primaryCare, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.primaryCare, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayPrimaryLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.specialist, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.specialist, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copaySpecialistLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.urgentCare, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.urgentCare, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayUrgentLabel')}</div>
                           </div>
                           <div>
-                            <div className="font-bold text-lg text-teal-600">{formatCurrency(card.copay.emergency, card.currency, locale)}</div>
+                            <div className="font-bold text-lg text-content-secondary">{formatCurrency(card.copay.emergency, card.currency, locale)}</div>
                             <div className="text-content-muted">{t('insurance.copayErLabel')}</div>
                           </div>
                         </div>
@@ -605,7 +605,7 @@ const InsurancePage: React.FC = () => {
                           setUploadSide('front');
                           setShowUploadModal(true);
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-border-strong rounded-lg text-sm text-content-muted hover:border-teal-500 hover:text-teal-600 transition-colors"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-border-strong rounded-lg text-sm text-content-muted hover:border-teal-500 hover:text-content-secondary transition-colors"
                       >
                         {card.frontImageUrl ? (
                           <><Eye className="w-4 h-4" /> {t('insurance.viewFront')}</>
@@ -619,7 +619,7 @@ const InsurancePage: React.FC = () => {
                           setUploadSide('back');
                           setShowUploadModal(true);
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-border-strong rounded-lg text-sm text-content-muted hover:border-teal-500 hover:text-teal-600 transition-colors"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-border-strong rounded-lg text-sm text-content-muted hover:border-teal-500 hover:text-content-secondary transition-colors"
                       >
                         {card.backImageUrl ? (
                           <><Eye className="w-4 h-4" /> {t('insurance.viewBack')}</>
@@ -634,7 +634,7 @@ const InsurancePage: React.FC = () => {
                       <button
                         onClick={() => handleVerifyCoverage(card.id)}
                         disabled={verifying === card.id}
-                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-teal-50 text-teal-600 rounded-lg text-sm font-medium hover:bg-teal-100 transition-colors disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-2 py-2 bg-surface-sunken text-content-secondary rounded-lg text-sm font-medium hover:bg-surface-sunken transition-colors disabled:opacity-50"
                       >
                         {verifying === card.id ? (
                           <><RefreshCw className="w-4 h-4 animate-spin" /> {t('insurance.verifying')}</>
@@ -700,7 +700,7 @@ const InsurancePage: React.FC = () => {
                       </span>
                     </div>
                     {claim.eobUrl && (
-                      <button className="flex items-center gap-1 text-teal-600 text-sm">
+                      <button className="flex items-center gap-1 text-content-secondary text-sm">
                         <Download className="w-4 h-4" /> {t('insurance.eobButton')}
                       </button>
                     )}
@@ -712,7 +712,7 @@ const InsurancePage: React.FC = () => {
               <button
                 onClick={handleLoadMoreClaims}
                 disabled={loadingMoreClaims}
-                className="w-full py-3 text-center text-sm font-medium text-teal-600 bg-surface rounded-lg shadow hover:bg-teal-50 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="w-full py-3 text-center text-sm font-medium text-content-secondary bg-surface rounded-lg shadow hover:bg-surface-sunken disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loadingMoreClaims ? (
                   <><Loader2 className="w-4 h-4 animate-spin" /> {t('insurance.loadingMoreClaims')}</>

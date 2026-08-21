@@ -513,7 +513,7 @@ const OperativeNotePage: React.FC = () => {
                 </select>
                 <button
                   onClick={addSpecimen}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+                  className="px-4 py-2 bg-ok text-ok-fg rounded hover:bg-ok"
                 >
                   {t('docOperativeNote.addButton')}
                 </button>
@@ -572,7 +572,7 @@ const OperativeNotePage: React.FC = () => {
             {/* Submit */}
             <button
               onClick={handleSubmit}
-              className="w-full py-3 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700"
+              className="w-full py-3 bg-ok text-ok-fg rounded-lg font-semibold hover:bg-ok"
             >
               {t('docOperativeNote.saveButton')}
             </button>

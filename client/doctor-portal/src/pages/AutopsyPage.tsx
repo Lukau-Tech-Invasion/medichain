@@ -280,7 +280,7 @@ const AutopsyPage: React.FC = () => {
       pending: 'bg-caution-subtle text-caution-subtle-fg',
       'in-progress': 'bg-notice-subtle text-notice-subtle-fg',
       completed: 'bg-ok-subtle text-ok-subtle-fg',
-      reviewed: 'bg-purple-100 text-purple-800',
+      reviewed: 'bg-surface-sunken text-content-secondary',
     };
     return badges[status];
   };
@@ -289,7 +289,7 @@ const AutopsyPage: React.FC = () => {
     const badges = {
       natural: 'bg-ok-subtle text-ok-subtle-fg',
       accident: 'bg-caution-subtle text-caution-subtle-fg',
-      suicide: 'bg-orange-100 text-orange-800',
+      suicide: 'bg-surface-sunken text-content-secondary',
       homicide: 'bg-critical-subtle text-critical-subtle-fg',
       undetermined: 'bg-surface-sunken text-content-secondary',
       pending: 'bg-notice-subtle text-notice-subtle-fg',
@@ -323,7 +323,7 @@ const AutopsyPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('reports')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'reports' ? 'text-orange-700 border-b-2 border-orange-700' : 'text-content-muted hover:text-orange-700'
+            activeTab === 'reports' ? 'text-content-secondary border-b-2 border-orange-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docAutopsy.tabAllReports', { count: autopsies.length })}
@@ -331,7 +331,7 @@ const AutopsyPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('new-report')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'new-report' ? 'text-orange-700 border-b-2 border-orange-700' : 'text-content-muted hover:text-orange-700'
+            activeTab === 'new-report' ? 'text-content-secondary border-b-2 border-orange-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docAutopsy.tabNewReport')}
@@ -339,7 +339,7 @@ const AutopsyPage: React.FC = () => {
         <button
           onClick={() => setActiveTab('pending')}
           className={`px-6 py-3 font-semibold transition-colors ${
-            activeTab === 'pending' ? 'text-orange-700 border-b-2 border-orange-700' : 'text-content-muted hover:text-orange-700'
+            activeTab === 'pending' ? 'text-content-secondary border-b-2 border-orange-700' : 'text-content-muted hover:text-content-secondary'
           }`}
         >
           {t('docAutopsy.tabPending', { count: pendingAutopsies.length })}
@@ -398,18 +398,18 @@ const AutopsyPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 mb-4 bg-orange-50 rounded-lg p-4">
+                <div className="grid grid-cols-3 gap-4 mb-4 bg-surface-sunken rounded-lg p-4">
                   <div>
-                    <p className="text-sm text-orange-900 font-semibold mb-1">{t('docAutopsy.lblDeceased')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docAutopsy.lblDeceased')}</p>
                     <p className="font-semibold text-content">{autopsy.patientName}</p>
                     <p className="text-sm text-content-muted">{autopsy.patientId}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-orange-900 font-semibold mb-1">{t('docAutopsy.lblDateOfDeath')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docAutopsy.lblDateOfDeath')}</p>
                     <p className="text-sm text-content">{autopsy.dateOfDeath}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-orange-900 font-semibold mb-1">{t('docAutopsy.lblAutopsyDate')}</p>
+                    <p className="text-sm text-content-secondary font-semibold mb-1">{t('docAutopsy.lblAutopsyDate')}</p>
                     <p className="text-sm text-content">{t('docAutopsy.autopsyDateTime', { date: autopsy.dateOfAutopsy, time: autopsy.timeOfAutopsy })}</p>
                   </div>
                 </div>
@@ -467,37 +467,37 @@ const AutopsyPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                    <p className="text-sm font-semibold text-purple-900 mb-3">{t('docAutopsy.internalExamTitle')}</p>
+                  <div className="bg-surface-sunken border border-purple-200 rounded-lg p-4">
+                    <p className="text-sm font-semibold text-content-secondary mb-3">{t('docAutopsy.internalExamTitle')}</p>
                     <div className="space-y-2 text-sm">
                       {autopsy.internalExam.cardiovascular && (
                         <div>
-                          <span className="text-purple-800 font-semibold flex items-center gap-1">
+                          <span className="text-content-secondary font-semibold flex items-center gap-1">
                             <Heart className="w-4 h-4" /> {t('docAutopsy.lblCardiovascular')}
                           </span>
-                          <p className="text-purple-900 ml-5">{autopsy.internalExam.cardiovascular}</p>
+                          <p className="text-content-secondary ml-5">{autopsy.internalExam.cardiovascular}</p>
                         </div>
                       )}
                       {autopsy.internalExam.respiratory && (
                         <div>
-                          <span className="text-purple-800 font-semibold flex items-center gap-1">
+                          <span className="text-content-secondary font-semibold flex items-center gap-1">
                             <Activity className="w-4 h-4" /> {t('docAutopsy.lblRespiratory')}
                           </span>
-                          <p className="text-purple-900 ml-5">{autopsy.internalExam.respiratory}</p>
+                          <p className="text-content-secondary ml-5">{autopsy.internalExam.respiratory}</p>
                         </div>
                       )}
                       {autopsy.internalExam.gastrointestinal && (
                         <div>
-                          <span className="text-purple-800 font-semibold">{t('docAutopsy.lblGastrointestinal')}</span>
-                          <p className="text-purple-900 ml-5">{autopsy.internalExam.gastrointestinal}</p>
+                          <span className="text-content-secondary font-semibold">{t('docAutopsy.lblGastrointestinal')}</span>
+                          <p className="text-content-secondary ml-5">{autopsy.internalExam.gastrointestinal}</p>
                         </div>
                       )}
                       {autopsy.internalExam.nervous && (
                         <div>
-                          <span className="text-purple-800 font-semibold flex items-center gap-1">
+                          <span className="text-content-secondary font-semibold flex items-center gap-1">
                             <Brain className="w-4 h-4" /> {t('docAutopsy.lblNervousSystemColon')}
                           </span>
-                          <p className="text-purple-900 ml-5">{autopsy.internalExam.nervous}</p>
+                          <p className="text-content-secondary ml-5">{autopsy.internalExam.nervous}</p>
                         </div>
                       )}
                     </div>
@@ -531,8 +531,8 @@ const AutopsyPage: React.FC = () => {
                 </div>
 
                 {autopsy.reviewedBy && (
-                  <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
-                    <p className="text-sm font-semibold text-purple-900">
+                  <div className="mt-4 bg-surface-sunken border border-purple-200 rounded-lg p-3">
+                    <p className="text-sm font-semibold text-content-secondary">
                       {t('docAutopsy.reviewedByLine', { name: autopsy.reviewedBy, date: formatDate(autopsy.reviewDate!) })}
                     </p>
                   </div>

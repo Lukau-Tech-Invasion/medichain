@@ -365,7 +365,7 @@ const WoundCarePage: React.FC = () => {
           <Heart className="w-8 h-8" />
           <h1 className="text-2xl font-bold">{t('docWoundCare.title')}</h1>
         </div>
-        <p className="text-rose-100">{t('docWoundCare.subtitle')}</p>
+        <p className="text-critical-fg">{t('docWoundCare.subtitle')}</p>
       </div>
 
       {/* Loading State */}
@@ -609,7 +609,7 @@ const WoundCarePage: React.FC = () => {
               <button
                 onClick={saveAssessment}
                 disabled={saving}
-                className="w-full py-3 bg-rose-600 text-white rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Plus className="w-5 h-5" /> {t('docWoundCare.saveAssessment')}
               </button>
@@ -698,7 +698,7 @@ const WoundCarePage: React.FC = () => {
               <div className="flex justify-between items-center">
                 {getStatusBadge(selectedWound.status)}
                 {selectedWound.stage !== 'n/a' && (
-                  <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded text-sm">
+                  <span className="bg-surface-sunken text-content-secondary px-2 py-1 rounded text-sm">
                     {selectedWound.stage?.replace('-', ' ')}
                   </span>
                 )}
@@ -749,7 +749,7 @@ const WoundCarePage: React.FC = () => {
                 </div>
               )}
 
-              <button className="w-full py-3 bg-rose-600 text-white rounded-lg font-medium flex items-center justify-center gap-2">
+              <button className="w-full py-3 bg-critical text-critical-fg rounded-lg font-medium flex items-center justify-center gap-2">
                 <Camera className="w-5 h-5" /> {t('docWoundCare.addNewAssessment')}
               </button>
             </div>

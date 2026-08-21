@@ -172,7 +172,7 @@ const DeathCertificatePage: React.FC = () => {
     const styles: Record<CertificateStatus, string> = {
       'draft': 'bg-surface-sunken text-content-secondary',
       'pending-review': 'bg-caution-subtle text-caution-subtle-fg',
-      'pending-signature': 'bg-orange-100 text-orange-700',
+      'pending-signature': 'bg-surface-sunken text-content-secondary',
       'filed': 'bg-ok-subtle text-ok-subtle-fg',
       'amended': 'bg-notice-subtle text-notice-subtle-fg'
     };

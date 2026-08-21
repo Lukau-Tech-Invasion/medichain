@@ -201,9 +201,9 @@ const SpecimenPage: React.FC = () => {
     const styles: Record<CollectionStatus, { bg: string; text: string; icon: React.ReactNode }> = {
       'pending': { bg: 'bg-caution-subtle', text: 'text-caution-subtle-fg', icon: <Clock className="w-3 h-3" /> },
       'collected': { bg: 'bg-notice-subtle', text: 'text-notice-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
-      'in-transit': { bg: 'bg-purple-100', text: 'text-purple-700', icon: <Truck className="w-3 h-3" /> },
-      'received': { bg: 'bg-cyan-100', text: 'text-cyan-700', icon: <FlaskConical className="w-3 h-3" /> },
-      'processing': { bg: 'bg-indigo-100', text: 'text-indigo-700', icon: <FlaskConical className="w-3 h-3" /> },
+      'in-transit': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <Truck className="w-3 h-3" /> },
+      'received': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <FlaskConical className="w-3 h-3" /> },
+      'processing': { bg: 'bg-surface-sunken', text: 'text-content-secondary', icon: <FlaskConical className="w-3 h-3" /> },
       'completed': { bg: 'bg-ok-subtle', text: 'text-ok-subtle-fg', icon: <CheckCircle className="w-3 h-3" /> },
       'rejected': { bg: 'bg-critical-subtle', text: 'text-critical-subtle-fg', icon: <AlertTriangle className="w-3 h-3" /> }
     };
@@ -227,7 +227,7 @@ const SpecimenPage: React.FC = () => {
   const getPriorityBadge = (priority: Priority) => {
     const colors: Record<Priority, string> = {
       'routine': 'bg-surface-sunken text-content-muted',
-      'urgent': 'bg-orange-100 text-orange-700',
+      'urgent': 'bg-surface-sunken text-content-secondary',
       'stat': 'bg-critical-subtle text-critical-subtle-fg'
     };
     const labels: Record<Priority, string> = {
@@ -279,7 +279,7 @@ const SpecimenPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-teal-600 animate-spin mb-2" />
+          <Loader2 className="w-8 h-8 text-content-secondary animate-spin mb-2" />
           <p className="text-content-muted">{t('docSpecimen.loading')}</p>
         </div>
       )}
@@ -322,7 +322,7 @@ const SpecimenPage: React.FC = () => {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`flex-1 py-4 text-sm font-medium ${
-                    activeTab === tab ? 'text-teal-700 border-b-2 border-teal-700' : 'text-content-muted'
+                    activeTab === tab ? 'text-content-secondary border-b-2 border-teal-700' : 'text-content-muted'
                   }`}
                 >
                   {tab === 'specimens' ? t('docSpecimen.tabAll') : tab === 'add' ? t('docSpecimen.tabCollect') : t('docSpecimen.tabTracking')}
@@ -464,8 +464,8 @@ const SpecimenPage: React.FC = () => {
                   value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
               </div>
 
-              <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
-                <p className="text-sm text-teal-700 font-medium mb-2">{t('docSpecimen.checklist')}</p>
+              <div className="bg-surface-sunken border border-teal-200 rounded-lg p-4">
+                <p className="text-sm text-content-secondary font-medium mb-2">{t('docSpecimen.checklist')}</p>
                 <div className="space-y-1">
                   {[t('docSpecimen.chkVerifyId'), t('docSpecimen.chkRequirements'), t('docSpecimen.chkLabel'), t('docSpecimen.chkTime')].map((item, idx) => (
                     <label key={idx} className="flex items-center gap-2 text-sm">
@@ -521,7 +521,7 @@ const SpecimenPage: React.FC = () => {
                         return (
                           <div key={step} className="flex flex-col items-center">
                             <div className={`w-4 h-4 rounded-full ${isActive ? 'bg-teal-500' : 'bg-gray-300'}`}></div>
-                            <span className={`text-xs mt-1 ${isActive ? 'text-teal-600' : 'text-content-muted'}`}>
+                            <span className={`text-xs mt-1 ${isActive ? 'text-content-secondary' : 'text-content-muted'}`}>
                               {step.split('-').map(w => w[0].toUpperCase()).join('')}
                             </span>
                           </div>

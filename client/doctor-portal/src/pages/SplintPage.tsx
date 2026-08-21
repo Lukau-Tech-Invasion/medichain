@@ -141,7 +141,7 @@ const SplintPage: React.FC = () => {
 
       {/* NV Warning */}
       {nvWarning && (
-        <div className="bg-red-600 text-white p-4 flex items-center gap-3">
+        <div className="bg-critical text-critical-fg p-4 flex items-center gap-3">
           <AlertTriangle className="w-6 h-6" />
           <span className="font-semibold">{t('docSplint.nvWarning')}</span>
         </div>

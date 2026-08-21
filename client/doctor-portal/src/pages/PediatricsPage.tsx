@@ -198,12 +198,12 @@ const PediatricsPage: React.FC = () => {
 
   const getAgeGroupColor = (group: AgeGroup): string => {
     const colors: Record<AgeGroup, string> = {
-      'newborn': 'bg-pink-100 text-pink-700',
-      'infant': 'bg-purple-100 text-purple-700',
+      'newborn': 'bg-surface-sunken text-content-secondary',
+      'infant': 'bg-surface-sunken text-content-secondary',
       'toddler': 'bg-notice-subtle text-notice-subtle-fg',
       'preschool': 'bg-ok-subtle text-ok-subtle-fg',
-      'school-age': 'bg-orange-100 text-orange-700',
-      'adolescent': 'bg-cyan-100 text-cyan-700'
+      'school-age': 'bg-surface-sunken text-content-secondary',
+      'adolescent': 'bg-surface-sunken text-content-secondary'
     };
     return colors[group];
   };
@@ -651,10 +651,10 @@ const PediatricsPage: React.FC = () => {
                   <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.weight ?? '-'} kg</p>
                   <p className="text-sm text-notice-subtle-fg">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.weightPercentile ?? '-' })}</p>
                 </div>
-                <div className="bg-purple-50 rounded-lg p-4 text-center">
-                  <Ruler className="w-6 h-6 mx-auto text-purple-600 mb-1" />
+                <div className="bg-surface-sunken rounded-lg p-4 text-center">
+                  <Ruler className="w-6 h-6 mx-auto text-content-secondary mb-1" />
                   <p className="text-xl font-bold">{latestGrowthOf(selectedPatient)?.height ?? '-'} cm</p>
-                  <p className="text-sm text-purple-600">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.heightPercentile ?? '-' })}</p>
+                  <p className="text-sm text-content-secondary">{t('docPediatrics.percentileLine', { pct: latestGrowthOf(selectedPatient)?.heightPercentile ?? '-' })}</p>
                 </div>
               </div>
 
