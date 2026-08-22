@@ -144,7 +144,7 @@ pub async fn grant_bound_emergency_access(
     };
     let grant = match data
         .emergency_grants
-        .issue(
+        .issue_with_audit(
             crate::emergency_grants::EmergencyGrantBinding {
                 patient_id,
                 person_id: wallet,
@@ -159,6 +159,8 @@ pub async fn grant_bound_emergency_access(
                 EmergencyGrantScope::DownloadProhibited,
                 EmergencyGrantScope::OfflineProhibited,
             ],
+            "emergency_grant_issued".into(),
+            serde_json::json!({"device_id": body.device_id}),
             Utc::now(),
         )
         .await
@@ -172,19 +174,13 @@ pub async fn grant_bound_emergency_access(
             )
         }
     };
-    if let Err(error) = data
-        .audit_outbox
-        .record_durable(
-            data.db_pool.as_ref(),
-        "emergency_grant_issued".into(),
-        "emergency_grant".into(),
-        grant.id.clone(),
-        serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
-        Utc::now(),
-        )
-        .await
-    {
-        log::error!("audit outbox write failed: {error}");
+    let (grant, event) = grant;
+    if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+        return emergency_error(
+            HttpResponse::ServiceUnavailable(),
+            "Emergency audit service is unavailable",
+            "AUDIT_UNAVAILABLE",
+        );
     }
 
     // HZ-003: record the break-glass disclosure at field granularity, and check

@@ -86,7 +86,7 @@ pub async fn issue_emergency_grant(
         };
     match data
         .emergency_grants
-        .issue(
+        .issue_with_audit(
             crate::emergency_grants::EmergencyGrantBinding {
                 patient_id: body.patient_id.clone(),
                 person_id,
@@ -97,24 +97,15 @@ pub async fn issue_emergency_grant(
             body.reason_code.clone(),
             body.reason_text.clone(),
             body.scopes.clone(),
+            "emergency_grant_issued".into(),
+            serde_json::json!({"device_id": body.device_id}),
             Utc::now(),
         )
         .await
     {
-        Ok(grant) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                "emergency_grant_issued".into(),
-                "emergency_grant".into(),
-                grant.id.clone(),
-                serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
-                Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+        Ok((grant, event)) => {
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Created().json(grant)
         }
@@ -210,23 +201,18 @@ pub async fn revoke_emergency_grant(
     }
     match data
         .emergency_grants
-        .revoke(&existing.id, body.reason.clone(), Utc::now())
+        .revoke_with_audit(
+            &existing.id,
+            body.reason.clone(),
+            "emergency_grant_revoked".into(),
+            serde_json::json!({"organization_id": existing.organization_id, "device_id": existing.device_id}),
+            Utc::now(),
+        )
         .await
     {
-        Ok(grant) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                "emergency_grant_revoked".into(),
-                "emergency_grant".into(),
-                grant.id.clone(),
-                serde_json::json!({"organization_id": grant.organization_id, "device_id": grant.device_id}),
-                Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+        Ok((grant, event)) => {
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Ok().json(grant)
         }

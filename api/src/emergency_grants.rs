@@ -45,6 +45,23 @@ pub struct EmergencyAccessGrant {
     pub status: EmergencyGrantStatus,
 }
 
+type EmergencyGrantRow = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    Option<String>,
+    serde_json::Value,
+    DateTime<Utc>,
+    DateTime<Utc>,
+    Option<DateTime<Utc>>,
+    Option<String>,
+    String,
+);
+
 /// The five identities an emergency grant is bound to.
 ///
 /// Grouped rather than passed positionally because `issue` and `validate` take
@@ -167,6 +184,89 @@ impl EmergencyGrantStore {
         Ok(grant)
     }
 
+    /// Couple issuance and mandatory audit persistence when PostgreSQL is the
+    /// authority backend. The returned event is for the memory-only demo queue.
+    pub async fn issue_with_audit(
+        &self,
+        binding: EmergencyGrantBinding,
+        reason_code: String,
+        reason_text: Option<String>,
+        scopes: Vec<EmergencyGrantScope>,
+        event_type: String,
+        payload: serde_json::Value,
+        now: DateTime<Utc>,
+    ) -> Result<(EmergencyAccessGrant, crate::audit_outbox::AuditOutboxEvent), &'static str> {
+        let EmergencyGrantBinding {
+            patient_id,
+            person_id,
+            organization_id,
+            facility_id,
+            device_id,
+        } = binding;
+        if patient_id.is_empty()
+            || person_id.is_empty()
+            || organization_id.is_empty()
+            || device_id.is_empty()
+            || reason_code.is_empty()
+        {
+            return Err("Patient, professional, organization, device, and reason are required");
+        }
+        if scopes.is_empty() {
+            return Err("At least one emergency scope is required");
+        }
+        if scopes.contains(&EmergencyGrantScope::FullRecord) {
+            return Err("Full-record emergency access requires stronger policy and is not available through this grant");
+        }
+        let grant = EmergencyAccessGrant {
+            id: Uuid::new_v4().to_string(),
+            patient_id,
+            requesting_person_id: person_id,
+            organization_id,
+            facility_id,
+            device_id,
+            reason_code,
+            reason_text,
+            scopes,
+            issued_at: now,
+            expires_at: now + Duration::minutes(EMERGENCY_GRANT_TTL_MINUTES),
+            revoked_at: None,
+            revoked_reason: None,
+            status: EmergencyGrantStatus::Active,
+        };
+        let event = crate::audit_outbox::AuditOutbox::prepare_event(
+            event_type,
+            "emergency_grant".into(),
+            grant.id.clone(),
+            payload,
+            now,
+        )?;
+        if let Some(pool) = &self.pool {
+            let mut transaction = pool
+                .begin()
+                .await
+                .map_err(|_| "Emergency grant store is unavailable")?;
+            sqlx::query("INSERT INTO emergency_access_grants (id, patient_id, requesting_person_id, organization_id, facility_id, device_id, reason_code, reason_text, scopes, issued_at, expires_at, revoked_at, revoked_reason, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
+                .bind(&grant.id).bind(&grant.patient_id).bind(&grant.requesting_person_id)
+                .bind(&grant.organization_id).bind(&grant.facility_id).bind(&grant.device_id)
+                .bind(&grant.reason_code).bind(&grant.reason_text)
+                .bind(serde_json::to_value(&grant.scopes).map_err(|_| "Emergency grant scopes are invalid")?)
+                .bind(grant.issued_at).bind(grant.expires_at).bind(grant.revoked_at)
+                .bind(&grant.revoked_reason).bind("active").execute(&mut *transaction).await
+                .map_err(|_| "Emergency grant store is unavailable")?;
+            insert_audit_event(&mut transaction, &event).await?;
+            transaction
+                .commit()
+                .await
+                .map_err(|_| "Emergency grant store is unavailable")?;
+        } else {
+            self.grants
+                .write()
+                .map_err(|_| "Emergency grant store is unavailable")?
+                .insert(grant.id.clone(), grant.clone());
+        }
+        Ok((grant, event))
+    }
+
     /// Validate every binding before returning protected emergency data.
     pub async fn validate(
         &self,
@@ -235,6 +335,55 @@ impl EmergencyGrantStore {
         Ok(grant.clone())
     }
 
+    /// Couple revocation and mandatory audit persistence for PostgreSQL.
+    pub async fn revoke_with_audit(
+        &self,
+        grant_id: &str,
+        reason: String,
+        event_type: String,
+        payload: serde_json::Value,
+        now: DateTime<Utc>,
+    ) -> Result<(EmergencyAccessGrant, crate::audit_outbox::AuditOutboxEvent), &'static str> {
+        if reason.trim().is_empty() {
+            return Err("A revocation reason is required");
+        }
+        if let Some(pool) = &self.pool {
+            let mut transaction = pool
+                .begin()
+                .await
+                .map_err(|_| "Emergency grant store is unavailable")?;
+            let row = sqlx::query_as::<_, EmergencyGrantRow>("UPDATE emergency_access_grants SET status = 'revoked', revoked_at = $2, revoked_reason = $3 WHERE id = $1 AND status = 'active' RETURNING id, patient_id, requesting_person_id, organization_id, facility_id, device_id, reason_code, reason_text, scopes, issued_at, expires_at, revoked_at, revoked_reason, status")
+                .bind(grant_id).bind(now).bind(&reason).fetch_optional(&mut *transaction).await
+                .map_err(|_| "Emergency grant store is unavailable")?;
+            let grant = row
+                .map(row_to_grant)
+                .transpose()?
+                .ok_or("Emergency grant not found")?;
+            let event = crate::audit_outbox::AuditOutbox::prepare_event(
+                event_type,
+                "emergency_grant".into(),
+                grant.id.clone(),
+                payload,
+                now,
+            )?;
+            insert_audit_event(&mut transaction, &event).await?;
+            transaction
+                .commit()
+                .await
+                .map_err(|_| "Emergency grant store is unavailable")?;
+            return Ok((grant, event));
+        }
+        let grant = self.revoke(grant_id, reason, now).await?;
+        let event = crate::audit_outbox::AuditOutbox::prepare_event(
+            event_type,
+            "emergency_grant".into(),
+            grant.id.clone(),
+            payload,
+            now,
+        )?;
+        Ok((grant, event))
+    }
+
     pub async fn get(&self, grant_id: &str) -> Result<Option<EmergencyAccessGrant>, &'static str> {
         if let Some(pool) = &self.pool {
             let row = sqlx::query_as::<_, (String, String, String, String, Option<String>, String, String, Option<String>, serde_json::Value, DateTime<Utc>, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>, String)>(
@@ -279,24 +428,22 @@ fn validate_grant(
     Ok(grant)
 }
 
-fn row_to_grant(
-    row: (
-        String,
-        String,
-        String,
-        String,
-        Option<String>,
-        String,
-        String,
-        Option<String>,
-        serde_json::Value,
-        DateTime<Utc>,
-        DateTime<Utc>,
-        Option<DateTime<Utc>>,
-        Option<String>,
-        String,
-    ),
-) -> Result<EmergencyAccessGrant, &'static str> {
+async fn insert_audit_event(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event: &crate::audit_outbox::AuditOutboxEvent,
+) -> Result<(), &'static str> {
+    sqlx::query(
+        "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivered_at, delivery_attempts, last_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
+    .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
+    .bind(i32::try_from(event.delivery_attempts).map_err(|_| "Audit delivery count is invalid")?)
+    .bind(&event.last_error).execute(&mut **transaction).await
+    .map_err(|_| "Emergency grant store is unavailable")?;
+    Ok(())
+}
+
+fn row_to_grant(row: EmergencyGrantRow) -> Result<EmergencyAccessGrant, &'static str> {
     let (
         id,
         patient_id,

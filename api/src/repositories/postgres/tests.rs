@@ -1141,6 +1141,160 @@ async fn test_pg_emergency_grant_survives_restart_and_enforces_bindings() {
 }
 
 #[tokio::test]
+async fn test_pg_emergency_grant_and_audit_commit_together() {
+    use crate::emergency_grants::{
+        EmergencyGrantBinding, EmergencyGrantScope, EmergencyGrantStore,
+    };
+
+    let pool = get_test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string();
+    let (organization_id, facility_id, device_id) =
+        seed_emergency_grant_dependencies(&pool, &suffix).await;
+    let store = EmergencyGrantStore::with_pool(pool.clone());
+    let (grant, event) = store
+        .issue_with_audit(
+            EmergencyGrantBinding {
+                patient_id: format!("PAT-EG-{suffix}"),
+                person_id: format!("PERSON-EG-{suffix}"),
+                organization_id,
+                facility_id: Some(facility_id),
+                device_id,
+            },
+            "life_threatening".into(),
+            None,
+            vec![EmergencyGrantScope::EmergencySummary],
+            "emergency_grant_issued".into(),
+            serde_json::json!({"test": true}),
+            Utc::now(),
+        )
+        .await
+        .expect("grant and audit must commit");
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1 AND aggregate_id = $2",
+    )
+    .bind(&event.id)
+    .bind(&grant.id)
+    .fetch_one(&pool)
+    .await
+    .expect("read audit event");
+    assert_eq!(
+        count, 1,
+        "committed grant must have its durable audit event"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn test_pg_emergency_grant_rolls_back_when_audit_insert_fails() {
+    use crate::emergency_grants::{
+        EmergencyGrantBinding, EmergencyGrantScope, EmergencyGrantStore,
+    };
+
+    let pool = get_test_pool().await;
+    sqlx::query("CREATE FUNCTION reject_emergency_grant_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
+        .execute(&pool).await.expect("install isolated audit failure function");
+    sqlx::query("CREATE TRIGGER reject_emergency_grant_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_audit()")
+        .execute(&pool).await.expect("install isolated audit failure trigger");
+    let suffix = uuid::Uuid::new_v4().to_string();
+    let (organization_id, facility_id, device_id) =
+        seed_emergency_grant_dependencies(&pool, &suffix).await;
+    let patient_id = format!("PAT-EG-{suffix}");
+    let store = EmergencyGrantStore::with_pool(pool.clone());
+    assert!(store
+        .issue_with_audit(
+            EmergencyGrantBinding {
+                patient_id: patient_id.clone(),
+                person_id: format!("PERSON-EG-{suffix}"),
+                organization_id,
+                facility_id: Some(facility_id),
+                device_id
+            },
+            "life_threatening".into(),
+            None,
+            vec![EmergencyGrantScope::EmergencySummary],
+            "emergency_grant_issued".into(),
+            serde_json::json!({"test": true}),
+            Utc::now(),
+        )
+        .await
+        .is_err());
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM emergency_access_grants WHERE patient_id = $1")
+            .bind(&patient_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count grants after failed transaction");
+    assert_eq!(
+        count, 0,
+        "grant must roll back when mandatory audit persistence fails"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails() {
+    use crate::emergency_grants::{
+        EmergencyGrantBinding, EmergencyGrantScope, EmergencyGrantStatus, EmergencyGrantStore,
+    };
+
+    let pool = get_test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string();
+    let (organization_id, facility_id, device_id) =
+        seed_emergency_grant_dependencies(&pool, &suffix).await;
+    let store = EmergencyGrantStore::with_pool(pool.clone());
+    let grant = store
+        .issue(
+            EmergencyGrantBinding {
+                patient_id: format!("PAT-EG-{suffix}"),
+                person_id: format!("PERSON-EG-{suffix}"),
+                organization_id,
+                facility_id: Some(facility_id),
+                device_id,
+            },
+            "life_threatening".into(),
+            None,
+            vec![EmergencyGrantScope::EmergencySummary],
+            Utc::now(),
+        )
+        .await
+        .expect("seed active grant");
+    sqlx::query("CREATE FUNCTION reject_emergency_grant_revoke_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
+        .execute(&pool).await.expect("install isolated audit failure function");
+    sqlx::query("CREATE TRIGGER reject_emergency_grant_revoke_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_emergency_grant_revoke_audit()")
+        .execute(&pool).await.expect("install isolated audit failure trigger");
+    assert!(store
+        .revoke_with_audit(
+            &grant.id,
+            "handover complete".into(),
+            "emergency_grant_revoked".into(),
+            serde_json::json!({"test": true}),
+            Utc::now(),
+        )
+        .await
+        .is_err());
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM emergency_access_grants WHERE id = $1")
+            .bind(&grant.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read grant after failed transaction");
+    assert_eq!(
+        status, "active",
+        "grant must remain active when mandatory revocation audit fails"
+    );
+    assert_eq!(
+        store
+            .get(&grant.id)
+            .await
+            .expect("load grant")
+            .expect("grant exists")
+            .status,
+        EmergencyGrantStatus::Active
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
     let pool = get_test_pool().await;
     let now = Utc::now();
