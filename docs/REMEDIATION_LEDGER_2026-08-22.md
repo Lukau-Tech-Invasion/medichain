@@ -184,6 +184,9 @@ authentication and log-sink audit scope.
   repositories::postgres::tests::test_pg_identity_claim_rolls_back_when_audit_insert_fails
   -- --nocapture` passed (`1 passed`, 436 filtered, 24.79s): a forced outbox
   insert failure left the persisted `users.linked_patient_id` unset.
+* Complete post-audit-containment suite: `cargo test --bin medichain-api`
+  passed `436 passed; 0 failed; 1 ignored` in 281.72 seconds. The ignored
+  blockchain E2E test still requires a running MediChain development node.
 
 ## Remaining release blockers
 
