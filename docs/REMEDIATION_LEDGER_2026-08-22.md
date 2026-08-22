@@ -194,6 +194,9 @@ authentication and log-sink audit scope.
   role, username, email, or patient-linkage fields. This confirms only
   non-enumerating response shape on that image; no signature, replay, or
   expiry workflow was exercised.
+* Clinician frontend static verification: `client/doctor-portal npm run
+  typecheck` passed after the fresh complete Vitest suite. React Router v7
+  future warnings remain in test-local `MemoryRouter` rendering paths.
 
 ## Remaining release blockers
 
