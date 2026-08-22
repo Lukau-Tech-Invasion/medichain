@@ -81,6 +81,9 @@ services:
       # Production secrets — set these in .env (no insecure defaults baked in).
       SESSION_SECRET: ${SESSION_SECRET:-}
       JWT_SECRET: ${JWT_SECRET:-}
+      # Optional in development; required by the monitoring profile to protect
+      # the internal Prometheus scrape endpoint.
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       IS_DEMO: ${IS_DEMO:-true}
     depends_on:
       postgres:
