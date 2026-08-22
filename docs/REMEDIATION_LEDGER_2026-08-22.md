@@ -39,6 +39,7 @@ authentication and log-sink audit scope.
 | OBS-001 | P2 | Prometheus had no authenticated scrape configuration and its default scrape path did not match the API route. | `.env.example`, Compose API/Prometheus configuration, `docs/observability/prometheus.yml`, alert rules | Compose resolves a runtime `metrics_token` secret mounted at `/run/secrets/metrics_token`; Prometheus config uses `/api/metrics` and `credentials_file`, while the API receives the same environment token. | Anonymous `/api/metrics` returned `401`; bearer-authenticated probe returned `200` Prometheus exposition. Monitoring-profile Prometheus reported target health `up` with `lastError` empty at `http://api:8080/api/metrics`; its rules API reported all five MediChain alert rules with health `ok`. | Alert firing/delivery, Grafana browser workflow, production credentials, and no-PHI metric-label audit remain absent. | `a0748dc` | PARTIALLY FIXED |
 | ARCH-001 | P2 | Correctness-critical state previously risked process-local storage and handler authorization had uneven explicit coverage. | Handler inventory, repository wiring, authorization gate scripts | Endpoint-auth gate scanned 424 handlers: 74 resource/patient scoped, 246 role authorized, 67 registered-identity resolved, 0 presence-only, 0 with no decision. Durability gate found 65 AppState maps and 0 live production references. | Static-only. | Write-authorization gate accepts 13 reviewed writes but leaves three owner decisions for break-glass emergency access and NFC identity issuance; no browser/production role matrix execution. | pending | PARTIALLY FIXED |
 | TEST-001 | P2 | Parallel PostgreSQL tests concurrently swept and dropped the same historical test schema; SQLx also serialized isolated-schema migrations with a database-wide lock. | `api/src/repositories/postgres/tests.rs` | Focused PostgreSQL repository test passes after serializing extension setup, stale-schema sweeping, and test-schema creation. A 34-test PostgreSQL subset passes with eight test workers after disabling only the redundant database-wide migration lock for fresh isolated schemas. A fresh complete API suite passes. | The subset completed `34 passed; 0 failed` in 241.32s with zero advisory-lock waiters. The complete API suite then completed `421 passed; 0 failed; 1 ignored` in 201.12s. | Browser/database restore evidence remains separate. | `abc906e`, `c2e6e34` | PARTIALLY FIXED |
+| TEST-002 | P2 | The clinician frontend full-test gate is not currently reliable under its configured 10-second timeout; its full suite also emits avoidable framework/list-key warnings. | `client/doctor-portal/src/store/credentialKeystore.test.ts`, Vitest configuration, affected page rendering keys | Patient full suite passed: 26 files, 82 tests. Clinician full suite failed: 82 files passed, 303 tests passed, one `credentialKeystore` seed-derived-account round-trip test exceeded the configured 10,000 ms timeout. React emitted list-key warnings for `AppointmentsPage` and `NoteTemplatesPage`; React Router v7 future warnings are repeated across both suites. | No browser mutation or production build proof for these cases. | Unit tests are not browser evidence. The keystore test is security-relevant because it covers a clinician signing credential. | — | STILL PRESENT |
 
 ## Commands and immutable evidence identifiers
 
@@ -103,6 +104,12 @@ authentication and log-sink audit scope.
   Reloading `/patient/dashboard` retained `Hello, Pat` and health ID
   `PAT-11b127a6`, with no console warnings or errors. This is route/read and
   session-reload coverage only; it is not write, approval, or cross-role proof.
+* Frontend full-suite probe: `client/patient-app npm run test:run` passed 26
+  files / 82 tests in 166.28 seconds. `client/doctor-portal npm run test:run`
+  failed with 82 files / 303 tests passing and one timeout in
+  `credentialKeystore.test.ts`; Vitest is configured with a 10,000 ms timeout.
+  Its output also reports React list-key warnings in `AppointmentsPage` and
+  `NoteTemplatesPage`, and repeated React Router v7 future warnings.
 
 ## Remaining release blockers
 
