@@ -367,6 +367,34 @@ mod tests {
         );
     }
 
+    /// Error responses must not reflect the asserted wallet identifier.  A
+    /// caller can choose this header, so reflecting it turns error responses
+    /// into an unnecessary identity-data sink.
+    #[actix_web::test]
+    async fn test_invalid_signature_response_does_not_reflect_wallet() {
+        use actix_web::{test, web, App, HttpResponse};
+
+        let wallet = "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY";
+        let app = test::init_service(App::new().wrap(SignatureAuthMiddleware::enabled()).route(
+            "/api/patients/{id}",
+            web::post().to(|| async { HttpResponse::Ok().finish() }),
+        ))
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/api/patients/PAT-001")
+            .insert_header(("X-User-Id", wallet))
+            .insert_header(("X-Signature", "not-a-signature"))
+            .insert_header(("X-Timestamp", chrono::Utc::now().timestamp().to_string()))
+            .to_request();
+        let response = test::call_service(&app, req).await;
+        let body = test::read_body(response).await;
+        let body = std::str::from_utf8(&body).expect("signature error body must be UTF-8");
+
+        assert!(!body.contains(wallet));
+        assert!(body.contains("Signature verification failed"));
+    }
+
     /// Counterpart: with the middleware DISABLED (demo mode), the same request is
     /// allowed through — documenting that disabled mode does NOT verify identity.
     #[actix_web::test]
