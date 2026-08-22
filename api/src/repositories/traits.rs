@@ -6529,6 +6529,13 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
     async fn deny_request(&self, request_id: &str)
         -> RepositoryResult<Option<AccessRequestEntity>>;
 
+    /// Atomically deny a request and persist the mandatory audit-outbox event.
+    async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessRequestEntity>>;
+
     async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>>;
 
     /// This patient's grants, newest first, with lazy expiry applied first so a

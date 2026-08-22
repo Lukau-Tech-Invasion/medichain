@@ -259,6 +259,27 @@ impl PatientAccessRepository for PgPatientAccessRepository {
         Ok(result)
     }
 
+    async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessRequestEntity>> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query_as::<Postgres, AccessRequestEntity>(&format!(
+            "UPDATE patient_access_requests SET status = 'denied'
+             WHERE id = $1 AND status = 'pending' RETURNING {REQUEST_COLUMNS}"
+        ))
+        .bind(request_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(request) = result else {
+            return Ok(None);
+        };
+        insert_audit_event(&mut tx, &event).await?;
+        tx.commit().await?;
+        Ok(Some(request))
+    }
+
     async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>> {
         let result = sqlx::query_as::<Postgres, AccessGrantEntity>(&format!(
             "SELECT {GRANT_COLUMNS} FROM patient_access_grants WHERE id = $1"

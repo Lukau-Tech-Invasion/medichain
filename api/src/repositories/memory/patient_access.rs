@@ -124,6 +124,14 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         Ok(Some(request.clone()))
     }
 
+    async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessRequestEntity>> {
+        self.deny_request(request_id).await
+    }
+
     async fn get_grant(&self, id: &str) -> RepositoryResult<Option<AccessGrantEntity>> {
         Ok(self
             .grants

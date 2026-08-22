@@ -1046,6 +1046,59 @@ async fn test_pg_access_approval_with_audit_commits_grant_and_event() {
 }
 
 #[tokio::test]
+async fn test_pg_access_denial_rolls_back_when_audit_outbox_insert_fails() {
+    let pool = get_test_pool().await;
+    let now = Utc::now();
+    let service = pg_patient_access(&pool);
+    let request = service
+        .create_request(
+            format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
+            test_provider(),
+            now,
+        )
+        .await
+        .expect("create pending request");
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_denied".into(),
+        "access_request".into(),
+        request.id.clone(),
+        serde_json::json!({"provider_id": request.provider_id}),
+        now,
+    )
+    .expect("valid audit event");
+    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+        .bind(&event.id)
+        .bind(&event.event_type)
+        .bind(&event.aggregate_type)
+        .bind(&event.aggregate_id)
+        .bind(&event.payload_hash)
+        .bind(&event.payload)
+        .bind(event.occurred_at)
+        .execute(&pool)
+        .await
+        .expect("reserve audit event ID");
+
+    assert!(
+        service
+            .deny_request_with_audit(&request.id, event)
+            .await
+            .is_err(),
+        "duplicate audit event must fail the denial"
+    );
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM patient_access_requests WHERE id = $1")
+            .bind(&request.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read request status");
+    assert_eq!(
+        status, "pending",
+        "denial must roll back with audit failure"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_patient_access_grant_survives_restart() {
     use crate::patient_access::AccessType;
 

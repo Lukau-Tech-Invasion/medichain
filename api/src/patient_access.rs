@@ -303,6 +303,23 @@ impl PatientAccessService {
         }
     }
 
+    /// Deny a pending request and persist its audit event in the same
+    /// production transaction.
+    pub async fn deny_request_with_audit(
+        &self,
+        request_id: &str,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> Result<AccessRequestEntity, &'static str> {
+        match self.repo.deny_request_with_audit(request_id, event).await {
+            Ok(Some(request)) => Ok(request),
+            Ok(None) => Err(self.why_request_refused(request_id).await),
+            Err(error) => {
+                log::error!("patient access: deny_request_with_audit failed: {error}");
+                Err(STORE_UNAVAILABLE)
+            }
+        }
+    }
+
     /// Patient revokes an active grant. Only a grant that is active *and*
     /// unexpired can be revoked — reporting an already-lapsed grant as freshly
     /// revoked would misdescribe what happened.

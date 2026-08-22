@@ -287,21 +287,25 @@ pub async fn deny_access_request(
     if !access.is_permitted() {
         return forbidden("Only the patient may decide this access request");
     }
-    match data.patient_access.deny_request(&request_id).await {
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_denied".into(),
+        "access_request".into(),
+        existing.id,
+        serde_json::json!({"provider_id": existing.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
+    match data
+        .patient_access
+        .deny_request_with_audit(&request_id, event.clone())
+        .await
+    {
         Ok(request) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_request_denied".into(),
-                    "access_request".into(),
-                    request.id.clone(),
-                    serde_json::json!({"provider_id": request.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Ok().json(serde_json::json!({ "request": request }))
         }
