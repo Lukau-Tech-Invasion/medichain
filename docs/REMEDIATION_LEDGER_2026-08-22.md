@@ -23,7 +23,7 @@ PRESENT`, and `UNKNOWN`.
 | SEC-002 | P1 | Provider failure could fall back to public Jitsi. | `api/src/telehealth.rs`, telehealth endpoint, startup, production compose | Disabled-provider test passes. | New image starts in demo configuration only; production configuration was not launched. | No provider outage or unauthenticated-join test. | Pending | PARTIALLY FIXED |
 | APP-001 | P1 | Access requests could be self-approved and grants could be indefinite. | `api/src/handlers/access_control.rs`; retention repositories; consent workflow/repositories/routes | Focused access, retention maker-checker, and one-time consent-revocation tests pass. | Not exercised with authenticated roles. | PostgreSQL concurrency and browser workflow evidence remain absent. | Pending | PARTIALLY FIXED |
 | INT-001 | P1 | Production could treat stub identity verification as verified. | `api/src/national_id.rs`, handler, startup, production compose | National-ID test module passes. | Development runtime only. | No live/sandbox provider verification. | Pending | PARTIALLY FIXED |
-| DATA-001 | P1 | Process-local idempotency and offline queue had no stable end-to-end key or durable operation state. | `client/shared/src/api/client.ts`, `api/src/middleware/idempotency.rs`, `api/migrations/20260822000002_idempotency_operations.sql` | Shared-client typecheck and middleware digest-scope test pass. | Mutation retries reuse one client-generated key; automatic reconnect replay is disabled. The API now claims actor + method + route + key + body digest in PostgreSQL, does not retain response PHI, and fails duplicates closed. | Migration/restart, two-replica, response-loss, business-write atomicity, and browser proof remain absent. | `0ed9bb7`, pending | PARTIALLY FIXED |
+| DATA-001 | P1 | Process-local idempotency and offline queue had no stable end-to-end key or durable operation state. | `client/shared/src/api/client.ts`, `api/src/middleware/idempotency.rs`, `api/migrations/20260822000002_idempotency_operations.sql` | Shared-client typecheck and middleware digest-scope test pass. | Rebuilt image `sha256:dc878554…` is healthy and applied migration `20260822000002`. A synthetic authenticated challenge request produced one completed PostgreSQL claim; same key/body returned `409 IDEMPOTENCY_DUPLICATE`, and same key/different body returned `409 IDEMPOTENCY_KEY_REUSED`. Automatic reconnect replay remains disabled. | Restart, two-replica, response-loss, business-write atomicity, and browser proof remain absent. | `0ed9bb7`, `60a543a` | PARTIALLY FIXED |
 | PRIV-001 | P1 | Sensitive identifiers can enter logs and related telemetry. | `api/src/privacy_logging.rs`, logging initialization | Sanitizer and `log::Record` sink-path leakage tests pass, including labelled wallet fields; API check passes. | Not yet observed under a production collector. | Direct stdout/stderr call sites and browser/metrics collector audit remain incomplete. | `4af04c7`, `67240d8` | PARTIALLY FIXED |
 | AUTH-002 | P2 | Refresh JWTs were stateless and non-rotating. | `api/src/auth_sessions.rs`, auth JWT handler, session migration, shared client | Session-token hash test and shared-client typecheck pass. | Not yet rebuilt into a running API. | Rotation occurs in one PostgreSQL transaction in source; reuse, logout, multi-device, migration, and runtime proof remain absent. | `56ad565`, `e48705a` | PARTIALLY FIXED |
 
@@ -42,6 +42,15 @@ PRESENT`, and `UNKNOWN`.
   retention-only change).
 * `cargo test --bin medichain-api privacy_logging -- --nocapture` — pass (2
   tests) after `4af04c7`.
+* `cargo check -p medichain-api --message-format short` — pass after
+  `60a543a` (5m 38s).
+* `cargo test --bin medichain-api idempotency -- --nocapture` — pass (1 test;
+  420 filtered) after `60a543a`.
+* Rebuilt image `sha256:dc87855423b4b67872645a1016ccb691399482c7f9a17922673755be01b0503d`
+  is healthy. PostgreSQL records `20260822000001` and `20260822000002` as
+  successful. The authenticated synthetic idempotency probe produced `200`,
+  then `409 IDEMPOTENCY_DUPLICATE` for the same key/body and
+  `409 IDEMPOTENCY_KEY_REUSED` for the same key/different body.
 
 ## Remaining release blockers
 
