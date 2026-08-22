@@ -269,8 +269,7 @@ where
 
                     let response = HttpResponse::build(status).json(serde_json::json!({
                         "error": "Signature verification failed",
-                        "message": error_msg,
-                        "wallet": wallet_address
+                        "message": error_msg
                     }));
                     Ok(req.into_response(response).map_into_right_body())
                 }
