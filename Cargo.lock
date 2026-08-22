@@ -4091,6 +4091,7 @@ dependencies = [
  "actix-web",
  "async-trait",
  "base64",
+ "bytes",
  "chrono",
  "console-subscriber",
  "dotenvy",

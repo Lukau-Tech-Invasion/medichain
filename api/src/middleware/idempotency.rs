@@ -1,95 +1,150 @@
-//! Idempotency-Key middleware (Phase 9.2).
+//! Durable idempotency-operation guard.
 //!
-//! Network drops during a blockchain-coupled write (consent grant, record
-//! creation) can make a client retry a request that the server already
-//! committed. A client that sends a stable `Idempotency-Key` header on such
-//! `POST`/`PUT` requests gets **exactly-once** semantics: the first response is
-//! cached (status + content-type + body) for 24h and replayed verbatim on any
-//! retry with the same key, so the on-chain/DB write happens only once.
+//! A mutation bearing an `Idempotency-Key` is claimed in PostgreSQL using the
+//! authenticated subject, method, route, key, and request-body digest. The
+//! claim survives process restart and replica routing. We deliberately do not
+//! persist response bodies because they may contain PHI; a duplicate receives a
+//! conflict and the client must read the authoritative resource instead.
 //!
-//! The cache key is scoped to `subject + method + path + key` (see `call`), so a
-//! cached response can only ever be replayed to the same caller performing the
-//! same operation.
-//!
-//! **Two limitations, stated because they affect when this is safe to rely on:**
-//! 1. The key is not bound to a request-body digest, so a client that reuses one
-//!    key for two *different* bodies on the same route receives the first
-//!    response for both. That is a client defect this cannot detect; binding the
-//!    digest requires buffering the request payload here, which would sit in
-//!    front of large encrypted record uploads.
-//! 2. The cache is process-local, so with more than one API replica retries
-//!    routed to a different replica are **not** idempotent at all. Multi-replica
-//!    deployment requires backing this with Redis or a durable store written
-//!    transactionally with the operation.
+//! This guard prevents duplicate execution. Individual high-risk write paths
+//! still need transactional coupling of their business write and audit/outbox
+//! record before they can claim end-to-end exactly-once completion semantics.
 
 use actix_web::{
-    body::{to_bytes, BoxBody, MessageBody},
-    dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    http::{header, Method},
-    Error, HttpResponse,
+    body::{BoxBody, MessageBody},
+    dev::{forward_ready, Payload, Service, ServiceRequest, ServiceResponse, Transform},
+    http::Method,
+    web, Error, HttpMessage, HttpResponse,
 };
-use futures::future::{ok, LocalBoxFuture, Ready};
+use bytes::{Bytes, BytesMut};
+use futures::{
+    future::{ok, LocalBoxFuture, Ready},
+    StreamExt,
+};
 use sha3::{Digest, Sha3_256};
-use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use uuid::Uuid;
 
-const TTL: Duration = Duration::from_secs(24 * 60 * 60);
-const MAX_ENTRIES: usize = 10_000;
+const OPERATION_TTL_HOURS: i64 = 24;
 
-struct CachedResponse {
-    status: u16,
-    content_type: Option<String>,
-    body: Vec<u8>,
-    stored_at: Instant,
+#[derive(Debug, PartialEq, Eq)]
+enum ClaimResult {
+    Claimed,
+    Duplicate,
+    DigestMismatch,
 }
 
-fn store() -> &'static Mutex<HashMap<String, CachedResponse>> {
-    static STORE: OnceLock<Mutex<HashMap<String, CachedResponse>>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Fetch a still-valid cached response for `key`, pruning if expired.
-fn get_cached(key: &str) -> Option<(u16, Option<String>, Vec<u8>)> {
-    let mut map = store().lock().ok()?;
-    if let Some(entry) = map.get(key) {
-        if entry.stored_at.elapsed() < TTL {
-            return Some((entry.status, entry.content_type.clone(), entry.body.clone()));
-        }
-        map.remove(key);
+fn digest_request(subject: &str, method: &str, route: &str, key: &str, body: &[u8]) -> String {
+    let mut hasher = Sha3_256::new();
+    for part in [
+        subject.as_bytes(),
+        method.as_bytes(),
+        route.as_bytes(),
+        key.as_bytes(),
+        body,
+    ] {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part);
     }
-    None
+    format!("{:x}", hasher.finalize())
 }
 
-/// Insert a response into the cache, pruning expired entries and bounding size.
-fn put_cached(key: String, status: u16, content_type: Option<String>, body: Vec<u8>) {
-    if let Ok(mut map) = store().lock() {
-        map.retain(|_, e| e.stored_at.elapsed() < TTL);
-        if map.len() >= MAX_ENTRIES {
-            return; // refuse to grow unbounded; the write still succeeded
-        }
-        map.insert(
-            key,
-            CachedResponse {
-                status,
-                content_type,
-                body,
-                stored_at: Instant::now(),
-            },
-        );
+async fn claim_operation(
+    pool: &sqlx::PgPool,
+    subject: &str,
+    method: &str,
+    route: &str,
+    key: &str,
+    digest: &str,
+) -> Result<ClaimResult, sqlx::Error> {
+    let inserted = sqlx::query(
+        "INSERT INTO idempotency_operations
+             (id, subject, method, route, idempotency_key, request_digest, state, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, 'processing', NOW() + ($7 * INTERVAL '1 hour'))
+         ON CONFLICT (subject, method, route, idempotency_key) DO NOTHING",
+    )
+    .bind(Uuid::new_v4())
+    .bind(subject)
+    .bind(method)
+    .bind(route)
+    .bind(key)
+    .bind(digest)
+    .bind(OPERATION_TTL_HOURS)
+    .execute(pool)
+    .await?;
+    if inserted.rows_affected() == 1 {
+        return Ok(ClaimResult::Claimed);
+    }
+
+    let existing_digest = sqlx::query_scalar::<_, String>(
+        "SELECT request_digest FROM idempotency_operations
+         WHERE subject = $1 AND method = $2 AND route = $3 AND idempotency_key = $4
+           AND expires_at > NOW()",
+    )
+    .bind(subject)
+    .bind(method)
+    .bind(route)
+    .bind(key)
+    .fetch_optional(pool)
+    .await?;
+    Ok(match existing_digest {
+        Some(existing) if existing == digest => ClaimResult::Duplicate,
+        Some(_) => ClaimResult::DigestMismatch,
+        // A just-expired row can race with the insert. Fail closed; the client
+        // can retry with a fresh operation key after retention removes it.
+        None => ClaimResult::Duplicate,
+    })
+}
+
+async fn complete_operation(
+    pool: &sqlx::PgPool,
+    subject: &str,
+    method: &str,
+    route: &str,
+    key: &str,
+) {
+    if let Err(error) = sqlx::query(
+        "UPDATE idempotency_operations SET state = 'completed', updated_at = NOW()
+         WHERE subject = $1 AND method = $2 AND route = $3 AND idempotency_key = $4",
+    )
+    .bind(subject)
+    .bind(method)
+    .bind(route)
+    .bind(key)
+    .execute(pool)
+    .await
+    {
+        log::error!("idempotency completion marker failed: {error}");
     }
 }
 
-fn build_response(status: u16, content_type: Option<String>, body: Vec<u8>) -> HttpResponse {
-    let code =
-        actix_web::http::StatusCode::from_u16(status).unwrap_or(actix_web::http::StatusCode::OK);
-    let mut builder = HttpResponse::build(code);
-    if let Some(ct) = content_type {
-        builder.insert_header((header::CONTENT_TYPE, ct));
+async fn release_failed_claim(
+    pool: &sqlx::PgPool,
+    subject: &str,
+    method: &str,
+    route: &str,
+    key: &str,
+) {
+    if let Err(error) = sqlx::query(
+        "DELETE FROM idempotency_operations
+         WHERE subject = $1 AND method = $2 AND route = $3 AND idempotency_key = $4
+           AND state = 'processing'",
+    )
+    .bind(subject)
+    .bind(method)
+    .bind(route)
+    .bind(key)
+    .execute(pool)
+    .await
+    {
+        log::error!("idempotency failed-claim release failed: {error}");
     }
-    builder.insert_header(("Idempotent-Replayed", "true"));
-    builder.body(body)
+}
+
+fn operation_error(code: &str, message: &str) -> HttpResponse {
+    HttpResponse::Conflict().json(crate::middleware::error_handling::error_envelope_json(
+        code, message, None,
+    ))
 }
 
 pub struct IdempotencyMiddleware;
@@ -129,73 +184,87 @@ where
 
     forward_ready!(service);
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
+    fn call(&self, mut req: ServiceRequest) -> Self::Future {
         let service = self.service.clone();
-
-        // Only POST/PUT carrying an Idempotency-Key participate.
-        //
-        // The cache key is SCOPED, not the caller's raw string. Keying by the
-        // header alone meant a key that collided — by guess, by reuse, or across
-        // tenants — could replay one request's cached clinical response to a
-        // different caller, a different route, or a different hospital, and it
-        // did so *before* the handler ran, so it bypassed that handler's
-        // authorization entirely. Binding subject + method + path confines a
-        // replay to the exact caller and operation that produced it.
         let key = req
             .headers()
             .get("Idempotency-Key")
-            .and_then(|v| v.to_str().ok())
-            .map(|raw| {
-                let subject = req
-                    .headers()
-                    .get("X-User-Id")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("anonymous");
-                let mut hasher = Sha3_256::new();
-                // Length-prefixed so the fields cannot be shifted into one
-                // another to forge a collision.
-                for part in [subject, req.method().as_str(), req.path(), raw] {
-                    hasher.update((part.len() as u64).to_be_bytes());
-                    hasher.update(part.as_bytes());
-                }
-                format!("{:x}", hasher.finalize())
-            });
-        let participates = matches!(*req.method(), Method::POST | Method::PUT) && key.is_some();
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let participates = matches!(
+            *req.method(),
+            Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+        ) && key.is_some();
+        if !participates {
+            return Box::pin(async move { Ok(service.call(req).await?.map_into_boxed_body()) });
+        }
+
+        let method = req.method().as_str().to_owned();
+        let route = req.path().to_owned();
+        let subject = crate::support::get_current_user_id(req.request());
+        let pool = req
+            .app_data::<web::Data<crate::state::AppState>>()
+            .and_then(|state| state.db_pool.clone());
 
         Box::pin(async move {
-            if let (true, Some(key)) = (participates, key.clone()) {
-                // Replay a cached response if we have one.
-                if let Some((status, ct, body)) = get_cached(&key) {
-                    let resp = build_response(status, ct, body);
-                    return Ok(req.into_response(resp));
-                }
-
-                // First time: run the handler, then buffer + cache its response.
-                let res = service.call(req).await?;
-                let (http_req, resp) = res.into_parts();
-                let status = resp.status().as_u16();
-                let content_type = resp
-                    .headers()
-                    .get(header::CONTENT_TYPE)
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.to_owned());
-                let body = to_bytes(resp.into_body())
-                    .await
-                    .map_err(|_| {
-                        actix_web::error::ErrorInternalServerError("response body read failed")
-                    })?
-                    .to_vec();
-
-                // Only cache successful, idempotent outcomes (2xx).
-                if (200..300).contains(&status) {
-                    put_cached(key, status, content_type.clone(), body.clone());
-                }
-                let resp = build_response(status, content_type, body);
-                Ok(ServiceResponse::new(http_req, resp))
-            } else {
-                let res = service.call(req).await?;
-                Ok(res.map_into_boxed_body())
+            let Some(subject) = subject else {
+                return Ok(req.into_response(operation_error(
+                    "IDEMPOTENCY_AUTH_REQUIRED",
+                    "Authentication is required for an idempotent mutation",
+                )));
+            };
+            let Some(pool) = pool else {
+                return Ok(req.into_response(HttpResponse::ServiceUnavailable().json(
+                    crate::middleware::error_handling::error_envelope_json(
+                        "IDEMPOTENCY_STORAGE_UNAVAILABLE",
+                        "Durable idempotency storage is unavailable",
+                        None,
+                    ),
+                )));
+            };
+            let key = key.expect("participating request has an idempotency key");
+            let mut body = BytesMut::new();
+            let mut payload = req.take_payload();
+            while let Some(chunk) = payload.next().await {
+                body.extend_from_slice(&chunk?);
             }
+            let body: Bytes = body.freeze();
+            let digest = digest_request(&subject, &method, &route, &key, &body);
+            req.set_payload(Payload::from(body));
+
+            match claim_operation(&pool, &subject, &method, &route, &key, &digest).await {
+                Ok(ClaimResult::Claimed) => {}
+                Ok(ClaimResult::Duplicate) => {
+                    return Ok(req.into_response(operation_error(
+                        "IDEMPOTENCY_DUPLICATE",
+                        "This operation was already submitted; read the resource before retrying",
+                    )));
+                }
+                Ok(ClaimResult::DigestMismatch) => {
+                    return Ok(req.into_response(operation_error(
+                        "IDEMPOTENCY_KEY_REUSED",
+                        "This idempotency key belongs to a different request",
+                    )));
+                }
+                Err(error) => {
+                    log::error!("idempotency claim failed: {error}");
+                    return Ok(req.into_response(HttpResponse::ServiceUnavailable().json(
+                        crate::middleware::error_handling::error_envelope_json(
+                            "IDEMPOTENCY_STORAGE_UNAVAILABLE",
+                            "Durable idempotency storage is unavailable",
+                            None,
+                        ),
+                    )));
+                }
+            }
+            let response = service.call(req).await?;
+            let status = response.status();
+            if status.is_success() {
+                complete_operation(&pool, &subject, &method, &route, &key).await;
+            } else if status.is_client_error() {
+                release_failed_claim(&pool, &subject, &method, &route, &key).await;
+            }
+            Ok(response.map_into_boxed_body())
         })
     }
 }
@@ -205,19 +274,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cache_round_trips_and_expires_pruning() {
-        put_cached(
-            "k1".into(),
-            200,
-            Some("application/json".into()),
-            b"{}".to_vec(),
+    fn digest_binds_subject_route_key_and_body() {
+        let base = digest_request("actor-a", "POST", "/api/orders", "key-1", b"one");
+        assert_ne!(
+            base,
+            digest_request("actor-b", "POST", "/api/orders", "key-1", b"one")
         );
-        let got = get_cached("k1");
-        assert!(got.is_some());
-        let (status, ct, body) = got.unwrap();
-        assert_eq!(status, 200);
-        assert_eq!(ct.as_deref(), Some("application/json"));
-        assert_eq!(body, b"{}");
-        assert!(get_cached("missing").is_none());
+        assert_ne!(
+            base,
+            digest_request("actor-a", "POST", "/api/orders", "key-1", b"two")
+        );
+        assert_ne!(
+            base,
+            digest_request("actor-a", "POST", "/api/notes", "key-1", b"one")
+        );
     }
 }
