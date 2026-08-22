@@ -883,6 +883,102 @@ fn test_provider() -> crate::patient_access::RequestingProvider {
     }
 }
 
+async fn seed_emergency_grant_dependencies(
+    pool: &PgPool,
+    suffix: &str,
+) -> (String, String, String) {
+    let organization_id = format!("ORG-EG-{suffix}");
+    let facility_id = format!("FAC-EG-{suffix}");
+    let device_id = format!("DEV-EG-{suffix}");
+    sqlx::query("INSERT INTO organizations (id, name, organization_type, status) VALUES ($1,$2,'hospital','active')")
+        .bind(&organization_id)
+        .bind(format!("Emergency Test Organization {suffix}"))
+        .execute(pool).await.expect("seed emergency organization");
+    sqlx::query("INSERT INTO facilities (id, organization_id, name, facility_type, status) VALUES ($1,$2,$3,'hospital','active')")
+        .bind(&facility_id).bind(&organization_id).bind(format!("Emergency Test Facility {suffix}"))
+        .execute(pool).await.expect("seed emergency facility");
+    sqlx::query("INSERT INTO managed_devices (id, organization_id, facility_id, device_name, device_type, status, compliance_state) VALUES ($1,$2,$3,$4,'tablet','approved','compliant')")
+        .bind(&device_id).bind(&organization_id).bind(&facility_id).bind(format!("Emergency Test Device {suffix}"))
+        .execute(pool).await.expect("seed emergency device");
+    (organization_id, facility_id, device_id)
+}
+
+#[tokio::test]
+async fn test_pg_emergency_grant_survives_restart_and_enforces_bindings() {
+    use crate::emergency_grants::{
+        EmergencyGrantBinding, EmergencyGrantScope, EmergencyGrantStore,
+    };
+
+    let pool = get_test_pool().await;
+    let suffix = uuid::Uuid::new_v4().to_string();
+    let (organization_id, facility_id, device_id) =
+        seed_emergency_grant_dependencies(&pool, &suffix).await;
+    let now = Utc::now();
+    let binding = EmergencyGrantBinding {
+        patient_id: format!("PAT-EG-{suffix}"),
+        person_id: format!("PERSON-EG-{suffix}"),
+        organization_id,
+        facility_id: Some(facility_id),
+        device_id,
+    };
+    let writer = EmergencyGrantStore::with_pool(pool.clone());
+    let grant = writer
+        .issue(
+            binding.clone(),
+            "life_threatening".into(),
+            None,
+            vec![
+                EmergencyGrantScope::EmergencySummary,
+                EmergencyGrantScope::DownloadProhibited,
+            ],
+            now,
+        )
+        .await
+        .expect("persist emergency grant");
+
+    let restarted = EmergencyGrantStore::with_pool(pool.clone());
+    let loaded = restarted
+        .get(&grant.id)
+        .await
+        .expect("load grant")
+        .expect("grant exists");
+    assert_eq!(loaded.id, grant.id);
+    assert_eq!(
+        loaded.status,
+        crate::emergency_grants::EmergencyGrantStatus::Active
+    );
+    restarted
+        .validate(
+            &grant.id,
+            &binding,
+            EmergencyGrantScope::EmergencySummary,
+            now,
+        )
+        .await
+        .expect("validate persisted grant");
+    let revoked = restarted
+        .revoke(&grant.id, "completed handover".into(), now)
+        .await
+        .expect("revoke persisted grant");
+    assert_eq!(
+        revoked.status,
+        crate::emergency_grants::EmergencyGrantStatus::Revoked
+    );
+    assert_eq!(
+        restarted
+            .validate(
+                &grant.id,
+                &binding,
+                EmergencyGrantScope::EmergencySummary,
+                now
+            )
+            .await
+            .unwrap_err(),
+        "Emergency grant has been revoked"
+    );
+    pool.close().await;
+}
+
 #[tokio::test]
 async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
     let pool = get_test_pool().await;

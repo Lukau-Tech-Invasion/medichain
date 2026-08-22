@@ -231,6 +231,7 @@ impl AppState {
             crate::patient_access::PatientAccessService::new(repositories.patient_access.clone());
 
         let security = crate::security::SecurityState::new(db_pool.clone());
+        let emergency_grants = crate::emergency_grants::EmergencyGrantStore::new();
 
         Self {
             db_pool,
@@ -249,7 +250,7 @@ impl AppState {
             identity_contexts: crate::federation_identity::IdentityContextStore::new(),
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
-            emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            emergency_grants,
             patient_access,
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
             used_emergency_tokens: RwLock::new(HashMap::new()),
@@ -374,6 +375,12 @@ impl AppState {
             crate::patient_access::PatientAccessService::new(repositories.patient_access.clone());
 
         let security = crate::security::SecurityState::new(db_pool.clone());
+        let emergency_grants = match (repositories.backend, db_pool.clone()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                crate::emergency_grants::EmergencyGrantStore::with_pool(pool)
+            }
+            _ => crate::emergency_grants::EmergencyGrantStore::new(),
+        };
 
         Self {
             db_pool,
@@ -392,7 +399,7 @@ impl AppState {
             identity_contexts: crate::federation_identity::IdentityContextStore::new(),
             organization_keys: crate::organization_keys::OrganizationKeyRegistry::new(),
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
-            emergency_grants: crate::emergency_grants::EmergencyGrantStore::new(),
+            emergency_grants,
             patient_access,
             mobile_records: crate::mobile_records::MobileRecordStore::new(),
             used_emergency_tokens: RwLock::new(HashMap::new()),

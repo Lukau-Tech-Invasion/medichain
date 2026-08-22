@@ -64,17 +64,28 @@ pub struct EmergencyGrantBinding {
 
 pub struct EmergencyGrantStore {
     grants: RwLock<HashMap<String, EmergencyAccessGrant>>,
+    pool: Option<sqlx::PgPool>,
 }
 
 impl EmergencyGrantStore {
     pub fn new() -> Self {
         Self {
             grants: RwLock::new(HashMap::new()),
+            pool: None,
+        }
+    }
+
+    /// Use PostgreSQL for authority state when the application's selected
+    /// repository backend is PostgreSQL. Memory remains demo-only.
+    pub fn with_pool(pool: sqlx::PgPool) -> Self {
+        Self {
+            grants: RwLock::new(HashMap::new()),
+            pool: Some(pool),
         }
     }
 
     /// Issue a narrow emergency grant; callers must separately verify a live approved device.
-    pub fn issue(
+    pub async fn issue(
         &self,
         binding: EmergencyGrantBinding,
         reason_code: String,
@@ -119,6 +130,36 @@ impl EmergencyGrantStore {
             revoked_reason: None,
             status: EmergencyGrantStatus::Active,
         };
+        if let Some(pool) = &self.pool {
+            sqlx::query(
+                "INSERT INTO emergency_access_grants
+                 (id, patient_id, requesting_person_id, organization_id, facility_id,
+                  device_id, reason_code, reason_text, scopes, issued_at, expires_at,
+                  revoked_at, revoked_reason, status)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+            )
+            .bind(&grant.id)
+            .bind(&grant.patient_id)
+            .bind(&grant.requesting_person_id)
+            .bind(&grant.organization_id)
+            .bind(&grant.facility_id)
+            .bind(&grant.device_id)
+            .bind(&grant.reason_code)
+            .bind(&grant.reason_text)
+            .bind(
+                serde_json::to_value(&grant.scopes)
+                    .map_err(|_| "Emergency grant scopes are invalid")?,
+            )
+            .bind(grant.issued_at)
+            .bind(grant.expires_at)
+            .bind(grant.revoked_at)
+            .bind(&grant.revoked_reason)
+            .bind("active")
+            .execute(pool)
+            .await
+            .map_err(|_| "Emergency grant store is unavailable")?;
+            return Ok(grant);
+        }
         self.grants
             .write()
             .map_err(|_| "Emergency grant store is unavailable")?
@@ -127,20 +168,25 @@ impl EmergencyGrantStore {
     }
 
     /// Validate every binding before returning protected emergency data.
-    pub fn validate(
+    pub async fn validate(
         &self,
         grant_id: &str,
         binding: &EmergencyGrantBinding,
         required_scope: EmergencyGrantScope,
         now: DateTime<Utc>,
     ) -> Result<EmergencyAccessGrant, &'static str> {
-        let EmergencyGrantBinding {
-            patient_id,
-            person_id,
-            organization_id,
-            facility_id,
-            device_id,
-        } = binding;
+        if let Some(pool) = &self.pool {
+            let grant = self
+                .get(grant_id)
+                .await?
+                .ok_or("Emergency grant not found")?;
+            if grant.status == EmergencyGrantStatus::Active && now >= grant.expires_at {
+                sqlx::query("UPDATE emergency_access_grants SET status = 'expired' WHERE id = $1 AND status = 'active'")
+                    .bind(grant_id).execute(pool).await.map_err(|_| "Emergency grant store is unavailable")?;
+                return Err("Emergency grant has expired");
+            }
+            return validate_grant(grant, binding, required_scope);
+        }
         let mut grants = self
             .grants
             .write()
@@ -151,29 +197,10 @@ impl EmergencyGrantStore {
         if grant.status == EmergencyGrantStatus::Active && now >= grant.expires_at {
             grant.status = EmergencyGrantStatus::Expired;
         }
-        if grant.status == EmergencyGrantStatus::Expired {
-            return Err("Emergency grant has expired");
-        }
-        if grant.status == EmergencyGrantStatus::Revoked {
-            return Err("Emergency grant has been revoked");
-        }
-        if grant.patient_id != *patient_id
-            || grant.requesting_person_id != *person_id
-            || grant.organization_id != *organization_id
-            || grant.device_id != *device_id
-        {
-            return Err("Emergency grant bindings do not match this request");
-        }
-        if grant.facility_id.as_deref() != facility_id.as_deref() {
-            return Err("Emergency grant facility does not match this request");
-        }
-        if !grant.scopes.contains(&required_scope) {
-            return Err("Emergency grant does not include the requested scope");
-        }
-        Ok(grant.clone())
+        validate_grant(grant.clone(), binding, required_scope)
     }
 
-    pub fn revoke(
+    pub async fn revoke(
         &self,
         grant_id: &str,
         reason: String,
@@ -181,6 +208,19 @@ impl EmergencyGrantStore {
     ) -> Result<EmergencyAccessGrant, &'static str> {
         if reason.trim().is_empty() {
             return Err("A revocation reason is required");
+        }
+        if let Some(pool) = &self.pool {
+            let row = sqlx::query_as::<_, (String, String, String, String, Option<String>, String, String, Option<String>, serde_json::Value, DateTime<Utc>, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>, String)>(
+                "UPDATE emergency_access_grants SET status = 'revoked', revoked_at = $2, revoked_reason = $3
+                 WHERE id = $1 AND status = 'active'
+                 RETURNING id, patient_id, requesting_person_id, organization_id, facility_id, device_id,
+                   reason_code, reason_text, scopes, issued_at, expires_at, revoked_at, revoked_reason, status"
+            ).bind(grant_id).bind(now).bind(&reason).fetch_optional(pool).await
+                .map_err(|_| "Emergency grant store is unavailable")?;
+            return row
+                .map(row_to_grant)
+                .transpose()?
+                .ok_or("Emergency grant not found");
         }
         let mut grants = self
             .grants
@@ -195,9 +235,108 @@ impl EmergencyGrantStore {
         Ok(grant.clone())
     }
 
-    pub fn get(&self, grant_id: &str) -> Option<EmergencyAccessGrant> {
-        self.grants.read().ok()?.get(grant_id).cloned()
+    pub async fn get(&self, grant_id: &str) -> Result<Option<EmergencyAccessGrant>, &'static str> {
+        if let Some(pool) = &self.pool {
+            let row = sqlx::query_as::<_, (String, String, String, String, Option<String>, String, String, Option<String>, serde_json::Value, DateTime<Utc>, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>, String)>(
+                "SELECT id, patient_id, requesting_person_id, organization_id, facility_id, device_id,
+                   reason_code, reason_text, scopes, issued_at, expires_at, revoked_at, revoked_reason, status
+                 FROM emergency_access_grants WHERE id = $1"
+            ).bind(grant_id).fetch_optional(pool).await.map_err(|_| "Emergency grant store is unavailable")?;
+            return row.map(row_to_grant).transpose();
+        }
+        Ok(self
+            .grants
+            .read()
+            .ok()
+            .and_then(|grants| grants.get(grant_id).cloned()))
     }
+}
+
+fn validate_grant(
+    grant: EmergencyAccessGrant,
+    binding: &EmergencyGrantBinding,
+    required_scope: EmergencyGrantScope,
+) -> Result<EmergencyAccessGrant, &'static str> {
+    if grant.status == EmergencyGrantStatus::Expired {
+        return Err("Emergency grant has expired");
+    }
+    if grant.status == EmergencyGrantStatus::Revoked {
+        return Err("Emergency grant has been revoked");
+    }
+    if grant.patient_id != binding.patient_id
+        || grant.requesting_person_id != binding.person_id
+        || grant.organization_id != binding.organization_id
+        || grant.device_id != binding.device_id
+    {
+        return Err("Emergency grant bindings do not match this request");
+    }
+    if grant.facility_id != binding.facility_id {
+        return Err("Emergency grant facility does not match this request");
+    }
+    if !grant.scopes.contains(&required_scope) {
+        return Err("Emergency grant does not include the requested scope");
+    }
+    Ok(grant)
+}
+
+fn row_to_grant(
+    row: (
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        Option<String>,
+        serde_json::Value,
+        DateTime<Utc>,
+        DateTime<Utc>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+        String,
+    ),
+) -> Result<EmergencyAccessGrant, &'static str> {
+    let (
+        id,
+        patient_id,
+        requesting_person_id,
+        organization_id,
+        facility_id,
+        device_id,
+        reason_code,
+        reason_text,
+        scopes,
+        issued_at,
+        expires_at,
+        revoked_at,
+        revoked_reason,
+        status,
+    ) = row;
+    let scopes =
+        serde_json::from_value(scopes).map_err(|_| "Stored emergency grant scopes are invalid")?;
+    let status = match status.as_str() {
+        "active" => EmergencyGrantStatus::Active,
+        "expired" => EmergencyGrantStatus::Expired,
+        "revoked" => EmergencyGrantStatus::Revoked,
+        _ => return Err("Stored emergency grant status is invalid"),
+    };
+    Ok(EmergencyAccessGrant {
+        id,
+        patient_id,
+        requesting_person_id,
+        organization_id,
+        facility_id,
+        device_id,
+        reason_code,
+        reason_text,
+        scopes,
+        issued_at,
+        expires_at,
+        revoked_at,
+        revoked_reason,
+        status,
+    })
 }
 
 impl Default for EmergencyGrantStore {
@@ -223,7 +362,7 @@ mod tests {
         }
     }
 
-    fn issue(store: &EmergencyGrantStore, now: DateTime<Utc>) -> EmergencyAccessGrant {
+    async fn issue(store: &EmergencyGrantStore, now: DateTime<Utc>) -> EmergencyAccessGrant {
         store
             .issue(
                 binding(),
@@ -235,13 +374,14 @@ mod tests {
                 ],
                 now,
             )
+            .await
             .unwrap()
     }
-    #[test]
-    fn expired_grant_is_denied_even_when_the_view_is_still_open() {
+    #[tokio::test]
+    async fn expired_grant_is_denied_even_when_the_view_is_still_open() {
         let store = EmergencyGrantStore::new();
         let now = Utc::now();
-        let grant = issue(&store, now);
+        let grant = issue(&store, now).await;
         assert_eq!(
             store
                 .validate(
@@ -250,15 +390,16 @@ mod tests {
                     EmergencyGrantScope::EmergencySummary,
                     now + Duration::minutes(16)
                 )
+                .await
                 .unwrap_err(),
             "Emergency grant has expired"
         );
     }
-    #[test]
-    fn grant_cannot_be_reused_from_a_different_device_or_patient() {
+    #[tokio::test]
+    async fn grant_cannot_be_reused_from_a_different_device_or_patient() {
         let store = EmergencyGrantStore::new();
         let now = Utc::now();
-        let grant = issue(&store, now);
+        let grant = issue(&store, now).await;
         assert_eq!(
             store
                 .validate(
@@ -271,6 +412,7 @@ mod tests {
                     EmergencyGrantScope::EmergencySummary,
                     now
                 )
+                .await
                 .unwrap_err(),
             "Emergency grant bindings do not match this request"
         );

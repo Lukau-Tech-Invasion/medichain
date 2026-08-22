@@ -84,19 +84,23 @@ pub async fn issue_emergency_grant(
             Ok(values) => values,
             Err(response) => return response,
         };
-    match data.emergency_grants.issue(
-        crate::emergency_grants::EmergencyGrantBinding {
-            patient_id: body.patient_id.clone(),
-            person_id,
-            organization_id,
-            facility_id,
-            device_id: body.device_id.clone(),
-        },
-        body.reason_code.clone(),
-        body.reason_text.clone(),
-        body.scopes.clone(),
-        Utc::now(),
-    ) {
+    match data
+        .emergency_grants
+        .issue(
+            crate::emergency_grants::EmergencyGrantBinding {
+                patient_id: body.patient_id.clone(),
+                person_id,
+                organization_id,
+                facility_id,
+                device_id: body.device_id.clone(),
+            },
+            body.reason_code.clone(),
+            body.reason_text.clone(),
+            body.scopes.clone(),
+            Utc::now(),
+        )
+        .await
+    {
         Ok(grant) => {
             if let Err(error) = data
                 .audit_outbox
@@ -139,17 +143,22 @@ pub async fn get_emergency_grant(
             })
         }
     };
-    match data.emergency_grants.get(&path.into_inner()) {
-        Some(grant) if grant.requesting_person_id == user_id => HttpResponse::Ok().json(grant),
-        Some(_) => HttpResponse::Forbidden().json(ErrorResponse {
+    match data.emergency_grants.get(&path.into_inner()).await {
+        Ok(Some(grant)) if grant.requesting_person_id == user_id => HttpResponse::Ok().json(grant),
+        Ok(Some(_)) => HttpResponse::Forbidden().json(ErrorResponse {
             success: false,
             error: "Emergency grant belongs to another professional".into(),
             code: "GRANT_OWNER_MISMATCH".into(),
         }),
-        None => HttpResponse::NotFound().json(ErrorResponse {
+        Ok(None) => HttpResponse::NotFound().json(ErrorResponse {
             success: false,
             error: "Emergency grant not found".into(),
             code: "GRANT_NOT_FOUND".into(),
+        }),
+        Err(_) => HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Emergency grant store is unavailable".into(),
+            code: "STORE_UNAVAILABLE".into(),
         }),
     }
 }
@@ -172,13 +181,20 @@ pub async fn revoke_emergency_grant(
             })
         }
     };
-    let existing = match data.emergency_grants.get(&path.into_inner()) {
-        Some(grant) => grant,
-        None => {
+    let existing = match data.emergency_grants.get(&path.into_inner()).await {
+        Ok(Some(grant)) => grant,
+        Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Emergency grant not found".into(),
                 code: "GRANT_NOT_FOUND".into(),
+            })
+        }
+        Err(_) => {
+            return HttpResponse::ServiceUnavailable().json(ErrorResponse {
+                success: false,
+                error: "Emergency grant store is unavailable".into(),
+                code: "STORE_UNAVAILABLE".into(),
             })
         }
     };
@@ -195,6 +211,7 @@ pub async fn revoke_emergency_grant(
     match data
         .emergency_grants
         .revoke(&existing.id, body.reason.clone(), Utc::now())
+        .await
     {
         Ok(grant) => {
             if let Err(error) = data

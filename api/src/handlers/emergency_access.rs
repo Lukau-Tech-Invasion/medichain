@@ -142,23 +142,27 @@ pub async fn grant_bound_emergency_access(
             )
         }
     };
-    let grant = match data.emergency_grants.issue(
-        crate::emergency_grants::EmergencyGrantBinding {
-            patient_id,
-            person_id: wallet,
-            organization_id,
-            facility_id,
-            device_id: body.device_id.clone(),
-        },
-        body.reason_code.clone(),
-        body.reason_text.clone(),
-        vec![
-            EmergencyGrantScope::EmergencySummary,
-            EmergencyGrantScope::DownloadProhibited,
-            EmergencyGrantScope::OfflineProhibited,
-        ],
-        Utc::now(),
-    ) {
+    let grant = match data
+        .emergency_grants
+        .issue(
+            crate::emergency_grants::EmergencyGrantBinding {
+                patient_id,
+                person_id: wallet,
+                organization_id,
+                facility_id,
+                device_id: body.device_id.clone(),
+            },
+            body.reason_code.clone(),
+            body.reason_text.clone(),
+            vec![
+                EmergencyGrantScope::EmergencySummary,
+                EmergencyGrantScope::DownloadProhibited,
+                EmergencyGrantScope::OfflineProhibited,
+            ],
+            Utc::now(),
+        )
+        .await
+    {
         Ok(value) => value,
         Err(error) => {
             return emergency_error(
