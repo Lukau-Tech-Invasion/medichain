@@ -93,7 +93,7 @@ services:
   # =============================================================================
   # pgAdmin - Database Administration UI
   # Access at http://localhost:5050
-  # Login: admin@medichain.local / admin
+  # Login: admin@medichain.dev / admin
   # =============================================================================
   pgadmin:
     image: dpage/pgadmin4:latest
@@ -101,7 +101,7 @@ services:
     restart: unless-stopped
     environment:
       # DEV-ONLY defaults; override in .env for any shared/production deployment.
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@medichain.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@medichain.dev}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
       PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:

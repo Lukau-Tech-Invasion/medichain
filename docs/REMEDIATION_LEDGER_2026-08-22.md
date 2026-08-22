@@ -33,6 +33,7 @@ authentication and log-sink audit scope.
 | DATA-001 | P1 | Process-local idempotency and offline queue had no stable end-to-end key or durable operation state. | `client/shared/src/api/client.ts`, `api/src/middleware/idempotency.rs`, `api/migrations/20260822000002_idempotency_operations.sql` | Shared-client typecheck and middleware digest-scope test pass. | Rebuilt image `sha256:dc878554…` is healthy and applied migration `20260822000002`. A synthetic authenticated challenge request produced one completed PostgreSQL claim; same key/body returned `409 IDEMPOTENCY_DUPLICATE`, and same key/different body returned `409 IDEMPOTENCY_KEY_REUSED`. After API recreation, the same request remained `409` and the claim remained `completed`. Automatic reconnect replay remains disabled. | Two-replica, response-loss, business-write atomicity, and browser proof remain absent. | `0ed9bb7`, `60a543a` | PARTIALLY FIXED |
 | PRIV-001 | P1 | Sensitive identifiers can enter logs and related telemetry. | `api/src/privacy_logging.rs`, logging initialization, `api/src/middleware/signature_auth.rs` | Sanitizer and `log::Record` sink-path leakage tests pass, including labelled wallet fields; a focused enabled-middleware response regression test passes. | Rebuilt image `sha256:2f2d380d…` is healthy. An isolated signature-enabled API instance returned `400` to an invalid-signature request without reflecting the supplied wallet; its corresponding log rendered `wallet [REDACTED]`. | Direct stdout/stderr call sites and browser/metrics collector audit remain incomplete. | `4af04c7`, `67240d8`, `bf58b86` | PARTIALLY FIXED |
 | AUTH-002 | P2 | Refresh JWTs were stateless and non-rotating. | `api/src/auth_sessions.rs`, auth JWT handler, session migration, shared client | Session-token hash test and shared-client typecheck pass. | Not yet rebuilt into a running API. | Rotation occurs in one PostgreSQL transaction in source; reuse, logout, multi-device, migration, and runtime proof remain absent. | `56ad565`, `e48705a` | PARTIALLY FIXED |
+| OPS-001 | P2 | Development pgAdmin crash-looped because its default email used a reserved `.local` domain rejected by the current image. | `docker-compose.yml`, `.env.example`, PostgreSQL guide | Compose configuration resolves a globally valid development-only default; production compose already restricts pgAdmin to its `debug` profile with no public port. | After recreation, pgAdmin remained up and `http://localhost:5050/` returned `302 /browser/`; startup log shows Gunicorn listening on port 80. | No browser login or DB-admin workflow was exercised. | pending | PARTIALLY FIXED |
 
 ## Commands and immutable evidence identifiers
 
@@ -65,6 +66,10 @@ authentication and log-sink audit scope.
 * Signature-error runtime probe: a disposable signature-enabled API instance
   returned `400` with no supplied wallet value in the JSON body for malformed
   signature input. Its `log::warn!` record rendered the wallet as `[REDACTED]`.
+* pgAdmin recovery probe: the former crash-loop log named
+  `admin@medichain.local` as invalid; after replacement with the
+  development-only `admin@medichain.dev` default and Compose recreation, the
+  container remained up and its HTTP root returned `302 /browser/`.
 
 ## Remaining release blockers
 

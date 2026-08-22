@@ -192,7 +192,7 @@ services:
     container_name: medichain_pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@medichain.local
+      PGADMIN_DEFAULT_EMAIL: admin@medichain.dev
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"
