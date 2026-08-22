@@ -19,9 +19,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config libssl-dev protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the workspace manifests + the members the API actually needs.
-# (node/ and runtime/ are excluded from the workspace and not built here.)
+# Build dependencies from manifests and placeholder sources first. This cache
+# layer is intentionally independent of application source: an API handler
+# change must not force a full Rust/Substrate dependency rebuild before every
+# runtime verification.
 COPY Cargo.toml Cargo.lock ./
+COPY crypto/Cargo.toml crypto/Cargo.toml
+COPY api/Cargo.toml api/Cargo.toml
+RUN mkdir -p crypto/src api/src \
+    && printf 'pub fn docker_cache_placeholder() {}\n' > crypto/src/lib.rs \
+    && printf 'fn main() {}\n' > api/src/main.rs \
+    && cargo build --release -p medichain-api \
+    && rm -rf crypto/src api/src
+
+# Copy the workspace members the API actually needs after dependency caching.
+# (node/ and runtime/ are excluded from the workspace and not built here.)
 COPY crypto ./crypto
 COPY api ./api
 # NOTE: no `COPY pallets`. The pallets moved to blockchain/pallets and left the
