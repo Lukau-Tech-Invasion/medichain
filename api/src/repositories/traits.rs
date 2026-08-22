@@ -6061,6 +6061,14 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
         relationship: GuardianRelationshipEntity,
     ) -> RepositoryResult<GuardianRelationshipEntity>;
 
+    /// Create delegated authority and persist its mandatory audit event in one
+    /// production transaction.
+    async fn create_with_audit(
+        &self,
+        relationship: GuardianRelationshipEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<GuardianRelationshipEntity>;
+
     /// All relationships (active or not) naming this ward — used to build
     /// "who may act for this patient" views (emergency contact surfacing,
     /// admin review).

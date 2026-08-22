@@ -374,31 +374,25 @@ pub async fn verify_guardian_relationship(
         dispute_notes: None,
     };
 
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "guardian_relationship_verified".into(),
+        "guardian_relationship".into(),
+        relationship.id.clone(),
+        serde_json::json!({"guardian_wallet": relationship.guardian_wallet, "ward_patient_id": relationship.ward_patient_id, "permissions": relationship.permissions, "verified_by": relationship.verified_by}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
     match data
         .repositories
         .guardian_relationships
-        .create(relationship)
+        .create_with_audit(relationship, event.clone())
         .await
     {
         Ok(created) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "guardian_relationship_verified".into(),
-                    "guardian_relationship".into(),
-                    created.id.clone(),
-                    serde_json::json!({
-                        "guardian_wallet": created.guardian_wallet,
-                        "ward_patient_id": created.ward_patient_id,
-                        "permissions": created.permissions,
-                        "verified_by": created.verified_by,
-                    }),
-                    now,
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Created().json(created)
         }

@@ -38,6 +38,14 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         Ok(relationship)
     }
 
+    async fn create_with_audit(
+        &self,
+        relationship: GuardianRelationshipEntity,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<GuardianRelationshipEntity> {
+        self.create(relationship).await
+    }
+
     async fn get_by_ward(
         &self,
         ward_patient_id: &str,
