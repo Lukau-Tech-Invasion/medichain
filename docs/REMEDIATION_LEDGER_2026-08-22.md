@@ -177,6 +177,9 @@ authentication and log-sink audit scope.
   `test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails`
   passed (`1 passed`, 435 filtered, 21.94s): the grant remained `active` when
   its required revocation audit insert was rejected.
+* Complete post-emergency-audit suite: `cargo test --bin medichain-api` passed
+  `435 passed; 0 failed; 1 ignored` in 234.13 seconds. The ignored blockchain
+  E2E test still explicitly requires a running MediChain development node.
 
 ## Remaining release blockers
 
