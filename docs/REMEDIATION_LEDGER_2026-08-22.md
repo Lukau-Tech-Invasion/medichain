@@ -187,6 +187,13 @@ authentication and log-sink audit scope.
 * Complete post-audit-containment suite: `cargo test --bin medichain-api`
   passed `436 passed; 0 failed; 1 ignored` in 281.72 seconds. The ignored
   blockchain E2E test still requires a running MediChain development node.
+* Anonymous authentication runtime probe: the healthy running image returned
+  bodyless `404` for both known and unknown legacy login/wallet routes. Direct
+  challenge requests for both addresses returned the same top-level
+  `success`, `challenge`, and `instructions` keys and contained no profile,
+  role, username, email, or patient-linkage fields. This confirms only
+  non-enumerating response shape on that image; no signature, replay, or
+  expiry workflow was exercised.
 
 ## Remaining release blockers
 
