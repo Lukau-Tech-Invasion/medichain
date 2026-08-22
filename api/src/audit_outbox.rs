@@ -96,6 +96,24 @@ impl AuditOutbox {
         payload: serde_json::Value,
         now: DateTime<Utc>,
     ) -> Result<AuditOutboxEvent, &'static str> {
+        let event = Self::prepare_event(event_type, aggregate_type, aggregate_id, payload, now)?;
+        self.events
+            .write()
+            .map_err(|_| "Audit outbox is unavailable")?
+            .insert(event.id.clone(), event.clone());
+        Ok(event)
+    }
+
+    /// Construct an audit event without making it visible or durable. Database
+    /// repositories use this before a business mutation so both inserts can
+    /// commit in one transaction.
+    pub fn prepare_event(
+        event_type: String,
+        aggregate_type: String,
+        aggregate_id: String,
+        payload: serde_json::Value,
+        now: DateTime<Utc>,
+    ) -> Result<AuditOutboxEvent, &'static str> {
         if event_type.is_empty() || aggregate_type.is_empty() || aggregate_id.is_empty() {
             return Err("Event type and aggregate identity are required");
         }
@@ -114,11 +132,17 @@ impl AuditOutbox {
             delivery_attempts: 0,
             last_error: None,
         };
+        Ok(event)
+    }
+
+    /// Add a pre-validated event to the in-process demo queue. Production
+    /// persistence is performed by the repository transaction instead.
+    pub fn record_prepared(&self, event: AuditOutboxEvent) -> Result<(), &'static str> {
         self.events
             .write()
             .map_err(|_| "Audit outbox is unavailable")?
-            .insert(event.id.clone(), event.clone());
-        Ok(event)
+            .insert(event.id.clone(), event);
+        Ok(())
     }
 
     /// Record locally and, when PostgreSQL is configured, durably persist the

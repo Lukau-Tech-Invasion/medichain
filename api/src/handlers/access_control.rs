@@ -163,25 +163,26 @@ pub async fn create_patient_access_request(
             .unwrap_or_else(|| "Unaffiliated".to_string()),
         reason: body.reason.clone(),
     };
+    let now = Utc::now();
+    let request_id = format!("REQ-{}", uuid::Uuid::new_v4());
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_created".into(),
+        "access_request".into(),
+        request_id,
+        serde_json::json!({"provider_id": provider.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
     match data
         .patient_access
-        .create_request(patient_id, provider, Utc::now())
+        .create_request_with_audit(patient_id, provider, event.clone(), now)
         .await
     {
         Ok(request) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_request_created".into(),
-                    "access_request".into(),
-                    request.id.clone(),
-                    serde_json::json!({"provider_id": request.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Created().json(serde_json::json!({ "request": request }))
         }

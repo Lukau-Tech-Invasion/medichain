@@ -112,6 +112,41 @@ impl PatientAccessService {
         })
     }
 
+    /// Create a request and mandatory outbox event in the same production
+    /// transaction. The caller prepares the event after the request ID exists.
+    pub async fn create_request_with_audit(
+        &self,
+        patient_id: String,
+        provider: RequestingProvider,
+        event: crate::audit_outbox::AuditOutboxEvent,
+        now: DateTime<Utc>,
+    ) -> Result<AccessRequestEntity, &'static str> {
+        if patient_id.is_empty()
+            || provider.provider_id.is_empty()
+            || provider.reason.trim().is_empty()
+        {
+            return Err("Patient, provider, and a reason are required");
+        }
+        let request = AccessRequestEntity {
+            id: event.aggregate_id.clone(),
+            patient_id,
+            provider_id: provider.provider_id,
+            provider_name: provider.provider_name,
+            provider_role: provider.provider_role,
+            organization: provider.organization,
+            requested_at: now,
+            reason: provider.reason,
+            status: "pending".to_string(),
+        };
+        self.repo
+            .create_request_with_audit(request, event)
+            .await
+            .map_err(|e| {
+                log::error!("patient access: create_request_with_audit failed: {e}");
+                STORE_UNAVAILABLE
+            })
+    }
+
     /// This patient's requests, newest first.
     ///
     /// Returns `Err` rather than an empty list when storage is unreachable: an

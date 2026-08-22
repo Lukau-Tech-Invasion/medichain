@@ -60,6 +60,57 @@ impl PatientAccessRepository for PgPatientAccessRepository {
         Ok(result)
     }
 
+    async fn create_request_with_audit(
+        &self,
+        request: AccessRequestEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<AccessRequestEntity> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query_as::<Postgres, AccessRequestEntity>(&format!(
+            "INSERT INTO patient_access_requests
+                (id, patient_id, provider_id, provider_name, provider_role, organization,
+                 requested_at, reason, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING {REQUEST_COLUMNS}"
+        ))
+        .bind(&request.id)
+        .bind(&request.patient_id)
+        .bind(&request.provider_id)
+        .bind(&request.provider_name)
+        .bind(&request.provider_role)
+        .bind(&request.organization)
+        .bind(request.requested_at)
+        .bind(&request.reason)
+        .bind(&request.status)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO audit_outbox_events (
+                id, event_type, aggregate_type, aggregate_id, payload_hash,
+                payload, occurred_at, delivered_at, delivery_attempts, last_error
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        )
+        .bind(&event.id)
+        .bind(&event.event_type)
+        .bind(&event.aggregate_type)
+        .bind(&event.aggregate_id)
+        .bind(&event.payload_hash)
+        .bind(&event.payload)
+        .bind(event.occurred_at)
+        .bind(event.delivered_at)
+        .bind(i32::try_from(event.delivery_attempts).map_err(|_| {
+            crate::repositories::traits::RepositoryError::Validation(
+                "delivery attempt count exceeds PostgreSQL INTEGER".into(),
+            )
+        })?)
+        .bind(&event.last_error)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+
     async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>> {
         let result = sqlx::query_as::<Postgres, AccessRequestEntity>(&format!(
             "SELECT {REQUEST_COLUMNS} FROM patient_access_requests WHERE id = $1"

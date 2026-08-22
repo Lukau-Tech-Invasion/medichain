@@ -884,6 +884,60 @@ fn test_provider() -> crate::patient_access::RequestingProvider {
 }
 
 #[tokio::test]
+async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
+    let pool = get_test_pool().await;
+    let now = Utc::now();
+    let request_id = format!("REQ-AUDIT-{}", uuid::Uuid::new_v4());
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_created".into(),
+        "access_request".into(),
+        request_id.clone(),
+        serde_json::json!({"provider_id": "5DoctorWallet"}),
+        now,
+    )
+    .expect("valid audit event");
+
+    // Reserve the event ID. The transactional method must then reject its
+    // duplicate outbox insert and roll back the preceding request insert.
+    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+        .bind(&event.id)
+        .bind(&event.event_type)
+        .bind(&event.aggregate_type)
+        .bind(&event.aggregate_id)
+        .bind(&event.payload_hash)
+        .bind(&event.payload)
+        .bind(event.occurred_at)
+        .execute(&pool)
+        .await
+        .expect("reserve audit event ID");
+
+    let result = pg_patient_access(&pool)
+        .create_request_with_audit(
+            format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
+            test_provider(),
+            event,
+            now,
+        )
+        .await;
+    assert!(
+        result.is_err(),
+        "duplicate audit event must fail the mutation"
+    );
+
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM patient_access_requests WHERE id = $1")
+            .bind(&request_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count access requests");
+    assert_eq!(
+        count, 0,
+        "business insert must roll back with audit failure"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_patient_access_grant_survives_restart() {
     use crate::patient_access::AccessType;
 

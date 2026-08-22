@@ -6486,6 +6486,15 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         request: AccessRequestEntity,
     ) -> RepositoryResult<AccessRequestEntity>;
 
+    /// Atomically persist a newly-created access request and its mandatory
+    /// audit-outbox event. PostgreSQL implementations must use one database
+    /// transaction; memory implementations retain demo semantics.
+    async fn create_request_with_audit(
+        &self,
+        request: AccessRequestEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<AccessRequestEntity>;
+
     async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>>;
 
     /// This patient's requests, newest first.

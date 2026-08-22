@@ -46,6 +46,16 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         Ok(request)
     }
 
+    async fn create_request_with_audit(
+        &self,
+        request: AccessRequestEntity,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<AccessRequestEntity> {
+        // Demo-only memory storage has no shared transaction manager with the
+        // in-process outbox. Production uses the PostgreSQL implementation.
+        self.create_request(request).await
+    }
+
     async fn get_request(&self, id: &str) -> RepositoryResult<Option<AccessRequestEntity>> {
         Ok(self
             .requests
