@@ -346,4 +346,29 @@ impl PatientAccessRepository for PgPatientAccessRepository {
 
         Ok(result)
     }
+
+    async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessGrantEntity>> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query_as::<Postgres, AccessGrantEntity>(&format!(
+            "UPDATE patient_access_grants SET status = 'revoked'
+             WHERE id = $1 AND status = 'active'
+               AND (expires_at IS NULL OR expires_at > $2)
+             RETURNING {GRANT_COLUMNS}"
+        ))
+        .bind(grant_id)
+        .bind(now)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(grant) = result else {
+            return Ok(None);
+        };
+        insert_audit_event(&mut tx, &event).await?;
+        tx.commit().await?;
+        Ok(Some(grant))
+    }
 }

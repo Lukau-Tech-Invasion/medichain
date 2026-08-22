@@ -6553,6 +6553,14 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         grant_id: &str,
         now: DateTime<Utc>,
     ) -> RepositoryResult<Option<AccessGrantEntity>>;
+
+    /// Atomically revoke a grant and persist the mandatory audit-outbox event.
+    async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessGrantEntity>>;
 }
 
 #[cfg(test)]

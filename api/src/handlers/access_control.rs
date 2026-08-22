@@ -340,25 +340,25 @@ pub async fn revoke_access_grant(
     if !access.is_permitted() {
         return forbidden("Only the patient may revoke this grant");
     }
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_grant_revoked".into(),
+        "access_grant".into(),
+        existing.id,
+        serde_json::json!({"provider_id": existing.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
     match data
         .patient_access
-        .revoke_grant(&grant_id, Utc::now())
+        .revoke_grant_with_audit(&grant_id, now, event.clone())
         .await
     {
         Ok(grant) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_grant_revoked".into(),
-                    "access_grant".into(),
-                    grant.id.clone(),
-                    serde_json::json!({"provider_id": grant.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Ok().json(serde_json::json!({ "grant": grant }))
         }

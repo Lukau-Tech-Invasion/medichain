@@ -1099,6 +1099,65 @@ async fn test_pg_access_denial_rolls_back_when_audit_outbox_insert_fails() {
 }
 
 #[tokio::test]
+async fn test_pg_access_revocation_rolls_back_when_audit_outbox_insert_fails() {
+    use crate::patient_access::AccessType;
+
+    let pool = get_test_pool().await;
+    let now = Utc::now();
+    let service = pg_patient_access(&pool);
+    let request = service
+        .create_request(
+            format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
+            test_provider(),
+            now,
+        )
+        .await
+        .expect("create pending request");
+    let (_, grant) = service
+        .approve_request(&request.id, AccessType::Limited, None, now)
+        .await
+        .expect("create active grant");
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_grant_revoked".into(),
+        "access_grant".into(),
+        grant.id.clone(),
+        serde_json::json!({"provider_id": grant.provider_id}),
+        now,
+    )
+    .expect("valid audit event");
+    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+        .bind(&event.id)
+        .bind(&event.event_type)
+        .bind(&event.aggregate_type)
+        .bind(&event.aggregate_id)
+        .bind(&event.payload_hash)
+        .bind(&event.payload)
+        .bind(event.occurred_at)
+        .execute(&pool)
+        .await
+        .expect("reserve audit event ID");
+
+    assert!(
+        service
+            .revoke_grant_with_audit(&grant.id, now, event)
+            .await
+            .is_err(),
+        "duplicate audit event must fail the revocation"
+    );
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM patient_access_grants WHERE id = $1")
+            .bind(&grant.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read grant status");
+    assert_eq!(
+        status, "active",
+        "revocation must roll back with audit failure"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_patient_access_grant_survives_restart() {
     use crate::patient_access::AccessType;
 

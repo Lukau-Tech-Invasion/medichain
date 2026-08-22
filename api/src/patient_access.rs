@@ -338,6 +338,28 @@ impl PatientAccessService {
         }
     }
 
+    /// Revoke an active grant and persist its audit event in the same
+    /// production transaction.
+    pub async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> Result<AccessGrantEntity, &'static str> {
+        match self
+            .repo
+            .revoke_grant_with_audit(grant_id, now, event)
+            .await
+        {
+            Ok(Some(grant)) => Ok(grant),
+            Ok(None) => Err(self.why_grant_refused(grant_id).await),
+            Err(error) => {
+                log::error!("patient access: revoke_grant_with_audit failed: {error}");
+                Err(STORE_UNAVAILABLE)
+            }
+        }
+    }
+
     /// Distinguish "no such request" from "already decided" for the caller's
     /// message only. Advisory: the row may change again after this read.
     async fn why_request_refused(&self, request_id: &str) -> &'static str {

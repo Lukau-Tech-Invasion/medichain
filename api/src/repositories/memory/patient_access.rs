@@ -179,4 +179,13 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         grant.status = "revoked".to_string();
         Ok(Some(grant.clone()))
     }
+
+    async fn revoke_grant_with_audit(
+        &self,
+        grant_id: &str,
+        now: DateTime<Utc>,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<AccessGrantEntity>> {
+        self.revoke_grant(grant_id, now).await
+    }
 }
