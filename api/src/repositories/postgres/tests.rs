@@ -1,6 +1,5 @@
 //! PostgreSQL repository integration tests.
 
-use crate::db;
 use crate::repositories::postgres::{
     PgAllergyRepository, PgMedicalRecordRepository, PgPatientRepository,
 };
@@ -105,9 +104,17 @@ async fn create_test_pool() -> PgPool {
 
     let pool = create_schema_pool(&database_url, &schema).await;
 
-    db::run_migrations(&pool)
+    // SQLx keys its normal migration advisory lock to the database name, not
+    // the active schema. These pools use a freshly-created, unique schema, so
+    // their migrations cannot conflict; retaining the database-wide lock
+    // serializes every parallel test for no safety benefit. Production keeps
+    // `db::run_migrations`, including its lock, unchanged.
+    let mut migrator = sqlx::migrate!("./migrations");
+    migrator.set_locking(false);
+    migrator
+        .run(&pool)
         .await
-        .expect("Failed to run test database migrations");
+        .expect("Failed to run isolated test schema migrations");
 
     pool
 }

@@ -34,7 +34,7 @@ authentication and log-sink audit scope.
 | PRIV-001 | P1 | Sensitive identifiers can enter logs and related telemetry. | `api/src/privacy_logging.rs`, logging initialization, `api/src/middleware/signature_auth.rs` | Sanitizer and `log::Record` sink-path leakage tests pass, including labelled wallet fields; a focused enabled-middleware response regression test passes. | Rebuilt image `sha256:2f2d380d…` is healthy. An isolated signature-enabled API instance returned `400` to an invalid-signature request without reflecting the supplied wallet; its corresponding log rendered `wallet [REDACTED]`. | Direct stdout/stderr call sites and browser/metrics collector audit remain incomplete. | `4af04c7`, `67240d8`, `bf58b86` | PARTIALLY FIXED |
 | AUTH-002 | P2 | Refresh JWTs were stateless and non-rotating. | `api/src/auth_sessions.rs`, auth JWT handler, session migration, shared client | Session-token hash test and shared-client typecheck pass. | Not yet rebuilt into a running API. | Rotation occurs in one PostgreSQL transaction in source; reuse, logout, multi-device, migration, and runtime proof remain absent. | `56ad565`, `e48705a` | PARTIALLY FIXED |
 | OPS-001 | P2 | Development pgAdmin crash-looped because its default email used a reserved `.local` domain rejected by the current image. | `docker-compose.yml`, `.env.example`, PostgreSQL guide | Compose configuration resolves a globally valid development-only default; production compose already restricts pgAdmin to its `debug` profile with no public port. | After recreation, pgAdmin remained up and `http://localhost:5050/` returned `302 /browser/`; startup log shows Gunicorn listening on port 80. | No browser login or DB-admin workflow was exercised. | pending | PARTIALLY FIXED |
-| TEST-001 | P2 | Parallel PostgreSQL tests concurrently swept and dropped the same historical test schema, blocking the suite on PostgreSQL object locks. | `api/src/repositories/postgres/tests.rs` | Focused PostgreSQL repository test passes after serializing extension setup, stale-schema sweeping, and test-schema creation with one advisory lock. | A clean focused test completed in 26.05s; database inspection showed one active stale-schema drop at a time during historical cleanup, rather than the prior fan-out of concurrent drops. | Parallel PostgreSQL subset and complete suite still required. | pending | PARTIALLY FIXED |
+| TEST-001 | P2 | Parallel PostgreSQL tests concurrently swept and dropped the same historical test schema; SQLx also serialized isolated-schema migrations with a database-wide lock. | `api/src/repositories/postgres/tests.rs` | Focused PostgreSQL repository test passes after serializing extension setup, stale-schema sweeping, and test-schema creation. A 34-test PostgreSQL subset passes with eight test workers after disabling only the redundant database-wide migration lock for fresh isolated schemas. | The subset completed `34 passed; 0 failed` in 241.32s. During its execution, PostgreSQL showed concurrent migration I/O and zero advisory-lock waiters. | Complete API suite remains required; browser/database restore evidence remains separate. | pending | PARTIALLY FIXED |
 
 ## Commands and immutable evidence identifiers
 
@@ -74,7 +74,10 @@ authentication and log-sink audit scope.
 * PostgreSQL test-isolation probe: the prior full suite created many concurrent
   `DROP SCHEMA` operations for one stale test schema and blocked on object
   locks. After setup-lock expansion and historical cleanup, the focused
-  `test_pg_allergy_repository` test passed in 26.05 seconds.
+  `test_pg_allergy_repository` test passed in 26.05 seconds. The subsequent
+  34-test PostgreSQL subset with eight test workers passed in 241.32 seconds
+  after disabling SQLx's redundant database-wide migration lock only for fresh
+  isolated test schemas.
 
 ## Remaining release blockers
 
