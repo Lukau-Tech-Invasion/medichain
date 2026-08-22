@@ -904,6 +904,61 @@ async fn seed_emergency_grant_dependencies(
 }
 
 #[tokio::test]
+async fn test_pg_guardian_revocation_rolls_back_when_audit_outbox_insert_fails() {
+    use crate::repositories::postgres::PgGuardianRelationshipRepository;
+    use crate::repositories::traits::GuardianRelationshipRepository;
+
+    let pool = get_test_pool().await;
+    let relationship_id = format!("GR-AUDIT-{}", uuid::Uuid::new_v4());
+    sqlx::query("INSERT INTO guardian_relationships (id, guardian_wallet, ward_patient_id, relationship_type, permissions, verified_by, verified_at, active) VALUES ($1,$2,$3,'parent_or_guardian',$4,$5,$6,TRUE)")
+        .bind(&relationship_id)
+        .bind("guardian-audit")
+        .bind("ward-audit")
+        .bind(vec!["view_records"])
+        .bind("admin-audit")
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("seed active guardian relationship");
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "guardian_relationship_revoked".into(),
+        "guardian_relationship".into(),
+        relationship_id.clone(),
+        serde_json::json!({"revoked_by":"admin-audit"}),
+        Utc::now(),
+    )
+    .expect("prepare audit event");
+    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+        .bind(&event.id)
+        .bind(&event.event_type)
+        .bind(&event.aggregate_type)
+        .bind(&event.aggregate_id)
+        .bind(&event.payload_hash)
+        .bind(&event.payload)
+        .bind(event.occurred_at)
+        .execute(&pool)
+        .await
+        .expect("reserve audit event ID");
+
+    let repository = PgGuardianRelationshipRepository::new(pool.clone());
+    assert!(repository
+        .revoke_with_audit(&relationship_id, Some("ended".into()), event)
+        .await
+        .is_err());
+    let active: bool =
+        sqlx::query_scalar("SELECT active FROM guardian_relationships WHERE id = $1")
+            .bind(&relationship_id)
+            .fetch_one(&pool)
+            .await
+            .expect("read relationship");
+    assert!(
+        active,
+        "delegated authority must remain active when audit insert fails"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_emergency_grant_survives_restart_and_enforces_bindings() {
     use crate::emergency_grants::{
         EmergencyGrantBinding, EmergencyGrantScope, EmergencyGrantStore,

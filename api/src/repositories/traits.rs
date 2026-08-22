@@ -6091,6 +6091,15 @@ pub trait GuardianRelationshipRepository: Send + Sync + fmt::Debug {
     /// majority, guardianship is legally terminated, or the assertion was
     /// made in error).
     async fn revoke(&self, id: &str, reason: Option<String>) -> RepositoryResult<()>;
+
+    /// Revoke delegated authority and persist its required audit event as one
+    /// production transaction.
+    async fn revoke_with_audit(
+        &self,
+        id: &str,
+        reason: Option<String>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<()>;
 }
 
 // =============================================================================

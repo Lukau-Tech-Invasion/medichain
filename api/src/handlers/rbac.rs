@@ -553,29 +553,26 @@ pub async fn revoke_guardian_relationship(
         });
     }
 
+    let now = Utc::now();
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "guardian_relationship_revoked".into(),
+        "guardian_relationship".into(),
+        body.relationship_id.clone(),
+        serde_json::json!({"revoked_by": current_user_id, "reason": body.reason}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
     match data
         .repositories
         .guardian_relationships
-        .revoke(&body.relationship_id, body.reason.clone())
+        .revoke_with_audit(&body.relationship_id, body.reason.clone(), event.clone())
         .await
     {
         Ok(()) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "guardian_relationship_revoked".into(),
-                    "guardian_relationship".into(),
-                    body.relationship_id.clone(),
-                    serde_json::json!({
-                        "revoked_by": current_user_id,
-                        "reason": body.reason,
-                    }),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return HttpResponse::ServiceUnavailable().finish();
             }
             HttpResponse::Ok().json(serde_json::json!({ "success": true }))
         }

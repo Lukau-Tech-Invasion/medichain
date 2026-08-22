@@ -150,4 +150,37 @@ impl GuardianRelationshipRepository for PgGuardianRelationshipRepository {
 
         Ok(())
     }
+
+    async fn revoke_with_audit(
+        &self,
+        id: &str,
+        reason: Option<String>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<()> {
+        let mut tx = self.pool.begin().await?;
+        let changed = sqlx::query(
+            "UPDATE guardian_relationships SET active = FALSE, revoked_at = NOW(), revoked_reason = $2
+             WHERE id = $1 AND active = TRUE",
+        )
+        .bind(id)
+        .bind(&reason)
+        .execute(&mut *tx)
+        .await?;
+        if changed.rows_affected() == 0 {
+            return Err(crate::repositories::traits::RepositoryError::NotFound(
+                id.into(),
+            ));
+        }
+        sqlx::query(
+            "INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash,
+             payload, occurred_at, delivered_at, delivery_attempts, last_error)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        )
+        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
+        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
+        .bind(i32::try_from(event.delivery_attempts).map_err(|_| crate::repositories::traits::RepositoryError::Validation("delivery attempt count exceeds PostgreSQL INTEGER".into()))?)
+        .bind(&event.last_error).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
 }

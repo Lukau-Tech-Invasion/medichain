@@ -102,6 +102,15 @@ impl GuardianRelationshipRepository for MemoryGuardianRelationshipRepository {
         relationship.revoked_reason = reason;
         Ok(())
     }
+
+    async fn revoke_with_audit(
+        &self,
+        id: &str,
+        reason: Option<String>,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<()> {
+        self.revoke(id, reason).await
+    }
 }
 
 #[cfg(test)]
