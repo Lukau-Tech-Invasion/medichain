@@ -67,12 +67,16 @@ pub async fn register_patient_mobile_device(
         Ok(value) => value,
         Err(response) => return response,
     };
-    match data.mobile_records.register_device(
-        patient_id,
-        body.device_label.clone(),
-        body.platform,
-        body.public_key.clone(),
-    ) {
+    match data
+        .mobile_records
+        .register_device_durable(
+            patient_id,
+            body.device_label.clone(),
+            body.platform,
+            body.public_key.clone(),
+        )
+        .await
+    {
         Ok(device) => HttpResponse::Created().json(device),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
@@ -93,14 +97,18 @@ pub async fn authorise_mobile_record(
         Ok(value) => value,
         Err(response) => return response,
     };
-    match data.mobile_records.authorise_record(
-        &patient_id,
-        &body.device_id,
-        body.record_id.clone(),
-        body.encrypted_content_reference.clone(),
-        body.watermark_text.clone(),
-        Utc::now(),
-    ) {
+    match data
+        .mobile_records
+        .authorise_record_durable(
+            &patient_id,
+            &body.device_id,
+            body.record_id.clone(),
+            body.encrypted_content_reference.clone(),
+            body.watermark_text.clone(),
+            Utc::now(),
+        )
+        .await
+    {
         Ok(session) => HttpResponse::Created().json(session),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
@@ -122,23 +130,24 @@ pub async fn issue_mobile_lockscreen_token(
         Err(response) => return response,
     };
     let device_id = path.into_inner();
-    match data.mobile_records.get_device(&device_id) {
-        Some(device)
+    match data.mobile_records.get_device_durable(&device_id).await {
+        Ok(Some(device))
             if device.patient_id == patient_id && device.status == MobileDeviceStatus::Active => {}
-        Some(_) => {
+        Ok(Some(_)) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 success: false,
                 error: "Mobile device is not active for this patient".into(),
                 code: "MOBILE_DEVICE_BINDING_REQUIRED".into(),
             });
         }
-        None => {
+        Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Mobile device not found".into(),
                 code: "MOBILE_DEVICE_NOT_FOUND".into(),
             });
         }
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
     }
     match crate::mobile_records::issue_lockscreen_token(&patient_id, &device_id) {
         Ok(token) => HttpResponse::Ok().json(LockscreenTokenResponse {
@@ -171,22 +180,23 @@ pub async fn revoke_patient_mobile_device(
         Err(response) => return response,
     };
     let device_id = path.into_inner();
-    let existing = match data.mobile_records.get_device(&device_id) {
-        Some(device) if device.patient_id == patient_id => device,
-        Some(_) => {
+    let existing = match data.mobile_records.get_device_durable(&device_id).await {
+        Ok(Some(device)) if device.patient_id == patient_id => device,
+        Ok(Some(_)) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 success: false,
                 error: "Mobile device belongs to another patient".into(),
                 code: "MOBILE_DEVICE_OWNER_MISMATCH".into(),
             })
         }
-        None => {
+        Ok(None) => {
             return HttpResponse::NotFound().json(ErrorResponse {
                 success: false,
                 error: "Mobile device not found".into(),
                 code: "MOBILE_DEVICE_NOT_FOUND".into(),
             })
         }
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
     };
     if let Err(error) = data
         .audit_outbox
@@ -205,7 +215,8 @@ pub async fn revoke_patient_mobile_device(
     }
     match data
         .mobile_records
-        .revoke_device(&device_id, body.reason.clone(), Utc::now())
+        .revoke_device_durable(&device_id, body.reason.clone(), Utc::now())
+        .await
     {
         Ok(device) => HttpResponse::Ok().json(device),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {

@@ -381,6 +381,12 @@ impl AppState {
             }
             _ => crate::emergency_grants::EmergencyGrantStore::new(),
         };
+        let mobile_records = match (repositories.backend, db_pool.clone()) {
+            (crate::repositories::StorageBackend::Postgres, Some(pool)) => {
+                crate::mobile_records::MobileRecordStore::with_pool(pool)
+            }
+            _ => crate::mobile_records::MobileRecordStore::new(),
+        };
 
         Self {
             db_pool,
@@ -401,7 +407,7 @@ impl AppState {
             device_lifecycle: crate::device_lifecycle::DeviceLifecycleStore::new(),
             emergency_grants,
             patient_access,
-            mobile_records: crate::mobile_records::MobileRecordStore::new(),
+            mobile_records,
             used_emergency_tokens: RwLock::new(HashMap::new()),
             telehealth_retention: crate::telehealth_retention::TelehealthRetentionStore::new(),
             audit_outbox: crate::audit_outbox::AuditOutbox::new(),

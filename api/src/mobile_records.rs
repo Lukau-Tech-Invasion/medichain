@@ -138,6 +138,7 @@ pub fn verify_lockscreen_token(
 pub struct MobileRecordStore {
     devices: RwLock<HashMap<String, PatientMobileDevice>>,
     sessions: RwLock<HashMap<String, ProtectedMobileRecordSession>>,
+    pool: Option<sqlx::PgPool>,
 }
 
 impl MobileRecordStore {
@@ -145,7 +146,129 @@ impl MobileRecordStore {
         Self {
             devices: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
+            pool: None,
         }
+    }
+
+    /// PostgreSQL is authoritative for registered-device state in production.
+    pub fn with_pool(pool: sqlx::PgPool) -> Self {
+        Self {
+            devices: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::new()),
+            pool: Some(pool),
+        }
+    }
+
+    pub async fn register_device_durable(
+        &self,
+        patient_id: String,
+        device_label: String,
+        platform: MobilePlatform,
+        public_key: String,
+    ) -> Result<PatientMobileDevice, &'static str> {
+        if self.pool.is_none() {
+            return self.register_device(patient_id, device_label, platform, public_key);
+        }
+        if patient_id.is_empty() || device_label.trim().is_empty() || public_key.trim().is_empty() {
+            return Err("Patient, device label, and public key are required");
+        }
+        let device = PatientMobileDevice {
+            id: Uuid::new_v4().to_string(),
+            patient_id,
+            device_label,
+            platform,
+            public_key,
+            status: MobileDeviceStatus::Active,
+            last_synchronised_at: None,
+            revoked_at: None,
+            revocation_reason: None,
+        };
+        sqlx::query("INSERT INTO patient_mobile_devices (id, patient_id, device_label, platform, public_key, status) VALUES ($1,$2,$3,$4,$5,'active')")
+            .bind(&device.id).bind(&device.patient_id).bind(&device.device_label).bind(platform_name(device.platform)).bind(&device.public_key)
+            .execute(self.pool.as_ref().expect("pool checked")).await.map_err(|_| "Mobile device store is unavailable")?;
+        Ok(device)
+    }
+
+    pub async fn get_device_durable(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<PatientMobileDevice>, &'static str> {
+        let Some(pool) = &self.pool else {
+            return Ok(self.get_device(device_id));
+        };
+        let row: Option<(String,String,String,String,String,String,Option<DateTime<Utc>>,Option<DateTime<Utc>>,Option<String>)> = sqlx::query_as("SELECT id, patient_id, device_label, platform, public_key, status, last_synchronised_at, revoked_at, revocation_reason FROM patient_mobile_devices WHERE id = $1")
+            .bind(device_id).fetch_optional(pool).await.map_err(|_| "Mobile device store is unavailable")?;
+        row.map(row_to_device).transpose()
+    }
+
+    pub async fn authorise_record_durable(
+        &self,
+        patient_id: &str,
+        device_id: &str,
+        record_id: String,
+        encrypted_content_reference: String,
+        watermark_text: Option<String>,
+        now: DateTime<Utc>,
+    ) -> Result<ProtectedMobileRecordSession, &'static str> {
+        if self.pool.is_none() {
+            return self.authorise_record(
+                patient_id,
+                device_id,
+                record_id,
+                encrypted_content_reference,
+                watermark_text,
+                now,
+            );
+        }
+        if record_id.is_empty() || encrypted_content_reference.is_empty() {
+            return Err("Record and encrypted content reference are required");
+        }
+        let device = self
+            .get_device_durable(device_id)
+            .await?
+            .ok_or("Mobile device not found")?;
+        if device.patient_id != patient_id || device.status != MobileDeviceStatus::Active {
+            return Err("Mobile device is not active for this patient");
+        }
+        let session = ProtectedMobileRecordSession {
+            id: Uuid::new_v4().to_string(),
+            patient_id: patient_id.into(),
+            device_id: device_id.into(),
+            record_id,
+            encrypted_content_reference,
+            watermark_text,
+            issued_at: now,
+            expires_at: now + Duration::minutes(MOBILE_RECORD_TTL_MINUTES),
+            status: ProtectedRecordStatus::Active,
+            export_allowed: false,
+            offline_allowed: false,
+        };
+        sqlx::query("INSERT INTO protected_mobile_record_sessions (id, patient_id, device_id, record_id, encrypted_content_reference, watermark_text, issued_at, expires_at, status, export_allowed, offline_allowed) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',FALSE,FALSE)")
+            .bind(&session.id).bind(&session.patient_id).bind(&session.device_id).bind(&session.record_id).bind(&session.encrypted_content_reference).bind(&session.watermark_text).bind(session.issued_at).bind(session.expires_at)
+            .execute(self.pool.as_ref().expect("pool checked")).await.map_err(|_| "Protected record store is unavailable")?;
+        Ok(session)
+    }
+
+    pub async fn revoke_device_durable(
+        &self,
+        device_id: &str,
+        reason: String,
+        now: DateTime<Utc>,
+    ) -> Result<PatientMobileDevice, &'static str> {
+        if self.pool.is_none() {
+            return self.revoke_device(device_id, reason, now);
+        }
+        if reason.trim().is_empty() {
+            return Err("A revocation reason is required");
+        }
+        let mut transaction = self.pool.as_ref().expect("pool checked").begin().await.map_err(|_| "Mobile device store is unavailable")?;
+        let row: Option<(String,String,String,String,String,String,Option<DateTime<Utc>>,Option<DateTime<Utc>>,Option<String>)> = sqlx::query_as("UPDATE patient_mobile_devices SET status = 'revoked', revoked_at = $2, revocation_reason = $3 WHERE id = $1 AND status = 'active' RETURNING id, patient_id, device_label, platform, public_key, status, last_synchronised_at, revoked_at, revocation_reason")
+            .bind(device_id).bind(now).bind(&reason).fetch_optional(&mut *transaction).await.map_err(|_| "Mobile device store is unavailable")?;
+        let device = row.map(row_to_device).transpose()?.ok_or("Mobile device not found")?;
+        sqlx::query("UPDATE protected_mobile_record_sessions SET status = 'revoked', revoked_at = $2, revoke_reason = $3 WHERE device_id = $1 AND status = 'active'")
+            .bind(device_id).bind(now).bind(&reason).execute(&mut *transaction).await.map_err(|_| "Mobile device store is unavailable")?;
+        transaction.commit().await.map_err(|_| "Mobile device store is unavailable")?;
+        Ok(device)
     }
 
     /// Register a device public key. A reinstall must create a new device record.
@@ -298,6 +421,60 @@ impl Default for MobileRecordStore {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn platform_name(platform: MobilePlatform) -> &'static str {
+    match platform {
+        MobilePlatform::Android => "android",
+        MobilePlatform::Ios => "ios",
+    }
+}
+fn row_to_device(
+    row: (
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        Option<DateTime<Utc>>,
+        Option<DateTime<Utc>>,
+        Option<String>,
+    ),
+) -> Result<PatientMobileDevice, &'static str> {
+    let (
+        id,
+        patient_id,
+        device_label,
+        platform,
+        public_key,
+        status,
+        last_synchronised_at,
+        revoked_at,
+        revocation_reason,
+    ) = row;
+    let platform = match platform.as_str() {
+        "android" => MobilePlatform::Android,
+        "ios" => MobilePlatform::Ios,
+        _ => return Err("Stored mobile platform is invalid"),
+    };
+    let status = match status.as_str() {
+        "active" => MobileDeviceStatus::Active,
+        "revoked" => MobileDeviceStatus::Revoked,
+        "reinstalled" => MobileDeviceStatus::Reinstalled,
+        _ => return Err("Stored mobile device status is invalid"),
+    };
+    Ok(PatientMobileDevice {
+        id,
+        patient_id,
+        device_label,
+        platform,
+        public_key,
+        status,
+        last_synchronised_at,
+        revoked_at,
+        revocation_reason,
+    })
 }
 
 #[cfg(test)]

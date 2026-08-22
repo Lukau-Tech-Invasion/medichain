@@ -463,7 +463,10 @@ pub async fn get_lockscreen_medical_id(
         .is_some();
     let device_ok = data
         .mobile_records
-        .get_device(&device_id)
+        .get_device_durable(&device_id)
+        .await
+        .ok()
+        .flatten()
         .is_some_and(|device| {
             device.patient_id == patient_id
                 && device.status == crate::mobile_records::MobileDeviceStatus::Active

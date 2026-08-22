@@ -1335,6 +1335,67 @@ async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
 }
 
 #[tokio::test]
+async fn test_pg_mobile_device_authority_survives_restart_and_revocation() {
+    use crate::mobile_records::{MobileDeviceStatus, MobilePlatform, MobileRecordStore};
+
+    let pool = get_test_pool().await;
+    let patient_id = format!("PAT-mobile-{}", uuid::Uuid::new_v4());
+    let first = MobileRecordStore::with_pool(pool.clone());
+    let device = first
+        .register_device_durable(
+            patient_id.clone(),
+            "Audit phone".into(),
+            MobilePlatform::Android,
+            "public-key".into(),
+        )
+        .await
+        .expect("persist mobile device");
+    let restarted = MobileRecordStore::with_pool(pool.clone());
+    assert_eq!(
+        restarted
+            .get_device_durable(&device.id)
+            .await
+            .expect("load device")
+            .expect("device exists")
+            .patient_id,
+        patient_id
+    );
+    let session = restarted
+        .authorise_record_durable(
+            &patient_id,
+            &device.id,
+            "record-1".into(),
+            "ciphertext://record-1".into(),
+            None,
+            Utc::now(),
+        )
+        .await
+        .expect("persist protected session");
+    let session_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM protected_mobile_record_sessions WHERE id = $1")
+            .bind(&session.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read protected session");
+    assert_eq!(session_count, 1);
+    restarted
+        .revoke_device_durable(&device.id, "phone lost".into(), Utc::now())
+        .await
+        .expect("revoke device");
+    let after_restart = MobileRecordStore::with_pool(pool.clone());
+    assert_eq!(
+        after_restart
+            .get_device_durable(&device.id)
+            .await
+            .expect("reload device")
+            .expect("device exists")
+            .status,
+        MobileDeviceStatus::Revoked
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
     let pool = get_test_pool().await;
     let now = Utc::now();
