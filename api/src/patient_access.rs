@@ -245,6 +245,49 @@ impl PatientAccessService {
         }
     }
 
+    /// Approve a request, mint its grant, and persist a prebuilt audit event
+    /// in the same production transaction.
+    pub async fn approve_request_with_audit(
+        &self,
+        request_id: &str,
+        access_type: AccessType,
+        expires_at: Option<DateTime<Utc>>,
+        event: crate::audit_outbox::AuditOutboxEvent,
+        now: DateTime<Utc>,
+    ) -> Result<(AccessRequestEntity, AccessGrantEntity), &'static str> {
+        let request = match self.get_request(request_id).await? {
+            Some(request) => request,
+            None => return Err(REQUEST_NOT_FOUND),
+        };
+        let grant = AccessGrantEntity {
+            id: event.aggregate_id.clone(),
+            patient_id: request.patient_id.clone(),
+            provider_id: request.provider_id.clone(),
+            provider_name: request.provider_name.clone(),
+            provider_role: request.provider_role.clone(),
+            organization: request.organization.clone(),
+            access_type: access_type.as_str().to_string(),
+            granted_at: now,
+            expires_at,
+            status: "active".to_string(),
+            last_accessed: None,
+            access_count: 0,
+            source_request_id: Some(request.id.clone()),
+        };
+        match self
+            .repo
+            .approve_request_with_audit(request_id, grant, event)
+            .await
+        {
+            Ok(Some(approved)) => Ok(approved),
+            Ok(None) => Err(REQUEST_ALREADY_DECIDED),
+            Err(error) => {
+                log::error!("patient access: approve_request_with_audit failed: {error}");
+                Err(STORE_UNAVAILABLE)
+            }
+        }
+    }
+
     /// Patient denies a pending request. Only a `pending` request can be denied.
     pub async fn deny_request(
         &self,

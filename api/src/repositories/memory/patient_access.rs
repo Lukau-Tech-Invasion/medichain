@@ -100,6 +100,17 @@ impl PatientAccessRepository for MemoryPatientAccessRepository {
         Ok(Some((decided, grant)))
     }
 
+    async fn approve_request_with_audit(
+        &self,
+        request_id: &str,
+        grant: AccessGrantEntity,
+        _event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>> {
+        // Demo-only memory storage has no shared transaction manager with the
+        // in-process outbox. Production uses the PostgreSQL implementation.
+        self.approve_request(request_id, grant).await
+    }
+
     async fn deny_request(
         &self,
         request_id: &str,

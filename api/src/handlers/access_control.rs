@@ -228,25 +228,31 @@ pub async fn approve_access_request(
     if !access.is_permitted() {
         return forbidden("Only the patient may decide this access request");
     }
+    let grant_id = format!("GRANT-{}", uuid::Uuid::new_v4());
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_approved".into(),
+        "access_grant".into(),
+        grant_id,
+        serde_json::json!({"request_id": existing.id, "provider_id": existing.provider_id}),
+        now,
+    ) {
+        Ok(event) => event,
+        Err(_) => return unavailable(),
+    };
     match data
         .patient_access
-        .approve_request(&request_id, AccessType::Limited, Some(body.expires_at), now)
+        .approve_request_with_audit(
+            &request_id,
+            AccessType::Limited,
+            Some(body.expires_at),
+            event.clone(),
+            now,
+        )
         .await
     {
         Ok((request, grant)) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "access_request_approved".into(),
-                    "access_grant".into(),
-                    grant.id.clone(),
-                    serde_json::json!({"request_id": request.id, "provider_id": grant.provider_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
+            if data.db_pool.is_none() && data.audit_outbox.record_prepared(event).is_err() {
+                return unavailable();
             }
             HttpResponse::Ok().json(serde_json::json!({ "request": request, "grant": grant }))
         }

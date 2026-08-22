@@ -6514,6 +6514,16 @@ pub trait PatientAccessRepository: Send + Sync + fmt::Debug {
         grant: AccessGrantEntity,
     ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>>;
 
+    /// Atomically approve a request, mint its grant, and persist the mandatory
+    /// audit-outbox event. PostgreSQL implementations must commit all three
+    /// writes together; memory implementations retain demo semantics.
+    async fn approve_request_with_audit(
+        &self,
+        request_id: &str,
+        grant: AccessGrantEntity,
+        event: crate::audit_outbox::AuditOutboxEvent,
+    ) -> RepositoryResult<Option<(AccessRequestEntity, AccessGrantEntity)>>;
+
     /// Atomically move a `pending` request to `denied`. `Ok(None)` when it was
     /// already decided.
     async fn deny_request(&self, request_id: &str)

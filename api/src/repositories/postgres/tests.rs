@@ -938,6 +938,114 @@ async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
 }
 
 #[tokio::test]
+async fn test_pg_access_approval_rolls_back_when_audit_outbox_insert_fails() {
+    use crate::patient_access::AccessType;
+
+    let pool = get_test_pool().await;
+    let now = Utc::now();
+    let service = pg_patient_access(&pool);
+    let request = service
+        .create_request(
+            format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
+            test_provider(),
+            now,
+        )
+        .await
+        .expect("create pending request");
+    let grant_id = format!("GRANT-AUDIT-{}", uuid::Uuid::new_v4());
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_approved".into(),
+        "access_grant".into(),
+        grant_id.clone(),
+        serde_json::json!({"request_id": request.id, "provider_id": request.provider_id}),
+        now,
+    )
+    .expect("valid audit event");
+    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivery_attempts) VALUES ($1,$2,$3,$4,$5,$6,$7,0)")
+        .bind(&event.id)
+        .bind(&event.event_type)
+        .bind(&event.aggregate_type)
+        .bind(&event.aggregate_id)
+        .bind(&event.payload_hash)
+        .bind(&event.payload)
+        .bind(event.occurred_at)
+        .execute(&pool)
+        .await
+        .expect("reserve audit event ID");
+
+    assert!(
+        service
+            .approve_request_with_audit(&request.id, AccessType::Limited, None, event, now)
+            .await
+            .is_err(),
+        "duplicate audit event must fail the approval"
+    );
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM patient_access_requests WHERE id = $1")
+            .bind(&request.id)
+            .fetch_one(&pool)
+            .await
+            .expect("read request status");
+    let grant_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM patient_access_grants WHERE id = $1")
+            .bind(&grant_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count grants");
+    assert_eq!(
+        status, "pending",
+        "approval must roll back with audit failure"
+    );
+    assert_eq!(
+        grant_count, 0,
+        "grant insert must roll back with audit failure"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn test_pg_access_approval_with_audit_commits_grant_and_event() {
+    use crate::patient_access::AccessType;
+
+    let pool = get_test_pool().await;
+    let now = Utc::now();
+    let service = pg_patient_access(&pool);
+    let request = service
+        .create_request(
+            format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
+            test_provider(),
+            now,
+        )
+        .await
+        .expect("create pending request");
+    let grant_id = format!("GRANT-AUDIT-{}", uuid::Uuid::new_v4());
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_approved".into(),
+        "access_grant".into(),
+        grant_id.clone(),
+        serde_json::json!({"request_id": request.id, "provider_id": request.provider_id}),
+        now,
+    )
+    .expect("valid audit event");
+    let event_id = event.id.clone();
+
+    let (approved, grant) = service
+        .approve_request_with_audit(&request.id, AccessType::Limited, None, event, now)
+        .await
+        .expect("approve with audit");
+    assert_eq!(approved.status, "approved");
+    assert_eq!(grant.id, grant_id);
+    let event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count audit events");
+    assert_eq!(event_count, 1, "approval must commit its audit event");
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_patient_access_grant_survives_restart() {
     use crate::patient_access::AccessType;
 
