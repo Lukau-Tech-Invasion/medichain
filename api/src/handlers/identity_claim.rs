@@ -136,28 +136,45 @@ pub async fn claim_medical_identity(
         }
     };
     updated_user.linked_patient_id = Some(body.patient_id.clone());
-    if let Err(error) = data.persist_then_cache_user(updated_user).await {
-        log::error!("Failed to persist medical identity claim: {error}");
-        return HttpResponse::ServiceUnavailable().json(ErrorResponse {
-            success: false,
-            error: "Medical identity claim could not be persisted".to_string(),
-            code: "USER_PERSISTENCE_UNAVAILABLE".to_string(),
-        });
+    let event = match crate::audit_outbox::AuditOutbox::prepare_event(
+        "medical_identity_claimed".into(),
+        "patient".into(),
+        body.patient_id.clone(),
+        serde_json::json!({ "claimed_by": current_user_id }),
+        Utc::now(),
+    ) {
+        Ok(event) => event,
+        Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+    };
+    if let Some(pool) = &data.db_pool {
+        let mut transaction = match pool.begin().await {
+            Ok(transaction) => transaction,
+            Err(_) => return HttpResponse::ServiceUnavailable().finish(),
+        };
+        if link_user_with_audit(&mut transaction, &current_user_id, &body.patient_id, &event)
+            .await
+            .is_err()
+        {
+            return HttpResponse::Conflict().json(ErrorResponse {
+                success: false,
+                error: "Medical identity claim could not be completed".into(),
+                code: "IDENTITY_ALREADY_CLAIMED".into(),
+            });
+        }
+        if transaction.commit().await.is_err() {
+            return HttpResponse::ServiceUnavailable().finish();
+        }
+    } else if data.audit_outbox.record_prepared(event).is_err() {
+        return HttpResponse::ServiceUnavailable().finish();
     }
-
-    if let Err(error) = data
-        .audit_outbox
-        .record_durable(
-            data.db_pool.as_ref(),
-            "medical_identity_claimed".into(),
-            "patient".into(),
-            body.patient_id.clone(),
-            serde_json::json!({ "claimed_by": current_user_id }),
-            Utc::now(),
-        )
-        .await
+    if data
+        .users
+        .write()
+        .map_err(|_| ())
+        .map(|mut users| users.insert(updated_user.wallet_address.clone(), updated_user))
+        .is_err()
     {
-        log::error!("audit outbox write failed: {error}");
+        return HttpResponse::ServiceUnavailable().finish();
     }
 
     HttpResponse::Ok().json(ClaimIdentityResponse {
@@ -165,4 +182,22 @@ pub async fn claim_medical_identity(
         patient_id: body.patient_id.clone(),
         message: "Medical identity claimed. Existing guardian relationships remain active until you revoke them.".to_string(),
     })
+}
+
+pub(crate) async fn link_user_with_audit(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    wallet_address: &str,
+    patient_id: &str,
+    event: &crate::audit_outbox::AuditOutboxEvent,
+) -> Result<(), sqlx::Error> {
+    let updated = sqlx::query("UPDATE users SET linked_patient_id = $2, updated_at = NOW() WHERE wallet_address = $1 AND linked_patient_id IS NULL")
+        .bind(wallet_address).bind(patient_id).execute(&mut **transaction).await?;
+    if updated.rows_affected() != 1 {
+        return Err(sqlx::Error::RowNotFound);
+    }
+    sqlx::query("INSERT INTO audit_outbox_events (id, event_type, aggregate_type, aggregate_id, payload_hash, payload, occurred_at, delivered_at, delivery_attempts, last_error) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+        .bind(&event.id).bind(&event.event_type).bind(&event.aggregate_type).bind(&event.aggregate_id)
+        .bind(&event.payload_hash).bind(&event.payload).bind(event.occurred_at).bind(event.delivered_at)
+        .bind(0_i32).bind(&event.last_error).execute(&mut **transaction).await?;
+    Ok(())
 }

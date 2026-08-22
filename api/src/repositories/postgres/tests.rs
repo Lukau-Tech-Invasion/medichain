@@ -1295,6 +1295,46 @@ async fn test_pg_emergency_grant_revocation_rolls_back_when_audit_insert_fails()
 }
 
 #[tokio::test]
+async fn test_pg_identity_claim_rolls_back_when_audit_insert_fails() {
+    let pool = get_test_pool().await;
+    let wallet = format!("PAT-claim-{}", uuid::Uuid::new_v4());
+    let patient_id = format!("claim-patient-{}", uuid::Uuid::new_v4());
+    sqlx::query("INSERT INTO users (wallet_address, role, name, username, email, is_active, status, created_at) VALUES ($1,'Patient',$2,$3,$4,TRUE,'active',NOW())")
+        .bind(&wallet).bind("Claim Test").bind(&wallet).bind(format!("{wallet}@example.test"))
+        .execute(&pool).await.expect("seed claim user");
+    sqlx::query("CREATE FUNCTION reject_identity_claim_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'audit unavailable'; END; $$")
+        .execute(&pool).await.expect("install audit failure function");
+    sqlx::query("CREATE TRIGGER reject_identity_claim_audit BEFORE INSERT ON audit_outbox_events FOR EACH ROW EXECUTE FUNCTION reject_identity_claim_audit()")
+        .execute(&pool).await.expect("install audit failure trigger");
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "medical_identity_claimed".into(),
+        "patient".into(),
+        patient_id.clone(),
+        serde_json::json!({"claimed_by": wallet}),
+        Utc::now(),
+    )
+    .expect("prepare event");
+    let mut transaction = pool.begin().await.expect("begin transaction");
+    assert!(
+        crate::link_user_with_audit(&mut transaction, &wallet, &patient_id, &event,)
+            .await
+            .is_err()
+    );
+    drop(transaction);
+    let linked: Option<String> =
+        sqlx::query_scalar("SELECT linked_patient_id FROM users WHERE wallet_address = $1")
+            .bind(&wallet)
+            .fetch_one(&pool)
+            .await
+            .expect("read claim user");
+    assert_eq!(
+        linked, None,
+        "identity link must roll back when required audit persistence fails"
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_access_request_rolls_back_when_audit_outbox_insert_fails() {
     let pool = get_test_pool().await;
     let now = Utc::now();
