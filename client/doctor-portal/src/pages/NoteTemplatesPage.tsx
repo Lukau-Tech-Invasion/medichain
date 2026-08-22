@@ -316,8 +316,8 @@ const NoteTemplatesPage: React.FC = () => {
 
           {filteredTemplates.length > 0 ? (
             <div className="space-y-4">
-              {filteredTemplates.map((template) => (
-                <div key={template.templateId} className="bg-surface rounded-lg shadow p-6 border border-border-strong hover:shadow-md transition-shadow">
+              {filteredTemplates.map((template, index) => (
+                <div key={`${template.templateId}-${index}`} className="bg-surface rounded-lg shadow p-6 border border-border-strong hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-start gap-3">
                       <FileText className="w-6 h-6 text-content-secondary mt-1" />
@@ -396,8 +396,8 @@ const NoteTemplatesPage: React.FC = () => {
                   <div className="border-t border-border pt-4">
                     <div className="font-medium text-content-secondary mb-3">{t('docNoteTemplates.templateSectionsCount', { count: template.sections.length })}</div>
                     <div className="space-y-2">
-                      {template.sections.map((section) => (
-                        <div key={section.sectionId} className="bg-surface-sunken rounded p-3 border border-border">
+                      {template.sections.map((section, index) => (
+                        <div key={`${section.sectionId ?? 'section'}-${index}`} className="bg-surface-sunken rounded p-3 border border-border">
                           <div className="flex items-center gap-2 mb-2">
                             <span className="font-medium text-content">{section.order}. {section.title}</span>
                             {section.required && (
