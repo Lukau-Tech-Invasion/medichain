@@ -32,6 +32,10 @@ async fn create_test_pool() -> PgPool {
     );
 
     let admin_pool = create_admin_pool(&database_url).await;
+    // Pool setup includes extension initialization and the stale-schema sweep.
+    // Keep one database-scoped advisory lock across both and schema creation:
+    // parallel tests otherwise discover the same stale schema then contend on
+    // `DROP SCHEMA`, leaving the entire suite blocked on object locks.
     sqlx::query("SELECT pg_advisory_lock(812_940_171)")
         .execute(&admin_pool)
         .await
@@ -40,10 +44,6 @@ async fn create_test_pool() -> PgPool {
         .execute(&admin_pool)
         .await
         .expect("Failed to enable uuid-ossp for test database migrations");
-    sqlx::query("SELECT pg_advisory_unlock(812_940_171)")
-        .execute(&admin_pool)
-        .await
-        .expect("Failed to unlock PostgreSQL extension setup");
     // Sweep stale test schemas before creating a new one.
     //
     // These schemas were never dropped. On a developer machine that had run
@@ -97,6 +97,10 @@ async fn create_test_pool() -> PgPool {
         .execute(&admin_pool)
         .await
         .expect("Failed to create isolated test schema");
+    sqlx::query("SELECT pg_advisory_unlock(812_940_171)")
+        .execute(&admin_pool)
+        .await
+        .expect("Failed to unlock PostgreSQL test setup");
     admin_pool.close().await;
 
     let pool = create_schema_pool(&database_url, &schema).await;
