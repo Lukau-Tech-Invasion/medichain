@@ -1099,6 +1099,44 @@ async fn test_pg_access_denial_rolls_back_when_audit_outbox_insert_fails() {
 }
 
 #[tokio::test]
+async fn test_pg_access_denial_with_audit_commits_request_and_event() {
+    let pool = get_test_pool().await;
+    let now = Utc::now();
+    let service = pg_patient_access(&pool);
+    let request = service
+        .create_request(
+            format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
+            test_provider(),
+            now,
+        )
+        .await
+        .expect("create pending request");
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_request_denied".into(),
+        "access_request".into(),
+        request.id.clone(),
+        serde_json::json!({"provider_id": request.provider_id}),
+        now,
+    )
+    .expect("valid audit event");
+    let event_id = event.id.clone();
+
+    let denied = service
+        .deny_request_with_audit(&request.id, event)
+        .await
+        .expect("deny with audit");
+    assert_eq!(denied.status, "denied");
+    let event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count audit events");
+    assert_eq!(event_count, 1, "denial must commit its audit event");
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn test_pg_access_revocation_rolls_back_when_audit_outbox_insert_fails() {
     use crate::patient_access::AccessType;
 
@@ -1154,6 +1192,50 @@ async fn test_pg_access_revocation_rolls_back_when_audit_outbox_insert_fails() {
         status, "active",
         "revocation must roll back with audit failure"
     );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn test_pg_access_revocation_with_audit_commits_grant_and_event() {
+    use crate::patient_access::AccessType;
+
+    let pool = get_test_pool().await;
+    let now = Utc::now();
+    let service = pg_patient_access(&pool);
+    let request = service
+        .create_request(
+            format!("PAT-AUDIT-{}", uuid::Uuid::new_v4()),
+            test_provider(),
+            now,
+        )
+        .await
+        .expect("create pending request");
+    let (_, grant) = service
+        .approve_request(&request.id, AccessType::Limited, None, now)
+        .await
+        .expect("create active grant");
+    let event = crate::audit_outbox::AuditOutbox::prepare_event(
+        "access_grant_revoked".into(),
+        "access_grant".into(),
+        grant.id.clone(),
+        serde_json::json!({"provider_id": grant.provider_id}),
+        now,
+    )
+    .expect("valid audit event");
+    let event_id = event.id.clone();
+
+    let revoked = service
+        .revoke_grant_with_audit(&grant.id, now, event)
+        .await
+        .expect("revoke with audit");
+    assert_eq!(revoked.status, "revoked");
+    let event_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM audit_outbox_events WHERE id = $1")
+            .bind(&event_id)
+            .fetch_one(&pool)
+            .await
+            .expect("count audit events");
+    assert_eq!(event_count, 1, "revocation must commit its audit event");
     pool.close().await;
 }
 
