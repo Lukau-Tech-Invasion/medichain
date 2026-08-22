@@ -85,27 +85,37 @@ pub async fn revoke_managed_device(
     if let Err(response) = require_admin(&data, &req) {
         return response;
     }
+    let device_id = path.into_inner();
+    let existing = match data.device_lifecycle.get(&device_id) {
+        Some(device) => device,
+        None => {
+            return HttpResponse::NotFound().json(ErrorResponse {
+                success: false,
+                error: "Device not found".into(),
+                code: "DEVICE_NOT_FOUND".into(),
+            })
+        }
+    };
+    if let Err(error) = data
+        .audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
+            "managed_device_revoked".into(),
+            "managed_device".into(),
+            existing.id.clone(),
+            serde_json::json!({"organization_id": existing.organization_id}),
+            Utc::now(),
+        )
+        .await
+    {
+        log::error!("audit outbox write failed: {error}");
+        return HttpResponse::ServiceUnavailable().finish();
+    }
     match data
         .device_lifecycle
-        .revoke(&path.into_inner(), body.reason.clone(), Utc::now())
+        .revoke(&device_id, body.reason.clone(), Utc::now())
     {
-        Ok(device) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "managed_device_revoked".into(),
-                    "managed_device".into(),
-                    device.id.clone(),
-                    serde_json::json!({"organization_id": device.organization_id}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
-            }
-            HttpResponse::Ok().json(device)
-        }
+        Ok(device) => HttpResponse::Ok().json(device),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
             error: error.into(),

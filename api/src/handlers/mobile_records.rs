@@ -171,8 +171,8 @@ pub async fn revoke_patient_mobile_device(
         Err(response) => return response,
     };
     let device_id = path.into_inner();
-    match data.mobile_records.get_device(&device_id) {
-        Some(device) if device.patient_id == patient_id => {}
+    let existing = match data.mobile_records.get_device(&device_id) {
+        Some(device) if device.patient_id == patient_id => device,
         Some(_) => {
             return HttpResponse::Forbidden().json(ErrorResponse {
                 success: false,
@@ -187,28 +187,27 @@ pub async fn revoke_patient_mobile_device(
                 code: "MOBILE_DEVICE_NOT_FOUND".into(),
             })
         }
+    };
+    if let Err(error) = data
+        .audit_outbox
+        .record_durable(
+            data.db_pool.as_ref(),
+            "patient_mobile_device_revoked".into(),
+            "patient_mobile_device".into(),
+            existing.id.clone(),
+            serde_json::json!({"event":"remote_mobile_device_revocation"}),
+            Utc::now(),
+        )
+        .await
+    {
+        log::error!("audit outbox write failed: {error}");
+        return HttpResponse::ServiceUnavailable().finish();
     }
     match data
         .mobile_records
         .revoke_device(&device_id, body.reason.clone(), Utc::now())
     {
-        Ok(device) => {
-            if let Err(error) = data
-                .audit_outbox
-                .record_durable(
-                    data.db_pool.as_ref(),
-                    "patient_mobile_device_revoked".into(),
-                    "patient_mobile_device".into(),
-                    device.id.clone(),
-                    serde_json::json!({"event":"remote_mobile_device_revocation"}),
-                    Utc::now(),
-                )
-                .await
-            {
-                log::error!("audit outbox write failed: {error}");
-            }
-            HttpResponse::Ok().json(device)
-        }
+        Ok(device) => HttpResponse::Ok().json(device),
         Err(error) => HttpResponse::BadRequest().json(ErrorResponse {
             success: false,
             error: error.into(),

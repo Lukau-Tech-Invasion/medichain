@@ -64,6 +64,11 @@ async fn require_registry_reader(
         .await
     {
         log::error!("audit outbox write failed: {error}");
+        return Err(HttpResponse::ServiceUnavailable().json(ErrorResponse {
+            success: false,
+            error: "Clinical registry audit is unavailable".to_string(),
+            code: "AUDIT_UNAVAILABLE".to_string(),
+        }));
     }
     Ok(())
 }
