@@ -44,7 +44,11 @@ COPY api ./api
 # move — nothing else references this Dockerfile.
 
 # Build only the API binary (and its path dependencies).
-RUN cargo build --release -p medichain-api
+# Docker preserves source mtimes from the build context. Refresh them after
+# replacing the placeholders so Cargo cannot reuse the placeholder binary from
+# the dependency-cache stage.
+RUN find crypto/src api/src -type f -exec touch {} + \
+    && cargo build --release -p medichain-api
 
 # ---- Runtime ----------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
