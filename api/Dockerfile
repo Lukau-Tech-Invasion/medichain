@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # runtime verification.
 COPY Cargo.toml Cargo.lock ./
 COPY crypto/Cargo.toml crypto/Cargo.toml
+COPY crypto/benches/encryption_benchmarks.rs crypto/benches/encryption_benchmarks.rs
 COPY api/Cargo.toml api/Cargo.toml
 RUN mkdir -p crypto/src api/src \
     && printf 'pub fn docker_cache_placeholder() {}\n' > crypto/src/lib.rs \
